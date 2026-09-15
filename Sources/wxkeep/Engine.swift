@@ -28,6 +28,8 @@ enum Engine {
     struct RunSummary {
         var lines: [String] = []
         var wroteAnything = false
+        /// Bundle-relative paths of binaries whose bytes changed (for resign).
+        var patchedBinaries: [String] = []
     }
 
     /// Selects targets for a variant: `revoke` for silent, `revoke-keeptip` for
@@ -93,6 +95,7 @@ enum Engine {
                 let written = outcomes.filter { $0 == .written }.count
                 let skipped = outcomes.filter { $0 == .alreadyPatched }.count
                 summary.wroteAnything = summary.wroteAnything || written > 0
+                if written > 0 { summary.patchedBinaries.append(relative) }
                 summary.lines.append("  \(target.identifier): \(written) written, \(skipped) already-patched")
             }
         }
@@ -133,6 +136,7 @@ enum Engine {
                 let restored = outcomes.filter { $0 == .written }.count
                 let skipped = outcomes.filter { $0 == .alreadyPatched }.count
                 summary.wroteAnything = summary.wroteAnything || restored > 0
+                if restored > 0 { summary.patchedBinaries.append(relative) }
                 summary.lines.append("  \(target.identifier): \(restored) restored, \(skipped) already-pristine")
             }
         }

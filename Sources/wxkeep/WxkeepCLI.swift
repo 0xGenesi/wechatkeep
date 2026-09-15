@@ -70,11 +70,8 @@ extension Wxkeep {
         @Option(name: [.customShort("o"), .long], help: "Comma-separated subset of targets (e.g. revoke,update)")
         var only: String?
 
-        /// Resigning lands in M3. Until then writing into a real bundle without
-        /// this acknowledgement is refused — an unresigned patched bundle is
-        /// killed on launch with Code Signature Invalid.
-        @Flag(help: "Acknowledge that resigning is NOT performed in this build; patch anyway.")
-        var ackNoResign: Bool = false
+        @Flag(help: "Skip re-signing after patching (debug only — the bundle will be killed on launch).")
+        var noResign: Bool = false
 
         enum Variant: String, ExpressibleByArgument { case silent, keeptip }
 
@@ -82,14 +79,6 @@ extension Wxkeep {
             try WeChatApp.validate(options.app)
             // dry-run only reads bytes from disk — safe while WeChat runs.
             if !dryRun && WeChatApp.isRunning(app: options.app) { throw WeChatApp.AppError.running }
-            if !options.app.hasDirectoryPath || options.app.path.hasPrefix("/Applications") {
-                guard dryRun || ackNoResign else {
-                    throw ValidationError(
-                        "this build does not re-sign the app yet (M3). Patching without re-signing breaks the bundle\n"
-                        + "signature and WeChat will be killed at launch. Pass --ack-no-resign to proceed anyway,\n"
-                        + "or use --dry-run.")
-                }
-            }
             let config = try Config.load(explicit: options.config)
             let build = try WeChatApp.buildNumber(app: options.app)
             print("build \(build) — variant \(variant.rawValue)\(dryRun ? " — dry run" : "")")
@@ -98,6 +87,10 @@ extension Wxkeep {
                 app: options.app, build: build, config: config, variant: variant.rawValue,
                 dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
             summary.lines.forEach { print($0) }
+            if !dryRun && summary.wroteAnything && !noResign {
+                print("------ Resign ------")
+                try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
+            }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
     }
@@ -114,22 +107,21 @@ extension Wxkeep {
         @Flag(help: "Verify only, write nothing.")
         var dryRun: Bool = false
 
-        @Flag(help: "Acknowledge that re-signing is NOT performed in this build (M3).")
-        var ackNoResign: Bool = false
+        @Flag(help: "Skip re-signing after restore (debug only).")
+        var noResign: Bool = false
 
         mutating func run() throws {
             try WeChatApp.validate(options.app)
             if !dryRun && WeChatApp.isRunning(app: options.app) { throw WeChatApp.AppError.running }
-            if options.app.path.hasPrefix("/Applications") {
-                guard dryRun || ackNoResign else {
-                    throw ValidationError("restore leaves the bundle ad-hoc-unresigned in this build (M3). Pass --ack-no-resign or --dry-run.")
-                }
-            }
             let config = try Config.load(explicit: options.config)
             let build = try WeChatApp.buildNumber(app: options.app)
             print("restore build \(build)\(dryRun ? " — dry run" : "")")
             let summary = try Engine.restore(app: options.app, build: build, config: config, dryRun: dryRun)
             summary.lines.forEach { print($0) }
+            if !dryRun && summary.wroteAnything && !noResign {
+                print("------ Resign ------")
+                try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
+            }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
     }
