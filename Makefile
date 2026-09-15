@@ -6,6 +6,7 @@
 #   make clean
 
 .PHONY: build release clean test
+.ONESHELL:
 
 # 交叉编译双架构需要完整 Xcode（xcbuild）；CLT-only 环境回退单架构，
 # universal 由 CI（runner 带完整 Xcode）产出并挂到 Release。
