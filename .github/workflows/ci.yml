@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: Swift ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          swift --version
+          sw_vers
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Release build (universal smoke)
+        if: matrix.os == 'macos-15'
+        run: swift build -c release
+      - name: CLI smoke
+        if: matrix.os == 'macos-15'
+        run: |
+          .build/release/wxkeep --help
+          .build/release/wxkeep versions || true   # no WeChat on runners: expect a clean error

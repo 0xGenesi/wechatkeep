@@ -14,6 +14,8 @@ struct Signatures: Codable {
         let expected: String
         let asm: String
         var binary: String?
+        /// Optional behavioral-verification data (mini-loader route).
+        var verify: Verifier.VerifySpec?
     }
 
     var recipes: [String: RecipeSpec]

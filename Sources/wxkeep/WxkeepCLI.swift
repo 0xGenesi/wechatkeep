@@ -1,7 +1,6 @@
 import ArgumentParser
 import Foundation
 
-@main
 struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
@@ -231,10 +230,51 @@ extension Wxkeep {
 
     struct Verify: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Behaviorally verify patched functions out-of-process (M2)")
+            abstract: "Prove the patch's behavior by calling the patched function out-of-process")
+
         @OptionGroup var options: Options
+
+        @Option(name: .shortAndLong, help: "Path to signatures.json (verify specs live there)")
+        var signatures: String?
+
         mutating func run() throws {
-            throw ValidationError("verify arrives in M2 (behavioral test bench).")
+            try WeChatApp.validate(options.app)
+            let config = try Config.load(explicit: options.config)
+            let signatures = try Signatures.load(explicit: self.signatures)
+            let build = try WeChatApp.buildNumber(app: options.app)
+
+            // Find the x86_64 revoke site: catalog first, recipes otherwise.
+            guard let spec = signatures.recipes["revoke_x64"]?.verify else {
+                throw ValidationError("no verify spec for revoke_x64 in signatures.json")
+            }
+            var entries: [Config.PatchEntry]
+            var target = config.entry(build: build)?.targets.first { $0.identifier == "revoke" }
+            if target == nil {
+                guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures),
+                      let t = synthesized.targets.first(where: { $0.identifier == "revoke" })
+                else { throw ValidationError("no revoke site for build \(build)") }
+                target = t
+            }
+            guard let x64Entry = target?.entries.first(where: { $0.arch == .x86_64 }),
+                  let addrHex = x64Entry.addr, let va = UInt64(addrHex, radix: 16)
+            else { throw ValidationError("no x86_64 revoke entry for build \(build)") }
+            entries = [x64Entry]
+
+            let binary = WeChatApp.binaryURL(app: options.app, relative: target?.binary)
+            let states = try Patcher.inspect(binary: binary, entries: entries, identifier: "revoke")
+            let state = states.first?.state ?? .unknown
+            print("site 0x\(String(va, radix: 16, uppercase: true)) — on-disk state: \(state)")
+
+            let results = try Verifier.run(binary: binary, targetVA: va, spec: spec)
+            for r in results {
+                print("  isRevokemsg(\"\(r.text)\") = \(r.returned ? 1 : 0)")
+            }
+            if let failure = Verifier.verdict(results: results, spec: spec, state: state) {
+                throw ValidationError(String(describing: failure))
+            }
+            print(state == .pristine
+                  ? "✓ behavior matches the PRISTINE expectation (function classifies correctly)"
+                  : "✓ behavior matches the PATCHED expectation (classification neutralized)")
         }
     }
 

@@ -8,7 +8,38 @@
       "expected": "554889E553504889FB",
       "asm": "31C0C3909090909090",
       "binary": "Contents/Resources/wechat.dylib",
-      "_comment": "isRevokemsg(std::string*) 比较函数：movabs 立即数锚点 + 函数入口 + 唯一有直接调用者。2026-09 在 269602 验证（0x4BC5940, 9 callers）。"
+      "_comment": "isRevokemsg(std::string*) 比较函数：movabs 立即数锚点 + 函数入口 + 唯一有直接调用者。2026-09 在 269602 验证（0x4BC5940, 9 callers）。",
+      "verify": {
+        "stubs": {
+          "778B55C": "strlen",
+          "778AFBC": "memcmp"
+        },
+        "zero_regions": [
+          [
+            "A988320",
+            "16"
+          ]
+        ],
+        "probes": [
+          [
+            "revokemsg",
+            "1"
+          ],
+          [
+            "sysmsg",
+            "0"
+          ],
+          [
+            "NewMsg",
+            "0"
+          ],
+          [
+            "",
+            "0"
+          ]
+        ],
+        "_verify_note": "VA 来自 269602 x64 slice 实测；新构建需重新定位 stub/zero 区"
+      }
     },
     "revoke_arm64_gen1": {
       "arch": "arm64",
