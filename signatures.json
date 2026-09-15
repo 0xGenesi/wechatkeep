@@ -1,0 +1,44 @@
+{
+  "recipes": {
+    "revoke_x64": {
+      "arch": "x86_64",
+      "anchor": "imm64:revokems",
+      "derive": "padding-boundary",
+      "confirm": "unique-positive-callers",
+      "expected": "554889E553504889FB",
+      "asm": "31C0C3909090909090",
+      "binary": "Contents/Resources/wechat.dylib",
+      "_comment": "isRevokemsg(std::string*) 比较函数：movabs 立即数锚点 + 函数入口 + 唯一有直接调用者。2026-09 在 269602 验证（0x4BC5940, 9 callers）。"
+    },
+    "revoke_arm64_gen1": {
+      "arch": "arm64",
+      "anchor": "bytes:E00F0034",
+      "derive": "self",
+      "confirm": "bytes@+794:60B600F9:maskFFFFFFE0",
+      "expected": "E00F0034",
+      "asm": "7F000014",
+      "binary": "Contents/Resources/wechat.dylib",
+      "_comment": "4.1.10-4.1.11 (268575-269136) 代：cbz w0 @E+0x270，str x0,[x19,#0x168] @+0x794。数据来源 zengtianli signatures.json。"
+    },
+    "revoke_arm64_gen2": {
+      "arch": "arm64",
+      "anchor": "bytes:40100034",
+      "derive": "self",
+      "confirm": "bytes@+7A0:60CE00F9:maskFFFFFFE0",
+      "expected": "40100034",
+      "asm": "82000014",
+      "binary": "Contents/Resources/wechat.dylib",
+      "_comment": "4.1.12 (269332-269341) 代：field 0x198。"
+    },
+    "revoke_arm64_gen3": {
+      "arch": "arm64",
+      "anchor": "bytes:40100034",
+      "derive": "self",
+      "confirm": "bytes@+7A0:60E600F9:maskFFFFFFE0",
+      "expected": "40100034",
+      "asm": "82000014",
+      "binary": "Contents/Resources/wechat.dylib",
+      "_comment": "4.1.13 (269574+) 代：field 0x1C8。269626 实测。"
+    }
+  }
+}

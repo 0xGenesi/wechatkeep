@@ -21,25 +21,38 @@ struct MachOFixture {
                 data.replaceSubrange(offset..<offset + 8, with: Data(raw))
             }
         }
-        // mach_header_64
+        // mach_header_64 — one LC_SEGMENT_64 carrying one section (__TEXT,__text)
+        let textStart = 0x68
         put32(0, 0xFEEDFACF)
         put32(4, UInt32(bitPattern: cputype))
         put32(8, 0)      // cpusubtype
         put32(12, 6)     // MH_DYLIB
         put32(16, 1)     // ncmds
-        put32(20, 72)    // sizeofcmds
+        put32(20, 152)   // sizeofcmds = segment(72) + one section(80)
         put32(24, 0)
         put32(28, 0)
         // LC_SEGMENT_64
         put32(32, 0x19)  // cmd
-        put32(36, 72)    // cmdsize
+        put32(36, 152)   // cmdsize
         data.replaceSubrange(40..<56, with: Data(repeating: 0, count: 16))
         data.replaceSubrange(40..<45, with: Data("__TEXT".utf8))
         put64(56, 0)                  // vmaddr
         put64(64, UInt64(size))       // vmsize
         put64(72, 0)                  // fileoff
         put64(80, UInt64(size))       // filesize
-        put32(88, 7); put32(92, 7); put32(96, 0); put32(100, 0)
+        put32(88, 7); put32(92, 7); put32(96, 1); put32(100, 0)  // maxprot/initprot/nsects/flags
+        // section_64 at 104 (0x68): name, segname, addr, size, offset, align, ...
+        data.replaceSubrange(104..<120, with: Data(repeating: 0, count: 16))
+        data.replaceSubrange(104..<109, with: Data("__text".utf8))
+        data.replaceSubrange(120..<136, with: Data(repeating: 0, count: 16))
+        data.replaceSubrange(120..<125, with: Data("__TEXT".utf8))
+        put64(136, UInt64(textStart))          // addr
+        put64(144, UInt64(size - textStart))   // size
+        put32(152, UInt32(textStart))          // offset
+        put32(156, 4)                          // align
+        put32(160, 0); put32(164, 0)           // reloff / nreloc
+        put32(168, 0x80000400)                 // flags: S_REGULAR + PURE_INSTRUCTIONS
+        put32(172, 0); put32(176, 0); put32(180, 0)  // reserved1..3
         for (offset, bytes) in code {
             data.replaceSubrange(offset..<offset + bytes.count, with: Data(bytes))
         }

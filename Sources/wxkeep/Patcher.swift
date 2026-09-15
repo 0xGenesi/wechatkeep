@@ -72,7 +72,8 @@ struct Patcher {
         let handle = dryRun ? try FileHandle(forReadingFrom: binary) : try FileHandle(forUpdating: binary)
         defer { try? handle.close() }
 
-        let plans = try buildPlans(handle: handle, entries: entries, identifier: identifier)
+        let plans = try buildPlans(handle: handle, entries: resolveRecipes(entries, binary: binary),
+                                   identifier: identifier)
 
         // Phase 1 — read & verify everything before the first write.
         // Site length = max(asm, expected variants): asm and the accepted
@@ -119,7 +120,8 @@ struct Patcher {
         let handle = try FileHandle(forReadingFrom: binary)
         defer { try? handle.close() }
 
-        let plans = try buildPlans(handle: handle, entries: entries, identifier: identifier)
+        let plans = try buildPlans(handle: handle, entries: resolveRecipes(entries, binary: binary),
+                                   identifier: identifier)
         return try plans.map { plan in
             let siteLen = max(plan.asm.count, plan.expected?.map(\.count).max() ?? 0)
             let current = try readBytes(handle: handle, offset: plan.fileOffset, count: siteLen)
@@ -128,6 +130,24 @@ struct Patcher {
             else if plan.expected?.contains(where: { current.prefix($0.count) == $0 }) == true { state = .pristine }
             else { state = .unknown }
             return Inspection(arch: plan.entry.arch, va: plan.va, state: state, current: current.hexUppercase)
+        }
+    }
+
+    // MARK: - Recipe resolution
+
+    /// Recipe entries carry a locator instead of an addr; resolve them to a
+    /// concrete VA now. The expected-byte gate downstream is unchanged — a
+    /// recipe only decides WHERE, never whether it is safe to write.
+    static func resolveRecipes(_ entries: [Config.PatchEntry], binary: URL) -> [Config.PatchEntry] {
+        entries.map { entry in
+            guard entry.addr == nil, let dict = entry.recipe else { return entry }
+            guard let recipe = try? RecipeEngine.Recipe(dict: dict),
+                  let image = try? MachImage(file: binary, arch: entry.arch),
+                  let va = try? RecipeEngine.resolve(recipe: recipe, image: image, arch: entry.arch)
+            else { return entry } // stays addr-less → buildPlans skips → noArchMatched surfaces it
+            var copy = entry
+            copy.addr = String(va, radix: 16)
+            return copy
         }
     }
 

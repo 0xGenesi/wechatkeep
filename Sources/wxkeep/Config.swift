@@ -11,7 +11,7 @@ import Foundation
 /// `Patcher` refuses to write it unless explicitly overridden, and `restore`
 /// can never invert it.
 struct Config {
-    let versions: [VersionEntry]
+    var versions: [VersionEntry]
 
     // MARK: - Model
 
