@@ -21,9 +21,16 @@ jobs:
         run: |
           set -euo pipefail
           # zsbai/wechat-versions 的 release body 带 DestVersion（构建号）
-          resp=$(curl -sf https://api.github.com/repos/zsbai/wechat-versions/releases/latest)
-          latest_build=$(python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('body',''))" <<<"$resp" | grep -io 'DestVersion[^0-9]*[0-9]*' | head -1 | grep -o '[0-9]*')
+          resp=$(curl -sf https://api.github.com/repos/zsbai/wechat-versions/releases/latest || true)
+          # set -e + grep 空匹配返回 1 会杀掉本 step —— 每一环都容错，取不到就是"无信息"而非失败
+          latest_build=$(python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('body',''))" <<<"$resp" \
+            | grep -io 'DestVersion[^0-9]*[0-9][0-9]*' | head -1 | grep -o '[0-9][0-9]*' || true)
           known=$(python3 -c "import json; d=json.load(open('config.json')); print(max(int(v['version']) for v in d))")
+          if [ -z "$latest_build" ]; then
+            echo "归档源未返回 DestVersion（接口变动或限流）——本轮跳过，不算失败"
+            echo "need_report=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "latest=$latest_build known=$known"
           echo "latest=$latest_build" >> "$GITHUB_OUTPUT"
           echo "known=$known" >> "$GITHUB_OUTPUT"
