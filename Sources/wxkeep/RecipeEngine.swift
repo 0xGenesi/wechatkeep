@@ -59,12 +59,6 @@ struct RecipeEngine {
 
     /// Resolves a recipe to the single patch-site VA within `image`.
     static func resolve(recipe: Recipe, image: MachImage, arch: Config.Arch) throws -> UInt64 {
-        if ProcessInfo.processInfo.environment["WXKEEP_DEBUG"] != nil {
-            if let t = try? image.section("__text") {
-                let probe = image.bytes(va: t.addr, count: 8)?.hexUppercase ?? "?"
-                FileHandle.standardError.write("debug text addr=0x\(String(t.addr, radix: 16)) off=\(t.offset) size=0x\(String(t.size, radix: 16)) first8@addr=\(probe)\n".data(using: .utf8)!)
-            }
-        }
         let pattern = try anchorPattern(recipe.anchor)
         let text = try image.section("__text")
         let hits = try image.offsets(of: pattern, in: "__text")
@@ -93,11 +87,6 @@ struct RecipeEngine {
             var next: [UInt64] = []
             for site in survivors {
                 if try passes(confirm: confirm, site: site, image: image, arch: arch) { next.append(site) }
-            }
-            if ProcessInfo.processInfo.environment["WXKEEP_DEBUG"] != nil,
-               confirm == "unique-positive-callers" {
-                let info = survivors.map { String(format: "0x%X(c:%d)", $0, callerCount(of: $0, in: image)) }.joined(separator: " ")
-                FileHandle.standardError.write("debug candidates: \(info)\n".data(using: .utf8)!)
             }
             guard !next.isEmpty else { throw RecipeError.confirmFailed(confirm) }
             survivors = next

@@ -63,3 +63,16 @@ x64 revoke（imm64:revokems 锚点 + padding-boundary + unique-positive-callers�
 - **callerCount 每候选全扫 __text**：O(N×170MB)，实测秒级可接受；多候选场景可优化为单遍调用计数表。
 - **silent 请求但 catalog 只有 keeptip 条目**：抛 variantUnavailable，不自动降级为「恢复 cbz」（zengtianli 语义支持降级；当前无此形态数据，暂不做）。
 - **verify worker 长字符串 probe（≥23 字节）被跳过**：SSO 长串构造未实现，当前 spec 全短串。
+
+## 第二轮审查（同日，逐文件精读）
+
+已修复：
+- **[R7] RecipeEngine 残留两处 WXKEEP_DEBUG 调试块**（M2 清理不彻底）——删除。
+- **[R4] Engine 头注释过期**（还在说 M3 未接线/--ack-no-resign）——更新。
+- **[R14] Shell.run 顺序读双管道**：先 drain stdout 再 stderr，子进程 stderr 超 64KB 管道缓冲即死锁（codesign verbose 对 340MB bundle 可能触发）——改并发读取+锁。
+- **[R10/R11] verify worker 越界写风险**：zero 区 memset、GOT 槽写入、调用 VA 均未验界——坏 spec 会先污染映射邻接内存再崩（错误不可读）。全部加边界 guard → exit(3) 明确失败。
+
+观察未修：
+- restore 路径不做备份（写入内容本身就是 expected[0] 原始字节，expected 门兜底）。
+- probe 文本含 "|" 会破坏 worker 输出协议解析（当前 spec 无此字符）。
+- resolve 的 confirm 注释说 "exactly one"，实现是"过滤后剩一"（语义等价，措辞差异）。

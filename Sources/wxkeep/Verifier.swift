@@ -127,9 +127,12 @@ enum Verifier {
         }
 
         // Zero magic-static regions to their runtime-start state.
+        // Bound-checked: a bad spec must fail with a clear exit code, not
+        // corrupt memory adjacent to the mapping before crashing.
         for region in zeros {
             guard region.count == 2, let vaHex = UInt64(region[0], radix: 16),
-                  let len = Int(region[1]) else { continue }
+                  let len = Int(region[1]), len > 0,
+                  Int(vaHex) >= 0, Int(vaHex) + len <= data.count else { exit(3) }
             memset(mapped + Int(vaHex), 0, len)
         }
 
@@ -145,16 +148,19 @@ enum Verifier {
                 dispValue |= UInt32(stub.load(fromByteOffset: 2 + i, as: UInt8.self)) << (8 * i)
             }
             let disp = Int32(bitPattern: dispValue)
-            let slot = mapped + Int(stubVA) + 6 + Int(disp)
+            let slotOffset = Int(stubVA) + 6 + Int(disp)
+            guard slotOffset >= 0, slotOffset + 8 <= data.count,
+                  UInt(bitPattern: mapped + slotOffset) % 8 == 0 else { exit(3) }
             let sym = kind == "memcmp" ? "memcmp" : "strlen"
             if let fn = dlsym(dlopen(nil, RTLD_LAZY), sym) {
-                slot.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee = fn
+                (mapped + slotOffset).assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee = fn
             }
         }
 
         // WeChat SSO string ABI: pass 24 CONTIGUOUS bytes. Array's own
         // withUnsafeMutableBytes yields the element buffer — never &array
         // (that is the array header: pointer+count, not the data).
+        guard Int(va) >= 0, Int(va) < data.count else { exit(3) }
         let fn: @convention(c) (UnsafeMutableRawPointer) -> Bool =
             unsafeBitCast(mapped + Int(va), to: (@convention(c) (UnsafeMutableRawPointer) -> Bool).self)
 

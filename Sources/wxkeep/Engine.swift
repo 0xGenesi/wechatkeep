@@ -3,9 +3,7 @@ import Foundation
 /// Orchestrates one patch/restore run over an app bundle: catalog lookup,
 /// variant-based target selection, per-binary grouping, backup, patching.
 ///
-/// Resigning is NOT wired yet (M3). Until it is, `patch` hard-refuses real app
-/// bundles unless `--ack-no-resign` is passed — a patched-but-unresigned bundle
-/// is a guaranteed "Code Signature Invalid" kill on launch.
+/// The CLI layer invokes Resigner afterwards for anything that wrote bytes.
 enum Engine {
     enum EngineError: Error, CustomStringConvertible {
         case unsupportedBuild(String, known: Int)

@@ -76,12 +76,27 @@ enum Shell {
         } catch {
             return Result(status: 127, stdout: "", stderr: error.localizedDescription)
         }
-        let stdout = out.fileHandleForReading.readDataToEndOfFile()
-        let stderr = err.fileHandleForReading.readDataToEndOfFile()
+        // Read BOTH pipes concurrently: draining one to EOF first deadlocks if
+        // the child fills the other pipe's 64KB buffer (codesign verbose on a
+        // 340MB bundle can exceed it).
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var stdoutData = Data(), stderrData = Data()
+        group.enter()
+        DispatchQueue.global().async {
+            let d = out.fileHandleForReading.readDataToEndOfFile()
+            lock.lock(); stdoutData = d; lock.unlock(); group.leave()
+        }
+        group.enter()
+        DispatchQueue.global().async {
+            let d = err.fileHandleForReading.readDataToEndOfFile()
+            lock.lock(); stderrData = d; lock.unlock(); group.leave()
+        }
+        group.wait()
         process.waitUntilExit()
         return Result(
             status: process.terminationStatus,
-            stdout: String(data: stdout, encoding: .utf8) ?? "",
-            stderr: String(data: stderr, encoding: .utf8) ?? "")
+            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+            stderr: String(data: stderrData, encoding: .utf8) ?? "")
     }
 }
