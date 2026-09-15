@@ -76,3 +76,32 @@ x64 revoke（imm64:revokems 锚点 + padding-boundary + unique-positive-callers�
 - restore 路径不做备份（写入内容本身就是 expected[0] 原始字节，expected 门兜底）。
 - probe 文本含 "|" 会破坏 worker 输出协议解析（当前 spec 无此字符）。
 - resolve 的 confirm 注释说 "exactly one"，实现是"过滤后剩一"（语义等价，措辞差异）。
+
+## 第三轮审查（同日，数据层 + workflow + 工具链）
+
+数据审计（程序化全量 422 条 entry）：
+- 两个初判「问题」经核实均为审计脚本自身误判：keeptip 恢复型条目 asm==expected[0] 是设计语义（幂等重打）；signatures/config 比较是 list vs string 类型差，值一致。**数据层 0 问题**。
+- 重复键 / 坏 hex / 空 addr / 重复 version：均无。
+
+已修复：
+- **[W1] watch-wechat.yml 的 `if:` 用字符串比较构建号**：GitHub 表达式 `>` 是字典序，构建号位数变化（如 5 位 vs 6 位）时误报/漏报新版本。改为 shell 内 `-gt` 数值比较输出 need_report 布尔。
+
+观察未修：
+- merge_catalogs.py 的 SOURCES_PRI 全局字典在 main 定义之后初始化（依赖模块级执行顺序，重构时易踩）。
+- ci.yml 的 `wxkeep versions || true` 依赖无 WeChat 环境下的报错路径（有意的冒烟）。
+
+## 第三轮审查（同日，数据层 + workflow + 工具链）
+
+数据审计（程序化全量 422 条 entry）：重复键 / 坏 hex / 空 addr / 重复 version 均无；
+两个初判「问题」经核实均为审计脚本自身误判（keeptip 恢复型条目 asm==expected[0]
+是设计语义；signatures/config 比较是 list vs string 类型差，值一致）——数据层 0 问题。
+
+已修复：
+- [W1] watch-wechat.yml 在 if: 表达式里用 > 比较构建号——GitHub 表达式的 >
+  是字符串字典序比较，构建号位数变化（如 5 位 vs 6 位）时会误报/漏报新版本。
+  改为 shell 内 -gt 数值比较输出 need_report 布尔。
+
+观察未修：
+- merge_catalogs.py 的 SOURCES_PRI 全局字典在 main 定义之后初始化（依赖模块级
+  执行顺序，重构时易踩）。
+- ci.yml 的 versions || true 依赖无 WeChat 环境下的报错路径（有意的冒烟）。

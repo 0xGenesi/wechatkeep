@@ -27,8 +27,13 @@ jobs:
           echo "latest=$latest_build known=$known"
           echo "latest=$latest_build" >> "$GITHUB_OUTPUT"
           echo "known=$known" >> "$GITHUB_OUTPUT"
+          # Numeric compare HERE: GitHub `if:` compares strings, and lexicographic
+          # order diverges from numeric when build numbers change digit count.
+          need=no
+          if [ -n "$latest_build" ] && [ "$latest_build" -gt "$known" ] 2>/dev/null; then need=yes; fi
+          echo "need_report=$need" >> "$GITHUB_OUTPUT"
       - name: New build? locate & report
-        if: steps.latest.outputs.latest != '' && steps.latest.outputs.latest > steps.latest.outputs.known
+        if: steps.latest.outputs.need_report == 'yes'
         run: |
           set -euo pipefail
           BUILD="${{ steps.latest.outputs.latest }}"
@@ -59,7 +64,7 @@ jobs:
           } > /tmp/report.md
           cat /tmp/report.md
       - name: Open tracking issue
-        if: steps.latest.outputs.latest != '' && steps.latest.outputs.latest > steps.latest.outputs.known
+        if: steps.latest.outputs.need_report == 'yes'
         uses: actions/github-script@v7
         with:
           script: |
