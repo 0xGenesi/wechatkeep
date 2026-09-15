@@ -1,0 +1,31 @@
+name: release
+
+# 打 tag (v*) 自动产出 universal 单文件并挂到 GitHub Release。
+# Runner 带完整 Xcode → 可交叉编译双架构（本机 CLT 做不到）。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build universal single-file binary
+        run: |
+          swift build -c release --arch arm64 --arch x86_64
+          strip -x .build/release/wxkeep
+          codesign -f -s - .build/release/wxkeep
+          .build/release/wxkeep --version
+          ls -lh .build/release/wxkeep
+      - name: Attach to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          gh release create "$tag" --generate-notes --verify-tag || true
+          gh release upload "$tag" .build/release/wxkeep --clobber
+          echo "单文件产物已挂到 https://github.com/${GITHUB_REPOSITORY}/releases/tag/$tag"
