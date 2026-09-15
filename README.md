@@ -1,6 +1,6 @@
 # WeChatKeep (wxkeep)
 
-macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具链，按软件研发闭环（规划→设计→开发→测试→上线→运维）建设。
+macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具链。
 
 安全第一：**expected 原始字节门 → 全量写前预检 → 自动备份 → 幂等 restore → entitlements 保留重签 → strict verify → 行为级验证**，任何一环失败宁可不写。
 
@@ -14,20 +14,6 @@ wxkeep versions        # 已装构建号 + catalog
 wxkeep locate          # 未知构建号：签名配方自动定位
 ```
 
-## 为什么是 wxkeep（与各前身的差异）
-
-| 能力 | sunnyyoung 上游 | zengtianli fork | tanranv5 fork | fzlzjerry | **wxkeep** |
-|---|---|---|---|---|---|
-| 双架构 catalog | arm64 | arm64 | x86_64 | arm64 | **双架构 52 构建** |
-| expected 字节安全门 | ✗ | ✓ | ✗（无 expected） | ✓ | ✓ + 隔离区 |
-| 写前全量预检（防半途状态） | ✗ | ✗ | ✗ | ✗ | ✓ |
-| 自动备份 | 手动 WeChat.bak | ✗ | ✗ | ✓ | ✓（时间戳+大小校验） |
-| entitlements 保留重签 | 剥离（会杀） | ✓ | ✗ | ✓ | ✓ + 漂移恢复 |
-| macOS 15 AMFI/taskgated 预检 | ✗ | ✗ | ✗ | ✗ | **★ doctor 独家** |
-| 未知构建号自动适配 | ✗ | Python 工具 | ✗ | ✗ | **配方引擎（CLI 内建 + 兜底）** |
-| 行为级补丁验证 | ✗ | ✗ | ✗ | ✗ | **★ verify（迷你加载器）** |
-| 更新拦截 | arm64（部分构建） | arm64 | ✗ | arm64 | arm64（269602 起更新器转 C++，见 docs） |
-
 ## 安全模型
 
 1. **expected 多变体字节门**：写入前逐点校验原始字节（接受 pristine/已打补丁两态），错版/未知修改零写入
@@ -38,7 +24,7 @@ wxkeep locate          # 未知构建号：签名配方自动定位
 6. **隔离区**：无 expected 溯源的条目（如上游导入数据）默认拒写
 7. **行为验证**：`verify` 把补丁函数拉出进程调用，证明补丁生效——不再依赖人工撤回测试
 
-## macOS 15 重要知识（其他工具不会告诉你的坑）
+## macOS 15 重要知识
 
 ad-hoc 重签后的微信带着受限 entitlements（`application-identifier` 等），在 **macOS 15+ 会被 taskgated 在启动瞬间 SIGKILL（Code Signature Invalid），即使 SIP 已关闭**。唯一解法是 AMFI boot-arg：
 
