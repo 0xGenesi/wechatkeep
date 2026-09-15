@@ -1,0 +1,74 @@
+name: watch-wechat
+
+# 每日巡检官方新版本 → 自动跑定位配方 → 失败/成功都开 issue 供人工审核。
+# 设计：定位是纯静态分析（CI 可跑）；行为验证需要 SIP-off 机器 → 标注
+# manual-verify-needed。补丁数据合入走人工 PR 审核（expected 门兜底安全）。
+on:
+  schedule:
+    - cron: "0 7 * * *"   # 07:00 UTC（zsbai 归档流水线之后）
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: macos-15
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch latest archived build
+        id: latest
+        run: |
+          set -euo pipefail
+          # zsbai/wechat-versions 的 release body 带 DestVersion（构建号）
+          resp=$(curl -sf https://api.github.com/repos/zsbai/wechat-versions/releases/latest)
+          latest_build=$(python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('body',''))" <<<"$resp" | grep -io 'DestVersion[^0-9]*[0-9]*' | head -1 | grep -o '[0-9]*')
+          known=$(python3 -c "import json; d=json.load(open('config.json')); print(max(int(v['version']) for v in d))")
+          echo "latest=$latest_build known=$known"
+          echo "latest=$latest_build" >> "$GITHUB_OUTPUT"
+          echo "known=$known" >> "$GITHUB_OUTPUT"
+      - name: New build? locate & report
+        if: steps.latest.outputs.latest != '' && steps.latest.outputs.latest > steps.latest.outputs.known
+        run: |
+          set -euo pipefail
+          BUILD="${{ steps.latest.outputs.latest }}"
+          echo "新构建 $BUILD — 下载官方 dmg 并提取 dylib"
+          dmg_url=$(curl -sf "https://mac.weixin.qq.com/?t=mac&lang=zh_CN" \
+            | grep -o 'https://[^"]*\.dmg' | head -1)
+          if [ -z "$dmg_url" ]; then echo "::warning::官网未取到 dmg 直链"; exit 0; fi
+          curl -sfL -o /tmp/wx.dmg "$dmg_url"
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmount /tmp/wx.dmg
+          cp /tmp/wxmount/WeChat.app/Contents/Resources/wechat.dylib /tmp/wechat.dylib
+          hdiutil detach /tmp/wxmount >/dev/null
+          echo "slice sha256:"
+          shasum -a 256 /tmp/wechat.dylib
+          # 构建工具并对提取的 dylib 跑全部配方（--app 期望 bundle：造一个假壳）
+          mkdir -p /tmp/fake/WeChat.app/Contents/Resources
+          cp /tmp/wechat.dylib /tmp/fake/WeChat.app/Contents/Resources/
+          plutil -create xml1 /tmp/fake/WeChat.app/Contents/Info.plist
+          plutil -insert CFBundleVersion -string "$BUILD" /tmp/fake/WeChat.app/Contents/Info.plist
+          swift build -c release
+          {
+            echo "## 新微信构建 $BUILD — 自动定位结果"
+            echo '```'
+            .build/release/wxkeep locate -a /tmp/fake/WeChat.app || true
+            echo '```'
+            echo "- dylib sha256: $(shasum -a 256 /tmp/wechat.dylib | cut -d" " -f1)"
+            echo "- 注意：行为验证（verify）需要 SIP-off 实机 → manual-verify-needed"
+            echo "- 合入流程：核对 expected 字节 → config.json 加条目（带 source: recipe:*）→ PR"
+          } > /tmp/report.md
+          cat /tmp/report.md
+      - name: Open tracking issue
+        if: steps.latest.outputs.latest != '' && steps.latest.outputs.latest > steps.latest.outputs.known
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/report.md', 'utf8');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `适配新微信构建 ${{ steps.latest.outputs.latest }}（自动定位报告）`,
+              labels: ['auto-locate', 'manual-verify-needed'],
+              body
+            });
