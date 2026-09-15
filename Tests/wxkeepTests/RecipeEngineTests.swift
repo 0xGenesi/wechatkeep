@@ -150,3 +150,55 @@ final class RecipeEngineTests {
         #expect(data[0x100] == 0x55, "nothing may be written when the gate fails")
     }
 }
+
+struct AutoLocateTests {
+    @Test func autoLocatedEntrySynthesizesAndPatches() throws {
+        let workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-autolocate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: workDir) }
+        let app = workDir.appendingPathComponent("Fake.app/Contents/Resources")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+
+        // Real-shaped fixture: boundary + called function containing the imm64.
+        let fn: [UInt8] = [0x55, 0x48, 0x89, 0xE5, 0x53, 0x50, 0x48, 0x89, 0xFB,
+                           0x48, 0xB8] + Array("revokems".utf8) + [0x90, 0x90, 0xC3]
+        let disp = 0x100 - (0x180 + 5)
+        let image = MachOFixture.thin(cputype: MachOFixture.x64CPU, code: [
+            (0xF0, [0xC3]), (0xF1, [UInt8](repeating: 0xCC, count: 0xF)),
+            (0x100, fn),
+            (0x180, [0xE8] + withUnsafeBytes(of: Int32(disp).littleEndian) { Array($0) }),
+        ])
+        try image.write(to: app.appendingPathComponent("wechat.dylib"))
+        let infoPlist = """
+        <?xml version="1.0"?><plist version="1.0"><dict>
+        <key>CFBundleVersion</key><string>777777</string>
+        </dict></plist>
+        """
+        try infoPlist.data(using: .utf8)!.write(to: workDir.appendingPathComponent("Fake.app/Contents/Info.plist"))
+
+        let signatures = Signatures(recipes: [
+            "test_revoke_x64": .init(
+                arch: .x86_64, anchor: "imm64:revokems", derive: "padding-boundary",
+                confirm: "unique-positive-callers",
+                expected: "554889E553504889FB", asm: "31C0C3909090909090",
+                binary: "Contents/Resources/wechat.dylib"),
+        ])
+        guard let entry = Engine.autoLocatedEntry(app: workDir.appendingPathComponent("Fake.app"),
+                                                  signatures: signatures) else {
+            Issue.record("auto-locate synthesized nothing")
+            return
+        }
+        #expect(entry.version == "777777")
+        #expect(entry.targets.count == 1)
+        #expect(entry.targets[0].entries[0].addr == "100")
+        #expect(entry.targets[0].entries[0].source == "recipe:test_revoke_x64")
+
+        // The synthesized entry flows straight into the patch path.
+        let summary = try Engine.patch(
+            app: workDir.appendingPathComponent("Fake.app"), versionEntry: entry,
+            variant: "silent", dryRun: false, allowUnverified: false, only: nil)
+        #expect(summary.wroteAnything)
+        let patched = try Data(contentsOf: app.appendingPathComponent("wechat.dylib"))
+        #expect(patched.subdata(in: 0x100..<0x103).hexUppercase == "31C0C3")
+    }
+}

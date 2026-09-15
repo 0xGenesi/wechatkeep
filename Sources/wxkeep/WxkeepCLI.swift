@@ -73,6 +73,9 @@ extension Wxkeep {
         @Flag(help: "Skip re-signing after patching (debug only — the bundle will be killed on launch).")
         var noResign: Bool = false
 
+        @Option(name: .shortAndLong, help: "Path to signatures.json for the auto-locate fallback")
+        var signaturesPath: String?
+
         enum Variant: String, ExpressibleByArgument { case silent, keeptip }
 
         mutating func run() throws {
@@ -83,9 +86,23 @@ extension Wxkeep {
             let build = try WeChatApp.buildNumber(app: options.app)
             print("build \(build) — variant \(variant.rawValue)\(dryRun ? " — dry run" : "")")
             let onlyList = only?.split(separator: ",").map(String.init)
-            let summary = try Engine.patch(
-                app: options.app, build: build, config: config, variant: variant.rawValue,
-                dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
+            let summary: Engine.RunSummary
+            if config.entry(build: build) != nil {
+                summary = try Engine.patch(
+                    app: options.app, build: build, config: config, variant: variant.rawValue,
+                    dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
+            } else {
+                // Auto-locate fallback: uncatalogued build → run signature recipes.
+                print("build not in catalog — auto-locating via signature recipes…")
+                let signatures = try Signatures.load(explicit: signaturesPath)
+                guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures) else {
+                    throw Engine.EngineError.unsupportedBuild(build, known: config.versions.count)
+                }
+                print("recipes resolved: \(synthesized.targets.map { t in t.identifier }.joined(separator: ", "))")
+                summary = try Engine.patch(
+                    app: options.app, versionEntry: synthesized, variant: variant.rawValue,
+                    dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
+            }
             summary.lines.forEach { print($0) }
             if !dryRun && summary.wroteAnything && !noResign {
                 print("------ Resign ------")
