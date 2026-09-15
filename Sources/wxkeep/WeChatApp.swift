@@ -68,32 +68,29 @@ enum Shell {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        let out = Pipe(), err = Pipe()
+        // stdout: pipe (we parse it). stderr: TEMP FILE — a child whose helper
+        // inherits the stderr pipe fd and never exits would make read-to-EOF
+        // hang forever (observed as a stuck CI Test step); a file has no such
+        // lifecycle, and one pipe alone cannot deadlock.
+        let out = Pipe()
         process.standardOutput = out
-        process.standardError = err
+        let errURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-sh-\(UUID().uuidString).err")
+        FileManager.default.createFile(atPath: errURL.path, contents: nil)
+        let errHandle = try? FileHandle(forWritingTo: errURL)
+        process.standardError = errHandle ?? nil
+        defer {
+            try? errHandle?.close()
+            try? FileManager.default.removeItem(at: errURL)
+        }
         do {
             try process.run()
         } catch {
             return Result(status: 127, stdout: "", stderr: error.localizedDescription)
         }
-        // Read BOTH pipes concurrently: draining one to EOF first deadlocks if
-        // the child fills the other pipe's 64KB buffer (codesign verbose on a
-        // 340MB bundle can exceed it).
-        let group = DispatchGroup()
-        let lock = NSLock()
-        var stdoutData = Data(), stderrData = Data()
-        group.enter()
-        DispatchQueue.global().async {
-            let d = out.fileHandleForReading.readDataToEndOfFile()
-            lock.lock(); stdoutData = d; lock.unlock(); group.leave()
-        }
-        group.enter()
-        DispatchQueue.global().async {
-            let d = err.fileHandleForReading.readDataToEndOfFile()
-            lock.lock(); stderrData = d; lock.unlock(); group.leave()
-        }
-        group.wait()
+        let stdoutData = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        let stderrData = (try? Data(contentsOf: errURL)) ?? Data()
         return Result(
             status: process.terminationStatus,
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",
