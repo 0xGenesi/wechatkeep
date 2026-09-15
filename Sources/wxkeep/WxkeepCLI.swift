@@ -7,7 +7,7 @@ struct Wxkeep: ParsableCommand {
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
         version: "0.1.0-dev",
-        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, Doctor.self]
+        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self]
     )
 
     struct Options: ParsableArguments {
@@ -221,12 +221,28 @@ extension Wxkeep {
         }
     }
 
-    struct Doctor: ParsableCommand {
+    struct DoctorCommand: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Read-only health check: build, SIP, signature, AMFI/taskgated risk (M3)")
+            abstract: "Read-only health check: build, SIP, AMFI/taskgated kill prediction, patch state")
+        static var _commandName: String { "doctor" }
+
         @OptionGroup var options: Options
+
+        @Flag(help: "Machine-readable output (single-verdict contract)")
+        var json: Bool = false
+
         mutating func run() throws {
-            throw ValidationError("doctor arrives in M3 (incl. the macOS 15 AMFI pre-check).")
+            try WeChatApp.validate(options.app)
+            let config = try Config.load(explicit: options.config)
+            let report = Doctor.run(app: options.app, config: config)
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(report)
+                print(String(data: data, encoding: .utf8)!)
+            } else {
+                print(Doctor.render(report))
+            }
         }
     }
 }
