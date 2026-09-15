@@ -7,8 +7,14 @@ import Testing
 /// The worker host is the built wxkeep binary (the test runner has no
 /// __verify-worker dispatch). Skipped where SIP would block RWX mapping.
 struct VerifierTests {
-    private static var sipEnabled: Bool {
-        Shell.run("/usr/bin/csrutil", ["status"]).stdout.contains("enabled")
+    /// SIP/AMFI gating for RWX-mapping tests. Merged single condition — some
+    /// environments split csrutil output between streams or phrase it
+    /// "unknown"; anything but a confirmed "disabled" is unsuitable.
+    private static var environmentUnsuitable: Bool {
+        if VerifierTests.wxkeepBinary == nil { return true }
+        let r = Shell.run("/usr/bin/csrutil", ["status"])
+        let text = (r.stdout + r.stderr).lowercased()
+        return !text.contains("disabled")
     }
 
     private static var wxkeepBinary: URL? {
@@ -60,8 +66,8 @@ struct VerifierTests {
               probes: [["revokems", "1"], ["other", "0"], ["", "0"]])
     }
 
-    @Test(.disabled(if: sipEnabled, "SIP on blocks RWX mapping — run on the dev machine"),
-          .disabled(if: wxkeepBinary == nil, "built wxkeep binary not found"))
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable,
+                   "SIP/AMFI on or no built binary — behavioral mapping needs the dev machine"))
     func pristineImageClassifiesCorrectly() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-verifier-\(UUID().uuidString)")
@@ -76,8 +82,8 @@ struct VerifierTests {
         #expect(Verifier.verdict(results: results, spec: spec, state: .pristine) == nil)
     }
 
-    @Test(.disabled(if: sipEnabled, "SIP on blocks RWX mapping"),
-          .disabled(if: wxkeepBinary == nil, "built wxkeep binary not found"))
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable,
+                   "SIP/AMFI on or no built binary — behavioral mapping needs the dev machine"))
     func patchedImageNeutralized() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-verifier-\(UUID().uuidString)")
