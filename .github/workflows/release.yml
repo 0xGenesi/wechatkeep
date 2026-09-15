@@ -29,3 +29,4 @@ jobs:
           gh release create "$tag" --generate-notes --verify-tag || true
           gh release upload "$tag" .build/release/wxkeep --clobber
           echo "单文件产物已挂到 https://github.com/${GITHUB_REPOSITORY}/releases/tag/$tag"
+
