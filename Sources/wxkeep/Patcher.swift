@@ -15,6 +15,7 @@ struct Patcher {
     enum PatchError: Error, CustomStringConvertible {
         case not64BitMachO
         case noArchMatched
+        case recipeResolutionFailed(identifier: String, cause: String)
         case vaNotFound(va: UInt64, arch: String)
         case missingExpected(index: Int, identifier: String)
         case expectedMismatch(index: Int, identifier: String, va: UInt64, expected: [String], current: String)
@@ -25,6 +26,9 @@ struct Patcher {
                 "not a 64-bit Mach-O file"
             case .noArchMatched:
                 "no patch entry matched an architecture slice in this binary"
+            case .recipeResolutionFailed(let identifier, let cause):
+                "recipe for \(identifier) failed to resolve a site: \(cause). "
+                + "A new signature generation needs human analysis (docs/MAINTAINING.md)."
             case .vaNotFound(let va, let arch):
                 String(format: "VA 0x%X (%@) does not fall inside any segment of its slice", va, arch)
             case .missingExpected(let i, let id):
@@ -120,7 +124,7 @@ struct Patcher {
         let handle = try FileHandle(forReadingFrom: binary)
         defer { try? handle.close() }
 
-        let plans = try buildPlans(handle: handle, entries: resolveRecipes(entries, binary: binary),
+        let plans = try buildPlans(handle: handle, entries: try resolveRecipes(entries, binary: binary),
                                    identifier: identifier)
         return try plans.map { plan in
             let siteLen = max(plan.asm.count, plan.expected?.map(\.count).max() ?? 0)
@@ -138,16 +142,22 @@ struct Patcher {
     /// Recipe entries carry a locator instead of an addr; resolve them to a
     /// concrete VA now. The expected-byte gate downstream is unchanged — a
     /// recipe only decides WHERE, never whether it is safe to write.
-    static func resolveRecipes(_ entries: [Config.PatchEntry], binary: URL) -> [Config.PatchEntry] {
-        entries.map { entry in
+    static func resolveRecipes(_ entries: [Config.PatchEntry], binary: URL) throws -> [Config.PatchEntry] {
+        try entries.map { entry in
             guard entry.addr == nil, let dict = entry.recipe else { return entry }
-            guard let recipe = try? RecipeEngine.Recipe(dict: dict),
-                  let image = try? MachImage(file: binary, arch: entry.arch),
-                  let va = try? RecipeEngine.resolve(recipe: recipe, image: image, arch: entry.arch)
-            else { return entry } // stays addr-less → buildPlans skips → noArchMatched surfaces it
-            var copy = entry
-            copy.addr = String(va, radix: 16)
-            return copy
+            do {
+                let recipe = try RecipeEngine.Recipe(dict: dict)
+                let image = try MachImage(file: binary, arch: entry.arch)
+                let va = try RecipeEngine.resolve(recipe: recipe, image: image, arch: entry.arch)
+                var copy = entry
+                copy.addr = String(va, radix: 16)
+                return copy
+            } catch {
+                // Surface the real cause (ambiguous anchors / new signature
+                // generation / missing slice) — degrading to noArchMatched
+                // would send the user hunting the wrong problem.
+                throw PatchError.recipeResolutionFailed(identifier: entry.arch.rawValue, cause: String(describing: error))
+            }
         }
     }
 

@@ -143,7 +143,9 @@ enum Engine {
                 let written = outcomes.filter { $0 == .written }.count
                 let skipped = outcomes.filter { $0 == .alreadyPatched }.count
                 summary.wroteAnything = summary.wroteAnything || written > 0
-                if written > 0 { summary.patchedBinaries.append(relative) }
+                if written > 0, !summary.patchedBinaries.contains(relative) {
+                    summary.patchedBinaries.append(relative)   // once per binary: multi-target groups re-sign once
+                }
                 summary.lines.append("  \(target.identifier): \(written) written, \(skipped) already-patched")
             }
         }
@@ -184,7 +186,9 @@ enum Engine {
                 let restored = outcomes.filter { $0 == .written }.count
                 let skipped = outcomes.filter { $0 == .alreadyPatched }.count
                 summary.wroteAnything = summary.wroteAnything || restored > 0
-                if restored > 0 { summary.patchedBinaries.append(relative) }
+                if restored > 0, !summary.patchedBinaries.contains(relative) {
+                    summary.patchedBinaries.append(relative)
+                }
                 summary.lines.append("  \(target.identifier): \(restored) restored, \(skipped) already-pristine")
             }
         }

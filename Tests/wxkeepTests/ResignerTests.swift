@@ -140,8 +140,15 @@ final class ResignerTests {
             Issue.record("marker not emitted into dylib")
             return
         }
-        // marker file offset → VA via the segment table of the real dylib
-        let image = try MachImage(file: dylibURL, arch: .x86_64)
+        // marker file offset → VA via the segment table of the real dylib.
+        // clang compiles for the HOST arch — pick the matching slice or the
+        // image lookup fails on the other-arch CI runners.
+        #if arch(arm64)
+        let hostArch = Config.Arch.arm64
+        #else
+        let hostArch = Config.Arch.x86_64
+        #endif
+        let image = try MachImage(file: dylibURL, arch: hostArch)
         var markerVA: UInt64? = nil
         for seg in image.segments {
             let segStart = Int(seg.fileoff), segEnd = Int(seg.fileoff) + Int(seg.vmsize)
@@ -158,7 +165,7 @@ final class ResignerTests {
         let catalog = """
         [{"version":"999999","targets":[
             {"identifier":"revoke","binary":"Contents/Resources/wechat.dylib","entries":[
-                {"arch":"x86_64","addr":"\(String(mva, radix: 16))",
+                {"arch":"\(hostArch.rawValue)","addr":"\(String(mva, radix: 16))",
                  "expected":"554889E553504889FB","asm":"31C0C3909090909090"}
             ]}
         ]}]

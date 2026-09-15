@@ -123,8 +123,10 @@ struct Doctor {
             adhocSigned: signature == "adhoc",
             restrictedEntitlements: restricted,
             osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
-            bootArgs: Shell.run("/usr/sbin/nvram", ["boot-args"]).status == 0
-                ? Shell.run("/usr/sbin/nvram", ["boot-args"]).stdout : nil)
+            bootArgs: {
+                let nvram = Shell.run("/usr/sbin/nvram", ["boot-args"])
+                return nvram.status == 0 ? nvram.stdout : nil
+            }())
 
         // Patch states per target identifier across its binaries.
         var patchStates: [String: String] = [:]
@@ -174,7 +176,11 @@ struct Doctor {
             let sudo = writable ? "" : "sudo "
             let hasKeeptip = versionEntry?.targets.contains { $0.identifier == "revoke-keeptip" } ?? false
             let variant = hasKeeptip ? "keeptip" : "silent"
-            nextCommand = "\(sudo)wxkeep patch --variant \(variant)"
+            var command = "\(sudo)wxkeep patch --variant \(variant)"
+            if amfiRisk?.level == "kill_predicted" {
+                command += "  # 启动微信前先执行: sudo nvram boot-args=\"amfi_get_out_of_my_way=0x1\" 并重启"
+            }
+            nextCommand = command
         } else if let amfiRisk, amfiRisk.level == "kill_predicted" {
             nextCommand = amfiRisk.fixCommand
         }
