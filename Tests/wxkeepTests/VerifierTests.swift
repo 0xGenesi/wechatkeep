@@ -7,14 +7,15 @@ import Testing
 /// The worker host is the built wxkeep binary (the test runner has no
 /// __verify-worker dispatch). Skipped where SIP would block RWX mapping.
 struct VerifierTests {
-    /// SIP/AMFI gating for RWX-mapping tests. Merged single condition — some
-    /// environments split csrutil output between streams or phrase it
-    /// "unknown"; anything but a confirmed "disabled" is unsuitable.
+    /// RWX-mapping gate keyed on AMFI, not SIP — GitHub runners report SIP
+    /// disabled yet AMFI still refuses unsigned executable memory (the exact
+    /// SIP≠AMFI independence this project's doctor documents; the gate itself
+    /// fell into that trap when it checked csrutil). The boot-arg is the
+    /// real switch for executing mapped code.
     private static var environmentUnsuitable: Bool {
         if VerifierTests.wxkeepBinary == nil { return true }
-        let r = Shell.run("/usr/bin/csrutil", ["status"])
-        let text = (r.stdout + r.stderr).lowercased()
-        return !text.contains("disabled")
+        let nvram = Shell.run("/usr/sbin/nvram", ["boot-args"])
+        return !(nvram.status == 0 && nvram.stdout.contains("amfi_get_out_of_my_way"))
     }
 
     private static var wxkeepBinary: URL? {
