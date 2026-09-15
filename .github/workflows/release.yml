@@ -17,16 +17,20 @@ jobs:
       - name: Build universal single-file binary
         run: |
           swift build -c release --arch arm64 --arch x86_64
-          strip -x .build/release/wxkeep
-          codesign -f -s - .build/release/wxkeep
-          .build/release/wxkeep --version
-          ls -lh .build/release/wxkeep
+          # 交叉构建产物在 .build/apple/Products/Release/，非 .build/release/
+          BIN=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/wxkeep
+          echo "binary: $BIN"
+          strip -x "$BIN"
+          codesign -f -s - "$BIN"
+          "$BIN" --version
+          ls -lh "$BIN"
       - name: Attach to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
           gh release create "$tag" --generate-notes --verify-tag || true
-          gh release upload "$tag" .build/release/wxkeep --clobber
+          BIN=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/wxkeep
+          gh release upload "$tag" "$BIN#wxkeep" --clobber
           echo "单文件产物已挂到 https://github.com/${GITHUB_REPOSITORY}/releases/tag/$tag"
 

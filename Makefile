@@ -23,9 +23,10 @@ test:
 # 别人机器上会被 Gatekeeper 直接拒）。swift release 交叉编译两种架构。
 release:
 	swift build -c release $(BUILD_FLAGS)
-	strip -x .build/release/wxkeep
-	codesign -f -s - .build/release/wxkeep
-	cp .build/release/wxkeep ./wxkeep
+	BIN=$$(swift build -c release $(BUILD_FLAGS) --show-bin-path)/wxkeep
+	strip -x $$BIN
+	codesign -f -s - $$BIN
+	cp $$BIN ./wxkeep
 	@ls -lh ./wxkeep | awk '{print "单文件产物: " $$5 "  ->  ./wxkeep"}'
 	@file ./wxkeep | cut -c1-80
 	@if [ ! -x "$(XCBUILD)" ]; then echo "注意: 本机仅 CLT，产物为单架构；universal 版由 CI Release 构建"; fi
