@@ -24,7 +24,8 @@ test:
 # 别人机器上会被 Gatekeeper 直接拒）。swift release 交叉编译两种架构。
 release:
 	swift build -c release $(BUILD_FLAGS)
-	BIN=$$(swift build -c release $(BUILD_FLAGS) --show-bin-path)/wxkeep
+	BIN=$$(swift build -c release $(BUILD_FLAGS) --show-bin-path 2>/dev/null)/wxkeep; \
+	[ -x "$$BIN" ] || BIN=.build/release/wxkeep
 	strip -x $$BIN
 	codesign -f -s - $$BIN
 	cp $$BIN ./wxkeep
