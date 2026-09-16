@@ -66,10 +66,15 @@ def read_bytes_at(dylib, arch, addr_hex, count):
 
 
 def archive_releases():
-    """zsbai 归档全部 release（tag 是展示版本号，body 无构建号——构建号
-    只能挂载 dmg 读 CFBundleVersion）。返回 [(tag, dmg_url), ...] 从新到旧。
-    认证：优先 GH_TOKEN 环境变量（runner 注入，5000/h），避免匿名 60/h 限流。"""
+    """优先读随仓库的 tools/archive_index.json（zsbai 历史版本不变，仅新增），
+    runner 对外部仓库的 GITHUB_TOKEN 等于匿名（60/h 共享 IP 必 403）。
+    缺 index 时才拉 API（GH_TOKEN 环境变量可提供 PAT 级配额）。"""
     import os
+    idx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "archive_index.json")
+    if os.path.exists(idx):
+        data = json.load(open(idx))
+        print("  归档 index（本地）:", len(data))
+        return [(d["tag"], d["url"]) for d in data]
     headers = {"User-Agent": "wxkeep-backfill"}
     if os.environ.get("GH_TOKEN"):
         headers["Authorization"] = f"Bearer {os.environ['GH_TOKEN']}"
