@@ -70,6 +70,16 @@
       "asm": "82000014",
       "binary": "Contents/Resources/wechat.dylib",
       "_comment": "4.1.13 (269574+) 代：field 0x1C8。269626 实测。"
+    },
+    "revoke_arm64_gen0": {
+      "arch": "arm64",
+      "anchor": "pool64:revokems",
+      "derive": "arm64-init-to-entry",
+      "confirm": null,
+      "expected": "F44FBEA9FD7B01A9",
+      "asm": "00008052C0035FD6",
+      "binary": "Contents/MacOS/WeChat",
+      "_comment": "4.1.6-4.1.9 夹缝代（桩代布局，静态池懒初始化）。2026-09-16 在 33480 arm64 实测：定位 0x103CBE7B0（disasm 同构验证 + 真写测试）。confirm 为 null 由距离过滤+expected 门兜底。"
     }
   }
 }

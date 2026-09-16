@@ -1,5 +1,31 @@
 [
   {
+    "version": "33480",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/MacOS/WeChat",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "3cbe7b0",
+            "expected": "F44FBEA9FD7B01A9",
+            "asm": "00008052C0035FD6",
+            "source": "wxkeep-field-test (stub-era, disasm-verified)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "104201cae",
+            "expected": "554889E553504889FB",
+            "asm": "31C0C3909090909090",
+            "source": "recipe:revoke_x64 (stub-aware)"
+          }
+        ]
+      }
+    ],
+    "note": "4.1.6 夹缝构建（revoke 在主程序，桩代布局）；VA 含 PIE 基址 0x100000000"
+  },
+  {
     "version": "269631",
     "targets": [
       {

@@ -53,9 +53,10 @@
 | 36559 | ? | x86_64 ⚠︎ | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 34817 | ? | x86_64 ⚠︎ | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 34371 | 4.1.5 | arm64 ⚠︎ | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
+| 33480 | ? | x86_64/arm64 | — | — | — | 4.1.6 夹缝构建（revoke 在主程序，桩代布局）；VA 含 PIE 基址 0x100000000 |
 | 32288 | 3.8.x | arm64 ⚠︎ | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 | 32281 | 3.8.x | arm64 ⚠︎ | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 | 31960 | 3.8.x | arm64 ⚠︎ | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 31927 | 3.8.x | arm64 ⚠︎ | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 
-共 52 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
+共 53 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。

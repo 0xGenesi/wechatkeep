@@ -59,8 +59,24 @@ struct RecipeEngine {
 
     /// Resolves a recipe to the single patch-site VA within `image`.
     static func resolve(recipe: Recipe, image: MachImage, arch: Config.Arch) throws -> UInt64 {
-        let pattern = try anchorPattern(recipe.anchor)
         let text = try image.section("__text")
+
+        // pool64:<8 ascii> — arm64 stub-era anchor: adrp+ldr pairs whose
+        // referenced constant pool holds the 8 ASCII bytes (the lazy-init
+        // loader of e.g. "revokems"); hits are the LDR instruction VAs.
+        if recipe.anchor.hasPrefix("pool64:") {
+            guard recipe.derive == "arm64-init-to-entry" else {
+                throw RecipeError.malformed("pool64 anchor requires arm64-init-to-entry derive")
+            }
+            guard let ascii = String(recipe.anchor.dropFirst(7)).data(using: .ascii),
+                  ascii.count == 8 else {
+                throw RecipeError.malformed("pool64 anchor needs exactly 8 ascii bytes")
+            }
+            let candidates = try arm64InitLoaders(of: ascii, in: image, text: text)
+            let entries = candidates.compactMap { loader -> (va: UInt64, distance: Int)? in
+                let r = entryVA(arm64InitAt: loader, in: image, text: text)
+        
+        let pattern = try anchorPattern(recipe.anchor)
         let hits = try image.offsets(of: pattern, in: "__text")
         guard !hits.isEmpty else { throw RecipeError.noHit(anchor: recipe.anchor) }
         let hitVAs = hits.map { text.addr + UInt64($0 - text.offset) }
@@ -115,6 +131,81 @@ struct RecipeEngine {
     }
 
     /// x64 function entry: scan back to a ret/jmp followed by CC/90/66-90 padding.
+    // MARK: arm64 stub-era primitives
+
+    /// All LDR-instruction VAs whose adrp+ldr pair loads 8 bytes equal to
+    /// `value` from a constant pool (lazy-init loaders).
+    private static func arm64InitLoaders(of value: Data, in image: MachImage,
+                                         text: MachImage.Section) throws -> [UInt64] {
+        // decode arm64 manually — capstone over 120MB of text is too slow
+        var out: [UInt64] = []
+        var pageRegs = [UInt32: UInt64]()   // reg -> adrp page
+        var o = text.offset
+        let end = min(text.offset + Int(text.size), image.data.count - 4)
+        func le32(_ at: Int) -> UInt32 {   // arm64 Mach-O instructions are LITTLE-endian
+            UInt32(image.data[at]) | UInt32(image.data[at+1]) << 8
+                | UInt32(image.data[at+2]) << 16 | UInt32(image.data[at+3]) << 24
+        }
+        var adrpCount = 0
+        while o + 4 <= end {
+            let w = le32(o)
+            let va = text.addr + UInt64(o - text.offset)
+            // ADRP Xd, label: bit31=1 (ADR is 0), bits28-24=10000
+            if (w >> 31) == 1 && ((w >> 24) & 0x1F) == 0x10 {
+                let rd = w & 0x1F
+                let immlo = (w >> 29) & 0x3
+                let immhi = (w >> 5) & 0x7FFFF
+                var imm = (UInt64(immhi) << 2) | UInt64(immlo)
+                if imm & (1 << 20) != 0 { imm |= ~UInt64(0x1FFFFF) }   // sign-extend 21 bits
+                let page = (va & ~UInt64(0xFFF)) &+ (imm << 12)
+                pageRegs[rd] = page
+                adrpCount += 1
+            }
+            // LDR (imm, unsigned offset) 64-bit: X-reg 0xF940_0000, D-reg (V=1) 0xFD40_0000
+            if (w & 0xFFC00000) == 0xF9400000 || (w & 0xFFC00000) == 0xFD400000 {
+                let rn = (w >> 5) & 0x1F
+                let imm12 = UInt64((w >> 10) & 0xFFF) << 3
+                if let page = pageRegs[rn] {
+                    let poolVA = page &+ imm12
+                    if let pool = image.bytes(va: poolVA, count: 8), pool == value {
+                        out.append(va)
+                    }
+                }
+            }
+            o += 4
+        }
+        return out
+    }
+
+    /// From a lazy-init LDR inside a stub-era function, walk back to the real
+    /// entry (stp-globals prologue), reporting its VA and distance.
+    private static func entryVA(arm64InitAt va: UInt64, in image: MachImage,
+                                text: MachImage.Section) -> (va: UInt64, distance: Int)? {
+        guard let off = image.sliceRelativeOffset(va: va) else { return nil }
+        // Collect EVERY sp-based STP in the walk-back window and take the
+        // LOWEST address: the function head (stp xN,xM,[sp,#-k]!) precedes
+        // the frame push (stp x29,x30) — first-time hits landed 4 bytes late.
+        var o = off
+        // tight window: the lazy-init LDR sits <0x40 into the compare fn;
+        // 0x200 walked straight past the function border into the neighbour
+        let floor = max(text.offset, off - 0x60)
+        var bestOffset: Int? = nil
+        while o - 4 >= floor {
+            o -= 4
+            let w = UInt32(image.data[o]) | UInt32(image.data[o+1]) << 8
+                | UInt32(image.data[o+2]) << 16 | UInt32(image.data[o+3]) << 24
+            // function border: RET or unconditional BR ends the walk — the
+            // stub tail (br x9) directly precedes the real entry
+            if (w & 0xFFFFFC1F) == 0xD65F0000 || (w & 0xFFFFFC1F) == 0xD61F0000 { break }
+            let family = w & 0xFFC00000
+            if family == 0xA9000000 || family == 0xA9800000, ((w >> 5) & 0x1F) == 31 {
+                if bestOffset == nil || o < bestOffset! { bestOffset = o }
+            }
+        }
+        guard let bo = bestOffset else { return nil }
+        return (text.addr + UInt64(bo - text.offset), off - bo)
+    }
+
     /// x64 function entries: scan back to ret/jmp boundaries followed by
     /// CC/90/66-90 padding. Returns the first two boundaries (see resolve()).
     private static func entryVAs(aboveAnchorVA va: UInt64, image: MachImage) -> [UInt64] {
