@@ -12,6 +12,15 @@ brew install 0xGenesi/tap/wxkeep
 
 或从 [Releases](https://github.com/0xGenesi/wechatkeep/releases) 下载单文件（universal，约 2.4MB）。
 
+## 功能
+
+- **防撤回**（silent 双架构 / keeptip arm64+实验x64）——撤回的消息留在聊天里
+- **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效
+- **更新防护**——不检查更新、不自动安装、关闭更新遥测（patch 时自动附带）
+- **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）
+- **多开（克隆式）**——独立数据目录的第二/第 N 个微信，与构建号无关（`clone create`）
+- **体检**——`doctor` 含 AMFI 预检与精确修复指引
+
 ## 快速上手
 
 ```bash

@@ -230,6 +230,8 @@ struct Doctor {
         lines.append("signature:   \(report.signature)")
         let guardStatuses = UpdateGuard.read()
         lines.append("update-guard: \(guardStatuses.allSatisfy(\.guarded) ? "on（不检查更新）" : "off（有升级弹窗风险，跑 wxkeep update-guard）")")
+        let privacy = PrivacyGuard.read()
+        lines.append("privacy-guard: \(privacy.allSatisfy(\.guarded) ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）")")
         lines.append("entitlements: \(report.entitlementKeyCount) keys, restricted=\(report.restrictedEntitlements ? "yes" : "no")")
         for (identifier, state) in report.patchStates.sorted(by: { $0.key < $1.key }) {
             lines.append("patch[\(identifier)]: \(state)")

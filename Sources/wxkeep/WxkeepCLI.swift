@@ -6,7 +6,7 @@ struct Wxkeep: ParsableCommand {
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
         version: "0.1.0-dev",
-        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateGuardCommand.self]
+        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self]
     )
 
     struct Options: ParsableArguments {
@@ -109,6 +109,9 @@ extension Wxkeep {
                 print("------ Update guard ------")
                 _ = UpdateGuard.disable()
                 print("  更新防护已开启（不再检查更新，防止升级覆盖补丁）")
+                print("------ Privacy guard ------")
+                _ = PrivacyGuard.disable()
+                print("  遥测/诊断上报已最小化")
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
@@ -143,6 +146,9 @@ extension Wxkeep {
                 print("------ Update guard ------")
                 _ = UpdateGuard.disable()
                 print("  更新防护已开启（不再检查更新，防止升级覆盖补丁）")
+                print("------ Privacy guard ------")
+                _ = PrivacyGuard.disable()
+                print("  遥测/诊断上报已最小化")
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
@@ -270,6 +276,106 @@ extension Wxkeep {
         }
 
         private var allGuarded: Bool { UpdateGuard.allGuarded }
+    }
+
+    struct CloneCommand: ParsableCommand {
+        static var _commandName: String { "clone" }
+        static let configuration = CommandConfiguration(
+            abstract: "Clone-based multi-instance (independent data, no binary patching)",
+            subcommands: [CloneCreate.self, CloneList.self, CloneRemove.self, CloneLaunch.self])
+
+        @OptionGroup var options: Options
+
+        struct CloneCreate: ParsableCommand {
+            static var _commandName: String { "create" }
+            static let configuration = CommandConfiguration(abstract: "Create a new WeChat clone")
+            @OptionGroup var options: Options
+            @Flag(help: "Overwrite an existing clone at the destination") var replace: Bool = false
+            mutating func run() throws {
+                let dest = try Clone.create(source: options.app, replace: replace)
+                print("✓ 克隆已创建: \(dest.path)")
+                print("  独立 bundle ID + 独立数据目录；可正常打开登录第二账号")
+                print("  打开: wxkeep clone launch \(dest.lastPathComponent)")
+            }
+        }
+
+        struct CloneList: ParsableCommand {
+            static var _commandName: String { "list" }
+            static let configuration = CommandConfiguration(abstract: "List wxkeep clones")
+            @OptionGroup var options: Options
+            mutating func run() throws {
+                let clones = Clone.list()
+                if clones.isEmpty { print("无克隆（wxkeep clone 创建）"); return }
+                for c in clones {
+                    print("  #\(c.index)  \(c.url.lastPathComponent)  \(c.bundleID)")
+                }
+            }
+        }
+
+        struct CloneRemove: ParsableCommand {
+            static var _commandName: String { "remove" }
+            static let configuration = CommandConfiguration(abstract: "Remove a wxkeep clone")
+            @OptionGroup var options: Options
+            @Argument(help: "Clone .app 路径或名称（如 'WeChat wxkeep 1.app'）")
+            var target: String
+            mutating func run() throws {
+                let url = Self.resolve(target)
+                try Clone.remove(url)
+                print("✓ 已删除 \(url.lastPathComponent)")
+            }
+            static func resolve(_ t: String) -> URL {
+                if t.hasSuffix(".app"), FileManager.default.fileExists(atPath: t) {
+                    return URL(fileURLWithPath: t)
+                }
+                let dir = Clone.defaultDirectory()
+                let direct = dir.appendingPathComponent(t.hasSuffix(".app") ? t : t + ".app")
+                if FileManager.default.fileExists(atPath: direct.path) { return direct }
+                if let n = Int(t), let hit = Clone.list().first(where: { $0.index == n }) {
+                    return hit.url
+                }
+                return direct
+            }
+        }
+
+        struct CloneLaunch: ParsableCommand {
+            static var _commandName: String { "launch" }
+            static let configuration = CommandConfiguration(abstract: "Launch a clone")
+            @OptionGroup var options: Options
+            @Argument(help: "Clone .app 路径、名称或序号")
+            var target: String
+            mutating func run() throws {
+                let url = Wxkeep.CloneCommand.CloneRemove.resolve(target)
+                try Clone.launch(url)
+                print("已启动 \(url.lastPathComponent)")
+            }
+        }
+    }
+
+    struct PrivacyGuardCommand: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Minimize WeChat telemetry/diagnostic reporting (preferences layer)")
+        static var _commandName: String { "privacy-guard" }
+
+        enum Action: String, ExpressibleByArgument { case status, off }
+
+        @OptionGroup var options: Options
+        @Option(help: "status / off (default: harden)")
+        var action: Action = .off
+
+        mutating func run() throws {
+            switch action {
+            case .status:
+                print(PrivacyGuard.render(PrivacyGuard.read()))
+                print(PrivacyGuard.allGuarded ? "隐私加固：已开启" : "隐私加固：未开启")
+            case .off:
+                if WeChatApp.isRunning(app: options.app) {
+                    throw ValidationError("WeChat 正在运行（偏好写入会被 cfprefd 丢弃）。退出后重试，或随 patch/update-guard 一同执行。")
+                }
+                let ok = PrivacyGuard.disable()
+                print(PrivacyGuard.render(PrivacyGuard.read()))
+                print(ok ? "✓ 遥测/诊断上报已最小化" : "✗ 未完全生效，请重试")
+            }
+        }
     }
 
     struct Verify: ParsableCommand {
