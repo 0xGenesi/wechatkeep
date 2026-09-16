@@ -25,6 +25,24 @@ import urllib.request
 
 ARCH_CPU = {"arm64": ["-arch", "arm64"], "x86_64": ["-arch", "x86_64"]}
 
+# 构建号 → 归档 tag（= 展示版本号）。zsbai 的 DestVersion 字段存的是展示版本
+# 而非构建号（实测 4.1.13.63 sidecar），构建号只能挂载 dmg 读 Info.plist。
+# 此表使回填无需盲扫 108 个 release：直接下候选 tag 挂载验证即可。
+BUILD_TO_TAG_HINTS = {
+    "269631": "4.1.13.63", "269629": "4.1.13.61", "269579": "4.1.13.59",
+    "269578": "4.1.13.53", "269627": "4.1.13", "269626": "4.1.13",
+    "269624": "4.1.13", "269619": "4.1.13", "269602": "4.1.13",
+    "269341": "4.1.12.53", "269340": "4.1.12.29", "269338": "4.1.12.28",
+    "269337": "4.1.12.27", "269335": "4.1.12.26", "269334": "4.1.12.25",
+    "269136": "4.1.11.55", "269111": "4.1.11.54", "269110": "4.1.11.53",
+    "269079": "4.1.11.52", "269077": "4.1.11.51", "268880": "4.1.10.53",
+    "268851": "4.1.10.31", "268850": "4.1.10.24", "268849": "4.1.10.31",
+    "268831": "4.1.10.24", "268602": "4.1.9.58", "268601": "4.1.9.57",
+    "268599": "4.1.9.31", "268597": "4.1.9.27", "268596": "4.1.9.26",
+    "268575": "4.1.9.26", "37342": "4.1.8.106", "37335": "4.1.8.100",
+    "37331": "4.1.8.67", "37303": "4.1.8.29", "37293": "4.1.8.28",
+}
+
 
 def run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
@@ -148,8 +166,17 @@ def main():
                               reverse=True)[:args.limit]:
             # 候选：缓存命中的 tag 优先，其余按归档顺序（新→旧）
             hit_tag = next((t for t, b in tagmap.items() if b == version), None)
-            candidates = ([hit_tag] if hit_tag else []) + \
-                         [t for t, _ in releases if t != hit_tag]
+            hint = BUILD_TO_TAG_HINTS.get(version)
+            # 提示优先 → 缓存命中 → 提示的邻近 tag；最多 3 个候选（不再全扫 108 个）
+            cands = []
+            for t in ([hit_tag] if hit_tag else []) + ([hint] if hint and hint != hit_tag else []):
+                if t and t not in cands: cands.append(t)
+            if hint:
+                base = hint.rsplit(".", 1)[0]
+                for t, _ in releases:
+                    if t.startswith(base) and t not in cands and len(cands) < 3:
+                        cands.append(t)
+            candidates = cands
             done = False
             for tag in candidates:
                 url = next((u for t, u in releases if t == tag), None)

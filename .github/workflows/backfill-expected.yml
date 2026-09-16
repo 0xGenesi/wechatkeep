@@ -42,6 +42,7 @@ jobs:
             rm -f config.json.bak.*
             git add -A
             git commit -m "backfill: expected bytes from official archives (auto)"
+            git pull --rebase origin master || true
             git push
           fi
       - name: Remaining
