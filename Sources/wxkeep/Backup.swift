@@ -20,10 +20,16 @@ enum Backup {
     @discardableResult
     static func make(binary: URL) throws -> URL {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        formatter.dateFormat = "yyyyMMdd-HHmmss-SSSSSS"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         let stamp = formatter.string(from: Date())
-        let destination = URL(fileURLWithPath: binary.path + ".wxkeep-bak-" + stamp)
+        var destination = URL(fileURLWithPath: binary.path + ".wxkeep-bak-" + stamp)
+        // 同秒/并发兜底：重名则追加序号
+        var n = 0
+        while FileManager.default.fileExists(atPath: destination.path) {
+            n += 1
+            destination = URL(fileURLWithPath: binary.path + ".wxkeep-bak-" + stamp + "-\(n)")
+        }
         do {
             try FileManager.default.copyItem(at: binary, to: destination)
         } catch {

@@ -5,7 +5,7 @@ struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
-        version: "0.1.0-dev",
+        version: "0.1.2",
         subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self]
     )
 
@@ -107,6 +107,16 @@ extension Wxkeep {
                 print("------ Resign ------")
                 try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
                 // restore 语义 = 回到原始；不附带任何偏好写入
+            }
+            if !dryRun && summary.wroteAnything {
+                let hostArch = ProcessInfo.processInfo.environment["PROCESSOR_ARCHITEW6432"] ?? nil
+                _ = hostArch
+                #if arch(arm64)
+                let host = "arm64"
+                #else
+                let host = "x86_64"
+                #endif
+                print("本机架构 \(host)：可运行 `wxkeep verify` 行为级确认补丁效果")
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }

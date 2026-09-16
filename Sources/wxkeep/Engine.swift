@@ -107,6 +107,25 @@ enum Engine {
     ) throws -> RunSummary {
         var summary = RunSummary()
         var selected = try targets(for: versionEntry, variant: variant)
+
+        // 变体切换：先还原另一变体的写入（幂等），再应用本变体。
+        // 否则 silent 的 x64 补丁会与 keeptip 并存，静默语义覆盖 keeptip。
+        let otherID = variant == "keeptip" ? "revoke" : "revoke-keeptip"
+        if let other = versionEntry.targets.first(where: { $0.identifier == otherID }),
+           !other.entries.isEmpty, !dryRun {
+            var undo = RunSummary()
+            do { undo = try restoreTargets(app: app, targets: [other], dryRun: false) }
+            catch let e as EngineError {
+                if case .restoreUnavailable = e {
+                    // 另一变体缺 expected（如无溯源条目）——跳过还原，不阻塞
+                } else { throw e }
+            }
+            if undo.wroteAnything {
+                summary.lines.append("  [switch] restored previous variant \(otherID) writes")
+                summary.patchedBinaries += undo.patchedBinaries
+            }
+        }
+
         if let only, !only.isEmpty {
             selected = selected.filter { only.contains($0.identifier) }
             guard !selected.isEmpty else {
@@ -155,23 +174,30 @@ enum Engine {
     /// if any target lacks `expected`.
     @discardableResult
     static func restore(app: URL, build: String, config: Config, dryRun: Bool) throws -> RunSummary {
-        var summary = RunSummary()
         guard let versionEntry = config.entry(build: build) else {
             throw EngineError.unsupportedBuild(build, known: config.versions.count)
         }
+        return try restoreTargets(app: app, targets: versionEntry.targets, dryRun: dryRun)
+    }
+
+    /// Restore core for an explicit target list. Preflight: every target must
+    /// be restorable (all entries carry expected bytes) BEFORE any write.
+    @discardableResult
+    static func restoreTargets(app: URL, targets: [Config.Target], dryRun: Bool) throws -> RunSummary {
+        var summary = RunSummary()
         // Preflight: every target must be restorable.
-        for target in versionEntry.targets {
+        for target in targets {
             let unrestorable = target.entries.enumerated().filter { $0.element.expected == nil }
             if !unrestorable.isEmpty {
                 throw EngineError.restoreUnavailable(
                     "target \(target.identifier) entries \(unrestorable.map(\.offset)) have no original bytes")
             }
         }
-        let grouped = Dictionary(grouping: versionEntry.targets, by: { $0.binary ?? "Contents/MacOS/WeChat" })
-        for (relative, targets) in grouped.sorted(by: { $0.key < $1.key }) {
+        let grouped = Dictionary(grouping: targets, by: { $0.binary ?? "Contents/MacOS/WeChat" })
+        for (relative, group) in grouped.sorted(by: { $0.key < $1.key }) {
             let binary = WeChatApp.binaryURL(app: app, relative: relative)
             summary.lines.append("binary: \(relative)")
-            for target in targets {
+            for target in group {
                 let inverted = target.entries.map { entry -> Config.PatchEntry in
                     var copy = entry
                     let asm = entry.asm
