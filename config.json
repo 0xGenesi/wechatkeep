@@ -898,6 +898,19 @@
             "source": "wxkeep:arm64对照定位(TryParseMessage内newmsgid→[this+0x1C8]存储清零,使撤回删除失效而提示保留)"
           }
         ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "1c9cf60",
+            "expected": "554889E54157415641554154534881EC",
+            "asm": "31C0C3",
+            "source": "wxkeep:UpdateUIService周期检查工人(唯一MacStoreUpdate.xml构建点+定时器重置;返回int句柄,31C0C3安全;调用链0x1C9CF60→0x1C9D460→0x1C9E5E0)"
+          }
+        ]
       }
     ]
   },

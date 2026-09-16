@@ -76,3 +76,25 @@ newmsgid 以空串到达下游删除路径 → 找不到删除目标 → 消息�
 结论：**二进制级 block 需 lldb 动态会话**（在 0x1C9E120 下断点，回溯调用栈拿间接调用来源），
 属专项逆向。当前偏好层 UpdateGuard 三开关已在真机验证有效（不检查/不自动装/不遥测），
 二进制级为纵深防御、非必需。降级为低优先级档案。
+
+## 破局（2026-09-17，纯静态完成——上段「需动态」结论被推翻）
+
+关键武器：`dyld_info -fixups` 解码 chained fixups，直接看数据段里的函数指针，
+绕开「无直接 E8 调用者」的间接分发迷雾。
+
+x64 链路（全部落定）：
+- `mmui::MacStoreUpdateUIService` 字符串在服务名注册表（__data，mmui::* 字母序）
+- 唯一代码引用 0x1945A0 = 按名取服务的 strcmp 链 getter（其自身在 vtable 槽 0xA149080）
+- 同一 vtable 组：0xA1490D8 → **0x1C9CF60**（主工作方法）、0xA1490E0 → 0x1C9F660、
+  0xA1490E8 → 0x1C9E120（此前误认的 0x1C9E120 实为小工厂；真 xml 构建器是
+  0x1C9E5E0 ← 0x1C9D460 ← **0x1C9CF60**，全镜像唯一 "MacStoreUpdate.xml" 引用）
+- **0x1C9CF60 = 周期检查工人**：取管理器 → 遍历待查 map → 构建 xml 配置 → 重置 GCD
+  定时器（0x7595B50，返回 int 句柄）。唯一 ret，返回值 = 定时器句柄(int)
+- **补丁**：`0x1C9CF60: 31C0C3`（xor eax,eax; ret），expected
+  `554889E54157415641554154534881EC`。返回 0 安全（int 句柄）；配置不再构建、
+  定时器不再续期；手动「检查更新」走其他入口不受影响（保留用户主动升级能力）
+
+arm64 269602：xml 构建器定位到 0x1A89B34（FUNCTION_STARTS），但零 BL 调用者、
+无 fixup vtable 槽、getter(0x17BB8C) 同样无槽——接线方式未明（疑似 BLR 计算跳转/
+FUNCTION_STARTS 区间合并干扰）。**跳过**，由 update-guard 偏好层兜底；目录内其他
+arm64 构建已带 zengtianli update 条目。

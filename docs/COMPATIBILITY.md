@@ -13,7 +13,7 @@
 | 269626 | 4.1.13 | arm64 | arm64 | — | — |  |
 | 269624 | 4.1.13 | arm64 | arm64 | arm64 | — |  |
 | 269619 | 4.1.13 | arm64 | arm64 | arm64 | — |  |
-| 269602 | 4.1.13 | x86_64/arm64 | x86_64/arm64 | — | arm64 |  |
+| 269602 | 4.1.13 | x86_64/arm64 | x86_64/arm64 | x86_64 | arm64 |  |
 | 269579 | 4.1.13 | x86_64/arm64 ⚠︎ | arm64 | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269578 | 4.1.13 | x86_64/arm64 ⚠︎ | arm64 | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269577 | ? | arm64 | arm64 | arm64 | — |  |
