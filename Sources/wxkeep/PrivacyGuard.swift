@@ -35,8 +35,8 @@ enum PrivacyGuard {
             let value = r.status == 0
                 ? r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 : "<unset>"
-            return Status(key: spec.key, value: value,
-                          guarded: value == "0", meaning: spec.meaning)
+            let guarded = (value == "0") || (value == "<unset>")
+            return Status(key: spec.key, value: value, guarded: guarded, meaning: spec.meaning)
         }
     }
 
@@ -45,11 +45,16 @@ enum PrivacyGuard {
     @discardableResult
     static func disable() -> Bool {
         // sudo 场景：root 对用户沙盒域的写会被 cfprefd 丢弃 → 委托给 console user
+        // 非root：直接写（用户域，cfprefd 接受）。root：委托 console user。
+        // geteuid 需要 Darwin 导入（文件头已有）。
         let asUser = geteuid() == 0
         let console = asUser
             ? Shell.run("/usr/bin/stat", ["-f", "%Su", "/dev/console"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             : ""
         for spec in keys {
+            // unset 的键微信内部默认按关处理——强写反而制造无意义状态，跳过
+            let exists = Shell.run("/usr/bin/defaults", ["read", domain, spec.key]).status == 0
+            guard exists else { continue }
             var args = ["/usr/bin/defaults", "write", domain, spec.key, "-bool", "0"]
             if asUser {
                 let uid = Shell.run("/usr/bin/id", ["-u", console]).stdout
