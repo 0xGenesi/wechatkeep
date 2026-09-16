@@ -4,6 +4,18 @@ macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具�
 
 安全第一：**expected 原始字节门 → 全量写前预检 → 自动备份 → 幂等 restore → entitlements 保留重签 → strict verify → 行为级验证**，任何一环失败宁可不写。
 
+## 下载
+
+从 [Releases](https://github.com/0xGenesi/wechatkeep/releases/latest) 获取单文件 `wxkeep`（universal，Apple Silicon 与 Intel 通用，约 2.3MB）：
+
+```bash
+curl -LO https://github.com/0xGenesi/wechatkeep/releases/latest/download/wxkeep
+chmod +x wxkeep
+sudo ./wxkeep patch --variant silent   # 或先 ./wxkeep doctor 体检
+```
+
+## 从源码构建
+
 ```bash
 swift build -c release
 wxkeep doctor          # 体检：AMFI/taskgated 杀机预测 + 补丁状态 + 精确下一步命令
@@ -23,16 +35,6 @@ wxkeep locate          # 未知构建号：签名配方自动定位
 5. **重签五步流水线**：entitlements 快照 → 嵌套先签（注入保命键）→ 根深签 → 漂移恢复（deepest-first）→ strict verify
 6. **隔离区**：无 expected 溯源的条目（如上游导入数据）默认拒写
 7. **行为验证**：`verify` 把补丁函数拉出进程调用，证明补丁生效——不再依赖人工撤回测试
-
-## macOS 15 重要知识
-
-ad-hoc 重签后的微信带着受限 entitlements（`application-identifier` 等），在 **macOS 15+ 会被 taskgated 在启动瞬间 SIGKILL（Code Signature Invalid），即使 SIP 已关闭**。唯一解法是 AMFI boot-arg：
-
-```bash
-sudo nvram boot-args="amfi_get_out_of_my_way=0x1"   # 然后重启
-```
-
-`wxkeep doctor` 会在你启动微信**之前**预测这个杀局并给出精确修复命令（`amfi_risk: kill_predicted`）。撤销：`sudo nvram -d boot-args` 再重启。详见 `docs/`。
 
 ## 版本兼容
 
