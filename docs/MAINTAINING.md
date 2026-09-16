@@ -105,3 +105,20 @@ x64 revoke（imm64:revokems 锚点 + padding-boundary + unique-positive-callers�
 - merge_catalogs.py 的 SOURCES_PRI 全局字典在 main 定义之后初始化（依赖模块级
   执行顺序，重构时易踩）。
 - ci.yml 的 versions || true 依赖无 WeChat 环境下的报错路径（有意的冒烟）。
+
+## 隔离区回填：数据源鉴定结论（2026-09-16 迭代会话）
+
+zsbai 归档的 dmg 资产为 XZ 重压缩格式且**文件尾无 XZ footer magic（YZ）**——上传侧
+已损坏或非标准封装（头 6 字节 XZ magic 正确、Content-Length 完整 496MB、xz -d 仍报
+"Compressed data is corrupt"）。`--single-stream` 部分解码不可靠（dmg 截断后 hdiutil
+无法挂载）。
+
+可行替代源：
+- 官方 CDN 直链（release body 的 DownloadFrom 字段，dldir1v6.qq.com）——仅对**当前
+  最新版本**有效（滚动分发，旧版 404）
+- 结论：历史构建的 expected 回填暂无可靠免费源。隔离区条目维持 quarantine
+  （引擎安全设计如此，不影响有溯源条目的正常使用）。
+
+本轮流水线工程收获（已沉淀）：GITHUB_TOKEN 对外部仓库=匿名级（60/h 共享 IP 必 403）→
+归档索引随仓库分发；XZ 解压的 suffix 要求与 brew xz 路径探测；下载 Content-Length
+校验。整条流水线架构完备，待上游出现健康数据源即可启用。
