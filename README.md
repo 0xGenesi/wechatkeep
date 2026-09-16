@@ -14,10 +14,9 @@ chmod +x wxkeep
 sudo ./wxkeep patch --variant silent   # 或先 ./wxkeep doctor 体检
 ```
 
-## 从源码构建
+## 快速上手
 
 ```bash
-swift build -c release
 wxkeep doctor          # 体检：AMFI/taskgated 杀机预测 + 补丁状态 + 精确下一步命令
 sudo wxkeep patch      # 打补丁（自动备份→打点→保留 entitlements 重签→strict verify）
 wxkeep verify          # ★ 行为级证明：拉补丁函数出进程直接调用（无需真机撤回测试）
