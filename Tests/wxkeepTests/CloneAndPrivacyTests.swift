@@ -8,7 +8,7 @@ struct CloneAndPrivacyTests {
     private func makeFakeApp(named: String, in dir: URL, bundleID: String, marker: Int? = nil) throws -> URL {
         let app = dir.appendingPathComponent(named)
         try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
-        try Data([0x55]).write(to: app.appendingPathComponent("Contents/MacOS/WeChat"))
+        try Data([0x55, 0x48, 0x89, 0xE5]).write(to: app.appendingPathComponent("Contents/MacOS/WeChat"))
         let dict = NSMutableDictionary()
         dict["CFBundleIdentifier"] = bundleID
         dict["CFBundleVersion"] = "999999"

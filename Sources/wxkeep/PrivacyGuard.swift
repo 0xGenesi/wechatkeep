@@ -17,7 +17,6 @@ enum PrivacyGuard {
         ("EnableDiagnosticLog", "诊断日志上传"),
         ("JMZFLogicReportSwitch", "逻辑埋点上报"),
         ("JMZFPerformanceReportSwitch", "性能埋点上报"),
-        ("KMReservedKey1", "诊断组件预留开关"),
     ]
 
     struct Status {

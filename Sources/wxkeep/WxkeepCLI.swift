@@ -106,12 +106,7 @@ extension Wxkeep {
             if !dryRun && summary.wroteAnything && !noResign {
                 print("------ Resign ------")
                 try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
-                print("------ Update guard ------")
-                _ = UpdateGuard.disable()
-                print("  更新防护已开启（不再检查更新，防止升级覆盖补丁）")
-                print("------ Privacy guard ------")
-                _ = PrivacyGuard.disable()
-                print("  遥测/诊断上报已最小化")
+                // restore 语义 = 回到原始；不附带任何偏好写入
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
@@ -143,12 +138,7 @@ extension Wxkeep {
             if !dryRun && summary.wroteAnything && !noResign {
                 print("------ Resign ------")
                 try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
-                print("------ Update guard ------")
-                _ = UpdateGuard.disable()
-                print("  更新防护已开启（不再检查更新，防止升级覆盖补丁）")
-                print("------ Privacy guard ------")
-                _ = PrivacyGuard.disable()
-                print("  遥测/诊断上报已最小化")
+                // restore 语义 = 回到原始；不附带任何偏好写入
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
@@ -292,10 +282,15 @@ extension Wxkeep {
             @OptionGroup var options: Options
             @Flag(help: "Overwrite an existing clone at the destination") var replace: Bool = false
             mutating func run() throws {
+                if WeChatApp.isRunning(app: options.app) {
+                    throw ValidationError("源微信正在运行（复制一致性风险）。退出后重试。")
+                }
                 let dest = try Clone.create(source: options.app, replace: replace)
+                let idx = Clone.list(in: options.app.deletingLastPathComponent())
+                    .first { $0.url == dest }?.index ?? 0
                 print("✓ 克隆已创建: \(dest.path)")
                 print("  独立 bundle ID + 独立数据目录；可正常打开登录第二账号")
-                print("  打开: wxkeep clone launch \(dest.lastPathComponent)")
+                print("  打开: wxkeep clone launch \(idx)")
             }
         }
 
@@ -304,7 +299,7 @@ extension Wxkeep {
             static let configuration = CommandConfiguration(abstract: "List wxkeep clones")
             @OptionGroup var options: Options
             mutating func run() throws {
-                let clones = Clone.list()
+                let clones = Clone.list(in: options.app.deletingLastPathComponent())
                 if clones.isEmpty { print("无克隆（wxkeep clone 创建）"); return }
                 for c in clones {
                     print("  #\(c.index)  \(c.url.lastPathComponent)  \(c.bundleID)")
@@ -319,18 +314,17 @@ extension Wxkeep {
             @Argument(help: "Clone .app 路径或名称（如 'WeChat wxkeep 1.app'）")
             var target: String
             mutating func run() throws {
-                let url = Self.resolve(target)
+                let url = Self.resolve(target, in: options.app.deletingLastPathComponent())
                 try Clone.remove(url)
                 print("✓ 已删除 \(url.lastPathComponent)")
             }
-            static func resolve(_ t: String) -> URL {
+            static func resolve(_ t: String, in dir: URL) -> URL {
                 if t.hasSuffix(".app"), FileManager.default.fileExists(atPath: t) {
                     return URL(fileURLWithPath: t)
                 }
-                let dir = Clone.defaultDirectory()
                 let direct = dir.appendingPathComponent(t.hasSuffix(".app") ? t : t + ".app")
                 if FileManager.default.fileExists(atPath: direct.path) { return direct }
-                if let n = Int(t), let hit = Clone.list().first(where: { $0.index == n }) {
+                if let n = Int(t), let hit = Clone.list(in: dir).first(where: { $0.index == n }) {
                     return hit.url
                 }
                 return direct
@@ -344,7 +338,7 @@ extension Wxkeep {
             @Argument(help: "Clone .app 路径、名称或序号")
             var target: String
             mutating func run() throws {
-                let url = Wxkeep.CloneCommand.CloneRemove.resolve(target)
+                let url = Wxkeep.CloneCommand.CloneRemove.resolve(target, in: options.app.deletingLastPathComponent())
                 try Clone.launch(url)
                 print("已启动 \(url.lastPathComponent)")
             }

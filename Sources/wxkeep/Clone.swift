@@ -19,6 +19,7 @@ enum Clone {
         case copyFailed(String)
         case plistWriteFailed(String)
         case resignFailed(String)
+        case launchFailed(String)
         case notAClone(String)
 
         var description: String {
@@ -28,6 +29,7 @@ enum Clone {
             case .copyFailed(let d): return "复制失败: \(d)"
             case .plistWriteFailed(let d): return "Info.plist 写入失败: \(d)"
             case .resignFailed(let d): return "重签名失败: \(d)"
+            case .launchFailed(let d): return "启动失败: \(d)"
             case .notAClone(let p): return "\(p) 不是 wxkeep 克隆（缺少标记）"
             }
         }
@@ -72,12 +74,24 @@ enum Clone {
         let dest = dir.appendingPathComponent(name)
         if fm.fileExists(atPath: dest.path) {
             guard replace else { throw CloneError.destinationExists(dest.path) }
+            // 与 remove 同规：只覆盖 wxkeep 克隆，拒绝删无标记的用户 app
+            let destPlist = dest.appendingPathComponent("Contents/Info.plist")
+            guard let d = NSDictionary(contentsOf: destPlist) as? [String: Any],
+                  d[markerKey] is Int else {
+                throw CloneError.notAClone(dest.lastPathComponent)
+            }
             try fm.removeItem(at: dest)
         }
 
-        // 1. Copy the whole bundle (~400-500MB; APFS clonefile makes this instant on same volume)
+        // 1. Pre-write: destination directory must be writable (admin /Applications or custom dir)
+        guard fm.isWritableFile(atPath: dir.path) else {
+            throw CloneError.copyFailed("\(dir.path) 不可写（标准用户请用 --app 自定义目录，或加 sudo）")
+        }
+
+        // 2. Copy; on any later failure remove the partial clone (fail-loudly convention)
         do { try fm.copyItem(at: source, to: dest) }
         catch { throw CloneError.copyFailed(error.localizedDescription) }
+        func cleanup() { try? fm.removeItem(at: dest) }
 
         // 2. Rewrite Info.plist: unique bundle ID + marker + strip URL schemes
         let plist = dest.appendingPathComponent("Contents/Info.plist")
@@ -86,24 +100,39 @@ enum Clone {
         }
         let newBundleID = "\(originalBundleID).wxkeep.\(idx)"
         dict["CFBundleIdentifier"] = newBundleID
+        dict["CFBundleDisplayName"] = "WeChat \(idx)"
+        dict["CFBundleName"] = "WeChat \(idx)"
         dict[markerKey] = idx
         //剥离 URL scheme，防与原微信抢占 wechat:// 链接
         dict.removeObject(forKey: "CFBundleURLTypes")
         guard dict.write(to: plist, atomically: true) else {
+            cleanup()
             throw CloneError.plistWriteFailed("write failed")
         }
 
         // 3. Re-sign the clone (bundle ID changed → must re-sign to launch).
-        // Test fixtures without a real Mach-O main executable can't be signed;
-        // only a sign failure on a REAL executable is fatal.
+        // A REAL Mach-O main executable is mandatory; synthetic test stubs
+        // (non-Mach-O bytes) skip signing. Missing/unreadable executable is fatal.
         let main = dest.appendingPathComponent("Contents/MacOS/WeChat")
-        let isRealBinary = (try? Data(contentsOf: main, options: .alwaysMapped).prefix(4)) == Data([0xCF, 0xFA, 0xED, 0xFE])
-            || (try? Data(contentsOf: main).prefix(4)) == Data([0xCA, 0xFE, 0xBA, 0xBE])
-        if isRealBinary {
+        guard let handle = try? FileHandle(forReadingFrom: main),
+              let head = try? handle.read(upToCount: 4), head.count == 4 else {
+            cleanup()
+            throw CloneError.resignFailed("主程序不存在或不可读（Contents/MacOS/WeChat）")
+        }
+        try? handle.close()
+        let magics: Set<Data> = [
+            Data([0xCF, 0xFA, 0xED, 0xFE]),  // MH_MAGIC_64 LE
+            Data([0xFE, 0xED, 0xFA, 0xCF]),  // MH_MAGIC_64 BE
+            Data([0xCA, 0xFE, 0xBA, 0xBE]),  // FAT BE
+            Data([0xBE, 0xBA, 0xFE, 0xCA]),  // FAT LE
+            Data([0xCE, 0xFA, 0xED, 0xFE]),  // MH_CIGAM_64
+        ]
+        if magics.contains(head) {
             let sign = Shell.run("/usr/bin/codesign",
                 ["-f", "-s", "-", "--preserve-metadata=entitlements,requirements,flags",
                  dest.path])
             guard sign.status == 0 else {
+                cleanup()
                 throw CloneError.resignFailed((sign.stderr + sign.stdout).prefix(200).description)
             }
         }
@@ -131,7 +160,7 @@ enum Clone {
     static func launch(_ cloneURL: URL) throws {
         let r = Shell.run("/usr/bin/open", [cloneURL.path])
         guard r.status == 0 else {
-            throw CloneError.resignFailed(r.stderr)
+            throw CloneError.launchFailed(r.stderr)
         }
     }
 }
