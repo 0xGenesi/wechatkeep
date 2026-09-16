@@ -30,7 +30,42 @@
 x64 revoke（imm64:revokems 锚点 + padding-boundary + unique-positive-callers）：
 2026-09 在 269602 验证（0x4BC5940, 9 callers；已打补丁态靠双边界推导仍可定位）。
 
-## x64 keeptip 定位方法论（2026-09-16 攻坚，269602 待真机验证）
+## x64 撤回处理链完整地图（2026-09-16 深挖，269602；keeptip v1 行为模型的基础）
+
+工具链：LC_FUNCTION_STARTS 精确函数边界（勿再用 padding 边界猜测）+ E8 扫描必须过
+对齐验证（位移字节误报教训：`cmp byte [rip+X],0` 的位移里就含 `E8 .. .. .. ..`）。
+
+```
+isRevokemsg 0x4BC5940 (9 真调用者)
+isQyRevokemsg 0x4BC59E0 —— 第二分支=企业微信撤回（chat_id/revoke_climsgid），不是群聊!
+TryParseMessage [0x50A5350, 0x50A67B0] —— 唯一调用者=wrapper 0x50A5120
+  分支1 revokemsg: newmsgid→[this+0x1C8](u64), replacemsg→+0x1D0(string)
+  分支2 qy_revokemsg: chat_id→+0x2C8, revoke_climsgid→+0x2E0, replacemsg
+wrapper 0x50A5120 → 解析成功 → 0x50A67B0(obj, &obj->replacemsg) 后处理
+  → 依次调 0x50AF090/0x50B0350/0x50B1600/0x50B2060(obj, replacemsg) 四类型处理器
+  → 0x50B38F0(obj) 生成 +0x218 结果串
+提示文本构造 0x50B4F10：含 "reeditrevoke" + "xwechat://reedit" 五分钟重编辑链接（自发撤回），
+  按 0x4BC3FB0(obj)=([obj+8]==0x31 && [obj+0xC]==0x57) 选模板，写入 +0x1D0 和 +0x218
+提示谓词 0x50B5EA0：isRevokemsg(xml) && [obj+0x288] > A->v50()-B()
+type-10000 过滤器：0x4BC7400(msg->[0x218]content, [msg+8]==10000) / 0x4D6EFD0(+0x220,+0xC)
+执行器 [0x36DBAE0, 0x36DC940]（唯一调用者 0x32ABD90 中转）：
+  扫到达消息批次（0x278 尺寸消息结构），过滤 type-10000+isRevokemsg → 收集 id
+  → 0x36F2DD0 每id构造异步任务（std::function 队列）→ 0x36DD7F0 解析 "_b13e0758" 服务
+  → 对每条命中原消息：memcpy 0x278 模板 → 0x50B4F10 构造提示 → 0x36DB710(ctx,...) 原位更新
+```
+
+**行为模型（v1 补丁=清零 newmsgid 存储后，用户实测验证）**：
+- 私聊：提示以 type-10000 消息随消息流到达 → 渲染不依赖查找 → **提示保留**（落点=到达位置，
+  在原消息之后但不贴邻——用户反馈"不知道是哪条"的原因）；原消息原位改写需按 newmsgid 查找
+  → 查 0 失败 → **原消息保留** ✓
+- 群聊：撤回走带外通道，提示须由客户端按 newmsgid 查到原消息后合成 → 查 0 失败 →
+  **整链静默：无提示**（消息保留）✓
+
+**v2 方向（未实现）**：恢复 newmsgid 让查找成功，改掐下游破坏性步骤（在异步任务体内，
+0x36F2DD0 派发的 lambda 链），使「提示插入原位 + 原消息内容保留」同时成立——两架构同源，
+arm64 同样适用。需动态分析（另一账号触发真实撤回事件）辅助定位 lambda 体。
+
+## x64 keeptip v1 定位方法论（2026-09-16，269602 已真机验证：私聊提示✓ 消息保留✓）
 
 **核心结论：arm64 的撤回处理函数与 x64 的 TryParseMessage 是同一函数**（证据：
 都先调 isRevokemsg，为假时转同一形态的第二检查器；都按 newmsgid → replacemsg
