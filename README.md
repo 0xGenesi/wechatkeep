@@ -54,7 +54,7 @@ docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现
 ## 诚实的限制
 
 - **keeptip 仅 arm64**（x64 的 newmsgid 存储点未定位，silent 双架构可用）
-- **269602+ 的屏蔽更新未覆盖**：微信把更新器改成纯 C++（两个 slice 均无 XAppUpdateManager），需新一轮字符串锚点逆向（docs/findings-269602-updater.md）
+- **269602+ 的二进制级屏蔽更新未覆盖**：更新器为纯 C++（见 docs）；已通过 `wxkeep update-guard`（偏好层三开关：不检查更新/不自动安装/关遥测，patch 时自动附带）防护升级弹窗与误升级（两个 slice 均无 XAppUpdateManager），需新一轮字符串锚点逆向（docs/findings-269602-updater.md）
 - verify 的行为验证在 SIP 开启的机器上不可用（RWX 映射被禁）；CI 上自动跳过
 - tanranv5 来源的 29 个构建条目缺 expected 字节，处于隔离区（补验后放行）
 

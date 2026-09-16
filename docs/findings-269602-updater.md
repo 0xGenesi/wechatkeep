@@ -27,3 +27,14 @@ locate_update_x64.py 在真实 269602 x64 slice 上验证：
 - chained-fixup 解码（classlist 槽位 0x0010_0000_0A53A198 → 0x0A53A198 ✓）
 - relative 方法表 12B/项 + selref 间接寻址（0x40000000 direct 标志区分）✓
 - 类/元类方法合并、66 类全遍历 ✓
+
+
+## 后续（2026-09-15 晚）：preferences 层防护已交付
+
+二进制逆向未完成前的实用防线：Sparkle 偏好仍在生效（真机证据：SUUpdateAlert
+窗口帧、SUSkippedVersion=24456、SUEnableAutomaticChecks=1）。`wxkeep update-guard`
+写三个键（关检查/关自动安装/关遥测），挂进 patch 流程与 doctor。
+
+关键工程发现：**cfprefd 域所有权** —— 微信运行中，其沙盒域由 app 的 agent 持有，
+外部 defaults 写入被静默丢弃（真机实测）；写入必须以微信退出为前提（与 patch
+同约束，故挂进 patch 流程自动满足）。

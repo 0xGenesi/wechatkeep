@@ -228,6 +228,8 @@ struct Doctor {
         lines.append("running:     \(report.running ? "yes — quit before patching" : "no")")
         lines.append("writable:    \(report.writable ? "yes" : "no — patch with sudo")")
         lines.append("signature:   \(report.signature)")
+        let guardStatuses = UpdateGuard.read()
+        lines.append("update-guard: \(guardStatuses.allSatisfy(\.guarded) ? "on（不检查更新）" : "off（有升级弹窗风险，跑 wxkeep update-guard）")")
         lines.append("entitlements: \(report.entitlementKeyCount) keys, restricted=\(report.restrictedEntitlements ? "yes" : "no")")
         for (identifier, state) in report.patchStates.sorted(by: { $0.key < $1.key }) {
             lines.append("patch[\(identifier)]: \(state)")

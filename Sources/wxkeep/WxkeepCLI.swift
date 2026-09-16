@@ -6,7 +6,7 @@ struct Wxkeep: ParsableCommand {
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
         version: "0.1.0-dev",
-        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self]
+        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateGuardCommand.self]
     )
 
     struct Options: ParsableArguments {
@@ -106,6 +106,9 @@ extension Wxkeep {
             if !dryRun && summary.wroteAnything && !noResign {
                 print("------ Resign ------")
                 try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
+                print("------ Update guard ------")
+                _ = UpdateGuard.disable()
+                print("  更新防护已开启（不再检查更新，防止升级覆盖补丁）")
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
@@ -137,6 +140,9 @@ extension Wxkeep {
             if !dryRun && summary.wroteAnything && !noResign {
                 print("------ Resign ------")
                 try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
+                print("------ Update guard ------")
+                _ = UpdateGuard.disable()
+                print("  更新防护已开启（不再检查更新，防止升级覆盖补丁）")
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
@@ -226,6 +232,44 @@ extension Wxkeep {
                 print("next: sudo wxkeep patch --variant silent")
             }
         }
+    }
+
+    struct UpdateGuardCommand: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Block WeChat's updater at the preferences layer (no binary changes)")
+        static var _commandName: String { "update-guard" }
+
+        enum Action: String, ExpressibleByArgument { case status, off, on }
+
+        @OptionGroup var options: Options
+
+        @Option(help: "status / off (default: guard) / on (restore update checks)")
+        var action: Action = .off
+
+        mutating func run() throws {
+            switch action {
+            case .status:
+                let statuses = UpdateGuard.read()
+                print(UpdateGuard.render(statuses))
+                print(allGuarded ? "更新防护：已开启" : "更新防护：未开启（存在升级弹窗/自动安装风险）")
+            case .off:
+                // cfprefd 把运行中沙盒 app 的域交给其 agent，外部写入会被丢弃
+                if WeChatApp.isRunning(app: options.app) {
+                    throw ValidationError(
+                        "WeChat 正在运行，偏好写入会被系统丢弃。请先退出微信（⌘Q）再执行，\n"
+                        + "或使用 `wxkeep patch` —— 打补丁流程要求微信退出，会自动附带更新防护。")
+                }
+                let ok = UpdateGuard.disable()
+                print(UpdateGuard.render(UpdateGuard.read()))
+                print(ok ? "✓ 更新防护已开启：微信不再检查更新，不会再弹升级窗口"
+                        : "✗ 写入未完全生效，请重试或检查权限")
+            case .on:
+                let ok = UpdateGuard.enable()
+                print(ok ? "已恢复更新检查（微信将照常提示新版本）" : "恢复未完全生效，请重试")
+            }
+        }
+
+        private var allGuarded: Bool { UpdateGuard.allGuarded }
     }
 
     struct Verify: ParsableCommand {
