@@ -63,3 +63,16 @@ newmsgid 以空串到达下游删除路径 → 找不到删除目标 → 消息�
 
 状态：**实验条目**（语义推理链完整，expected 门已核对 4889C2 ✓，待真机撤回实测——
 私聊应留消息+提示；群聊提示是否依赖 newmsgid 锚定请一并观察，参照 arm64 keeptip 的已知局限）。
+
+## 二进制级屏蔽更新逆向档案（#5 会话，2026-09-16）
+
+已确认路径（x64 slice）：
+- 更新配置构造函数：入口 0x1C9E120（push rbp 序言，前导 0x66/0x90 padding），无直接 E8 调用者（间接调用：函数指针/调度表）
+- 函数体内 0x1C9E7A0 lea 引用 "MacStoreUpdate.xml"（唯一）；构造更新 URL/路径对象
+- "CheckForUpdates"(0x8C63CE0) / "StartCheckUpdate"(0x8CFC560) / "try check update"(0x8CFC570) 字符串存在但**无 lea/imm32/imm64 直接引用**——更新器日志字符串经**运行时解密拼接**（C++ constexpr 混淆），静态交叉引用断链
+- ObjC 类不含更新逻辑（AppUpdateStateListener 仅 sharedInstance，MacUpgradeUtil 是设置工具类）
+- 0x1C9E120 无数据段指针引用、无 chained-fixup rebase 命中——调度方式待动态（lldb）定位
+
+结论：**二进制级 block 需 lldb 动态会话**（在 0x1C9E120 下断点，回溯调用栈拿间接调用来源），
+属专项逆向。当前偏好层 UpdateGuard 三开关已在真机验证有效（不检查/不自动装/不遥测），
+二进制级为纵深防御、非必需。降级为低优先级档案。
