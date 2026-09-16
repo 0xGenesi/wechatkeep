@@ -25,11 +25,16 @@ brew install 0xGenesi/tap/wxkeep
 
 ```bash
 wxkeep doctor          # 体检：AMFI/taskgated 杀机预测 + 补丁状态 + 精确下一步命令
-sudo wxkeep patch      # 打补丁（自动备份→打点→保留 entitlements 重签→strict verify）
+sudo wxkeep patch      # 打补丁（自动备份→打点→重签→strict verify，附带更新防护+隐私加固）
 wxkeep verify          # ★ 行为级证明：拉补丁函数出进程直接调用（无需真机撤回测试）
 wxkeep restore         # 全量还原（幂等）
 wxkeep versions        # 已装构建号 + catalog
 wxkeep locate          # 未知构建号：签名配方自动定位
+
+wxkeep clone create    # 多开：创建独立数据的第二微信
+wxkeep clone list      #   列出 / launch 1 启动 / remove 1 删除
+wxkeep privacy-guard --action status  # 隐私：查看遥测/上报状态
+wxkeep update-guard --action status   # 更新防护状态
 ```
 
 ## 安全模型
