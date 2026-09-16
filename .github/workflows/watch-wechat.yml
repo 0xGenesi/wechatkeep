@@ -1,8 +1,8 @@
 name: watch-wechat
 
-# 每日巡检官方新版本 → 自动跑定位配方 → 失败/成功都开 issue 供人工审核。
-# 设计：定位是纯静态分析（CI 可跑）；行为验证需要 SIP-off 机器 → 标注
-# manual-verify-needed。补丁数据合入走人工 PR 审核（expected 门兜底安全）。
+# 每日巡检官方新版本 → 自动跑定位配方 → 命中则自动开 PR（config 条目 + 矩阵），
+# 未命中/失败开 issue 供人工分析。expected 门在合入后仍兜底：定位只是选地址，
+# 写入前的字节校验才会放行；行为验证需 SIP-off 实机 → 标注 manual-verify-needed。
 on:
   schedule:
     - cron: "0 7 * * *"   # 07:00 UTC（zsbai 归档流水线之后）
@@ -13,7 +13,8 @@ jobs:
     runs-on: macos-15
     permissions:
       issues: write
-      contents: read
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - name: Fetch latest archived build
@@ -39,7 +40,7 @@ jobs:
           need=no
           if [ -n "$latest_build" ] && [ "$latest_build" -gt "$known" ] 2>/dev/null; then need=yes; fi
           echo "need_report=$need" >> "$GITHUB_OUTPUT"
-      - name: New build? locate & report
+      - name: New build? download & locate
         if: steps.latest.outputs.need_report == 'yes'
         run: |
           set -euo pipefail
@@ -67,11 +68,55 @@ jobs:
             echo '```'
             echo "- dylib sha256: $(shasum -a 256 /tmp/wechat.dylib | cut -d" " -f1)"
             echo "- 注意：行为验证（verify）需要 SIP-off 实机 → manual-verify-needed"
-            echo "- 合入流程：核对 expected 字节 → config.json 加条目（带 source: recipe:*）→ PR"
+            echo "- expected 门兜底：即使本 PR 合入，写入前字节校验不过则拒绝打补丁"
           } > /tmp/report.md
           cat /tmp/report.md
-      - name: Open tracking issue
+      - name: Auto-PR with derived entries
         if: steps.latest.outputs.need_report == 'yes'
+        id: pr
+        run: |
+          set -euo pipefail
+          BUILD="${{ steps.latest.outputs.latest }}"
+          # --append 直接把命中的配方条目并进 config（内部自带备份与去重）
+          .build/release/wxkeep locate -a /tmp/fake/WeChat.app --append \
+            --config config.json --signatures signatures.json || true
+          python3 tools/gen_matrix.py
+          if [ -z "$(git status --porcelain config.json docs/COMPATIBILITY.md)" ]; then
+            echo "无新条目（配方未命中，新签名代）→ 转 issue 走人工分析"
+            echo "opened=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "wxkeep-bot"
+          git config user.email "actions@github.com"
+          branch="auto/build-$BUILD"
+          git checkout -b "$branch"
+          git add config.json docs/COMPATIBILITY.md
+          git commit -m "auto: locate entries for build $BUILD (recipe-derived, manual review needed)"
+          git push origin "$branch"
+          echo "opened=yes" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - name: Open PR
+        if: steps.latest.outputs.need_report == 'yes' && steps.pr.outputs.opened == 'yes'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/report.md', 'utf8');
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: context.ref.replace('refs/heads/', ''),
+              head: '${{ steps.pr.outputs.branch }}',
+              title: `适配新微信构建 ${{ steps.latest.outputs.latest }}（自动定位，待审核）`,
+              body: body + '\n\n合并前请：核对 expected 字节与构建号；实机行为验证后移除 manual-verify-needed。'
+            });
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: pr.data.number,
+              labels: ['auto-locate', 'manual-verify-needed']
+            });
+      - name: Fallback tracking issue (no entries / PR failed)
+        if: steps.latest.outputs.need_report == 'yes' && steps.pr.outputs.opened != 'yes'
         uses: actions/github-script@v7
         with:
           script: |
@@ -84,4 +129,3 @@ jobs:
               labels: ['auto-locate', 'manual-verify-needed'],
               body
             });
-
