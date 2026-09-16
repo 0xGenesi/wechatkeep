@@ -93,9 +93,29 @@ def archive_releases():
     return out
 
 
+def decompress_if_xz(path):
+    """zsbai 归档的 dmg 是 XZ 重压缩的（省空间）——hdiutil 不识别，先解压。
+    返回解压后路径（原文件删除）；非 XZ 原样返回。"""
+    with open(path, "rb") as f:
+        if f.read(6) != b"\xfd7zXZ\x00":
+            return path
+    out = path + ".dmg"
+    r = run(["/usr/bin/xz", "-dkc", path], )
+    # xz -dc 写 stdout 太大易爆管道；用 -dk 原地解压
+    r = subprocess.run(["/usr/bin/xz", "-dk", path], capture_output=True, text=True)
+    if r.returncode != 0:
+        # macOS 无 xz 时尝试 brew/opt 路径
+        r = subprocess.run(["/opt/homebrew/bin/xz", "-dk", path], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"xz 解压失败: {(r.stderr or '')[:120]}")
+    os.unlink(path)
+    return out
+
+
 def mount_read_build_and_extract(dmg_path):
     """挂载 dmg → 读 WeChat.app 的 CFBundleVersion（构建号）→ 拷出 wechat.dylib。
     返回 (dylib_path, build) 或 (None, build) 或 (None, None)。"""
+    dmg_path = decompress_if_xz(dmg_path)
     mount = tempfile.mkdtemp(prefix="wxkeep-mount-")
     r = run(["/usr/bin/hdiutil", "attach", "-nobrowse", "-readonly",
              "-mountpoint", mount, dmg_path])
@@ -125,6 +145,9 @@ def mount_read_build_and_extract(dmg_path):
         return out.name, build
     finally:
         run(["/usr/bin/hdiutil", "detach", mount, "-force"])
+        if dmg_path.endswith(".dmg.dmg"):
+            try: os.unlink(dmg_path)
+            except FileNotFoundError: pass
 
 
 def main():
