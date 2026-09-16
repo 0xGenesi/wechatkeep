@@ -5,8 +5,10 @@
 
 | 构建号 | 微信版本 | 防撤回(silent) | keeptip | 屏蔽更新 | 多开 | 备注 |
 |---|---|---|---|---|---|---|
+| 270090 | 4.1.15.10 | arm64 | arm64 | arm64 | — | merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded) |
 | 269631 | 4.1.13.63 | x86_64/arm64 ⚠︎ | arm64 | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269629 | 4.1.13 | x86_64 ⚠︎ | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
+| 269628 | ? | arm64 | arm64 | arm64 | — | merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded) |
 | 269627 | 4.1.13 | arm64 | arm64 | arm64 | — |  |
 | 269626 | 4.1.13 | arm64 | arm64 | — | — |  |
 | 269624 | 4.1.13 | arm64 | arm64 | arm64 | — |  |
@@ -59,4 +61,4 @@
 | 31960 | 3.8.x | arm64 ⚠︎ | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 31927 | 3.8.x | arm64 ⚠︎ | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 
-共 53 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
+共 55 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。

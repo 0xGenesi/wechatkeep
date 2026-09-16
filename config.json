@@ -1,29 +1,107 @@
 [
   {
-    "version": "33480",
+    "version": "270090",
     "targets": [
       {
         "identifier": "revoke",
-        "binary": "Contents/MacOS/WeChat",
+        "binary": "Contents/Resources/wechat.dylib",
         "entries": [
           {
             "arch": "arm64",
-            "addr": "3cbe7b0",
-            "expected": "F44FBEA9FD7B01A9",
-            "asm": "00008052C0035FD6",
-            "source": "wxkeep-field-test (stub-era, disasm-verified)"
+            "addr": "4bbe83c",
+            "expected": "40100034",
+            "asm": "82000014",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4bbe83c",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "fzlzjerry/wechat-antirecall"
           },
           {
-            "arch": "x86_64",
-            "addr": "104201cae",
-            "expected": "554889E553504889FB",
-            "asm": "31C0C3909090909090",
-            "source": "recipe:revoke_x64 (stub-aware)"
+            "arch": "arm64",
+            "addr": "4bbefdc",
+            "expected": "60E600F9",
+            "asm": "7FE600F9",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "2768ac",
+            "expected": "FC6FBBA9",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "278ad8",
+            "expected": "FFC305D1",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "278da8",
+            "expected": "FF4301D1",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2791c8",
+            "expected": "F657BDA9",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "283a48",
+            "expected": "00604039C0035FD6",
+            "asm": "00008052C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "283a50",
+            "expected": "02600039",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "283a58",
+            "expected": "00644039C0035FD6",
+            "asm": "00008052C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "283a60",
+            "expected": "02640039",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
           }
         ]
       }
     ],
-    "note": "4.1.6 夹缝构建（revoke 在主程序，桩代布局）；VA 含 PIE 基址 0x100000000"
+    "note": "merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded)"
   },
   {
     "version": "269631",
@@ -196,6 +274,110 @@
       }
     ],
     "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269628",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49af200",
+            "expected": "40100034",
+            "asm": "82000014",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49af200",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "49af9a0",
+            "expected": "60E600F9",
+            "asm": "7FE600F9",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27becc",
+            "expected": "FC6FBBA9",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e0f8",
+            "expected": "FFC305D1",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e3c8",
+            "expected": "FF4301D1",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e7e8",
+            "expected": "F657BDA9",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289068",
+            "expected": "00604039C0035FD6",
+            "asm": "00008052C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289070",
+            "expected": "02600039",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289078",
+            "expected": "00644039C0035FD6",
+            "asm": "00008052C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289080",
+            "expected": "02640039",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      }
+    ],
+    "note": "merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded)"
   },
   {
     "version": "269627",
@@ -4577,6 +4759,32 @@
       }
     ],
     "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "33480",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/MacOS/WeChat",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "3cbe7b0",
+            "expected": "F44FBEA9FD7B01A9",
+            "asm": "00008052C0035FD6",
+            "source": "wxkeep-field-test (stub-era, disasm-verified)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "104201cae",
+            "expected": "554889E553504889FB",
+            "asm": "31C0C3909090909090",
+            "source": "recipe:revoke_x64 (stub-aware)"
+          }
+        ]
+      }
+    ],
+    "note": "4.1.6 夹缝构建（revoke 在主程序，桩代布局）；VA 含 PIE 基址 0x100000000"
   },
   {
     "version": "32288",

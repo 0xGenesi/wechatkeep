@@ -19,12 +19,20 @@
   **newmsgid 同时控制「删哪条」和「群聊提示挂哪条」**，并指出完整解法 = 保留 newmsgid
   + NOP 下游删除调用，但该调用经虚派发/异步分发，「静态定位不到，需 lldb 动态定位」，
   属未实现的独立工程——与本仓静态深挖结论（0x36F2DD0 std::function 异步层断链）吻合。
+- fzlzjerry/wechat-antirecall = **混合路线**（字节补丁 + 预注入运行时 dylib）：补丁只在
+  微信函数序言装 `adrp x16; ldr x16; br x16` 跳板重定向进自家 dylib，全部逻辑在运行时
+  组件内（消息内容进程内缓存 + 撤回匹配 + 自定义文案「已拦截 {from} 于 {time} 撤回：
+  {content}」，{content} 仅部分构建可用、仅本次启动后收到的消息）。改文案不重签微信。
+  但其提示仍是替换原生提示 → 群聊限制依旧（zengtianli 实证）。
 - fzlzjerry 的 --runtime-tip 运行时注入也救不了群聊（同样落在 newmsgid=0 状态）→
   排除「上注入就能白拿群聊」的假设；WeChatIntercept 4.x 也已把聊天内提示退化成系统通知。
 - Windows 阵营（RevokeHook→BetterWX）已用**纯字节补丁**（无注入）实现完整效果：
   规则1 = 把撤回函数内 `call DeleteMessage` 换成 `SrvID+=1`（删除不执行 + 为提示记录
   铸新 ID，提示作为新消息插在原消息下方）；规则2 = 放行 DB 接受本地自造 ID 的一个字节。
   已知瑕疵：提示需重进会话刷新；自己撤回的边角行为。
+- **目录增益（已并入）**：fzlzjerry patches.json 的 269628 / 270090(4.1.15.10) arm64
+  条目已合并进 config.json（revoke/revoke-keeptip/update；runtime-tip 跳板条目指向其
+  自家 dylib，已剔除）。arm64 gen3（newmsgid 字段 0x1C8）延续到 270090 未变代。
 
 ## 方案定义
 
@@ -61,3 +69,13 @@
 - 提示不实时刷新（Windows 同款，重进会话才出现）——可接受，文档明示。
 - lldb 定位失败/删除点不可安全 NOP → 维持 v1（已 = arm64 阵营最好水平），v2 挂起。
 - 封号面：v2 与 v1 改动同为本地展示层字节，不触协议，风险面不变。
+
+## v3（可选扩展，依赖 v2 先落地）：fzlzjerry 式跳板 + 运行时组件
+
+若 v2 之后还想「提示文案含撤回原文（{content}）+ 自定义模板」，唯一途径是运行时组件
+（撤回 XML 里没有原文，需进程内缓存消息内容——fzlzjerry 已验证可行）：
+- 补丁只装 `adrp x16; ldr x16; br x16` 跳板（等长、可配方化），逻辑全在 wxkeep 自家
+  runtime dylib（LC_LOAD_DYLIB 注入需在 wechat.dylib 前加载，fzlzjerry 踩过闪退坑）
+- 与 v2 叠加后群聊/私聊提示原生插入（v2 保证）+ 文案改写含原文（v3 负责）= 完全体
+- 代价：注入面（重签+AMFI）、更新适配复杂度、x64 需自研（fzlzjerry 仅 arm64）
+- 决策：v2 验证通过、确有原文需求时再立项，不阻塞主线
