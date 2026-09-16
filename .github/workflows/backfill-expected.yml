@@ -23,10 +23,7 @@ jobs:
       - name: Count quarantined entries
         id: count
         run: |
-          n=$(python3 -c "
-import json
-cfg = json.load(open('config.json'))
-print(sum(1 for v in cfg for t in v['targets'] for e in t['entries'] if not e.get('expected')))")
+          n=$(python3 tools/count_quarantined.py)
           echo "quarantined=$n" >> "$GITHUB_OUTPUT"
           echo "隔离条目: $n"
       - name: Backfill
@@ -49,9 +46,4 @@ print(sum(1 for v in cfg for t in v['targets'] for e in t['entries'] if not e.ge
           fi
       - name: Remaining
         if: steps.count.outputs.quarantined != '0'
-        run: |
-          python3 -c "
-import json
-cfg = json.load(open('config.json'))
-n = sum(1 for v in cfg for t in v['targets'] for e in t['entries'] if not e.get('expected'))
-print(f'剩余隔离: {n}（后续每日继续）')"
+        run: echo "剩余隔离: $(python3 tools/count_quarantined.py)（后续每日继续）"
