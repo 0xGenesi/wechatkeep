@@ -67,7 +67,12 @@ def read_bytes_at(dylib, arch, addr_hex, count):
 
 def archive_releases():
     """zsbai 归档全部 release（tag 是展示版本号，body 无构建号——构建号
-    只能挂载 dmg 读 CFBundleVersion）。返回 [(tag, dmg_url), ...] 从新到旧。"""
+    只能挂载 dmg 读 CFBundleVersion）。返回 [(tag, dmg_url), ...] 从新到旧。
+    认证：优先 GH_TOKEN 环境变量（runner 注入，5000/h），避免匿名 60/h 限流。"""
+    import os
+    headers = {"User-Agent": "wxkeep-backfill"}
+    if os.environ.get("GH_TOKEN"):
+        headers["Authorization"] = f"Bearer {os.environ['GH_TOKEN']}"
     out = []
     for page in (1, 2, 3):
         url = (f"https://api.github.com/repos/zsbai/wechat-versions/releases"

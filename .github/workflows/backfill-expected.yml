@@ -28,6 +28,8 @@ jobs:
           echo "隔离条目: $n"
       - name: Backfill
         if: steps.count.outputs.quarantined != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           LIMIT="${{ github.event.inputs.limit || '5' }}"
           git config user.name "wxkeep-bot"
