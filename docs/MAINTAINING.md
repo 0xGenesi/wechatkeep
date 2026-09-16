@@ -30,9 +30,38 @@
 x64 revoke（imm64:revokems 锚点 + padding-boundary + unique-positive-callers）：
 2026-09 在 269602 验证（0x4BC5940, 9 callers；已打补丁态靠双边界推导仍可定位）。
 
+## x64 keeptip 定位方法论（2026-09-16 攻坚，269602 待真机验证）
+
+**核心结论：arm64 的撤回处理函数与 x64 的 TryParseMessage 是同一函数**（证据：
+都先调 isRevokemsg，为假时转同一形态的第二检查器；都按 newmsgid → replacemsg
+顺序懒初始化全局串并解析 XML；解析结果写入同一 C++ 结构）。
+
+定位步骤（在新构建上复现）：
+1. `imm64:newmsgid` 锚点在 __text 命中数处（TryParseMessage + 日志/服务层片段）。
+2. 唯一目标 = 命中点前方短窗内存在 movabs "revokems" 惰性初始化、且紧随其后
+   出现 `E8 ???????? 48 89 ?? C8 01 00 00`（call 转换器 + 存 [reg+0x1C8]）的那处。
+3. 补丁点 = 该 call 的起始（覆盖 call+store 共 12 字节）：
+   原 `E8 rel32 | 48 89 83 C8 01 00 00`（newmsgid 串→u64 转换后存入 [this+0x1C8]）
+   改 `48 31 C0 66 90 | 48 89 83 C8 01 00 00`（xor rax,rax; 2字节nop; 原样存储）。
+   存入 0 → 下游按 newmsgid 删除落空，replacemsg 灰条提示照常 —— 与 arm64 keeptip
+   语义一致（zengtianli 验证过的机制）。
+4. 安全性：被跳过的转换器（269602 为 0x4F38270，c_str+strtoull 包装）是纯函数；
+   call 移除对 ABI 无影响（call 本就 clobber 全部易失寄存器，r13/rbx 等被调用者
+   保存寄存器不受影响）。
+
+注意：
+- **精确 VA 条目跨构建必然失效**——E8 的 rel32 与 modrm 基址寄存器都可能变，
+  新构建需按上述步骤重定位并重读 expected，勿直接复制 269602 字节。
+- 269602 上旧的 x64 keeptip 尝试点 0x32A0D9D（mov rdx,rax 清零）删除的是
+  「日志/服务层片段函数」的指针参数，与删除路径无关——该条目已改造为
+  清理恢复型（旧补丁存在则还原，幂等）。
+
 ## 误改与踩坑记录（防重蹈）
 
-- **x64 结构偏移 ≠ arm64**：newmsgid 在 arm64 是 +0x1C8，x64 slice 无此访问模式——跨架构不可假设结构布局（M2 实证）。
+- **~~x64 结构偏移 ≠ arm64~~（2026-09-16 推翻）**：newmsgid 字段两架构同为
+  +0x1C8（同一 C++ 结构）。M2 的旧结论源于当时只扫到 TryParseMessage 之外的
+  日志片段、未定位到真正的解析函数——**跨架构不能假设「无此访问模式」，
+  只能假设「未找到」**。
 - **fixture 代码区撞段表**：合成 Mach-O 的 0x40–0x68 是 vmsize/fileoff 字段，测试代码必须放 load command 之后（≥0x68）。
 - **已打补丁状态会污染边界扫描**：补丁自己的 `ret+NOP` 构成第一个函数边界 → padding-boundary 取前两个边界（M2-1）。
 - **dlopen 路线不可行**：wechat.dylib 依赖 app 内框架 + Qt 初始化器在 app 外崩溃（M2-3 spike 判死）。

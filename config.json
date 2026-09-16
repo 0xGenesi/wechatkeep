@@ -689,9 +689,31 @@
           {
             "arch": "x86_64",
             "addr": "32a0d9d",
-            "expected": "4889C2",
-            "asm": "31D290",
-            "source": "wxkeep-x64-keeptip-experimental (zero the length arg: newmsgid reaches the delete path as an empty string — message stays, tip renders)"
+            "expected": [
+              "4889C2",
+              "31D290"
+            ],
+            "asm": "4889C2",
+            "source": "wxkeep:旧keeptip尝试点清理(恢复mov rdx,rax;新keeptip切换时自动还原)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4bc5940",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "variant-switch: restore silent (undo 4BC5940 neuter)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "50a5bad",
+            "expected": [
+              "E8BE26E9FF488983C8010000"
+            ],
+            "asm": "4831C06690488983C8010000",
+            "source": "wxkeep:arm64对照定位(TryParseMessage内newmsgid→[this+0x1C8]存储清零,使撤回删除失效而提示保留)"
           }
         ]
       }
