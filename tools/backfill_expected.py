@@ -100,14 +100,14 @@ def decompress_if_xz(path):
         if f.read(6) != b"\xfd7zXZ\x00":
             return path
     out = path + ".dmg"
-    r = run(["/usr/bin/xz", "-dkc", path], )
-    # xz -dc 写 stdout 太大易爆管道；用 -dk 原地解压
-    r = subprocess.run(["/usr/bin/xz", "-dk", path], capture_output=True, text=True)
+    # macOS runner 无系统 xz；brew 的位置随架构而异
+    xz = next((c for c in ("/opt/homebrew/bin/xz", "/usr/local/bin/xz", "/usr/bin/xz")
+               if os.path.exists(c)), None)
+    if not xz:
+        raise RuntimeError("xz 不可用（brew install xz）")
+    r = subprocess.run([xz, "-dk", path], capture_output=True, text=True)
     if r.returncode != 0:
-        # macOS 无 xz 时尝试 brew/opt 路径
-        r = subprocess.run(["/opt/homebrew/bin/xz", "-dk", path], capture_output=True, text=True)
-        if r.returncode != 0:
-            raise RuntimeError(f"xz 解压失败: {(r.stderr or '')[:120]}")
+        raise RuntimeError(f"xz 解压失败: {(r.stderr or '')[:120]}")
     os.unlink(path)
     return out
 
