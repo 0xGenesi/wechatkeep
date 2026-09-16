@@ -46,4 +46,5 @@ jobs:
           fi
       - name: Remaining
         if: steps.count.outputs.quarantined != '0'
-        run: echo "剩余隔离: $(python3 tools/count_quarantined.py)（后续每日继续）"
+        run: |
+          echo "剩余隔离: $(python3 tools/count_quarantined.py)（后续每日继续）"
