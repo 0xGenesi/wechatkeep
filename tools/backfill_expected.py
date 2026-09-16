@@ -104,14 +104,17 @@ def decompress_if_xz(path):
     with open(path, "rb") as f:
         if f.read(6) != b"\xfd7zXZ\x00":
             return path
-    out = path + ".dmg"
-    # macOS runner 无系统 xz；brew 的位置随架构而异
+    # xz -d 要求 .xz 后缀（"Filename has an unknown suffix"）——重命名再解压
     xz = next((c for c in ("/opt/homebrew/bin/xz", "/usr/local/bin/xz", "/usr/bin/xz")
                if os.path.exists(c)), None)
     if not xz:
         raise RuntimeError("xz 不可用（brew install xz）")
-    r = subprocess.run([xz, "-dk", path], capture_output=True, text=True)
+    xzpath = path + ".xz"
+    os.rename(path, xzpath)
+    out = path  # 解压后恢复原名
+    r = subprocess.run([xz, "-dk", xzpath], capture_output=True, text=True)
     if r.returncode != 0:
+        os.rename(xzpath, path)
         raise RuntimeError(f"xz 解压失败: {(r.stderr or '')[:120]}")
     os.unlink(path)
     return out
@@ -150,9 +153,8 @@ def mount_read_build_and_extract(dmg_path):
         return out.name, build
     finally:
         run(["/usr/bin/hdiutil", "detach", mount, "-force"])
-        if dmg_path.endswith(".dmg.dmg"):
-            try: os.unlink(dmg_path)
-            except FileNotFoundError: pass
+        try: os.unlink(dmg_path)
+        except FileNotFoundError: pass
 
 
 def main():
