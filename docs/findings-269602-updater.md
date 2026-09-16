@@ -38,3 +38,15 @@ locate_update_x64.py 在真实 269602 x64 slice 上验证：
 关键工程发现：**cfprefd 域所有权** —— 微信运行中，其沙盒域由 app 的 agent 持有，
 外部 defaults 写入被静默丢弃（真机实测）；写入必须以微信退出为前提（与 patch
 同约束，故挂进 patch 流程自动满足）。
+
+## x64 keeptip 逆向进展存档（2026-09-15 晚，第二会话）
+
+已确认的锚点链（x64 slice, F=parseRevokeXML 集群 0x328EAA0）：
+- `0x5ABE310` = XML 属性 getter（被调 20+ 次）；`0x32A0972` 处即 `Attr("newmsgid")`
+- `0x4E490B0` = 属性值非空检查（`test al; je` 空则跳 0x32A0B87 路径）
+- `0x92310` = string→uint64 转换（arm64 `0x47F8F1C` 的同源），@0x32A0B8E
+- `0x32A0B93 mov [rbp-0xB0], rax` = newmsgid 数值栈槽
+- 之后：0x5AC16A0 格式化回字符串 → 0x284190 构造 → 0x4EBCAA0 → 日志(0xA1F 行号)混淆链
+- **未决**：newmsgid 最终写入 this 的哪 个偏移（x64 是字符串化路径，与 arm64 整数字段
+  `+0x1C8` 模型不同；this 存 [rbp-0x248]，直接 `mov [this+disp]` 存储在本函数未出现，
+  疑在子函数内）。下次从 [rbp-0xB0]/0x284190 返回值的消费方继续。

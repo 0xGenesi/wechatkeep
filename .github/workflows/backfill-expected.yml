@@ -1,0 +1,57 @@
+name: backfill-expected
+
+# 每日自动为隔离区条目（缺 expected 溯源字节）回填官方归档字节。
+# 跑在 GitHub runner（网络快），每天最多 --limit 个构建号，改 config.json
+# 直接 push（expected 门兜底：回填的字节本身就是从官方包读的原始字节）。
+on:
+  schedule:
+    - cron: "30 8 * * *"   # 08:30 UTC，在 watch-wechat 之后
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "本次处理的构建号数"
+        default: "5"
+
+jobs:
+  backfill:
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Count quarantined entries
+        id: count
+        run: |
+          n=$(python3 -c "
+import json
+cfg = json.load(open('config.json'))
+print(sum(1 for v in cfg for t in v['targets'] for e in t['entries'] if not e.get('expected')))")
+          echo "quarantined=$n" >> "$GITHUB_OUTPUT"
+          echo "隔离条目: $n"
+      - name: Backfill
+        if: steps.count.outputs.quarantined != '0'
+        run: |
+          LIMIT="${{ github.event.inputs.limit || '5' }}"
+          git config user.name "wxkeep-bot"
+          git config user.email "actions@users.noreply.github.com"
+          python3 tools/backfill_expected.py --config config.json --limit "$LIMIT"
+          # 重新生成矩阵（隔离标记随之更新）
+          python3 tools/gen_matrix.py || true
+          if git diff --quiet; then
+            echo "无变化（下载源缺失或已全部回填）"
+          else
+            git add config.json docs/COMPATIBILITY.md config.json.bak.* 2>/dev/null || git add config.json docs/COMPATIBILITY.md
+            rm -f config.json.bak.*
+            git add -A
+            git commit -m "backfill: expected bytes from official archives (auto)"
+            git push
+          fi
+      - name: Remaining
+        if: steps.count.outputs.quarantined != '0'
+        run: |
+          python3 -c "
+import json
+cfg = json.load(open('config.json'))
+n = sum(1 for v in cfg for t in v['targets'] for e in t['entries'] if not e.get('expected'))
+print(f'剩余隔离: {n}（后续每日继续）')"
