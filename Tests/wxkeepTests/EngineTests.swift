@@ -106,4 +106,40 @@ final class EngineTests {
         #expect(try Engine.targets(for: entry, variant: "silent").map(\.identifier) == ["revoke", "update"])
         #expect(try Engine.targets(for: entry, variant: "keeptip").map(\.identifier) == ["revoke-keeptip", "update"])
     }
+
+    /// 269602 x64 实证过的回归：keeptip 在同一 VA 上的「归一化条目」
+    /// （asm=原始字节, expected[0]=另一变体的补丁字节）。restore 曾把
+    /// expected[0]（silent 字节）当原始字节写回——revoke 目标先还原、
+    /// keeptip 目标再覆盖，静默补丁复活。
+    @Test func restoreDoesNotReapplyOtherVariantOnNormalizerEntries() throws {
+        let app = try makeApp()
+        let json = """
+        [{"version":"999999","targets":[
+            {"identifier":"revoke","binary":"Contents/Resources/wechat.dylib","entries":[
+                {"arch":"x86_64","addr":"100","expected":"554889E553504889FB","asm":"31C0C3909090909090"}
+            ]},
+            {"identifier":"revoke-keeptip","binary":"Contents/Resources/wechat.dylib","entries":[
+                {"arch":"x86_64","addr":"100","expected":["31C0C3909090909090","554889E553504889FB"],"asm":"554889E553504889FB"}
+            ]}
+        ]}]
+        """
+        let config = try Config(data: Data(json.utf8), origin: "inline")
+        let dylibURL = app.appendingPathComponent("Contents/Resources/wechat.dylib")
+        let orig = Data([0x55, 0x48, 0x89, 0xE5, 0x53, 0x50, 0x48, 0x89, 0xFB])
+        let silent = Data([0x31, 0xC0, 0xC3, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90])
+
+        // silent → keeptip 切换：归一化条目保证 x64 回到原始
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "silent",
+                             dryRun: false, allowUnverified: false, only: nil)
+        #expect(try Data(contentsOf: dylibURL).range(of: silent) != nil)
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
+                             dryRun: false, allowUnverified: false, only: nil)
+        #expect(try Data(contentsOf: dylibURL).range(of: orig) != nil)
+
+        // 回归核心：restore 之后必须仍是原始字节
+        _ = try Engine.restore(app: app, build: "999999", config: config, dryRun: false)
+        let restored = try Data(contentsOf: dylibURL)
+        #expect(restored.range(of: orig) != nil)
+        #expect(restored.range(of: silent) == nil)
+    }
 }

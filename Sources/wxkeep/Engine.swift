@@ -201,7 +201,11 @@ enum Engine {
                 let inverted = target.entries.map { entry -> Config.PatchEntry in
                     var copy = entry
                     let asm = entry.asm
-                    copy.asm = entry.expected!.values[0]
+                    // asm ∈ expected 的条目是「归一化条目」（如 keeptip 在 isRevokemsg
+                    // 入口写的恢复型条目）：其 expected[0] 是另一变体的补丁字节而非
+                    // 原始字节。恢复目标必须是 asm 本身，否则 restore 会把 silent
+                    // 补丁写回去（269602 x64 实证：revoke 先还原、keeptip 再覆盖）。
+                    copy.asm = entry.expected!.values.contains(asm) ? asm : entry.expected!.values[0]
                     copy.expected = Config.ExpectedVariants([asm] + entry.expected!.values)
                     return copy
                 }
