@@ -74,8 +74,14 @@ struct RecipeEngine {
             }
             let candidates = try arm64InitLoaders(of: ascii, in: image, text: text)
             let entries = candidates.compactMap { loader -> (va: UInt64, distance: Int)? in
-                let r = entryVA(arm64InitAt: loader, in: image, text: text)
-        
+                entryVA(arm64InitAt: loader, in: image, text: text)
+            }
+            .filter { $0.distance <= 0x40 }   // tiny compare-fn only; parse-fn inits sit far from their entry
+            guard !entries.isEmpty else { throw RecipeError.noHit(anchor: recipe.anchor) }
+            guard entries.count == 1 else { throw RecipeError.ambiguous(entries.count, anchor: recipe.anchor) }
+            return entries[0].va
+        }
+
         let pattern = try anchorPattern(recipe.anchor)
         let hits = try image.offsets(of: pattern, in: "__text")
         guard !hits.isEmpty else { throw RecipeError.noHit(anchor: recipe.anchor) }

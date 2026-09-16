@@ -117,13 +117,80 @@ enum Verifier {
               let probes = try? JSONDecoder().decode([[String]].self, from: Data(args[4].utf8))
         else { exit(2) }
 
-        // Map the whole thin image RWX (VA == file offset invariant).
+        // Map the whole thin image RWX. Image base = __TEXT vmaddr: dylibs
+        // link at 0 (VA == file offset) but PIE main executables link at
+        // 0x100000000 — every spec VA must be rebased by it.
+        let base = data.withUnsafeBytes { raw -> UInt64 in
+            // bare synthetic blobs (test fixtures) carry no Mach-O header
+            guard raw.count >= 32,
+                  raw.loadUnaligned(fromByteOffset: 0, as: UInt32.self) == 0xFEEDFACF else { return 0 }
+            let ncmds = raw.loadUnaligned(fromByteOffset: 16, as: UInt32.self)
+            var p = 32
+            var minVM = UInt64.max
+            for _ in 0..<ncmds {
+                guard p + 72 <= raw.count else { break }
+                let cmd = raw.loadUnaligned(fromByteOffset: p, as: UInt32.self)
+                let cmdsize = Int(raw.loadUnaligned(fromByteOffset: p + 4, as: UInt32.self))
+                guard cmdsize > 0 else { break }
+                if cmd == 0x19 {
+                    let vmaddr = raw.loadUnaligned(fromByteOffset: p + 24, as: UInt64.self)
+                    let vmsize = raw.loadUnaligned(fromByteOffset: p + 32, as: UInt64.self)
+                    let fileoff = raw.loadUnaligned(fromByteOffset: p + 40, as: UInt64.self)
+                    // __TEXT is the fileoff==0 CONTENT segment (PAGEZERO also
+                    // sits at fileoff 0 with filesize 0 — exclude by content);
+                    // its vmaddr is the base (0 for dylibs, 0x1_0000_0000 for PIE)
+                    let filesize = raw.loadUnaligned(fromByteOffset: p + 48, as: UInt64.self)
+                    if filesize > 0, fileoff == 0 { minVM = min(minVM, vmaddr) }
+                }
+                p += cmdsize
+            }
+            return minVM == .max ? 0 : minVM
+        }
+        // Segment-faithful mapping: some images (PIE executables) have
+        // fileoff != vmaddr - base for later segments; copy each segment to
+        // its vmaddr slot so every spec VA indexes uniformly. anon memory is
+        // zero-filled, covering __bss tails beyond filesize.
+        var mappedSize = 0
         let mapped = data.withUnsafeBytes { raw -> UnsafeMutableRawPointer in
-            let base = mmap(nil, raw.count, PROT_READ | PROT_WRITE | PROT_EXEC,
-                            MAP_PRIVATE | MAP_ANON, -1, 0)
-            guard let base = base, base != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
-            memcpy(base, raw.baseAddress, raw.count)
-            return base
+            var segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64)] = []
+            var p = 32
+            for _ in 0..<raw.loadUnaligned(fromByteOffset: 16, as: UInt32.self) {
+                guard p + 72 <= raw.count else { break }
+                let cmd = raw.loadUnaligned(fromByteOffset: p, as: UInt32.self)
+                let cmdsize = Int(raw.loadUnaligned(fromByteOffset: p + 4, as: UInt32.self))
+                guard cmdsize > 0 else { break }
+                if cmd == 0x19 {
+                    let fs = raw.loadUnaligned(fromByteOffset: p + 48, as: UInt64.self)
+                    if fs > 0 {   // skip __PAGEZERO-style contentless segments
+                        segs.append((raw.loadUnaligned(fromByteOffset: p + 24, as: UInt64.self),
+                                     raw.loadUnaligned(fromByteOffset: p + 32, as: UInt64.self),
+                                     Int(raw.loadUnaligned(fromByteOffset: p + 40, as: UInt64.self)),
+                                     fs))
+                    }
+                }
+                p += cmdsize
+            }
+            if segs.isEmpty {   // bare blob: identity copy, base 0
+                let mem = mmap(nil, raw.count, PROT_READ | PROT_WRITE | PROT_EXEC,
+                               MAP_PRIVATE | MAP_ANON, -1, 0)
+                guard let mem = mem, mem != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
+                memcpy(mem, raw.baseAddress, raw.count)
+                mappedSize = raw.count
+                return mem
+            }
+            let top = segs.filter { $0.vmaddr >= base }.map { $0.vmaddr + $0.vmsize }.max() ?? 0
+            let total = Int(top - base)
+            mappedSize = total
+            let mem = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC,
+                           MAP_PRIVATE | MAP_ANON, -1, 0)
+            guard let mem = mem, mem != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
+            for seg in segs where seg.vmaddr >= base {
+                let dst = Int(seg.vmaddr - base)
+                let src = raw.baseAddress! + seg.fileoff
+                let n = min(Int(seg.filesize), total - dst)
+                if n > 0, dst >= 0 { memcpy(mem + dst, src, n) }
+            }
+            return mem
         }
 
         // Zero magic-static regions to their runtime-start state.
@@ -132,14 +199,15 @@ enum Verifier {
         for region in zeros {
             guard region.count == 2, let vaHex = UInt64(region[0], radix: 16),
                   let len = Int(region[1]), len > 0,
-                  Int(vaHex) >= 0, Int(vaHex) + len <= data.count else { exit(3) }
-            memset(mapped + Int(vaHex), 0, len)
+                  vaHex >= base, Int(vaHex - base) >= 0,
+                  Int(vaHex - base) + len <= mappedSize else { exit(3) }
+            memset(mapped + Int(vaHex - base), 0, len)
         }
 
         // Redirect PLT GOT slots: `ff 25 <rel32>` → slot offset = stubVA + 6 + disp.
         for (stubHex, kind) in stubs {
             guard let stubVA = UInt64(stubHex, radix: 16) else { continue }
-            let stub = UnsafeRawPointer(mapped + Int(stubVA))
+            let stub = UnsafeRawPointer(mapped + Int(stubVA - base))
             guard stub.load(as: UInt8.self) == 0xFF,
                   stub.load(fromByteOffset: 1, as: UInt8.self) == 0x25 else { continue }
             // swift load() enforces alignment — assemble the unaligned rel32 byte-wise
@@ -148,8 +216,8 @@ enum Verifier {
                 dispValue |= UInt32(stub.load(fromByteOffset: 2 + i, as: UInt8.self)) << (8 * i)
             }
             let disp = Int32(bitPattern: dispValue)
-            let slotOffset = Int(stubVA) + 6 + Int(disp)
-            guard slotOffset >= 0, slotOffset + 8 <= data.count,
+            let slotOffset = Int(stubVA - base) + 6 + Int(disp)
+            guard slotOffset >= 0, slotOffset + 8 <= mappedSize,
                   UInt(bitPattern: mapped + slotOffset) % 8 == 0 else { exit(3) }
             let sym = kind == "memcmp" ? "memcmp" : "strlen"
             if let fn = dlsym(dlopen(nil, RTLD_LAZY), sym) {
@@ -160,9 +228,9 @@ enum Verifier {
         // WeChat SSO string ABI: pass 24 CONTIGUOUS bytes. Array's own
         // withUnsafeMutableBytes yields the element buffer — never &array
         // (that is the array header: pointer+count, not the data).
-        guard Int(va) >= 0, Int(va) < data.count else { exit(3) }
+        guard va >= base, Int(va - base) < mappedSize else { exit(3) }
         let fn: @convention(c) (UnsafeMutableRawPointer) -> Bool =
-            unsafeBitCast(mapped + Int(va), to: (@convention(c) (UnsafeMutableRawPointer) -> Bool).self)
+            unsafeBitCast(mapped + Int(va - base), to: (@convention(c) (UnsafeMutableRawPointer) -> Bool).self)
 
         var out = ""
         for probe in probes {
