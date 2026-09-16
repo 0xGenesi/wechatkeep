@@ -227,6 +227,12 @@ def main():
                     req = urllib.request.Request(url, headers={"User-Agent": "wxkeep-backfill"})
                     with urllib.request.urlopen(req, timeout=900) as r, open(dmg.name, "wb") as f:
                         shutil.copyfileobj(r, f)
+                        expected = int(r.headers.get("Content-Length") or 0)
+                    actual = os.path.getsize(dmg.name)
+                    if expected and actual != expected:
+                        print(f"      下载不完整: {actual}/{expected} 字节，跳过 {tag}")
+                        continue
+                    print(f"      下载 {actual/1048576:.0f}MB")
                     dylib, build = mount_read_build_and_extract(dmg.name)
                 finally:
                     os.unlink(dmg.name)
