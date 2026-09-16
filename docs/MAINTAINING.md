@@ -197,3 +197,32 @@ zsbai 归档的 dmg 资产为 XZ 重压缩格式且**文件尾无 XZ footer magi
 本轮流水线工程收获（已沉淀）：GITHUB_TOKEN 对外部仓库=匿名级（60/h 共享 IP 必 403）→
 归档索引随仓库分发；XZ 解压的 suffix 要求与 brew xz 路径探测；下载 Content-Length
 校验。整条流水线架构完备，待上游出现健康数据源即可启用。
+
+## v2 追踪会话沉淀（2026-09-16 深夜，269602 x64）
+
+**lldb 基建教训**（tools/dyntrace/ 存档了可用脚本）：
+- wechat.dylib 由主程序 dlopen 后 dlsym 调 `WeChatMain`（仅有的两个导出符号之一）——
+  `breakpoint set -n WeChatMain` 是可靠的"模块就绪"哨兵
+- `breakpoint set -s wechat.dylib -a <va>` 在此 lldb 版本把 -a 当绝对地址（不解析 pending），
+  全部断点空挂；正确做法：WeChatMain 命中后按 `__TEXT load base + va` 设绝对断点
+- `SetScriptCallbackFunction` 多次注册触发 KeyError（autogen 包装冲突）；断点命令列表里的
+  `echo`/输出在此版本被吞；可靠通道=顶层 `script print` + 事件循环（drive.py）
+- lldb 默认关 ASLR：wechat.dylib __TEXT base 两轮恒为 0x11B008000，可硬编码+地面真值校验
+- 后台会话必须用托管后台任务；`&` 启动的 lldb 随 shell 退出被杀，微信孤儿化（表面正常、
+  断点全空——排查用 `ps -o ppid` 确认微信父进程是 lldb）
+
+**新链路事实**（修正先前模型）：
+- 撤回查找执行器 0x36D4A10：按 newmsgid(+0x1C8) 构造查询 → 0x1A215C0 查找 → 结果写
+  obj+0x288；企微分支按 chat_id(+0x2C8)/revoke_climsgid(+0x2E0)。调用者 0x36D58D0/
+  0x36D9120 ← 分发器 0x32E5D40 ← HandleNewXMLMsg。**动态实证：对方撤回时该家族零命中**
+  → 判定为自发撤回/同步路径，非对方撤回主路
+- 0x32AD4D0（两个分发目标共调）＝撤回主力：查找收集(0x30DB570)→0x32ABC90(16调用者的
+  通用消息处理器)→0x32ABD90→0x36DBAE0 执行器。同样动态零命中——同属非主路
+- TryParseMessage 唯一调用者 0x50A5120(wrapper) 是 vtable 虚方法：vtable@0xA3FBE98
+  槽位 +0x18（`dyld_info -fixups` 解码 chained fixups 找到——vtable 引用静态定位的标准
+  手段）；0x340 结构工厂 0x503D990 在 +0x18 内嵌该解析器
+- 解析框架：0x28EE90(构造,三 vtable) → 0x28EF80 → 0x28F0D0×4(0x128 步长四类槽) →
+  wrapper(slot+0x18) + 0x50A5110(slot+0x10 取结果)；工厂族 0x28B630/0x29B9E0/
+  0x29FA50/0x2A2910
+- **下一步（唯一硬需求）**：只断 wrapper 0x50A5120（单断点防过载冻结），一次对方撤回
+  的 bt 即锁定真实消费链 → 定位删除调用 → 按 BetterWX 两规则法落地 v2
