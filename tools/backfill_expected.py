@@ -100,6 +100,7 @@ def mount_read_build_and_extract(dmg_path):
     r = run(["/usr/bin/hdiutil", "attach", "-nobrowse", "-readonly",
              "-mountpoint", mount, dmg_path])
     if r.returncode != 0:
+        print(f"      hdiutil 挂载失败: {r.stderr.strip()[:100]}")
         shutil.rmtree(mount, ignore_errors=True)
         return None, None
     try:
@@ -179,7 +180,7 @@ def main():
             if hint:
                 base = hint.rsplit(".", 1)[0]
                 for t, _ in releases:
-                    if t.startswith(base) and t not in cands and len(cands) < 3:
+                    if t.startswith(base) and t not in cands and len(cands) < 8:
                         cands.append(t)
             candidates = cands
             done = False
@@ -202,6 +203,7 @@ def main():
                 if build:
                     tagmap[tag] = build
                     json.dump(tagmap, open(cachepath, "w"))
+                    print(f"      {tag} 实际构建号 {build}")
                 if build == version and dylib:
                     todo[version] = dylib
                     done = True
