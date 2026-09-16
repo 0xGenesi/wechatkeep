@@ -95,13 +95,18 @@ struct Config {
 
     // MARK: - Loading
 
-    /// Local-first resolution: explicit flag > ./config.json > walk up from the
-    /// executable (max 8 levels). Remote default catalog arrives in M5.
+    /// Local-first resolution: explicit flag > ./config.json > next to the
+    /// executable (resolving symlinks — brew's /usr/local/bin/wxkeep points
+    /// into the Cellar) > walk up from it (max 8 levels).
     static func load(explicit: String?) throws -> Config {
         var candidates: [String] = []
         if let explicit { candidates.append(explicit) }
         candidates.append(FileManager.default.currentDirectoryPath + "/config.json")
-        let exeDir = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+        // Resolve the executable's symlink: brew's /usr/local/bin/wxkeep →
+        // ../Cellar/wxkeep/<ver>/bin/wxkeep, where config.json is staged.
+        let exePath = URL(fileURLWithPath: CommandLine.arguments[0],
+                          relativeTo: nil).resolvingSymlinksInPath().path
+        let exeDir = URL(fileURLWithPath: exePath).deletingLastPathComponent()
         var dir = exeDir
         for _ in 0..<8 {
             candidates.append(dir.appendingPathComponent("config.json").path)

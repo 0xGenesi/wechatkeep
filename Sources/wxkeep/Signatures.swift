@@ -36,7 +36,9 @@ struct Signatures: Codable {
         var candidates: [String] = []
         if let explicit { candidates.append(explicit) }
         candidates.append(FileManager.default.currentDirectoryPath + "/signatures.json")
-        let exeDir = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+        let exePath = URL(fileURLWithPath: CommandLine.arguments[0],
+                          relativeTo: nil).resolvingSymlinksInPath().path
+        let exeDir = URL(fileURLWithPath: exePath).deletingLastPathComponent()
         var dir = exeDir
         for _ in 0..<8 {
             candidates.append(dir.appendingPathComponent("signatures.json").path)
