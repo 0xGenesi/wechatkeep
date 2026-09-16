@@ -66,7 +66,7 @@ enum UpdateGuard {
 
     private static func apply(guarded: Bool) -> Bool {
         for spec in keys {
-            let value = guarded ? spec.guardedValue : "1"
+            let value = guarded ? "false" : "true"   // defaults CLI 需要 true/false 字面量
             let args = defaultsArgs(["write", domain, spec.key, "-bool", value])
             _ = Shell.run(args[0], Array(args[1...]))
         }
