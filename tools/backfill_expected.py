@@ -47,35 +47,58 @@ def read_bytes_at(dylib, arch, addr_hex, count):
         os.unlink(thin)
 
 
-def dmgs_for_version(version):
-    """zsbai 归档里该构建号的 dmg 下载 URL（可能有多个同名版本，取全部）。"""
-    url = f"https://api.github.com/repos/zsbai/wechat-versions/releases/tags/{version}"
-    req = urllib.request.Request(url, headers={"User-Agent": "wxkeep-backfill"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        rel = json.load(r)
-    return [a["browser_download_url"] for a in rel.get("assets", [])
-            if a["name"].endswith(".dmg")]
+def archive_releases():
+    """zsbai 归档全部 release（tag 是展示版本号，body 无构建号——构建号
+    只能挂载 dmg 读 CFBundleVersion）。返回 [(tag, dmg_url), ...] 从新到旧。"""
+    out = []
+    for page in (1, 2, 3):
+        url = (f"https://api.github.com/repos/zsbai/wechat-versions/releases"
+               f"?per_page=100&page={page}")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "wxkeep-backfill"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                rels = json.load(r)
+        except Exception as e:
+            print(f"  归档列表拉取失败(page {page}): {e}")
+            break
+        if not rels:
+            break
+        for rel in rels:
+            for a in rel.get("assets", []):
+                if a["name"].endswith(".dmg"):
+                    out.append((rel["tag_name"], a["browser_download_url"]))
+    return out
 
 
-def extract_wechat_dylib(dmg_path):
-    """挂载 dmg 并拷出 wechat.dylib；不匹配（无该文件）返回 None。"""
+def mount_read_build_and_extract(dmg_path):
+    """挂载 dmg → 读 WeChat.app 的 CFBundleVersion（构建号）→ 拷出 wechat.dylib。
+    返回 (dylib_path, build) 或 (None, build) 或 (None, None)。"""
     mount = tempfile.mkdtemp(prefix="wxkeep-mount-")
     r = run(["/usr/bin/hdiutil", "attach", "-nobrowse", "-readonly",
              "-mountpoint", mount, dmg_path])
     if r.returncode != 0:
         shutil.rmtree(mount, ignore_errors=True)
-        return None
+        return None, None
     try:
-        candidates = []
-        for root, _dirs, files in os.walk(mount):
+        app = None
+        dylib = None
+        for root, dirs, files in os.walk(mount):
+            if "Info.plist" in files and root.endswith(".app/Contents"):
+                app = os.path.dirname(root)
             if "wechat.dylib" in files:
-                candidates.append(os.path.join(root, "wechat.dylib"))
-        if not candidates:
-            return None
+                dylib = os.path.join(root, "wechat.dylib")
+        build = None
+        if app:
+            b = run(["/usr/bin/defaults", "read",
+                     os.path.join(app, "Info.plist"), "CFBundleVersion"])
+            if b.returncode == 0:
+                build = b.stdout.strip()
+        if not dylib:
+            return None, build
         out = tempfile.NamedTemporaryFile(prefix="wxkeep-dylib-", delete=False)
         out.close()
-        shutil.copy2(candidates[0], out.name)
-        return out.name
+        shutil.copy2(dylib, out.name)
+        return out.name, build
     finally:
         run(["/usr/bin/hdiutil", "detach", mount, "-force"])
 
@@ -110,27 +133,51 @@ def main():
     if args.dylib and args.version:
         todo[args.version] = args.dylib
     else:
-        # 优先最新构建号（数值大优先）
+        releases = archive_releases()
+        print(f"  归档 release: {len(releases)} 个")
+        # tag→build 缓存（.wxkeep-tagmap.json），一次探明终身受用
+        cachepath = os.path.join(os.path.dirname(os.path.abspath(args.config)),
+                                 ".wxkeep-tagmap.json")
+        tagmap = {}
+        if os.path.exists(cachepath):
+            try:
+                tagmap = json.load(open(cachepath))
+            except Exception:
+                tagmap = {}
         for version in sorted(quarantined, key=lambda x: int(x) if x.isdigit() else 0,
                               reverse=True)[:args.limit]:
-            urls = dmgs_for_version(version)
-            if not urls:
-                print(f"  [{version}] 归档无此构建号，跳过")
-                continue
-            dmg = tempfile.NamedTemporaryFile(prefix="wxkeep-", suffix=".dmg", delete=False)
-            dmg.close()
-            print(f"  [{version}] 下载 {urls[0].rsplit('/', 1)[-1]} …")
-            try:
-                req = urllib.request.Request(urls[0], headers={"User-Agent": "wxkeep-backfill"})
-                with urllib.request.urlopen(req, timeout=600) as r, open(dmg.name, "wb") as f:
-                    shutil.copyfileobj(r, f)
-                dylib = extract_wechat_dylib(dmg.name)
-            finally:
-                os.unlink(dmg.name)
-            if dylib:
-                todo[version] = dylib
-            else:
-                print(f"  [{version}] dmg 内无 wechat.dylib，跳过")
+            # 候选：缓存命中的 tag 优先，其余按归档顺序（新→旧）
+            hit_tag = next((t for t, b in tagmap.items() if b == version), None)
+            candidates = ([hit_tag] if hit_tag else []) + \
+                         [t for t, _ in releases if t != hit_tag]
+            done = False
+            for tag in candidates:
+                url = next((u for t, u in releases if t == tag), None)
+                if not url:
+                    continue
+                if tag in tagmap and tagmap[tag] != version and hit_tag is None:
+                    continue  # 已知不匹配且非命中项
+                dmg = tempfile.NamedTemporaryFile(prefix="wxkeep-", suffix=".dmg", delete=False)
+                dmg.close()
+                print(f"  [{version}] 尝试 {tag} …")
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "wxkeep-backfill"})
+                    with urllib.request.urlopen(req, timeout=900) as r, open(dmg.name, "wb") as f:
+                        shutil.copyfileobj(r, f)
+                    dylib, build = mount_read_build_and_extract(dmg.name)
+                finally:
+                    os.unlink(dmg.name)
+                if build:
+                    tagmap[tag] = build
+                    json.dump(tagmap, open(cachepath, "w"))
+                if build == version and dylib:
+                    todo[version] = dylib
+                    done = True
+                    break
+                if dylib:
+                    os.unlink(dylib)
+            if not done:
+                print(f"  [{version}] 归档中未找到匹配构建号")
 
     if args.dry_run:
         print("dry-run: 不写回")
