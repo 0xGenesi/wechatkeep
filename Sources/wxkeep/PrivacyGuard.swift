@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 /// Privacy hardening — minimize WeChat's telemetry/diagnostic reporting at
 /// the preferences layer. Zero binary changes; the same cfprefd-domain
@@ -41,8 +44,19 @@ enum PrivacyGuard {
 
     @discardableResult
     static func disable() -> Bool {
+        // sudo 场景：root 对用户沙盒域的写会被 cfprefd 丢弃 → 委托给 console user
+        let asUser = geteuid() == 0
+        let console = asUser
+            ? Shell.run("/usr/bin/stat", ["-f", "%Su", "/dev/console"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
         for spec in keys {
-            _ = Shell.run("/usr/bin/defaults", ["write", domain, spec.key, "-bool", "0"])
+            var args = ["/usr/bin/defaults", "write", domain, spec.key, "-bool", "0"]
+            if asUser {
+                let uid = Shell.run("/usr/bin/id", ["-u", console]).stdout
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                args = ["/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", console] + args
+            }
+            _ = Shell.run(args[0], Array(args[1...]))
         }
         _ = Shell.run("/usr/bin/killall", ["-hup", "cfprefsd"])
         return allGuarded

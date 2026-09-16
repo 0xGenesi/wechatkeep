@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 /// Blocks WeChat's updater at the preferences layer — zero binary changes.
 ///
@@ -40,23 +43,35 @@ enum UpdateGuard {
 
     /// Applies all three guarded values. Idempotent.
     @discardableResult
-    static func disable() -> Bool {
-        for spec in keys {
-            _ = Shell.run("/usr/bin/defaults", ["write", domain, spec.key, "-bool", spec.guardedValue])
-        }
-        // cfprefd caches aggressively for sandboxed domains — flush and re-read.
-        _ = Shell.run("/usr/bin/killall", ["-hup", "cfprefsd"])
-        return allGuarded
-    }
+    static func disable() -> Bool { apply(guarded: true) }
 
     /// Restores update checks (user asked for it explicitly).
     @discardableResult
-    static func enable() -> Bool {
-        for spec in keys where spec.key != "SUSendProfileInfo" {
-            _ = Shell.run("/usr/bin/defaults", ["write", domain, spec.key, "-bool", "1"])
+    static func enable() -> Bool { apply(guarded: false) }
+
+    /// Root context (sudo patch) writes to ROOT's prefs — cfprefd drops or
+    /// misroutes them for the user-owned sandboxed domain. Delegate to the
+    /// console user via launchctl asuser so the write lands in THEIR plist.
+    private static func defaultsArgs(_ args: [String]) -> [String] {
+        if geteuid() != 0 { return ["/usr/bin/defaults"] + args }
+        let consoleUser = Shell.run("/usr/bin/stat", ["-f", "%Su", "/dev/console"]).stdout
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !consoleUser.isEmpty, consoleUser != "root",
+              let uidNum = Int(Shell.run("/usr/bin/id", ["-u", consoleUser]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return ["/usr/bin/defaults"] + args
+        }
+        return ["/bin/launchctl", "asuser", String(uidNum),
+                "/usr/bin/sudo", "-u", consoleUser, "/usr/bin/defaults"] + args
+    }
+
+    private static func apply(guarded: Bool) -> Bool {
+        for spec in keys {
+            let value = guarded ? spec.guardedValue : "1"
+            let args = defaultsArgs(["write", domain, spec.key, "-bool", value])
+            _ = Shell.run(args[0], Array(args[1...]))
         }
         _ = Shell.run("/usr/bin/killall", ["-hup", "cfprefsd"])
-        return read().filter { $0.key != "SUSendProfileInfo" }.allSatisfy { $0.value == "1" }
+        return allGuarded
     }
 
     static func render(_ statuses: [Status]) -> String {
