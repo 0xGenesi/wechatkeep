@@ -131,6 +131,16 @@ struct RecipeEngine {
                     else if image.data[e] == 0x66 && e + 1 < image.data.count && image.data[e+1] == 0x90 { e += 2 }
                     else { break }
                 }
+                // hot-patch dispatch stub (4.1.6-era): `mov rax,[rip+d]; test;
+                // je +2; jmp rax` (14 bytes) precedes the real prologue — the
+                // boundary lands on the stub, the real entry is right after.
+                if e + 14 <= image.data.count,
+                   image.data[e] == 0x48, image.data[e+1] == 0x8B, image.data[e+2] == 0x05,
+                   image.data[e+7] == 0x48, image.data[e+8] == 0x85, image.data[e+9] == 0xC0,
+                   image.data[e+10] == 0x74, image.data[e+11] == 0x02,
+                   image.data[e+12] == 0xFF, image.data[e+13] == 0xE0 {
+                    e += 14
+                }
                 if let text = try? image.section("__text"),
                    e >= text.offset && e < text.offset + Int(text.size) {
                     out.append(text.addr + UInt64(e - text.offset))
@@ -146,7 +156,13 @@ struct RecipeEngine {
         }
         if confirm == "unique-positive-callers" {
             guard arch == .x86_64 else { throw RecipeError.unsupportedArch(arch.rawValue) }
-            return callerCount(of: site, in: image) > 0
+            var count = callerCount(of: site, in: image)
+            // stub-era callers invoke the 14-byte hot-patch stub, not the real
+            // body — count both sides of the same logical function
+            if let stub = stubSite(forRealEntry: site, in: image) {
+                count += callerCount(of: stub, in: image)
+            }
+            return count > 0
         }
         // bytes@+7A0:60E600F9:maskFFFFFFE0
         if confirm.hasPrefix("bytes@") {
@@ -166,6 +182,22 @@ struct RecipeEngine {
             return true
         }
         throw RecipeError.malformed("unknown confirm \(confirm)")
+    }
+
+    /// If `site` is a real entry preceded by the 14-byte hot-patch stub,
+    /// returns the stub's VA (its callers are the function's callers).
+    private static func stubSite(forRealEntry site: UInt64, in image: MachImage) -> UInt64? {
+        guard let off = image.sliceRelativeOffset(va: site), off >= 14 else { return nil }
+        let stub = off - 14
+        let d = image.data
+        guard stub + 14 <= d.count,
+              d[stub] == 0x48, d[stub+1] == 0x8B, d[stub+2] == 0x05,
+              d[stub+7] == 0x48, d[stub+8] == 0x85, d[stub+9] == 0xC0,
+              d[stub+10] == 0x74, d[stub+11] == 0x02,
+              d[stub+12] == 0xFF, d[stub+13] == 0xE0 else { return nil }
+        guard let text = try? image.section("__text"),
+              stub >= text.offset, stub < text.offset + Int(text.size) else { return nil }
+        return text.addr + UInt64(stub - text.offset)
     }
 
     /// Direct E8 rel32 callers of `site` inside __text (x64).
