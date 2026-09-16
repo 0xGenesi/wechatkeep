@@ -50,3 +50,16 @@ locate_update_x64.py 在真实 269602 x64 slice 上验证：
 - **未决**：newmsgid 最终写入 this 的哪 个偏移（x64 是字符串化路径，与 arm64 整数字段
   `+0x1C8` 模型不同；this 存 [rbp-0x248]，直接 `mov [this+disp]` 存储在本函数未出现，
   疑在子函数内）。下次从 [rbp-0xB0]/0x284190 返回值的消费方继续。
+
+## x64 keeptip 推理完成（2026-09-16，#4）
+
+消费链闭环：newmsgid 数字 → 0x5AC16A0 格式化回字符串 → 0x284190 构造 →（解密日志混淆段）
+→ 0x32A0D93 `lea rsi,[rbp-0x1e0]`（数据指针）+ 0x32A0D9D `mov rdx,rax`（长度）
+→ 0x32A0DA5 `call 0x32A1090`（结果构造器，ecx=5 类型标记）。
+
+keeptip 语义补丁（与 arm64 的 str xzr 同构思路，作用于长度传参）：
+`0x32A0D9D: 4889C2 (mov rdx,rax) → 31D290 (xor edx,edx; nop)`
+newmsgid 以空串到达下游删除路径 → 找不到删除目标 → 消息保留；解析/提示流程不受影响 → 提示保留。
+
+状态：**实验条目**（语义推理链完整，expected 门已核对 4889C2 ✓，待真机撤回实测——
+私聊应留消息+提示；群聊提示是否依赖 newmsgid 锚定请一并观察，参照 arm64 keeptip 的已知局限）。

@@ -685,6 +685,13 @@
             ],
             "asm": "7FE600F9",
             "source": "vvanglro+wxkeep"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "32a0d9d",
+            "expected": "4889C2",
+            "asm": "31D290",
+            "source": "wxkeep-x64-keeptip-experimental (zero the length arg: newmsgid reaches the delete path as an empty string — message stays, tip renders)"
           }
         ]
       }
