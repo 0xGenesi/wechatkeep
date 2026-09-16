@@ -65,6 +65,17 @@ type-10000 过滤器：0x4BC7400(msg->[0x218]content, [msg+8]==10000) / 0x4D6EFD
 0x36F2DD0 派发的 lambda 链），使「提示插入原位 + 原消息内容保留」同时成立——两架构同源，
 arm64 同样适用。需动态分析（另一账号触发真实撤回事件）辅助定位 lambda 体。
 
+**v2 路线已被 Windows 阵营验证**（2026-09 调研，EEEhex/RevokeHook → zetaloop/BetterWX
+revoke.py，Weixin.dll 4.0.6+，仅两条通配规则、无注入）：
+1. 在撤回处理函数里把 `call DeleteMessage`（特征 `48 8D 55 C0 / 45 31 C0 / E8 ?? ?? ?? ??`
+   / `48 8B BD 48 04 00 00 / 48 85 FF`）替换为 `SrvID += 1`——删除不执行，且为提示记录
+   铸一个新服务端 ID，使提示作为**新消息插在原消息下方**；
+2. 在 `AddRevokeTipToDB→…→CoAddMessageToDB(…, flag)` 的调用点把第 5 个 bool 参数
+   （`C6 44 24 20 00` = mov byte [rsp+0x20],0）改为 1，DB 才接受本地自造的 SrvID。
+已知瑕疵：提示需重进会话才刷新；自己撤回的边角行为未完美。macOS 对应物应在
+0x36DBAE0 执行器链内（删除/原位改写步骤 ≈ 规则 1 的 DeleteMessage；提示入库链
+0x36DB710 ≈ 规则 2 的放行标志）。
+
 ## x64 keeptip v1 定位方法论（2026-09-16，269602 已真机验证：私聊提示✓ 消息保留✓）
 
 **核心结论：arm64 的撤回处理函数与 x64 的 TryParseMessage 是同一函数**（证据：
