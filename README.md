@@ -4,6 +4,14 @@ macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具�
 
 安全第一：**expected 原始字节门 → 全量写前预检 → 自动备份 → 幂等 restore → entitlements 保留重签 → strict verify → 行为级验证**，任何一环失败宁可不写。
 
+## 安装
+
+```bash
+brew install 0xGenesi/tap/wxkeep
+```
+
+或从 [Releases](https://github.com/0xGenesi/wechatkeep/releases) 下载单文件（universal，约 2.4MB）。
+
 ## 快速上手
 
 ```bash
