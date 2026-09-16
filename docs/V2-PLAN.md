@@ -50,11 +50,14 @@
 
 ## 实施步骤
 
-- **P0 动态定位**（唯一硬依赖，约 30 分钟配合）：`tools/lldb-trace-revoke.cmd` 已备好。
-  前置：微信先 `wxkeep restore`（必须原生态，否则删除链不执行、断点白打）。
-  运行梯：① `sudo lldb -p <PID>` 直接 attach（本机 amfi_get_out_of_my_way=0x1 大概率可行）
-  ② 失败则 lldb 启动微信 ③ 再失败给 bundle 加 get-task-allow 重签后 attach。
-  产出：撤回时 5 个断点的命中顺序 + 调用栈 → 删除 vcall 的模块内偏移。
+- **P0 动态定位（状态：2026-09-17 判定离线不可达，等待一次性实验窗口）**
+  lldb 全套基建已备好并归档（tools/dyntrace/：WeChatMain 哨兵、滑移硬编码+地面真值校验、
+  驱动循环），但多轮会话实证该 lldb 构建存在五层障碍（-a 语义、dlopen 时机、回调注册
+  KeyError、事件监听饿死、SB Continue 状态误报），且 wrapper 0x50A5120 在登录+真实撤回中
+  动态零命中——静态「唯一调用者」结论与 v1 行为生效矛盾，模型有缺口。
+  **下一次的执行方案（不需用户反复配合）**：一次性补丁实验法——对三个候选消费点逐个做
+  「patch→观察行为→restore」的对照实验（机器上一次撤回即可判定），或改用 watchpoint 盯
+  +0x1C8 的读取者。在此之前不再消耗用户时间做断点陪跑。
 - **P1 补丁设计**：x64 间接 call（`FF /2`，2-7 字节）按命中点现场字节替换为等长 NOP
   （若返回值被使用则 `31 C0` + NOP 填充）；arm64 `blr xN`→`NOP`（4 字节等长）。
   每处过 expected 门。
