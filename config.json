@@ -904,6 +904,15 @@
         "binary": "Contents/Resources/wechat.dylib",
         "entries": [
           {
+            "arch": "arm64",
+            "addr": "1a886ec",
+            "expected": [
+              "FF0306D1FC6F12A9FA6713A9F85F14A9"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "wxkeep:vtable桥(getter槽0x9635310+0x58=x64同位)+唯一BL链0x1a886ec→0x1a88c14→0x1a89b44(唯一MacStoreUpdate.xml);单ret返回句柄,mov w0,#0;ret安全"
+          },
+          {
             "arch": "x86_64",
             "addr": "1c9cf60",
             "expected": "554889E54157415641554154534881EC",

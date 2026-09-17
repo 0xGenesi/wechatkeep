@@ -191,6 +191,8 @@ zsbai 归档的 dmg 资产为 XZ 重压缩格式且**文件尾无 XZ footer magi
 可行替代源：
 - 官方 CDN 直链（release body 的 DownloadFrom 字段，dldir1v6.qq.com）——仅对**当前
   最新版本**有效（滚动分发，旧版 404）
+- tanranv5 fork 的 config.json（2026-09-17 核实）：条目仅 `arch/addr/asm` 三字段，
+  **无任何原始字节字段**——x64 隔离条目的源头本身不带 expected，数据层回填死路
 - 结论：历史构建的 expected 回填暂无可靠免费源。隔离区条目维持 quarantine
   （引擎安全设计如此，不影响有溯源条目的正常使用）。
 

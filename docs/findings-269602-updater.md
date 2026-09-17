@@ -98,3 +98,25 @@ arm64 269602：xml 构建器定位到 0x1A89B34（FUNCTION_STARTS），但零 BL
 无 fixup vtable 槽、getter(0x17BB8C) 同样无槽——接线方式未明（疑似 BLR 计算跳转/
 FUNCTION_STARTS 区间合并干扰）。**跳过**，由 update-guard 偏好层兜底；目录内其他
 arm64 构建已带 zengtianli update 条目。
+
+## arm64 破局（2026-09-17 第二会话——上段「接线未明」被推翻）
+
+上段失败的真因：**函数入口地址差 8–16 字节**。0x17bb8c/0x1a89b34 都不是真入口，
+vtable 槽和 BL 扫描自然全部落空。锚点引用点（adrp+add 唯一命中：
+getter 引用点 pc=0x17bbac、xml 文件名引用点 pc=0x1a89cb0）向左找 FUNCTION_STARTS
+精确入口：**getter=0x17bb94、xml 构建器=0x1a89b44**。
+
+arm64 完整链路（与 x64 逐层同构）：
+- `dyld_info -fixups`：getter 0x17bb94 在 vtable 槽 **0x9635310**（x64 getter 槽
+  0xA149080 的孪生）；**+0x58 槽 → 0x1a886ec（周期工人，1320B）**、+0x60 → 0x1a8ab44、
+  +0x68 → 0x1a89730（x64 上 +0x58/+0x60/+0x68 = 0x1C9CF60/0x1C9F660/0x1C9E120）
+- BL 链唯一闭合：**0x1a886ec →(BL)→ 0x1a88c14 →(BL)→ 0x1a89b44**（唯一
+  "MacStoreUpdate.xml" 引用）；x64 同构 0x1C9CF60→0x1C9D460→0x1C9E5E0
+- 工人语义核对（llvm-objdump）：x19=this → 取管理器 → 遍历 [0x9d44488,0x9d4458c)
+  4 字节步长待查表 → 函数体内 bl 0x1a88c14（xml）+ 定时器续期 → **唯一 ret**（0x1a88b40）
+
+**补丁**：`0x1a886ec: 00008052C0035FD6`（mov w0,#0; ret），
+expected `FF0306D1FC6F12A9FA6713A9F85F14A9`（sub sp,sp,#0x180; stp×3 序言）。
+已入 config.json（269602 update 目标双架构齐备），真机 arm64 slice 上 expected 门
+经 dry-run 验证通过。方法论沉淀：**arm64 vtable 引用静态定位 = 精确 FUNCTION_STARTS
+入口 + fixup 槽扫描**，入口差一个字节就全链落空。

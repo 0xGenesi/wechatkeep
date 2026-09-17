@@ -51,16 +51,17 @@ def main():
         display = v.get("_display") or KNOWN_DISPLAY.get(build, "")
         note = v.get("note", "")
         rows.append((int(build) if build.isdigit() else 0, build, display, mark("revoke"),
-                     mark("revoke-keeptip"), mark("update"), mark("multiInstance"), note))
+                     mark("revoke-keeptip"), mark("revoke-keeptip2"), mark("update"),
+                     mark("multiInstance"), note))
 
     rows.sort(reverse=True)
     out = ["# 版本兼容矩阵", "",
            "> 由 `tools/gen_matrix.py` 从 config.json 自动生成，请勿手改。",
            "> `arm64/x86_64` = 该架构有条目；`⚠︎` = 条目缺 expected 溯源字节（默认隔离，需补验后放行）。",
-           "", "| 构建号 | 微信版本 | 防撤回(silent) | keeptip | 屏蔽更新 | 多开 | 备注 |",
-           "|---|---|---|---|---|---|---|"]
-    for _, build, display, revoke, keeptip, update, multi, note in rows:
-        out.append(f"| {build} | {display or '?'} | {revoke} | {keeptip} | {update} | {multi} | {note} |")
+           "", "| 构建号 | 微信版本 | 防撤回(silent) | keeptip | keeptip2 | 屏蔽更新 | 多开 | 备注 |",
+           "|---|---|---|---|---|---|---|---|"]
+    for _, build, display, revoke, keeptip, keeptip2, update, multi, note in rows:
+        out.append(f"| {build} | {display or '?'} | {revoke} | {keeptip} | {keeptip2} | {update} | {multi} | {note} |")
     out += ["", f"共 {len(rows)} 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。"]
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
