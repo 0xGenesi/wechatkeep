@@ -79,3 +79,14 @@ keeptip=服务端原文提示。
   （官方改进版条目不会被旧本地条目永久遮蔽）。
 - 已知小项（接受）：update-data 的新旧条目数对比把本地条目计入旧值（纯展示）；
   verify 仅覆盖 silent 位点；config.local.json.bak.* 随时间累积（可手动清理）。
+
+### ⑤ M-R2 研究进展（2026-09-17 深夜，drive16 对象字段图谱）
+270099 x64 撤回信息对象布局（post-store 实测转储）：
+- +0x1a8：SSO "revokemsg"（消息类型）
+- +0x1e8：SSO 撤回者 wxid（$wxid_xxx）
+- +0x1C8：newmsgid（keeptip 置零点 ✓）
+- +0x18/+0x28：堆字符串字段 ×2（长度 11/10，内容待定）
+- 对象内**无 replacemsg 提示文本**——提示文本不在此对象构建
+M-R2 hook 点结论：自定义提示的 runtime hook 需要挂在 tip 文本组装处
+（排水/UI 层），或直接 hook 消息展示层。下一轮：drive16b 在 tip 显示后
+做全堆扫描定位文本载体，或 hook 消息 DB 插入层（通用点位，一劳永逸）。

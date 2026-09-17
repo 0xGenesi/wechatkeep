@@ -14,10 +14,13 @@ import Foundation
 ///    drifted objects are re-signed explicitly, deepest-first.
 /// 5. `codesign --verify --deep --strict` must pass before we report success.
 ///
-/// Known limitation (documented in docs/): on macOS 15+ an ad-hoc signature
-/// carrying restricted entitlements (application-identifier, team-identifier,
-/// application-groups) is killed by taskgated regardless of SIP — that needs
-/// the AMFI boot-arg; Doctor (M3) detects and prescribes it.
+/// Known limitation (reassessed 2026-09): ad-hoc + restricted entitlements on
+/// macOS 15+ is NOT a kill prediction — mainstream tools ship exactly this
+/// configuration on stock SIP-on machines (the sunnyyoung #1038 crashes came
+/// from entitlements being STRIPPED, not kept). Doctor reports it as
+/// watch-level with a crash-log triage command; AMFI boot-args are no longer
+/// prescribed. macOS 15+ additionally needs --force-library-entitlements or
+/// codesign silently drops entitlements on nested libraries (added in sign()).
 enum Resigner {
     enum ResignError: Error, CustomStringConvertible {
         case snapshotFailed(String)
@@ -208,6 +211,12 @@ enum Resigner {
     private static func sign(binary: URL, entitlements: [String: Any]?, deep: Bool = false) throws {
         var args = ["--force", "--sign", "-",
                     "--preserve-metadata=identifier,flags,runtime"]
+        // macOS 15+ codesign 默认不再把 entitlements 嵌入库（dylib/framework）
+        // 签名——不强制回填会永久漂移成 entitlementsDrift（社区双实现
+        // zengtianli/fzlzjerry 同款 flag；旧版 codesign 无此选项，按系统版本条件加）。
+        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 15 {
+            args += ["--force-library-entitlements"]
+        }
         var tempPlist: URL?
         if let entitlements, !entitlements.isEmpty {
             let url = FileManager.default.temporaryDirectory

@@ -78,11 +78,17 @@ struct Doctor {
         }
     }
 
-    /// The on-device trap this project hit first: on macOS 15+, taskgatedd
-    /// kills an ad-hoc re-signed bundle that still carries restricted
-    /// entitlements (application-identifier / team-identifier /
-    /// application-groups), EVEN with SIP disabled. Only the AMFI boot-arg
-    /// mitigates it. No predecessor project detects this before launch.
+    /// ad-hoc 重签 + restricted entitlements（application-identifier /
+    /// team-identifier / application-groups）在 macOS 15+ 的风险评估。
+    ///
+    /// 2026-09 证据复盘（全网检索 + 社区双实现对照）：主流工具
+    /// （zengtianli/WeChatTweak、fzlzjerry/wechat-antirecall）在**保留全部
+    /// restricted entitlements** + 注入两个 cs.* 键的前提下，于原生 SIP 开启的
+    /// macOS 15+ 用户机上正常运行；sunnyyoung #1038 的真实杀机根因是把
+    /// entitlements **剥光**（codesign --remove-sign + 裸 --deep）。本项目早期
+    /// 的「必杀 + AMFI boot-arg 处方」把 verifier worker 的 RWX 杀机经验误外推
+    /// 到了微信重签场景。现降级为 watch：不再处方关 SIP/boot-arg，改为
+    /// 崩溃日志取证指引（Termination Reason, Namespace CODESIGNING）。
     static func assessAmfiRisk(
         adhocSigned: Bool,
         restrictedEntitlements: Bool,
@@ -98,9 +104,12 @@ struct Doctor {
                 fixCommand: nil)
         }
         return AmfiRisk(
-            level: "kill_predicted",
-            reason: "ad-hoc signature with restricted entitlements on macOS \(osMajor): taskgated will SIGKILL at launch even with SIP off (Code Signature Invalid). This is the exact trap no predecessor tool detects.",
-            fixCommand: "sudo nvram boot-args=\"amfi_get_out_of_my_way=0x1\" && reboot")
+            level: "watch",
+            reason: "ad-hoc re-sign carries restricted entitlements on macOS \(osMajor). "
+                + "Mainstream tools ship the same configuration on stock SIP-on machines, "
+                + "so this is watch-level, not a kill prediction. If WeChat is killed at launch, "
+                + "check the crash report's Termination Reason (Namespace CODESIGNING) before changing system security settings.",
+            fixCommand: "ls -t ~/Library/Logs/DiagnosticReports/ | grep -i wechat | head -3")
     }
 
     // MARK: - Collection
@@ -214,8 +223,8 @@ struct Doctor {
             verdicts.append("build \(build) is not in the catalog — run `wxkeep locate` to auto-locate via recipes")
         }
         if signature == "adhoc" { verdicts.append("bundle is re-signed (ad-hoc) — expected after patching") }
-        if let amfiRisk, amfiRisk.level == "kill_predicted" {
-            verdicts.append("AMFI/taskgated kill predicted at next launch — apply the fix before opening WeChat")
+        if let amfiRisk, amfiRisk.level == "watch" {
+            verdicts.append("AMFI watch: ad-hoc + restricted entitlements on macOS 15+ — mainstream evidence says this runs; only act if a crash report shows Namespace CODESIGNING")
         }
         if running { verdicts.append("WeChat is running — quit it before patching") }
         if let ms = manifestStatus, ms.hasPrefix("invalid:") {
@@ -230,14 +239,9 @@ struct Doctor {
             let sudo = writable ? "" : "sudo "
             let hasKeeptip = versionEntry?.targets.contains { $0.identifier == "revoke-keeptip" } ?? false
             let variant = hasKeeptip ? "keeptip" : "silent"
-            var command = "\(sudo)wxkeep patch --variant \(variant)"
-            if amfiRisk?.level == "kill_predicted" {
-                command += "  # 启动微信前先执行: sudo nvram boot-args=\"amfi_get_out_of_my_way=0x1\" 并重启"
-            }
-            nextCommand = command
-        } else if let amfiRisk, amfiRisk.level == "kill_predicted" {
-            nextCommand = amfiRisk.fixCommand
+            nextCommand = "\(sudo)wxkeep patch --variant \(variant)"
         }
+        // （不再处方 AMFI boot-arg：watch 级判定无前置动作，见 assessAmfiRisk 注释）
 
         return Report(
             overall: overall,
