@@ -3,14 +3,16 @@ import Testing
 @testable import wxkeep
 
 struct DoctorTests {
-    // MARK: AMFI 纯函数（本会话独家踩坑知识的固化）
+    // MARK: AMFI 纯函数（2026-09 证据复盘后：watch 级，不再处方 boot-arg）
 
-    @Test func amfiKillPredictedOnMac15AdhocRestricted() {
+    @Test func amfiWatchOnMac15AdhocRestricted() {
         let risk = Doctor.assessAmfiRisk(
             adhocSigned: true, restrictedEntitlements: true,
             osMajor: 15, bootArgs: nil)
-        #expect(risk?.level == "kill_predicted")
-        #expect(risk?.fixCommand?.contains("amfi_get_out_of_my_way") == true)
+        #expect(risk?.level == "watch")
+        // 处方已从「关 SIP + AMFI boot-arg」降级为崩溃日志取证
+        #expect(risk?.fixCommand?.contains("amfi_get_out_of_my_way") != true)
+        #expect(risk?.fixCommand?.contains("DiagnosticReports") == true)
     }
 
     @Test func amfiMitigatedWithBootArg() {
