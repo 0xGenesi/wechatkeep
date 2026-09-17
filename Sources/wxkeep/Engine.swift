@@ -100,6 +100,35 @@ enum Engine {
         return selected
     }
 
+    /// Deprecated revoke-keeptip2 sites still holding its patched bytes,
+    /// EXCLUDING sites also written by `coveredTargets` (shared writes —
+    /// v1/keeptip2 both restore the prologue at 0x4bc5940 — are not leftovers).
+    /// Empty result = clean.
+    static func deprecatedLeftovers(
+        app: URL, versionEntry: Config.VersionEntry, coveredTargets: [Config.Target]
+    ) throws -> [String] {
+        guard let legacy = versionEntry.targets.first(where: { $0.identifier == "revoke-keeptip2" }),
+              !legacy.entries.isEmpty
+        else { return [] }
+        let covered = Set(coveredTargets.flatMap { target in
+            target.entries.compactMap { en -> String? in
+                guard let addr = en.addr?.lowercased() else { return nil }
+                return "\(en.arch.rawValue):\(addr)"
+            }
+        })
+        var leftover = [String]()
+        let relative = legacy.binary ?? "Contents/MacOS/WeChat"
+        let binary = WeChatApp.binaryURL(app: app, relative: relative)
+        let inspections = (try? Patcher.inspect(
+            binary: binary, entries: legacy.entries, identifier: legacy.identifier)) ?? []
+        for i in inspections where i.state == .patched {
+            let key = "\(i.arch.rawValue):\(String(i.va, radix: 16))"
+            guard !covered.contains(key) else { continue }
+            leftover.append("0x\(String(i.va, radix: 16))")
+        }
+        return leftover
+    }
+
     /// Patches every selected target of `build` inside `app` (catalog path).
     @discardableResult
     static func patch(
@@ -127,19 +156,12 @@ enum Engine {
 
         // 遗留检测：废弃的 revoke-keeptip2 若还有补丁字节在盘上，拒绝应用并在
         // 报错里给出清理路径（而不是默默留下混合状态——今日实测的混淆根源）。
-        if let legacy = versionEntry.targets.first(where: { $0.identifier == "revoke-keeptip2" }),
-           !legacy.entries.isEmpty {
-            var leftover = [String]()
-            let relative = legacy.binary ?? "Contents/MacOS/WeChat"
-            let binary = WeChatApp.binaryURL(app: app, relative: relative)
-            let inspections = (try? Patcher.inspect(
-                binary: binary, entries: legacy.entries, identifier: legacy.identifier)) ?? []
-            for i in inspections where i.state == .patched {
-                leftover.append("0x\(String(i.va, radix: 16))")
-            }
-            if !leftover.isEmpty {
-                throw EngineError.foreignVariantPatched(target: legacy.identifier, sites: leftover)
-            }
+        // 例外：当前变体也覆盖的位点（v1/keeptip2 共享 0x4bc5940/0x32a0d9d——
+        // 两变体在这些地址写相同字节，不算残留）。
+        let leftover = try deprecatedLeftovers(app: app, versionEntry: versionEntry,
+                                               coveredTargets: selected)
+        if !leftover.isEmpty {
+            throw EngineError.foreignVariantPatched(target: "revoke-keeptip2", sites: leftover)
         }
 
         // 变体切换：先还原另一变体的写入（幂等），再应用本变体。

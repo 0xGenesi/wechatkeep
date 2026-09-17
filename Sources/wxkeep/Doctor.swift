@@ -179,23 +179,31 @@ struct Doctor {
         }
         var overall: String
         if let entry = versionEntry, configKnown {
-            // 废弃变体残留：功能性无碍（v1 语义下被短路），但应清理。
-            if let legacy = patchStates["revoke-keeptip2"], legacy != "pristine" {
-                verdicts.append("⚠️ deprecated revoke-keeptip2 bytes present (\(legacy)) — run `sudo wxkeep restore` to clean, then re-patch")
+            // 废弃变体残留（共享位点不算）：有则告警并给清理路径。
+            let leftovers = (try? Engine.deprecatedLeftovers(
+                app: app, versionEntry: entry,
+                coveredTargets: entry.targets.filter { $0.identifier != "revoke-keeptip2" })) ?? []
+            if !leftovers.isEmpty {
+                verdicts.append("⚠️ deprecated revoke-keeptip2 bytes present (\(leftovers.joined(separator: ", "))) — run `sudo wxkeep restore` to clean, then re-patch")
+                patchStates["revoke-keeptip2"] = "leftover(\(leftovers.count))"
+            } else if patchStates["revoke-keeptip2"] != nil {
+                patchStates["revoke-keeptip2"] = "clean"
             }
-            if patchStates.values.contains("unknown") {
+            // 废弃目标不参与 overall 判定（deprecated → 只影响上面的告警行）。
+            let gating = patchStates.filter { $0.key != "revoke-keeptip2" }
+            if gating.values.contains("unknown") {
                 overall = Overall.mixed
                 verdicts.append("some native-arch patch points hold unknown bytes — restore or reinstall, then re-patch")
             } else {
-                let revoke = patchStates["revoke"] == "patched" || patchStates["revoke-keeptip"] == "patched"
-                let revokeSideMixed = [patchStates["revoke"], patchStates["revoke-keeptip"]]
+                let revoke = gating["revoke"] == "patched" || gating["revoke-keeptip"] == "patched"
+                let revokeSideMixed = [gating["revoke"], gating["revoke-keeptip"]]
                     .contains("mixed")
                 if revoke && revokeSideMixed {
                     overall = Overall.mixed
                     verdicts.append("anti-revoke patch points are partially applied on \(nativeArch) — re-run patch")
                 } else if revoke {
                     overall = Overall.protected
-                } else if patchStates.values.contains("patched") {
+                } else if gating.values.contains("patched") {
                     overall = Overall.partial
                 } else {
                     overall = Overall.unprotected
