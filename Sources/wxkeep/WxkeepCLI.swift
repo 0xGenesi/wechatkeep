@@ -433,7 +433,11 @@ extension Wxkeep {
                 if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
                 try fm.copyItem(at: URL(fileURLWithPath: dylib), to: dest)
 
-                try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat", "Contents/Frameworks/wxkeep_runtime.dylib"])
+                // 子组件先签：主程序 codesign 的验证会检查 bundle 内 dylib 的签名状态
+                let rel = "Contents/Frameworks/wxkeep_runtime.dylib"
+                let dylibAbs = RuntimeCommand.frameworkDylibURL(options.app).path
+                _ = Shell.run("/usr/bin/codesign", ["--force", "--sign", "-", dylibAbs])
+                try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat", rel])
                 print("✓ runtime 已注入（微信下次启动时加载）")
                 print("  验证: 启动微信后运行 wxkeep runtime status")
                 print("  移除: wxkeep runtime remove")

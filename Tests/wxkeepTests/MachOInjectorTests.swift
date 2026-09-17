@@ -46,12 +46,14 @@ struct MachOInjectorTests {
         #expect(data == original, "移除后应与原始字节一致")
     }
 
-    @Test func doubleInsertRefused() throws {
+    @Test func doubleInsertIsIdempotent() throws {
         var data = makeExecutable()
-        try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: "@executable_path/../Frameworks/wxkeep_runtime.dylib")
-        #expect(throws: MachOInjector.InjectorError.self) {
-            try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: "@executable_path/../Frameworks/wxkeep_runtime.dylib")
-        }
+        let cmd = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
+        try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: cmd)
+        let once = data
+        try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: cmd)
+        #expect(data == once, "重复 install 应为 no-op")
+        #expect(MachOInjector.isInjected(data: data, base: 0, path: cmd))
     }
 
     @Test func isInjectedFalseOnCleanBinary() throws {

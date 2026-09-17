@@ -67,8 +67,8 @@ enum MachOInjector {
                 let nsects = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 64, as: UInt32.self) }
                 for si in 0..<nsects {
                     let sec = cursor + 72 + Int(si) * 80
-                    let size = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sec + 32, as: UInt64.self) }
-                    let offset = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sec + 40, as: UInt32.self) }
+                    let size = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sec + 40, as: UInt64.self) }
+                    let offset = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sec + 48, as: UInt32.self) }
                     if size > 0, offset > 0 { floor = min(floor, base + Int(offset)) }
                 }
             }
@@ -118,6 +118,15 @@ enum MachOInjector {
         return d
     }
 
+    /// True if ANY 64-bit slice carries an LC_LOAD_DYLIB for `path`.
+    static func isInjectedAnySlice(data: Data, path: String) -> Bool {
+        guard let bases = try? slices(in: data) else { return false }
+        return bases.contains { base in
+            let end = min(base + 0x10000, data.count)
+            return isInjected(data: data.subdata(in: base..<end), base: 0, path: path)
+        }
+    }
+
     /// True if any LC_LOAD_DYLIB in the slice carries `path`.
     static func isInjected(data: Data, base: Int, path: String) -> Bool {
         let info = try? sliceInfo(in: data, base: base)
@@ -149,9 +158,10 @@ enum MachOInjector {
         let cmd = buildLoadDylibCommand(path: dylibInstallPath)
         for base in try slices(in: data) {
             let info = try sliceInfo(in: data, base: base)
+            // 幂等：已注入的切片跳过（重复 install = no-op）
             if isInjected(data: data.subdata(in: base..<(base + 32 + Int(info.sizeofcmds))),
                           base: 0, path: dylibInstallPath) {
-                throw InjectorError.alreadyInjected(dylibInstallPath)
+                continue
             }
             let available = info.contentFloor - (info.commandsOff + Int(info.sizeofcmds))
             guard available >= cmd.count else {
