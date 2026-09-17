@@ -164,10 +164,22 @@ enum Engine {
             throw EngineError.foreignVariantPatched(target: "revoke-keeptip2", sites: leftover)
         }
 
+        // --only 先行过滤：`--only update` 不得触碰任何 revoke 变体的字节——
+        // 否则下面的「变体切换还原」会把另一个变体默默撤防（过滤前跑就会如此）。
+        if let only, !only.isEmpty {
+            selected = selected.filter { only.contains($0.identifier) }
+            guard !selected.isEmpty else {
+                throw EngineError.variantUnavailable("no matching targets for --only \(only.joined(separator: ","))")
+            }
+        }
+
         // 变体切换：先还原另一变体的写入（幂等），再应用本变体。
         // 否则 silent 的 x64 补丁会与 keeptip 并存，静默语义覆盖 keeptip。
+        // 仅当本变体目标在本次作用域内（selected 含 variantID）才还原。
+        let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"
         let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"
-        if let other = versionEntry.targets.first(where: { $0.identifier == otherID }),
+        if selected.contains(where: { $0.identifier == variantID }),
+           let other = versionEntry.targets.first(where: { $0.identifier == otherID }),
            !other.entries.isEmpty, !dryRun {
             var undo = RunSummary()
             do { undo = try restoreTargets(app: app, targets: [other], dryRun: false) }
@@ -179,13 +191,6 @@ enum Engine {
             if undo.wroteAnything {
                 summary.lines.append("  [switch] restored previous variant \(otherID) writes")
                 summary.patchedBinaries += undo.patchedBinaries
-            }
-        }
-
-        if let only, !only.isEmpty {
-            selected = selected.filter { only.contains($0.identifier) }
-            guard !selected.isEmpty else {
-                throw EngineError.variantUnavailable("no matching targets for --only \(only.joined(separator: ","))")
             }
         }
 

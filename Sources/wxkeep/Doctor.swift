@@ -230,6 +230,12 @@ struct Doctor {
             verdicts.append("AMFI watch: ad-hoc + restricted entitlements on macOS 15+ — mainstream evidence says this runs; only act if a crash report shows Namespace CODESIGNING")
         }
         if running { verdicts.append("WeChat is running — quit it before patching") }
+        if !writable, ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14 {
+            verdicts.append("macOS 14+ 提示：sudo 也会被「App 管理」隐私权限拦截——若 patch 报 Permission denied，到 系统设置 → 隐私与安全性 → App 管理 给终端 App 授权后重试")
+        }
+        if UpdateGuard.rewrittenByApp {
+            verdicts.append("update-guard: 微信已把更新开关改回（4.1.13+ 启动时重写的已知行为）——偏好层防护挡不住自动更新；若微信已升级请重打补丁")
+        }
         if let ms = manifestStatus, ms.hasPrefix("invalid:") {
             verdicts.append("⚠️ catalog manifest INVALID — \(String(ms.dropFirst(8))). Refusing to trust bundled data; fetch a fresh copy.")
         }
@@ -250,6 +256,7 @@ struct Doctor {
             overall: overall,
             nativeArch: nativeArch,
             build: build,
+            appVersion: WeChatApp.marketingVersion(app: app) ?? "",
             appPath: app.path,
             configKnown: configKnown,
             configTargets: versionEntry?.targets.map(\.identifier) ?? [],
@@ -283,7 +290,8 @@ struct Doctor {
     static func render(_ report: Report) -> String {
         var lines: [String] = []
         lines.append("------ Doctor ------")
-        lines.append("WeChat build: \(report.build)  (\(report.appPath))")
+        let versionTag = report.appVersion.isEmpty ? "" : " (v\(report.appVersion))"
+        lines.append("WeChat build: \(report.build)\(versionTag)  (\(report.appPath))")
         lines.append("native arch: \(report.nativeArch)")
         lines.append("catalog:     \(report.configKnown ? "matched (\(report.configTargets.joined(separator: ", ")))" : "UNKNOWN BUILD")")
         lines.append("SIP:         \(report.sip)")
@@ -297,7 +305,16 @@ struct Doctor {
         lines.append("writable:    \(report.writable ? "yes" : "no — patch with sudo")")
         lines.append("signature:   \(report.signature)")
         let guardStatuses = UpdateGuard.read()
-        lines.append("update-guard: \(guardStatuses.allSatisfy(\.guarded) ? "on（不检查更新）" : "off（有升级弹窗风险，跑 wxkeep update-guard）")")
+        let guardOn = guardStatuses.allSatisfy(\.guarded)
+        let guardTag: String
+        if !guardOn {
+            guardTag = "off（有升级弹窗风险，跑 wxkeep update-guard）"
+        } else if UpdateGuard.rewrittenByApp {
+            guardTag = "失守（微信已把更新开关改回——见判定行）"
+        } else {
+            guardTag = "on（不检查更新；4.1.13+ 前两键可能被微信改回）"
+        }
+        lines.append("update-guard: \(guardTag)")
         let privacy = PrivacyGuard.read()
         lines.append("privacy-guard: \(privacy.allSatisfy(\.guarded) ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）")")
         lines.append("entitlements: \(report.entitlementKeyCount) keys, restricted=\(report.restrictedEntitlements ? "yes" : "no")")

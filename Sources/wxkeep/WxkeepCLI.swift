@@ -34,8 +34,9 @@ extension Wxkeep {
         mutating func run() throws {
             let config = try Config.load(explicit: options.config)
             let build = try WeChatApp.buildNumber(app: options.app)
+            let version = WeChatApp.marketingVersion(app: options.app) ?? "?"
             print("------ Installed ------")
-            print("build \(build) at \(options.app.path)")
+            print("build \(build) (v\(version)) at \(options.app.path)")
             print("------ Catalog (\(config.versions.count) builds) ------")
             let known = config.versions.contains { $0.version == build }
             print(known ? "(installed build is in the catalog)" : "(installed build is NOT in the catalog — run `wxkeep locate`)")
@@ -83,34 +84,43 @@ extension Wxkeep {
             if !dryRun && WeChatApp.isRunning(app: options.app) { throw WeChatApp.AppError.running }
             let config = try Config.load(explicit: options.config)
             let build = try WeChatApp.buildNumber(app: options.app)
-            print("build \(build) — variant \(variant.rawValue)\(dryRun ? " — dry run" : "")")
+            let version = WeChatApp.marketingVersion(app: options.app).map { " (v\($0))" } ?? ""
+            print("build \(build)\(version) — variant \(variant.rawValue)\(dryRun ? " — dry run" : "")")
             let onlyList = only?.split(separator: ",").map(String.init)
             let summary: Engine.RunSummary
-            if config.entry(build: build) != nil {
-                summary = try Engine.patch(
-                    app: options.app, build: build, config: config, variant: variant.rawValue,
-                    dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
-            } else {
-                // Auto-locate fallback: uncatalogued build → run signature recipes.
-                print("build not in catalog — auto-locating via signature recipes…")
-                let signatures = try Signatures.load(explicit: signaturesPath)
-                guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures) else {
-                    throw Engine.EngineError.unsupportedBuild(build, known: config.versions.count)
+            do {
+                if config.entry(build: build) != nil {
+                    summary = try Engine.patch(
+                        app: options.app, build: build, config: config, variant: variant.rawValue,
+                        dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
+                } else {
+                    // Auto-locate fallback: uncatalogued build → run signature recipes.
+                    print("build not in catalog — auto-locating via signature recipes…")
+                    let signatures = try Signatures.load(explicit: signaturesPath)
+                    guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures) else {
+                        throw Engine.EngineError.unsupportedBuild(build, known: config.versions.count)
+                    }
+                    print("recipes resolved: \(synthesized.targets.map { t in t.identifier }.joined(separator: ", "))")
+                    summary = try Engine.patch(
+                        app: options.app, versionEntry: synthesized, variant: variant.rawValue,
+                        dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
                 }
-                print("recipes resolved: \(synthesized.targets.map { t in t.identifier }.joined(separator: ", "))")
-                summary = try Engine.patch(
-                    app: options.app, versionEntry: synthesized, variant: variant.rawValue,
-                    dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
+            } catch {
+                Self.printPermissionHintIfTCC(error)
+                throw error
             }
             summary.lines.forEach { print($0) }
             if !dryRun && summary.wroteAnything && !noResign {
                 print("------ Resign ------")
-                try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
+                do {
+                    try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
+                } catch {
+                    Self.printPermissionHintIfTCC(error)
+                    throw error
+                }
                 // restore 语义 = 回到原始；不附带任何偏好写入
             }
             if !dryRun && summary.wroteAnything {
-                let hostArch = ProcessInfo.processInfo.environment["PROCESSOR_ARCHITEW6432"] ?? nil
-                _ = hostArch
                 #if arch(arm64)
                 let host = "arm64"
                 #else
@@ -119,6 +129,21 @@ extension Wxkeep {
                 print("本机架构 \(host)：可运行 `wxkeep verify` 行为级确认补丁效果")
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
+        }
+
+        /// macOS 14+ 的「App 管理」TCC 权限：root 也绕不过（社区高频卡点，
+        /// sunnyyoung #1025 / zengtianli user-blockers）。写 /Applications 下的
+        /// App 报权限错误时，把指引打在人话层面再抛原错误。
+        static func printPermissionHintIfTCC(_ error: Error) {
+            let ns = error as NSError
+            let denied = (ns.domain == NSCocoaErrorDomain
+                          && (ns.code == CocoaError.Code.fileWriteNoPermission.rawValue
+                              || ns.code == CocoaError.Code.fileReadNoPermission.rawValue))
+                || (ns.domain == NSPOSIXErrorDomain && (ns.code == Int(EPERM) || ns.code == Int(EACCES)))
+            guard denied else { return }
+            print("⚠️ 写入被系统拒绝（Permission denied）。macOS 14+ 即使 sudo 也会被「App 管理」"
+                + "隐私权限拦截：系统设置 → 隐私与安全性 → App 管理 → 打开你所用的终端 App"
+                + "（Terminal/iTerm/Warp 等），然后重试。")
         }
     }
 }
@@ -273,7 +298,14 @@ extension Wxkeep {
             case .status:
                 let statuses = UpdateGuard.read()
                 print(UpdateGuard.render(statuses))
-                print(allGuarded ? "更新防护：已开启" : "更新防护：未开启（存在升级弹窗/自动安装风险）")
+                if UpdateGuard.rewrittenByApp {
+                    print("更新防护：✗ 已被微信改回（4.1.13+ 启动时重写更新开关的已知行为）。"
+                        + "偏好层挡不住自动更新——可靠的防护是 `wxkeep patch` 附带的字节级目标（可用构建）；"
+                        + "若微信已升级，请重跑 `wxkeep doctor`。")
+                } else {
+                    print(allGuarded ? "更新防护：已开启（偏好层；4.1.13+ 前两键可能被微信改回，见 keys 说明）"
+                          : "更新防护：未开启（存在升级弹窗/自动安装风险）")
+                }
             case .off:
                 // cfprefd 把运行中沙盒 app 的域交给其 agent，外部写入会被丢弃
                 if WeChatApp.isRunning(app: options.app) {
@@ -283,10 +315,17 @@ extension Wxkeep {
                 }
                 let ok = UpdateGuard.disable()
                 print(UpdateGuard.render(UpdateGuard.read()))
-                print(ok ? "✓ 更新防护已开启：微信不再检查更新，不会再弹升级窗口"
-                        : "✗ 写入未完全生效，请重试或检查权限")
+                if ok {
+                    print("✓ 三个偏好键已写入（SUSendProfileInfo 实测可长期存活）")
+                    print("  注意：微信 4.1.13+ 会在启动时把 SUEnableAutomaticChecks / SUAutomaticallyUpdate"
+                        + " 改回「开」——本层是 best-effort。真正可靠的更新防护随 `wxkeep patch` 附带；"
+                        + "若微信之后自动升级，重跑 `wxkeep doctor`。")
+                } else {
+                    print("✗ 写入未完全生效，请重试或检查权限")
+                }
             case .on:
                 let ok = UpdateGuard.enable()
+                try? FileManager.default.removeItem(at: UpdateGuard.markerURL)
                 print(ok ? "已恢复更新检查（微信将照常提示新版本）" : "恢复未完全生效，请重试")
             }
         }

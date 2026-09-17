@@ -189,9 +189,12 @@ struct Config {
     }
     nonisolated(unsafe) static var _userDataURLOverride: URL?   // 仅测试注入（Swift 并发门）
 
-    /// 隐式 config 的定位目录（doctor 用于在同一目录校验 manifest）。
+    /// 隐式 config 的定位目录（doctor/manifest 用于在同一目录校验 manifest）。
+    /// 候选顺序必须与 `load` 保持一致（含 userDataURL——update-data 的安装位），
+    /// 否则 doctor 会去校验另一个目录的清单：装入用户目录的数据被篡改也检不出。
     static func locatedDirectory() -> URL? {
         var candidates = [FileManager.default.currentDirectoryPath + "/config.json"]
+        candidates.append(Self.userDataURL.appendingPathComponent("config.json").path)
         let exePath = URL(fileURLWithPath: CommandLine.arguments[0],
                           relativeTo: nil).resolvingSymlinksInPath().path
         var dir = URL(fileURLWithPath: exePath).deletingLastPathComponent()
