@@ -115,10 +115,40 @@ struct Config {
         guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
             throw LoadError.notFound(searched: candidates)
         }
+        // 供应链门：隐式发现的 config（非用户显式指定）做发布清单校验。
+        // 清单缺失 = 旧分发（提示但不阻塞）；清单存在且校验不过 = 数据被改动，拒载。
+        if explicit == nil {
+            let dir = URL(fileURLWithPath: path).deletingLastPathComponent()
+            switch Manifest.verify(directory: dir) {
+            case .legacy:
+                print("note: no signed manifest next to \(path) — pre-v0.1.3 data or dev copy")
+            case .invalid(let reason):
+                throw LoadError.malformed("manifest check FAILED for \(path): \(reason). "
+                    + "Refusing to load data that does not match its signed manifest.")
+            case .verified:
+                break
+            }
+        }
         let data: Data
         do { data = try Data(contentsOf: URL(fileURLWithPath: path)) }
         catch { throw LoadError.malformed("unreadable at \(path): \(error.localizedDescription)") }
         return try Config(data: data, origin: path)
+    }
+
+    /// 隐式 config 的定位目录（doctor 用于在同一目录校验 manifest）。
+    static func locatedDirectory() -> URL? {
+        var candidates = [FileManager.default.currentDirectoryPath + "/config.json"]
+        let exePath = URL(fileURLWithPath: CommandLine.arguments[0],
+                          relativeTo: nil).resolvingSymlinksInPath().path
+        var dir = URL(fileURLWithPath: exePath).deletingLastPathComponent()
+        for _ in 0..<8 {
+            candidates.append(dir.appendingPathComponent("config.json").path)
+            dir.deleteLastPathComponent()
+        }
+        guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            return nil
+        }
+        return URL(fileURLWithPath: path).deletingLastPathComponent()
     }
 
     init(data: Data, origin: String) throws {

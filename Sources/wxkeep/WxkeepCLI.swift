@@ -6,7 +6,7 @@ struct Wxkeep: ParsableCommand {
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
         version: "0.1.2",
-        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self]
+        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self]
     )
 
     struct Options: ParsableArguments {
@@ -429,6 +429,35 @@ extension Wxkeep {
             print(state == .pristine
                   ? "✓ behavior matches the PRISTINE expectation (function classifies correctly)"
                   : "✓ behavior matches the PATCHED expectation (classification neutralized)")
+        }
+    }
+
+    struct ManifestCmd: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "manifest",
+            abstract: "Verify the signed data manifest (supply-chain check for config/signatures)")
+
+        @Option(name: .shortAndLong, help: "Directory to verify (default: config search path)")
+        var dir: String?
+
+        mutating func run() throws {
+            let target: URL
+            if let dir {
+                target = URL(fileURLWithPath: dir)
+            } else if let found = Config.locatedDirectory() {
+                target = found
+            } else {
+                target = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            }
+            switch Manifest.verify(directory: target) {
+            case .verified:
+                print("manifest: ✓ verified (\(target.path))")
+            case .legacy:
+                print("manifest: — no signed manifest in \(target.path) (pre-v0.1.3 data or dev copy)")
+            case .invalid(let reason):
+                print("manifest: ✗ INVALID — \(reason)")
+                throw ExitCode(1)
+            }
         }
     }
 

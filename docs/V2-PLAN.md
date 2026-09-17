@@ -82,3 +82,23 @@
 - 与 v2 叠加后群聊/私聊提示原生插入（v2 保证）+ 文案改写含原文（v3 负责）= 完全体
 - 代价：注入面（重签+AMFI）、更新适配复杂度、x64 需自研（fzlzjerry 仅 arm64）
 - 决策：v2 验证通过、确有原文需求时再立项，不阻塞主线
+
+## v3 运行时组件设计备忘（2026-09-17，源自竞品逆向）
+
+若 v2 落地后立项运行时组件（提示含原文/自定义文案），两个已验证的机制直接采用：
+
+### 配置通道：微信偏好域前缀键（X1a0He 模式）
+- 键名：`io.github.wxkeep.*` 前缀，写进微信自己的域
+  `com.tencent.xinWeChat`（组件运行在微信进程内，CFPreferences 直读）
+- 优点：改配置**不触发重签**（对比 fzlzjerry 独立配置文件方案）；
+  与现有 UpdateGuard 的域写入经验（cfprefd 所有权：微信须退出）复用
+- 外部写入工具：`wxkeep tip-config set/get`（sudo + launchctl asuser 委托，
+  同 update-guard 的既有模式）
+
+### 通知门控：登录态判断（RecallKeeper 模式）
+- 触发通知前检查 `~/Library/Containers/com.tencent.xinWeChat/Data/Documents/
+  app_data/login` 存在性——未登录/已切换账号时静默，避免噪音与跨账号泄漏
+
+### 内容来源（开放课题）
+- X1a0He 实证进程内 SQLCipher 直读可行；wxkeep 无注入路线拿 key 需独立研究，
+  记录为 v3 前置课题，不阻塞 v2

@@ -63,6 +63,8 @@ def main():
     ap.add_argument('--build', help='构建号（.app 自动读 Info.plist；dylib 必须显式给）')
     ap.add_argument('--config', default='config.json')
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--hashes', action='store_true',
+                    help='只打印/登记 dylib 切片哈希到 known_dylib_hashes.json（不做 expected 回填）')
     ap.add_argument('--force', action='store_true', help='覆盖已有 expected（默认绝不）')
     args = ap.parse_args()
 
@@ -75,7 +77,25 @@ def main():
         build = args.build
     if not build:
         sys.exit('dylib 直给时必须 --build <构建号>')
+
     slices = load_slices(dylib)
+    if args.hashes:
+        import hashlib as _h
+        entry = {}
+        for ct, sb in sorted(slices.items()):
+            name = {0x01000007: 'x86_64', 0x0100000C: 'arm64'}.get(ct, f'cputype{ct:x}')
+            entry[name] = _h.sha256(sb).hexdigest()
+            print(f'  {name}: {entry[name]}')
+        known_path = 'known_dylib_hashes.json'
+        known = {}
+        try:
+            known = json.load(open(known_path))
+        except Exception:
+            pass
+        known[build] = entry
+        json.dump(known, open(known_path, 'w'), indent=2, sort_keys=True)
+        print(f'已登记构建 {build} 的切片哈希 → {known_path}')
+        return
     for ct, sb in sorted(slices.items()):
         h = hashlib.sha256(sb).hexdigest()
         print(f'slice cputype 0x{ct:x}: sha256 {h[:16]}… ({len(sb)/1e6:.0f} MB)')

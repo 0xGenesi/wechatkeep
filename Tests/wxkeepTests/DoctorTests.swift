@@ -65,6 +65,7 @@ struct DoctorTests {
             sip: "disabled", amfiRisk: nil, running: false, writable: true,
             signature: "adhoc", entitlementsOk: true, entitlementKeyCount: 17,
             restrictedEntitlements: true, patchStates: ["revoke": "patched"],
+            manifest: nil,
             verdicts: [], nextCommand: nil)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -95,6 +96,7 @@ struct DoctorTests {
             running: false, writable: false, signature: "adhoc",
             entitlementsOk: true, entitlementKeyCount: 2,
             restrictedEntitlements: true, patchStates: [:],
+            manifest: nil,
             verdicts: ["v"], nextCommand: "wxkeep locate")
         let object = try JSONSerialization.jsonObject(
             with: JSONEncoder().encode(report)) as? [String: Any] ?? [:]

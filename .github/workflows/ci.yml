@@ -35,3 +35,36 @@ jobs:
         run: |
           .build/release/wxkeep --help
           .build/release/wxkeep versions || true   # no WeChat on runners: expect a clean error
+
+  manifest-sign:
+    name: Sign data manifest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/master' && github.repository != ''
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Sign config/signatures manifest
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_SIGNING_KEY:-}" ]; then
+            echo "RELEASE_SIGNING_KEY secret 未配置——跳过签名（数据仍可用，doctor 报 legacy）"
+            exit 0
+          fi
+          printf '%s' "$RELEASE_SIGNING_KEY" > /tmp/key.pem
+          python3 tools/sign_manifest.py --key /tmp/key.pem
+          rm -f /tmp/key.pem
+          if [ -n "$(git status --porcelain manifest.json manifest.sig)" ]; then
+            git config user.name "wxkeep-ci"
+            git config user.email "actions@github.com"
+            git add manifest.json manifest.sig
+            git commit -m "chore(data): re-sign manifest [skip ci]"
+            git push
+          else
+            echo "manifest 无变化"
+          fi

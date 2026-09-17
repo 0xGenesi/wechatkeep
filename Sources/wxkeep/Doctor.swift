@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Read-only health check: build, SIP, the exclusive AMFI/taskgated kill
 /// prediction, signature/entitlements, patch state — with ONE verdict
@@ -21,6 +22,7 @@ struct Doctor {
         let entitlementKeyCount: Int
         let restrictedEntitlements: Bool
         let patchStates: [String: String]   // identifier → patched/pristine/mixed/unknown
+        let manifest: String?              // verified/legacy/invalid:<reason>（数据供应链）
         let verdicts: [String]
         let nextCommand: String?
 
@@ -36,6 +38,7 @@ struct Doctor {
             case entitlementKeyCount = "entitlement_key_count"
             case restrictedEntitlements = "restricted_entitlements"
             case patchStates = "patch_states"
+            case manifest
             case verdicts
             case nextCommand = "next_command"
         }
@@ -144,7 +147,17 @@ struct Doctor {
         let writable = fm.isWritableFile(atPath: main.path)
 
         // ---- single verdict point ----
+
         var verdicts: [String] = []
+        // 供应链与切片完整性观察
+        var manifestStatus: String? = nil
+        if let cfgDir = Config.locatedDirectory() {
+            switch Manifest.verify(directory: cfgDir) {
+            case .verified: manifestStatus = "verified"
+            case .legacy: manifestStatus = "legacy"
+            case .invalid(let r): manifestStatus = "invalid:\(r)"
+            }
+        }
         var overall: String
         if let entry = versionEntry, configKnown {
             if patchStates.values.contains("unknown") {
@@ -167,6 +180,9 @@ struct Doctor {
             verdicts.append("AMFI/taskgated kill predicted at next launch — apply the fix before opening WeChat")
         }
         if running { verdicts.append("WeChat is running — quit it before patching") }
+        if let ms = manifestStatus, ms.hasPrefix("invalid:") {
+            verdicts.append("⚠️ catalog manifest INVALID — \(String(ms.dropFirst(8))). Refusing to trust bundled data; fetch a fresh copy.")
+        }
 
         // next command
         var nextCommand: String? = nil
@@ -200,6 +216,7 @@ struct Doctor {
             entitlementKeyCount: profile?.count ?? 0,
             restrictedEntitlements: restricted,
             patchStates: patchStates,
+            manifest: manifestStatus,
             verdicts: verdicts,
             nextCommand: nextCommand)
     }
@@ -212,6 +229,10 @@ struct Doctor {
     }
 
     // MARK: - Rendering
+
+    // MARK: - 切片哈希观察
+
+
 
     static func render(_ report: Report) -> String {
         var lines: [String] = []
@@ -237,6 +258,7 @@ struct Doctor {
             lines.append("patch[\(identifier)]: \(state)")
         }
         lines.append("------ Verdict ------")
+        if let m = report.manifest { lines.append("manifest: \(m)") }
         lines.append("overall: \(report.overall)")
         report.verdicts.forEach { lines.append(" • \($0)") }
         if let next = report.nextCommand { lines.append("➡️  next: \(next)") }
