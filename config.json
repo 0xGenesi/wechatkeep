@@ -952,8 +952,8 @@
               "4831C06690488983C8010000",
               "E8BE26E9FF488983C8010000"
             ],
-            "asm": "E8BE26E9FF488983C8010000",
-            "source": "wxkeep:v2(恢复newmsgid存储——查找需成功,与v1相反)"
+            "asm": "E812DC7D01",
+            "source": "wxkeep:v7——call重指向代码洞stub(返回恒定非零假id=1);原expected保留便于restore;store(0x50a5bb2)不动"
           },
           {
             "arch": "x86_64",
@@ -1026,6 +1026,15 @@
             ],
             "asm": "4831C090909090",
             "source": "wxkeep:v6——A内提示构建块(mov esi,0x2710建0x2710提示对象)读[r13+0x1C8]newmsgid喂0x50b5ef0执行替换/隐藏;此处xor rax清零=外科手术式v1(仅此消费者拿0,提示定位等仍拿真实id);全镜像该读取模式6处,其余5处在Qt UI区0x73cd-0x73ce"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "68782c4",
+            "expected": [
+              "9090909090909090"
+            ],
+            "asm": "48C7C001000000C3",
+            "source": "wxkeep:v7代码洞——函数间隙ret后nop填充(0x68782c3为retq),8字节stubmov rax,1;ret;标记引用id=1:非零过校验+JOIN永不失配"
           }
         ]
       }
