@@ -11,6 +11,8 @@ struct Doctor {
         let overall: String
         let nativeArch: String
         let build: String
+        /// Marketing version (CFBundleShortVersionString, e.g. "4.1.15"); "" unknown.
+        var appVersion: String = ""
         let appPath: String
         let configKnown: Bool
         let configTargets: [String]
@@ -30,6 +32,7 @@ struct Doctor {
         enum CodingKeys: String, CodingKey {
             case overall, build
             case nativeArch = "native_arch"
+            case appVersion = "app_version"
             case appPath = "app_path"
             case configKnown = "config_known"
             case configTargets = "config_targets"

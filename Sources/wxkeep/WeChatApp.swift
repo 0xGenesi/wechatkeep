@@ -33,6 +33,17 @@ enum WeChatApp {
         return version
     }
 
+    /// CFBundleShortVersionString — the marketing version (e.g. "4.1.15").
+    /// Build numbers are the catalog key, but users think in marketing
+    /// versions; showing both removes the #1 community confusion.
+    static func marketingVersion(app: URL) -> String? {
+        guard let bundle = Bundle(url: app),
+              let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              !version.isEmpty
+        else { return nil }
+        return version
+    }
+
     static func isRunning(app: URL) -> Bool {
         let pattern = "\(app.path)/Contents/MacOS"
         let process = Process()
