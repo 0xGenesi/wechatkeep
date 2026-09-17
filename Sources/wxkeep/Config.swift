@@ -98,10 +98,12 @@ struct Config {
     /// Local-first resolution: explicit flag > ./config.json > next to the
     /// executable (resolving symlinks — brew's /usr/local/bin/wxkeep points
     /// into the Cellar) > walk up from it (max 8 levels).
-    static func load(explicit: String?) throws -> Config {
+    static func load(explicit: String?, cwd: String = FileManager.default.currentDirectoryPath) throws -> Config {
         var candidates: [String] = []
         if let explicit { candidates.append(explicit) }
-        candidates.append(FileManager.default.currentDirectoryPath + "/config.json")
+        candidates.append(cwd + "/config.json")
+        // update-data 的安装位（用户级、免 sudo）：优先于随包分发 的旧数据
+        candidates.append(Self.userDataURL.appendingPathComponent("config.json").path)
         // Resolve the executable's symlink: brew's /usr/local/bin/wxkeep →
         // ../Cellar/wxkeep/<ver>/bin/wxkeep, where config.json is staged.
         let exePath = URL(fileURLWithPath: CommandLine.arguments[0],
@@ -134,6 +136,14 @@ struct Config {
         catch { throw LoadError.malformed("unreadable at \(path): \(error.localizedDescription)") }
         return try Config(data: data, origin: path)
     }
+
+    /// 用户级数据目录（wxkeep update-data 的安装位；测试可注入）。
+    static var userDataURL: URL {
+        if let override = _userDataURLOverride { return override }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("wxkeep")
+    }
+    nonisolated(unsafe) static var _userDataURLOverride: URL?   // 仅测试注入（Swift 并发门）
 
     /// 隐式 config 的定位目录（doctor 用于在同一目录校验 manifest）。
     static func locatedDirectory() -> URL? {

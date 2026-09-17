@@ -6,7 +6,7 @@ struct Wxkeep: ParsableCommand {
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
         version: "0.1.2",
-        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self]
+        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self]
     )
 
     struct Options: ParsableArguments {
@@ -429,6 +429,16 @@ extension Wxkeep {
             print(state == .pristine
                   ? "✓ behavior matches the PRISTINE expectation (function classifies correctly)"
                   : "✓ behavior matches the PATCHED expectation (classification neutralized)")
+        }
+    }
+
+    struct UpdateDataCmd: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "update-data",
+            abstract: "Fetch the latest signed patch catalog (day-0 support for new builds, no CLI upgrade needed)")
+
+        mutating func run() throws {
+            try UpdateData.run()
         }
     }
 

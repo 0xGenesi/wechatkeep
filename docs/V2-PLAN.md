@@ -83,6 +83,21 @@
 - 代价：注入面（重签+AMFI）、更新适配复杂度、x64 需自研（fzlzjerry 仅 arm64）
 - 决策：v2 验证通过、确有原文需求时再立项，不阻塞主线
 
+## v2 关键情报更新（2026-09-17，源自 fzlzjerry MAINTAINING.md 的 {content} 误区）
+
+**撤回 XML 解析器只服务扩展消息类型 71/72，其 newmsgid 不是普通 Message 的
+serverId**——fzlzjerry 为拿正确的内容缓存被迫在「通用 Message 终结器」上挂第二个
+hook（缓存 serverId/msgType/content 三元组）。
+
+对本仓的含义：
+- 我们 v1 清零的 newmsgid 处于 71/72 解析器（TryParseMessage）内——这解释了
+  v1 行为谜团的一半：为什么清零后私聊提示仍显示、为什么 0x36d「按 newmsgid 查找」
+  链路动态零命中（那条链找的是另一种 id 体系）
+- **A/B 实验候选点修订**：除既有候选外，增加「通用 Message 终结器中的 serverId
+  消费点」——真正的删除键更可能在那里。arm64 上先找 Message 终结器（dtor/finalize
+  形态、含 msgType 分支）→ x64 孪生 → 三点 A/B
+- v3 内容缓存若立项：直接用他们的结论——挂通用终结器，不挂 71/72 解析器
+
 ## v3 运行时组件设计备忘（2026-09-17，源自竞品逆向）
 
 若 v2 落地后立项运行时组件（提示含原文/自定义文案），两个已验证的机制直接采用：

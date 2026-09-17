@@ -1,0 +1,88 @@
+import Foundation
+
+/// `wxkeep update-data` — OTA 拉取最新补丁数据（学 fzlzjerry，校验升级为 Ed25519 清单）。
+///
+/// 数据链：仓库 master 的 config/signatures + CI 签署的 manifest → 本命令
+/// 下载到临时目录 → Manifest.verify 必须 .verified（签名+哈希双重）→ 原子安装到
+/// 用户级数据目录（Config 搜索路径优先于随包数据）。新构建适配 day-0 生效，
+/// 用户无需 brew upgrade 工具本体。
+enum UpdateData {
+    static let remoteBase = "https://raw.githubusercontent.com/0xGenesi/wechatkeep/master/"
+    static let payload = ["config.json", "signatures.json", "manifest.json", "manifest.sig"]
+
+    enum UpdateError: Error, CustomStringConvertible {
+        case network(String)
+        case notVerified(String)
+        case install(String)
+
+        var description: String {
+            switch self {
+            case .network(let d): return "下载失败：\(d)（检查网络后重试）"
+            case .notVerified(let d): return "远端数据未通过签名校验，拒绝安装：\(d)"
+            case .install(let d): return "安装失败：\(d)"
+            }
+        }
+    }
+
+    /// 同步拉取+校验+安装。返回 (新目录, 安装前后 catalog 构建数对比)。
+    @discardableResult
+    static func run(print: (String) -> Void = { Swift.print($0) }) throws -> URL {
+        let workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-update-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDir) }
+
+        // 1. 下载四件套
+        let sem = DispatchSemaphore(value: 0)
+        var failures: [String] = []
+        let group = DispatchGroup()
+        for rel in payload {
+            group.enter()
+            let task = URLSession.shared.dataTask(with: URL(string: remoteBase + rel)!) { data, resp, _ in
+                defer { group.leave() }
+                guard let http = resp as? HTTPURLResponse, http.statusCode == 200, let data, !data.isEmpty else {
+                    failures.append(rel); return
+                }
+                try? data.write(to: workDir.appendingPathComponent(rel))
+            }
+            task.resume()
+        }
+        _ = group.wait(timeout: .now() + 30)
+        _ = sem
+        if !failures.isEmpty {
+            throw UpdateError.network(failures.joined(separator: ", "))
+        }
+
+        // 2. 签名+哈希双重校验（硬门：不是 .verified 一律拒装）
+        switch Manifest.verify(directory: workDir) {
+        case .verified: break
+        case .legacy: throw UpdateError.notVerified("远端缺 manifest（发布流水线异常）")
+        case .invalid(let r): throw UpdateError.notVerified(r)
+        }
+
+        // 3. 信息对比（新旧 catalog 规模）
+        let oldCount = (try? Config.load(explicit: nil))?.versions.count
+        let newCount = (try? Config(data: Data(contentsOf: workDir.appendingPathComponent("config.json")),
+                                    origin: "remote"))?.versions.count
+
+        // 4. 原子安装到用户数据目录
+        let dest = Config.userDataURL
+        do {
+            try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+            for rel in payload {
+                let to = dest.appendingPathComponent(rel)
+                if FileManager.default.fileExists(atPath: to.path) { try FileManager.default.removeItem(at: to) }
+                try FileManager.default.copyItem(at: workDir.appendingPathComponent(rel), to: to)
+            }
+        } catch {
+            throw UpdateError.install(error.localizedDescription)
+        }
+
+        print("✓ 已安装最新补丁数据 → \(dest.path)")
+        if let o = oldCount, let n = newCount {
+            print("  catalog 构建：\(o) → \(n)\(n > o ? "（+\(n - o)）" : "")")
+        }
+        print("  下一步：wxkeep versions / wxkeep doctor 查看新构建支持")
+        return dest
+    }
+}
