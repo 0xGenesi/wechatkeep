@@ -67,6 +67,68 @@ struct VariantSwitchTests {
     }
 }
 
+/// `--only` 作用域语义：限定目标时不得触碰任何 revoke 变体——
+/// 特别是变体切换还原（switch-restore）不得因 `--only update` 而把另一
+/// 变体的防撤回字节默默撤防（过滤先于切换还原，2026-09 修复的时序 bug）。
+struct OnlyFilterScopeTests {
+    private func makeAppAndCatalog() throws -> (app: URL, config: Config) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-only-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let (image, _, _) = MachOFixture.fat(
+            arm64: MachOFixture.thin(cputype: MachOFixture.arm64CPU, size: 0x400, code: [
+                (0x100, [0xF4, 0x4F, 0xBE, 0xA9, 0xFD, 0x7B, 0x01, 0xA9]),   // revoke 位：原始
+                (0x140, [0x40, 0x10, 0x00, 0x34]),                            // keeptip 位：原始
+                (0x180, [0x1F, 0x00, 0x00, 0x71]),                            // update 位：原始
+            ]),
+            x64: MachOFixture.thin(cputype: MachOFixture.x64CPU, size: 0x400, code: []))
+        let dylib = dir.appendingPathComponent("Contents/Resources/wechat.dylib")
+        try FileManager.default.createDirectory(at: dylib.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try image.write(to: dylib)
+        let json = """
+        [{"version":"999999","targets":[
+          {"identifier":"revoke","binary":"Contents/Resources/wechat.dylib","entries":[
+            {"arch":"arm64","addr":"100","expected":"F44FBEA9FD7B01A9","asm":"00008052C0035FD6"}
+          ]},
+          {"identifier":"revoke-keeptip","binary":"Contents/Resources/wechat.dylib","entries":[
+            {"arch":"arm64","addr":"100","expected":["00008052C0035FD6","F44FBEA9FD7B01A9"],"asm":"F44FBEA9FD7B01A9"},
+            {"arch":"arm64","addr":"140","expected":"40100034","asm":"82000014"}
+          ]},
+          {"identifier":"update","binary":"Contents/Resources/wechat.dylib","entries":[
+            {"arch":"arm64","addr":"180","expected":"1F000071","asm":"C0035FD6"}
+          ]}
+        ]}]
+        """
+        return (dir, try Config(data: Data(json.utf8), origin: "inline"))
+    }
+
+    @Test func onlyUpdateLeavesRevokeVariantUntouched() throws {
+        let (app, config) = try makeAppAndCatalog()
+        let dylib = app.appendingPathComponent("Contents/Resources/wechat.dylib")
+
+        // 先打 keeptip（0x100 还原型 + 0x140 cbz 守卫）
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
+                             dryRun: false, allowUnverified: false, only: nil)
+        var data = try Data(contentsOf: dylib)
+        #expect(data.range(of: Data([0x82, 0x00, 0x00, 0x14])) != nil, "keeptip 守卫已打")
+
+        // `--only update`：只动 update 位；revoke/keeptip 字节必须原样保留
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "silent",
+                             dryRun: false, allowUnverified: false, only: ["update"])
+        data = try Data(contentsOf: dylib)
+        #expect(data.range(of: Data([0x82, 0x00, 0x00, 0x14])) != nil,
+                "--only update 不得还原 keeptip 的字节（撤防 bug）")
+        #expect(data.range(of: Data([0xC0, 0x03, 0x5F, 0xD6])) != nil, "update 位已打")
+
+        // 对照：`--only revoke`（本变体在作用域内）则应先还原 keeptip 再打 silent
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "silent",
+                             dryRun: false, allowUnverified: false, only: ["revoke"])
+        data = try Data(contentsOf: dylib)
+        #expect(data.range(of: Data([0x82, 0x00, 0x00, 0x14])) == nil, "--only revoke 切换时还原 keeptip")
+        #expect(data.range(of: Data([0x00, 0x00, 0x80, 0x52, 0xC0, 0x03, 0x5F, 0xD6])) != nil, "silent 已打")
+    }
+}
+
 /// 今日实测回归：v2–v7 实验变体（revoke-keeptip2）已废弃——
 /// ① 不能再应用；② 盘上有它的遗留字节时，应用其他变体必须拒绝并指引 restore。
 struct DeprecatedVariantTests {

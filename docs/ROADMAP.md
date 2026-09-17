@@ -90,3 +90,23 @@ keeptip=服务端原文提示。
 M-R2 hook 点结论：自定义提示的 runtime hook 需要挂在 tip 文本组装处
 （排水/UI 层），或直接 hook 消息展示层。下一轮：drive16b 在 tip 显示后
 做全堆扫描定位文本载体，或 hook 消息 DB 插入层（通用点位，一劳永逸）。
+
+## 2026-09-17 深夜复核会话：五项决策与状态
+
+1. **AMFI 判定重写**：基于外部证据推翻早前 kill_predicted 结论（旧判定疑似把
+   verifier worker 的 RWX 杀机误外推到微信重签场景）。doctor 已改为证据中性表述。
+   验证方案：原生 SIP 开机实机 patch 一次；若 .ips 显示 CODESIGNING kill 则恢复
+   旧判定。状态：待实机验证。
+2. **verify 规格 270099**：真机 verify worker 崩溃（spec 仍是 269602 家族的
+   stubs/zero_regions）。需对 270099 x64 重新逆向 stubs（isRevokemsg 已知
+   0x4e8d440，stub 地址需重找）。状态：待逆向。
+3. **catalog 缺口 270091–270098**：270099 已本地适配（x64 locate/keeptip），
+   其余 8 个构建需 CI dispatch watch-wechat 实跑回填。注意：中间号可能是
+   内部构建无公开 dmg——回填前先验证制品存在性。状态：流水线待实跑验证。
+4. **Intel 数据入库决策**：tanranv5 270098 条目、fzlzjerry #55 269574 候选
+   （解析入口 0x5063940、守卫 0x5063F87）均缺 expected 字节 → 按隔离区策略
+   不导入，待 contribute_expected 以真实 dylib 回填后放行。未擅自导入未验证
+   数据 ✓。
+5. **runtime hook 同步回调模式**：将来加 hook 必须用 fzlzjerry 的
+   `_dyld_register_func_for_add_image` 同步回调（270090 启动闪退教训——
+   异步时机错误即闪退）。当前 M-R1 仅 marker 无需。已写入 RUNTIME-DESIGN 约束。

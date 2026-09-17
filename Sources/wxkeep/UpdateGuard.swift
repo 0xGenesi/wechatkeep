@@ -54,11 +54,15 @@ enum UpdateGuard {
     static var markerURL: URL { Config.userDataURL.appendingPathComponent("update-guard.marker") }
 
     /// 「写过 0、现在读到 1」→ 微信已把更新开关改回（4.1.13+ 已知行为），
-    /// 偏好层防护失守。从未写过（无标记）则不判定。
-    static var rewrittenByApp: Bool {
-        guard FileManager.default.fileExists(atPath: markerURL.path) else { return false }
+    /// 偏好层防护失守。从未写过（无标记）则不判定。纯函数便于测试。
+    static func rewritten(_ statuses: [Status], markerExists: Bool) -> Bool {
+        guard markerExists else { return false }
         let toggles: Set<String> = ["SUEnableAutomaticChecks", "SUAutomaticallyUpdate"]
-        return read().contains { toggles.contains($0.key) && !$0.guarded }
+        return statuses.contains { toggles.contains($0.key) && !$0.guarded }
+    }
+
+    static var rewrittenByApp: Bool {
+        rewritten(read(), markerExists: FileManager.default.fileExists(atPath: markerURL.path))
     }
 
     /// Applies all three guarded values. Idempotent.
@@ -75,7 +79,11 @@ enum UpdateGuard {
 
     /// Restores update checks (user asked for it explicitly).
     @discardableResult
-    static func enable() -> Bool { apply(guarded: false) }
+    static func enable() -> Bool {
+        // 用户明确要求恢复更新——改回检测标记一并清除（不再把后续的 1 判为「微信改回」）
+        try? FileManager.default.removeItem(at: markerURL)
+        return apply(guarded: false)
+    }
 
     /// Root context (sudo patch) writes to ROOT's prefs — cfprefd drops or
     /// misroutes them for the user-owned sandboxed domain. Delegate to the

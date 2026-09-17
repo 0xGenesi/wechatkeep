@@ -18,7 +18,7 @@ struct Wxkeep: ParsableCommand {
         })
         var app: URL = URL(fileURLWithPath: "/Applications/WeChat.app")
 
-        @Option(name: [.customShort("c"), .long], help: "Path to config.json (default: ./config.json, else next to the executable)")
+        @Option(name: [.customShort("c"), .long], help: "Path to config.json (default search: ./, user data dir, next to the executable)")
         var config: String?
     }
 }
@@ -106,7 +106,7 @@ extension Wxkeep {
                         dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
                 }
             } catch {
-                Self.printPermissionHintIfTCC(error)
+                Wxkeep.printPermissionHintIfTCC(error)
                 throw error
             }
             summary.lines.forEach { print($0) }
@@ -115,7 +115,7 @@ extension Wxkeep {
                 do {
                     try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
                 } catch {
-                    Self.printPermissionHintIfTCC(error)
+                    Wxkeep.printPermissionHintIfTCC(error)
                     throw error
                 }
                 // restore 语义 = 回到原始；不附带任何偏好写入
@@ -130,21 +130,22 @@ extension Wxkeep {
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
+    }
 
-        /// macOS 14+ 的「App 管理」TCC 权限：root 也绕不过（社区高频卡点，
-        /// sunnyyoung #1025 / zengtianli user-blockers）。写 /Applications 下的
-        /// App 报权限错误时，把指引打在人话层面再抛原错误。
-        static func printPermissionHintIfTCC(_ error: Error) {
-            let ns = error as NSError
-            let denied = (ns.domain == NSCocoaErrorDomain
-                          && (ns.code == CocoaError.Code.fileWriteNoPermission.rawValue
-                              || ns.code == CocoaError.Code.fileReadNoPermission.rawValue))
-                || (ns.domain == NSPOSIXErrorDomain && (ns.code == Int(EPERM) || ns.code == Int(EACCES)))
-            guard denied else { return }
-            print("⚠️ 写入被系统拒绝（Permission denied）。macOS 14+ 即使 sudo 也会被「App 管理」"
-                + "隐私权限拦截：系统设置 → 隐私与安全性 → App 管理 → 打开你所用的终端 App"
-                + "（Terminal/iTerm/Warp 等），然后重试。")
-        }
+    /// macOS 14+ 的「App 管理」TCC 权限：root 也绕不过（社区高频卡点，
+    /// sunnyyoung #1025 / zengtianli user-blockers）。写 /Applications 下的
+    /// App 报权限错误时，把指引打在人话层面再抛原错误。
+    /// patch / restore / runtime install|remove 等写盘命令统一接入。
+    static func printPermissionHintIfTCC(_ error: Error) {
+        let ns = error as NSError
+        let denied = (ns.domain == NSCocoaErrorDomain
+                      && (ns.code == CocoaError.Code.fileWriteNoPermission.rawValue
+                          || ns.code == CocoaError.Code.fileReadNoPermission.rawValue))
+            || (ns.domain == NSPOSIXErrorDomain && (ns.code == Int(EPERM) || ns.code == Int(EACCES)))
+        guard denied else { return }
+        print("⚠️ 写入被系统拒绝（Permission denied）。macOS 14+ 即使 sudo 也会被「App 管理」"
+            + "隐私权限拦截：系统设置 → 隐私与安全性 → App 管理 → 打开你所用的终端 App"
+            + "（Terminal/iTerm/Warp 等），然后重试。")
     }
 }
 
@@ -168,11 +169,22 @@ extension Wxkeep {
             let config = try Config.load(explicit: options.config)
             let build = try WeChatApp.buildNumber(app: options.app)
             print("restore build \(build)\(dryRun ? " — dry run" : "")")
-            let summary = try Engine.restore(app: options.app, build: build, config: config, dryRun: dryRun)
+            let summary: Engine.RunSummary
+            do {
+                summary = try Engine.restore(app: options.app, build: build, config: config, dryRun: dryRun)
+            } catch {
+                Wxkeep.printPermissionHintIfTCC(error)
+                throw error
+            }
             summary.lines.forEach { print($0) }
             if !dryRun && summary.wroteAnything && !noResign {
                 print("------ Resign ------")
-                try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
+                do {
+                    try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
+                } catch {
+                    Wxkeep.printPermissionHintIfTCC(error)
+                    throw error
+                }
                 // restore 语义 = 回到原始；不附带任何偏好写入
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
@@ -324,8 +336,7 @@ extension Wxkeep {
                     print("✗ 写入未完全生效，请重试或检查权限")
                 }
             case .on:
-                let ok = UpdateGuard.enable()
-                try? FileManager.default.removeItem(at: UpdateGuard.markerURL)
+                let ok = UpdateGuard.enable()   // enable 内部清除改回检测标记
                 print(ok ? "已恢复更新检查（微信将照常提示新版本）" : "恢复未完全生效，请重试")
             }
         }
@@ -464,8 +475,13 @@ extension Wxkeep {
                 print("backup: \(backup.lastPathComponent)")
 
                 var data = try Data(contentsOf: main)
-                try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: lcPath)
-                try data.write(to: main)
+                do {
+                    try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: lcPath)
+                    try data.write(to: main)
+                } catch {
+                    Wxkeep.printPermissionHintIfTCC(error)
+                    throw error
+                }
 
                 let dest = RuntimeCommand.frameworkDylibURL(options.app)
                 try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -483,19 +499,25 @@ extension Wxkeep {
             }
         }
 
-        struct RuntimeRemove: ParsableCommand {
+            struct RuntimeRemove: ParsableCommand {
             static var _commandName: String { "remove" }
             static let configuration = CommandConfiguration(abstract: "Remove the runtime dylib and its load command")
             @OptionGroup var options: Options
             mutating func run() throws {
+                try WeChatApp.validate(options.app)
                 if WeChatApp.isRunning(app: options.app) {
                     throw ValidationError("WeChat 正在运行。退出后重试。")
                 }
                 let main = RuntimeCommand.mainExecURL(options.app)
                 let backup = try Backup.make(binary: main)
                 var data = try Data(contentsOf: main)
-                try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: lcPath)
-                try data.write(to: main)
+                do {
+                    try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: lcPath)
+                    try data.write(to: main)
+                } catch {
+                    Wxkeep.printPermissionHintIfTCC(error)
+                    throw error
+                }
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 try? FileManager.default.removeItem(at: dylib)
                 try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat"])

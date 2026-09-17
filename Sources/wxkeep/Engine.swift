@@ -50,12 +50,10 @@ enum Engine {
             let relative = spec.binary ?? "Contents/MacOS/WeChat"
             let binary = WeChatApp.binaryURL(app: app, relative: relative)
             guard FileManager.default.fileExists(atPath: binary.path) else { continue }
-            let recipe: RecipeEngine.Recipe
-            do {
-                recipe = try RecipeEngine.Recipe(
-                    anchor: spec.anchor, derive: spec.derive,
-                    confirm: spec.confirm.map { $0.split(separator: ";").map(String.init) } ?? [])
-            } catch { continue }
+            // Recipe(anchor:derive:confirm:) 不抛错（抛错的是 dict 变体）——直接构造
+            let recipe = RecipeEngine.Recipe(
+                anchor: spec.anchor, derive: spec.derive,
+                confirm: spec.confirm.map { $0.split(separator: ";").map(String.init) } ?? [])
             guard let image = try? MachImage(file: binary, arch: spec.arch),
                   let va = try? RecipeEngine.resolve(recipe: recipe, image: image, arch: spec.arch)
             else { continue }

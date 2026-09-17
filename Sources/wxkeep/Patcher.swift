@@ -142,7 +142,7 @@ struct Patcher {
     /// Recipe entries carry a locator instead of an addr; resolve them to a
     /// concrete VA now. The expected-byte gate downstream is unchanged — a
     /// recipe only decides WHERE, never whether it is safe to write.
-    static func resolveRecipes(_ entries: [Config.PatchEntry], binary: URL) throws -> [Config.PatchEntry] {
+    static func resolveRecipes(_ entries: [Config.PatchEntry], binary: URL, identifier: String = "<target>") throws -> [Config.PatchEntry] {
         try entries.map { entry in
             guard entry.addr == nil, let dict = entry.recipe else { return entry }
             do {
@@ -156,7 +156,7 @@ struct Patcher {
                 // Surface the real cause (ambiguous anchors / new signature
                 // generation / missing slice) — degrading to noArchMatched
                 // would send the user hunting the wrong problem.
-                throw PatchError.recipeResolutionFailed(identifier: entry.arch.rawValue, cause: String(describing: error))
+                throw PatchError.recipeResolutionFailed(identifier: identifier, cause: String(describing: error))
             }
         }
     }

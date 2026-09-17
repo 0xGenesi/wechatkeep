@@ -16,10 +16,10 @@ brew install 0xGenesi/tap/wxkeep
 
 - **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 269602 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）
 - **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效
-- **更新防护**——不检查更新、不自动安装、关闭更新遥测（patch 时自动附带）
+- **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示，可靠的更新防护仍是 patch 附带的字节级目标
 - **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）
 - **多开（克隆式）**——独立数据目录的第二/第 N 个微信，与构建号无关（`clone create`）
-- **体检**——`doctor` 含 AMFI 预检与精确修复指引
+- **体检**——`doctor` 含 AMFI 观察级提示与精确修复指引
 
 ## 快速上手
 
@@ -47,7 +47,7 @@ wxkeep update-guard --action status   # 更新防护状态
 6. **隔离区**：无 expected 溯源的条目（如上游导入数据）默认拒写——手上有对应构建原版 dylib 可一键回填：`python3 tools/contribute_expected.py /Applications/WeChat.app`
 7. **发布清单签名**：`manifest.json`+`manifest.sig`（Ed25519）守护 config/signatures 供应链——篡改过的补丁数据会被 `wxkeep manifest` / doctor 检出并拒载；`python3 tools/contribute_expected.py /Applications/WeChat.app --hashes` 可登记本机构建切片哈希
 8. **数据 OTA**：`wxkeep update-data` 从仓库拉取最新已签名 catalog（Ed25519 验签后原子安装到用户目录）——新构建适配 day-0 生效，无需升级工具本体
-7. **行为验证**：`verify` 把补丁函数拉出进程调用，证明补丁生效——不再依赖人工撤回测试
+9. **行为验证**：`verify` 把补丁函数拉出进程调用，证明补丁生效——不再依赖人工撤回测试
 
 ## 版本兼容
 

@@ -113,7 +113,11 @@ revoke.py，Weixin.dll 4.0.6+，仅两条通配规则、无注入）：
 - **dlopen 路线不可行**：wechat.dylib 依赖 app 内框架 + Qt 初始化器在 app 外崩溃（M2-3 spike 判死）。
 - **Swift `load()` 严格对齐**：读未对齐 rel32 必须逐字节组装（Verifier 实证）。
 - **Swift 数组不是 C 数组**：`withUnsafeMutableBytes(of: &array)` 传的是数组头（指针+count），必须用 Array 自己的 withUnsafeMutableBytes（Verifier 实证）。
-- **macOS 15 taskgated**：见 README「AMFI 知识」——doctor 独家预检的由来。
+- **macOS 15 AMFI（2026-09 复盘改写）**：ad-hoc 重签 + 保留 restricted entitlements
+  在原生 SIP 开启机器上可正常运行（zengtianli/fzlzjerry 双实现 + 大用户群实证；
+  sunnyyoung #1038 闪退根因是 entitlements 被**剥光**）。doctor 降级为 watch 级提示
+  （崩溃日志取证指引），不再处方 AMFI boot-arg；重签须 `--force-library-entitlements`
+  （macOS 15+ codesign 默认丢弃库文件 entitlements）。
 - **漂移比对的目标态**：重签后比对「原始+注入键」而非「原始」，否则自家注入被误判永久漂移（M3-1 实证）。
 - **codesign 拒绝合成 Mach-O**（"main executable failed strict validation"）：集成测试用 clang 现场编译真二进制（M3-1 实证）。
 - **JSON 数字 vs 字符串**：signatures.json 的 spec 数组元素必须全字符串（Codable 严格类型，M4 实证）。
@@ -131,7 +135,8 @@ revoke.py，Weixin.dll 4.0.6+，仅两条通配规则、无注入）：
 - **[P1] Patcher.resolveRecipes 吞错**：`try?` 把配方失败（歧义/新签名代/缺 slice）降级为 noArchMatched，误导排障方向。改为传播 `recipeResolutionFailed`（带真实原因）。
 - **[P2] patchedBinaries 重复**：同 binary 多 target 时重复 append → 同一文件被重签多次。改为每 binary 记一次。
 - **[P3] doctor nvram 双调用**：竞态+浪费，改单次。
-- **[P4] next_command 语义**：unprotected 且 AMFI kill_predicted 时只给 patch 命令会让用户 patch 完启动即被杀——追加 boot-arg 前置提示。
+- **[P4] next_command 语义**（2026-09 复盘后失效留档）：AMFI 判定已降级为 watch 级、
+  不再处方 boot-arg（见上方 macOS 15 AMFI 条目）；next_command 只给 patch 命令。
 
 观察未修（低风险/有实测依据，改动需权衡）：
 - **Shell.run 未读 terminationReason**：信号死亡判定依赖 `status == 128+signal` 约定（本机 SIGILL=132 实测成立）。若 Foundation 行为变化，应改用 `terminationReason == .uncaughtSignal`。

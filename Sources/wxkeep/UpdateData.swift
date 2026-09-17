@@ -33,24 +33,30 @@ enum UpdateData {
         defer { try? FileManager.default.removeItem(at: workDir) }
 
         // 1. 下载四件套
-        let sem = DispatchSemaphore(value: 0)
         var failures: [String] = []
+        var completed: Set<String> = []
+        let lock = NSLock()   // URLSession 回调并发到达——共享数组/集合需加锁
         let group = DispatchGroup()
         for rel in payload {
             group.enter()
             let task = URLSession.shared.dataTask(with: URL(string: remoteBase + rel)!) { data, resp, _ in
                 defer { group.leave() }
                 guard let http = resp as? HTTPURLResponse, http.statusCode == 200, let data, !data.isEmpty else {
-                    failures.append(rel); return
+                    lock.lock(); failures.append(rel); lock.unlock(); return
                 }
                 try? data.write(to: workDir.appendingPathComponent(rel))
+                lock.lock(); completed.insert(rel); lock.unlock()
             }
             task.resume()
         }
-        _ = group.wait(timeout: .now() + 30)
-        _ = sem
+        let finished = group.wait(timeout: .now() + 30) == .success
         if !failures.isEmpty {
             throw UpdateError.network(failures.joined(separator: ", "))
+        }
+        // 超时未完成的下载如实报网络错误——否则残缺文件会被下面误报成「签名校验失败」
+        let missing = payload.filter { !completed.contains($0) }
+        if !missing.isEmpty {
+            throw UpdateError.network("下载超时（30s）：" + missing.joined(separator: ", "))
         }
 
         // 2. 签名+哈希双重校验（硬门：不是 .verified 一律拒装）
