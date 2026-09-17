@@ -57,8 +57,9 @@ jobs:
             exit 0
           fi
           printf '%s' "$RELEASE_SIGNING_KEY" > /tmp/key.pem
-          pip3 install --quiet --user pynacl
-          python3 tools/sign_manifest.py --key /tmp/key.pem
+          python3 -m venv /tmp/signenv
+          /tmp/signenv/bin/pip install --quiet pynacl
+          /tmp/signenv/bin/python tools/sign_manifest.py --key /tmp/key.pem
           rm -f /tmp/key.pem
           if [ -n "$(git status --porcelain manifest.json manifest.sig)" ]; then
             git config user.name "wxkeep-ci"
