@@ -49,15 +49,30 @@ def main():
     # 规范字节串：sorted keys、无缩进、紧凑分隔符——与 Swift 侧 canonicalData() 一致
     canonical = json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode()
 
-    with tempfile.NamedTemporaryFile(delete=False) as tf:
-        tf.write(canonical)
-        payload = tf.name
+    def sign_pynacl(pem_path: str, message: bytes) -> bytes:
+        """PKCS8 Ed25519 PEM → PyNaCl 签名（macOS 自带 LibreSSL 不支持 pkeyutl -rawin）。"""
+        import base64, re
+        from nacl.signing import SigningKey
+        pem = open(pem_path).read()
+        b64 = re.sub(r'-----[^-]+-----|\s', '', pem)
+        der = base64.b64decode(b64)
+        seed = der[-32:]   # PKCS8 Ed25519: ...04 22 04 20 <32-byte seed>
+        if len(seed) != 32:
+            raise ValueError('not an Ed25519 PKCS8 key')
+        return SigningKey(seed).sign(message).signature
+
     try:
-        sig = subprocess.run(
-            ['openssl', 'pkeyutl', '-sign', '-inkey', args.key, '-rawin', '-in', payload],
-            capture_output=True, check=True).stdout
-    finally:
-        os.unlink(payload)
+        sig = sign_pynacl(args.key, canonical)
+    except ImportError:
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(canonical)
+            payload = tf.name
+        try:
+            sig = subprocess.run(
+                ['openssl', 'pkeyutl', '-sign', '-inkey', args.key, '-rawin', '-in', payload],
+                capture_output=True, check=True).stdout
+        finally:
+            os.unlink(payload)
 
     sig_b64 = base64.standard_b64encode(sig).decode()
     if args.dry_run:
