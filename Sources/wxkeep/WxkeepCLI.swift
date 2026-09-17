@@ -209,8 +209,14 @@ extension Wxkeep {
                 // 本地定位条目写入 config.local.json（与签名目录分离）：
                 // locate 派生数据信任域=用户机器，不走 Ed25519 清单门；
                 // 否则普通用户改完 config 会被 patch 拒绝且无私钥可重签。
-                // 本地定位文件固定在用户级数据目录（永远可写，brew 用户亦然）
-                let localURL = Config.userDataURL.appendingPathComponent("config.local.json")
+                // 信任域分流：缺省写用户级数据目录（用户派生数据，免签名）；
+                // 显式 --config 时写该文件（CI/开发者管理签名与提交的路径）。
+                let localURL: URL
+                if let explicit = options.config {
+                    localURL = URL(fileURLWithPath: explicit)
+                } else {
+                    localURL = Config.userDataURL.appendingPathComponent("config.local.json")
+                }
                 let backup = localURL.appendingPathExtension("bak." + String(Int(Date().timeIntervalSince1970)))
                 if FileManager.default.fileExists(atPath: localURL.path) {
                     try? FileManager.default.copyItem(at: localURL, to: backup)
