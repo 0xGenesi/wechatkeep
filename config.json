@@ -950,7 +950,8 @@
             "addr": "50a5bad",
             "expected": [
               "4831C06690488983C8010000",
-              "E8BE26E9FF488983C8010000"
+              "E8BE26E9FF488983C8010000",
+              "E812DC7D01488983C8010000"
             ],
             "asm": "E812DC7D01",
             "source": "wxkeep:v7——call重指向代码洞stub(返回恒定非零假id=1);原expected保留便于restore;store(0x50a5bb2)不动"
@@ -1031,7 +1032,8 @@
             "arch": "x86_64",
             "addr": "68782c4",
             "expected": [
-              "9090909090909090"
+              "9090909090909090",
+              "48C7C001000000C3"
             ],
             "asm": "48C7C001000000C3",
             "source": "wxkeep:v7代码洞——函数间隙ret后nop填充(0x68782c3为retq),8字节stubmov rax,1;ret;标记引用id=1:非零过校验+JOIN永不失配"
