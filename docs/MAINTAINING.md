@@ -226,3 +226,23 @@ zsbai 归档的 dmg 资产为 XZ 重压缩格式且**文件尾无 XZ footer magi
   0x29FA50/0x2A2910
 - **下一步（唯一硬需求）**：只断 wrapper 0x50A5120（单断点防过载冻结），一次对方撤回
   的 bt 即锁定真实消费链 → 定位删除调用 → 按 BetterWX 两规则法落地 v2
+
+## 字符串解密器（2026-09-17，tools/decrypt_strings.py）——免 IDA 的符号恢复
+
+看雪 thread-286611（Windows 4.0 符号恢复）方法论的纯静态移植：微信 4.x 的
+xlog 日志串运行时解密，循环形态固定：
+`out[i] = (BASE[data_off+i] + addend) ^ BASE[key_off + (i%20)]`
+（20 字节滚动密钥来自 mul 0xCCCC..CD+shr2+and~3 的 mod-20 运算推导）。
+工具扫 __text 四种编码形态的解密循环并现场模拟，产出「函数→字符串」映射。
+
+**269602 x64 实测：139 串 / 115 函数，核心产出——`message_revoke_manager.cc`
+全家族 24 函数**（0x36BA000–0x36EDB50）：含已知分发目标 0x36D58D0/0x36D9120、
+查找执行器 0x36D4A10、批扫描器 0x36DBAE0，及 13 个未探索新函数
+（0x36BA000/0x36BB210/0x36C15C0/0x36C2630/0x36C4840/0x36C5A70/0x36C6CD0/
+0x36C9790/0x36CFB80/0x36D0190/0x36D0B20/0x36DB0B0/0x36EDB50）——
+**对方撤回真实入口优先在这 13 个里找**（旧候选断点零命中之谜的答案方向）。
+
+v2 A/B 实验修订：用 `decrypt_strings.py --grep` 命名全部 revoke 家族函数 →
+在 message_revoke_manager.cc 家族中找 Windows CoReplaceOriginMessageByRevoke
+的 macOS 孪生（特征：DeleteMessage 调用 + 提示插入，参考 r8 结构
++8=type(0x2710)/+0xC0=srvid/+0x118=sysmsg，跨架构偏移需本地重推导）。
