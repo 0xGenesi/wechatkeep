@@ -204,3 +204,19 @@ v6 失败后的决定性再推断：当前(v6)二进制中活路径对 +0x1C8 �
 v1 = 该方法的 x64 269602 移植。群聊提示缺失为该构建客户端生成逻辑依赖
 newmsgid 所致（arm64 270090 未见差异报告，或属构建差异）。**x64 parse 层补丁
 天花板 = v1**。v7 字节状态已登记为可展开态，restore/变体切换可正常解开。
+
+## 收尾修复（2026-09-17 傍晚，v7 崩溃后全面排查）
+
+用户实测暴露的工程 bug 与修复：
+1. **变体混用总根源**：Engine.targets 的 else 分支把任何非 revoke/revoke-keeptip
+   的 identifier 当 always-apply 目标——`revoke-keeptip2` 落入其中，导致每次
+   patch 任何变体都顺带应用 keeptip2 字节。修复：显式 continue 跳过废弃目标。
+2. **废弃变体拦截**：`--variant keeptip2` 直接报错（EngineError.variantDeprecated），
+   CLI 枚举移除；catalog 保留目标仅用于 restore 展开。
+3. **残留检测**：应用 keeptip/silent 前若 revoke-keeptip2 字节在盘（含 v7 洞 stub）
+   → EngineError.foreignVariantPatched 列出地址并指引 restore。
+4. **restore 清洞**：洞 stub 从 expected 移除（归一化语义曾致 restore 永远保留它）。
+5. **doctor 本机架构判定**：patchStates 只聚合 native-arch 切片（此前 arm64 pristine
+   污染 Intel 机器判定为 mixed/unprotected）；overall=protected 不再被
+   update/multiInstance 未打阻断；废弃变体残留单独告警行。
+6. 报错误导、JSON 契约新增 native_arch 字段（DoctorTests 同步）。

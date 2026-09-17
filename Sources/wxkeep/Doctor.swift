@@ -9,6 +9,7 @@ struct Doctor {
 
     struct Report: Codable {
         let overall: String
+        let nativeArch: String
         let build: String
         let appPath: String
         let configKnown: Bool
@@ -21,13 +22,14 @@ struct Doctor {
         let entitlementsOk: Bool
         let entitlementKeyCount: Int
         let restrictedEntitlements: Bool
-        let patchStates: [String: String]   // identifier → patched/pristine/mixed/unknown
+        let patchStates: [String: String]   // identifier → patched/pristine/mixed/unknown（仅本机架构切片）
         let manifest: String?              // verified/legacy/invalid:<reason>（数据供应链）
         let verdicts: [String]
         let nextCommand: String?
 
         enum CodingKeys: String, CodingKey {
             case overall, build
+            case nativeArch = "native_arch"
             case appPath = "app_path"
             case configKnown = "config_known"
             case configTargets = "config_targets"
@@ -65,6 +67,16 @@ struct Doctor {
     }
 
     // MARK: - Pure AMFI assessment (unit-testable)
+
+    /// 执行架构（universal 二进制原生运行 → 即实际使用的切片架构）。
+    static func nativeArch() -> String {
+        var sys = utsname()
+        uname(&sys)
+        return withUnsafeBytes(of: &sys.machine) { buf in
+            let data = Data(buf.prefix(while: { $0 != 0 }))
+            return String(decoding: data, as: UTF8.self)
+        }
+    }
 
     /// The on-device trap this project hit first: on macOS 15+, taskgatedd
     /// kills an ad-hoc re-signed bundle that still carries restricted
@@ -131,14 +143,21 @@ struct Doctor {
                 return nvram.status == 0 ? nvram.stdout : nil
             }())
 
-        // Patch states per target identifier across its binaries.
+        // Patch states per target identifier — only the NATIVE-arch slice counts:
+        // a fat binary on Intel never executes the arm64 slice, so its state is
+        // irrelevant to protection (and vice versa). Cross-arch aggregation used
+        // to poison the verdict ("mixed"/"unprotected" with full x64 protection).
+        let nativeArch = Doctor.nativeArch()
         var patchStates: [String: String] = [:]
         if let versionEntry {
             for target in versionEntry.targets {
                 let binary = WeChatApp.binaryURL(app: app, relative: target.binary)
-                let states = (try? Patcher.inspect(
+                let states = ((try? Patcher.inspect(
                     binary: binary, entries: target.entries,
-                    identifier: target.identifier))?.map(\.state) ?? []
+                    identifier: target.identifier)) ?? [])
+                    .filter { $0.arch.rawValue == nativeArch }
+                    .map(\.state)
+                guard !states.isEmpty else { continue }   // 目标不含本机架构切片 → 不参与判定
                 patchStates[target.identifier] = aggregate(states)
             }
         }
@@ -160,16 +179,27 @@ struct Doctor {
         }
         var overall: String
         if let entry = versionEntry, configKnown {
+            // 废弃变体残留：功能性无碍（v1 语义下被短路），但应清理。
+            if let legacy = patchStates["revoke-keeptip2"], legacy != "pristine" {
+                verdicts.append("⚠️ deprecated revoke-keeptip2 bytes present (\(legacy)) — run `sudo wxkeep restore` to clean, then re-patch")
+            }
             if patchStates.values.contains("unknown") {
                 overall = Overall.mixed
-                verdicts.append("some patch points hold unknown bytes — restore or reinstall, then re-patch")
+                verdicts.append("some native-arch patch points hold unknown bytes — restore or reinstall, then re-patch")
             } else {
                 let revoke = patchStates["revoke"] == "patched" || patchStates["revoke-keeptip"] == "patched"
-                let extras = patchStates.filter { $0.key != "revoke" && $0.key != "revoke-keeptip" }
-                    .values.allSatisfy { $0 == "patched" }
-                if revoke && extras && !patchStates.isEmpty { overall = Overall.protected }
-                else if revoke { overall = Overall.partial }
-                else { overall = Overall.unprotected }
+                let revokeSideMixed = [patchStates["revoke"], patchStates["revoke-keeptip"]]
+                    .contains("mixed")
+                if revoke && revokeSideMixed {
+                    overall = Overall.mixed
+                    verdicts.append("anti-revoke patch points are partially applied on \(nativeArch) — re-run patch")
+                } else if revoke {
+                    overall = Overall.protected
+                } else if patchStates.values.contains("patched") {
+                    overall = Overall.partial
+                } else {
+                    overall = Overall.unprotected
+                }
             }
         } else {
             overall = Overall.unsupportedBuild
@@ -203,6 +233,7 @@ struct Doctor {
 
         return Report(
             overall: overall,
+            nativeArch: nativeArch,
             build: build,
             appPath: app.path,
             configKnown: configKnown,
@@ -238,6 +269,7 @@ struct Doctor {
         var lines: [String] = []
         lines.append("------ Doctor ------")
         lines.append("WeChat build: \(report.build)  (\(report.appPath))")
+        lines.append("native arch: \(report.nativeArch)")
         lines.append("catalog:     \(report.configKnown ? "matched (\(report.configTargets.joined(separator: ", ")))" : "UNKNOWN BUILD")")
         lines.append("SIP:         \(report.sip)")
         if let amfi = report.amfiRisk {

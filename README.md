@@ -14,7 +14,7 @@ brew install 0xGenesi/tap/wxkeep
 
 ## 功能
 
-- **防撤回**（silent 双架构 / keeptip arm64+实验x64）——撤回的消息留在聊天里
+- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 269602 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）
 - **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效
 - **更新防护**——不检查更新、不自动安装、关闭更新遥测（patch 时自动附带）
 - **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）

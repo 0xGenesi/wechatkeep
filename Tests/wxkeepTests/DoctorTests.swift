@@ -60,7 +60,7 @@ struct DoctorTests {
 
     @Test func jsonContractHasStableShape() throws {
         let report = Doctor.Report(
-            overall: "protected", build: "999999", appPath: "/x.app",
+            overall: "protected", nativeArch: "x86_64", build: "999999", appPath: "/x.app",
             configKnown: true, configTargets: ["revoke"],
             sip: "disabled", amfiRisk: nil, running: false, writable: true,
             signature: "adhoc", entitlementsOk: true, entitlementKeyCount: 17,
@@ -74,7 +74,7 @@ struct DoctorTests {
         // required keys are always present; optional-valued keys (amfi_risk,
         // next_command) are omitted when nil — absent == null for decoders
         let requiredKeys: Set<String> = [
-            "overall", "build", "app_path", "config_known", "config_targets", "sip",
+            "overall", "native_arch", "build", "app_path", "config_known", "config_targets", "sip",
             "running", "writable", "signature", "entitlements_ok",
             "entitlement_key_count", "restricted_entitlements", "patch_states",
             "verdicts",
@@ -89,7 +89,7 @@ struct DoctorTests {
 
     @Test func optionalKeysPresentWhenNonNil() throws {
         let report = Doctor.Report(
-            overall: "unprotected", build: "1", appPath: "/x",
+            overall: "unprotected", nativeArch: "x86_64", build: "1", appPath: "/x",
             configKnown: false, configTargets: [],
             sip: "enabled",
             amfiRisk: Doctor.AmfiRisk(level: "kill_predicted", reason: "r", fixCommand: "sudo ..."),

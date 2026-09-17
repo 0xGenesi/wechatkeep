@@ -9,6 +9,8 @@ enum Engine {
         case unsupportedBuild(String, known: Int)
         case variantUnavailable(String)
         case restoreUnavailable(String)
+        case variantDeprecated(String)
+        case foreignVariantPatched(target: String, sites: [String])
 
         var description: String {
             switch self {
@@ -19,6 +21,13 @@ enum Engine {
                 "this build has no curated entries for variant `\(variant)`"
             case .restoreUnavailable(let detail):
                 "cannot restore: \(detail). Reinstall WeChat from the official dmg, or use a backup file."
+            case .variantDeprecated(let variant):
+                "variant `\(variant)` is deprecated: experiments proved it cannot preserve messages, "
+                + "and its final revision crashes WeChat. Run `sudo wxkeep restore` to clean any "
+                + "leftover bytes, then use `--variant keeptip`."
+            case .foreignVariantPatched(let target, let sites):
+                "deprecated target `\(target)` still has patched bytes at: "
+                + "\(sites.joined(separator: ", ")). Run `sudo wxkeep restore` first, then re-run this command."
             }
         }
     }
@@ -70,11 +79,15 @@ enum Engine {
 
     /// Selects targets for a variant: `revoke` for silent, `revoke-keeptip` for
     /// keeptip; every non-variant identifier (update, multiInstance, …) always applies.
+    /// (`revoke-keeptip2` is deprecated and can no longer be selected — it is kept
+    /// in the catalog solely so `restore` can unwind machines that ran the experiments.)
     static func targets(for version: Config.VersionEntry, variant: String) throws -> [Config.Target] {
-        let variantID = variant == "keeptip" ? "revoke-keeptip"
-                     : (variant == "keeptip2" ? "revoke-keeptip2" : "revoke")
+        let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"
         var selected = [Config.Target]()
         for target in version.targets {
+            if target.identifier == "revoke-keeptip2" {
+                continue   // 废弃变体：永不自动应用（否则 else 分支会把它当 always-apply 目标）
+            }
             if target.identifier == "revoke" || target.identifier == "revoke-keeptip" {
                 if target.identifier == variantID { selected.append(target) }
             } else {
@@ -107,7 +120,27 @@ enum Engine {
         dryRun: Bool, allowUnverified: Bool, only: [String]?
     ) throws -> RunSummary {
         var summary = RunSummary()
+        if variant == "keeptip2" {
+            throw EngineError.variantDeprecated(variant)
+        }
         var selected = try targets(for: versionEntry, variant: variant)
+
+        // 遗留检测：废弃的 revoke-keeptip2 若还有补丁字节在盘上，拒绝应用并在
+        // 报错里给出清理路径（而不是默默留下混合状态——今日实测的混淆根源）。
+        if let legacy = versionEntry.targets.first(where: { $0.identifier == "revoke-keeptip2" }),
+           !legacy.entries.isEmpty {
+            var leftover = [String]()
+            let relative = legacy.binary ?? "Contents/MacOS/WeChat"
+            let binary = WeChatApp.binaryURL(app: app, relative: relative)
+            let inspections = (try? Patcher.inspect(
+                binary: binary, entries: legacy.entries, identifier: legacy.identifier)) ?? []
+            for i in inspections where i.state == .patched {
+                leftover.append("0x\(String(i.va, radix: 16))")
+            }
+            if !leftover.isEmpty {
+                throw EngineError.foreignVariantPatched(target: legacy.identifier, sites: leftover)
+            }
+        }
 
         // 变体切换：先还原另一变体的写入（幂等），再应用本变体。
         // 否则 silent 的 x64 补丁会与 keeptip 并存，静默语义覆盖 keeptip。
