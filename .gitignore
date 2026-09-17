@@ -4,3 +4,6 @@
 \.swiftpm/
 Package.resolved
 /wxkeep
+
+# 发布签名私钥——绝不入库（CI 有泄漏门禁兜底）
+keys/release.key

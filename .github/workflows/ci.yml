@@ -23,6 +23,13 @@ jobs:
         run: |
           swift --version
           sw_vers
+      - name: Guard: no private key material tracked
+        run: |
+          match=$(git ls-files -z | xargs -0 grep -lI "BEGIN .*PRIVATE KEY" 2>/dev/null || true)
+          if [ -n "$match" ]; then
+            echo "::error::私有密钥材料被提交进仓库：$match"
+            exit 1
+          fi
       - name: Build
         run: swift build
       - name: Test
