@@ -111,3 +111,41 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 ### 本轮落地
 - 细粒度类型开关：暂缓（v2 语义未定，先不加配置面）
 - 文档沉淀：本节
+
+## 2026-09-17 大范围调研（fzlzjerry issues/Docs、linux.do、52pojie）
+
+### 生态全景（2026-09）
+| 项目/帖子 | 架构 | 方法 | Intel x64 状态 |
+|---|---|---|---|
+| fzlzjerry/wechat-antirecall | arm64 验证 | 字节补丁（entry 翻转 + str xzr）+ 运行时自定义提示 | **#55 help-wanted：269574 x64 已 IDA 分析未验证** |
+| happykeke (52pojie 2124824) | arm64 验证到 269631 | inject.sh DYLD 注入 | "x64 架构分析了对应位置，但尚未验证" |
+| sunnyyoung/WeChatTweak | 注入式 | dylib 注入（3.x 时代方案，4.x 声称支持） | 未验证 4.x Intel |
+| X1a0HeWeChatPlugin | arm64 | Dobby 运行时 hook | 未支持 |
+| linux.do 1754779/2121933 | x64 帖 | WeChatTweak 思路 x64 适配（4.1.8.27/4.1.9） | 版本特定、无目录化 |
+| **本项目 wxkeep** | **x64+arm64** | **纯字节补丁 + expected 门** | **269602 全链真机验证（全生态唯一）** |
+
+### 关键技术情报
+1. **fzlzjerry x64 silent 法（#55，269574）**：parseRevokeXML 入口 0x5063940，
+   守卫分支 0x5063F87：`0F841A030000`(je) → `E91B03000090`(jmp)——翻转"非撤回
+   则跳过删除"分支 = 解析级 silent。**269602 x64 同族位点已定位**：isRevokemsg
+   (0x4BC5940) 的 9 个调用者中 8 个呈 `test al,al; je +disp32` 守卫形态
+   （0x32d81a8/0x36bd6e3/0x36bed6c/0x3b53b26/0x4883cca/0x50a5634/0x50b5639/
+   0x50b5eb1），其中 **0x50a5634 ∈ 解析函数**（解析+0x514，与 fzlzjerry 的
+   解析+0x647 同族同位）。→ 未来 x64 新构建的冗余 silent 法：翻转该 je→jmp。
+   配方化受阻点：DSL 的 expected 门是静态字节，call rel32 逐构建不同
+   （需 expected 通配/掩码扩展，记入 DSL 扩展项）。
+2. **群聊提示 = 全生态已知未解限制**：fzlzjerry #47（269079 群防撤回无提示）、
+   #63（269579 自定义提示群聊无效）均无公开解法；其 arm64 tip 模式（str xzr
+   写零 newmsgid）与我们 v1 同款。我们的 8 轮动态/静态分析深度超过全部公开资料。
+3. **红包文档的可借鉴点**（非功能——运行时调用是本项目的 non-goal）：
+   跨构建重定位方法论（LC_FUNCTION_STARTS + 函数匹配 + ADRP 解码 + 漂移表
+   +0x12C8/+0xD18/+0x4000，"不是整体平移"）与我们 recipe 引擎一致；
+   对象尺寸复核（Message 632B = 0x278，与批扫描器步长互证 ✓）。
+4. **验证现状结论**：Intel x64 4.x 防撤回，本项目是唯一完成真机全链验证的
+   实现（269602：silent/keeptip/update 全部 ✓）。
+
+### 行动项
+- [x] 本表存档
+- [ ] （可选，需用户批准）向 fzlzjerry #55 贡献 269602 x64 已验证数据
+- [ ] （DSL 扩展项）expected 通配/掩码 → branch-flip 配方化（未来构建冗余 silent）
+- [ ] 新构建（269631+/270090 x64）出现时：watch-wechat 自动定位 + 本文档位点族作起点
