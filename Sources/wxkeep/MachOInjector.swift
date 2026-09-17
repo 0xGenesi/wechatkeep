@@ -55,7 +55,8 @@ enum MachOInjector {
         let sizeofcmds = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sizeofcmdsOff, as: UInt32.self) }
         let commandsOff = base + 32
 
-        // content floor: min fileoff over LC_SEGMENT_64 with filesize > 0
+        // content floor: 段的 fileoff 会覆盖头部自身（__TEXT fileoff=0），
+        // 必须取第一个**节**的文件偏移（节头 80B，offset 字段在节内 +40）
         var floor = Int.max
         var cursor = commandsOff
         for _ in 0..<ncmds {
@@ -63,9 +64,13 @@ enum MachOInjector {
             let cmdsize = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 4, as: UInt32.self) }
             guard cmdsize >= 8, cursor + Int(cmdsize) <= data.count else { break }
             if cmd == 0x19 {   // LC_SEGMENT_64
-                let fileoff = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 40, as: UInt64.self) }
-                let filesize = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 48, as: UInt64.self) }
-                if filesize > 0 { floor = min(floor, base + Int(fileoff)) }
+                let nsects = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 64, as: UInt32.self) }
+                for si in 0..<nsects {
+                    let sec = cursor + 72 + Int(si) * 80
+                    let size = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sec + 32, as: UInt64.self) }
+                    let offset = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sec + 40, as: UInt32.self) }
+                    if size > 0, offset > 0 { floor = min(floor, base + Int(offset)) }
+                }
             }
             cursor += Int(cmdsize)
         }
