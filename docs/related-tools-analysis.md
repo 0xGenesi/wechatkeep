@@ -149,3 +149,28 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 - [ ] （可选，需用户批准）向 fzlzjerry #55 贡献 269602 x64 已验证数据
 - [ ] （DSL 扩展项）expected 通配/掩码 → branch-flip 配方化（未来构建冗余 silent）
 - [ ] 新构建（269631+/270090 x64）出现时：watch-wechat 自动定位 + 本文档位点族作起点
+
+### 第二轮：fzlzjerry patches.json 全量解析 + 重定位脚本 + WeChatTweak
+
+- **patches.json（29 构建全 arm64）**：目标类型 revoke（entry 翻转 cbz→b）、
+  revoke-tip（分支位还原 + str xzr，expected 同时接受补丁/原始态=可组合）、
+  update（5–9 条序言→ret/w0=0）、multiInstance(+extra：tbz→nop)、
+  **runtime-tip（268849+：函数序言 F85FBCA9F65701A9F44F02A9 内联改写为
+  ADRP+LDR+RET——自定义提示的免注入实现）**。x86_64 条目：**零**。
+  覆盖至 270090（含 runtime-tip 两处：4bbe5cc/4b5b0a0）。
+- **可组合设计印证**：他们的 revoke-tip expected 同时接受两态——与本项目
+  今日落地的跨变体状态登记（v1/v7 互认）同一思想。
+- **重定位脚本**：IDA headless + LC_FUNCTION_STARTS 校验 + 12 字节入口指纹
+  （供跨版本关联）。指纹法可纳入我们的 archive 工具链（小改进，待办）。
+- **WeChatTweak（sunnyyoung）**：同为二进制补丁路线（patch/versions 命令），
+  README 未列 4.x 支持细节——非更优机制，同类竞品。
+- **红包运行时调用**（地址表+指纹校验+原生调用）：non-goal 不采纳；
+  其"按构建选地址表、指纹不符不调用"的安全模型值得赞许。
+
+### 最终优化判定
+1. x64 keeptip 群聊提示：全生态未解，维持 v1 现状（已有全深度分析存档）。
+2. 未来构建的冗余 silent：解析守卫 je→jmp 翻转（位点族已记录）——
+   依赖 DSL expected 通配扩展（工作项）。
+3. 可组合 expected（接受多历史状态）：本项目已实现（跨变体登记）✓。
+4. 入口指纹存档：小改进，纳入 archive 工具链待办。
+5. Intel x64 真机验证数据：全生态独有，可（经批准）反哺社区。
