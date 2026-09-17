@@ -1,0 +1,5240 @@
+[
+  {
+    "version": "270090",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4bbe83c",
+            "expected": "40100034",
+            "asm": "82000014",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4bbe83c",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4bbefdc",
+            "expected": "60E600F9",
+            "asm": "7FE600F9",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "2768ac",
+            "expected": "FC6FBBA9",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "278ad8",
+            "expected": "FFC305D1",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "278da8",
+            "expected": "FF4301D1",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2791c8",
+            "expected": "F657BDA9",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "283a48",
+            "expected": "00604039C0035FD6",
+            "asm": "00008052C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "283a50",
+            "expected": "02600039",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "283a58",
+            "expected": "00644039C0035FD6",
+            "asm": "00008052C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "283a60",
+            "expected": "02640039",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      }
+    ],
+    "note": "merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded)"
+  },
+  {
+    "version": "269631",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "301DD8",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49afa14",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "512C720",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49afa14",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "49b01b4",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27becc",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e0f8",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e3c8",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e7e8",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289070",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289078",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289080",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289088",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269629",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "301DB8",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "512BE50",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269628",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49af200",
+            "expected": "40100034",
+            "asm": "82000014",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49af200",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "49af9a0",
+            "expected": "60E600F9",
+            "asm": "7FE600F9",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27becc",
+            "expected": "FC6FBBA9",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e0f8",
+            "expected": "FFC305D1",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e3c8",
+            "expected": "FF4301D1",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e7e8",
+            "expected": "F657BDA9",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289068",
+            "expected": "00604039C0035FD6",
+            "asm": "00008052C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289070",
+            "expected": "02600039",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289078",
+            "expected": "00644039C0035FD6",
+            "asm": "00008052C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289080",
+            "expected": "02640039",
+            "asm": "C0035FD6",
+            "source": "fzlzjerry/wechat-antirecall"
+          }
+        ]
+      }
+    ],
+    "note": "merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded)"
+  },
+  {
+    "version": "269627",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49abb4c",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49abb4c",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "49ac2ec",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "278ecc",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b0f8",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b3c8",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b7e8",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "286068",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "286070",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "286078",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "286080",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269626",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49ac5e8",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49ac5e8",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "49acd88",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269624",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49adf38",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49adf38",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "49ae6d8",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27ceac",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f0d8",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f3a8",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f7c8",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28a048",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28a050",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28a058",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28a060",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269619",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "497fb78",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "497fb78",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4980318",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27cd98",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27efc4",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f294",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f6b4",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289f34",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289f3c",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289f44",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289f4c",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269602",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27370c",
+            "expected": [
+              "FF0306D1FC6F14A9"
+            ],
+            "asm": "20008052C0035FD6",
+            "source": "vvanglro+wxkeep"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "44de938",
+            "expected": [
+              "F44FBEA9FD7B01A9"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "vvanglro+wxkeep"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4bc5940",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "asm": "31C0C3909090909090",
+            "source": "vvanglro+wxkeep"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "44de938",
+            "expected": [
+              "F44FBEA9FD7B01A9",
+              "00008052C0035FD6"
+            ],
+            "asm": "F44FBEA9FD7B01A9",
+            "source": "vvanglro+wxkeep"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4941e44",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "vvanglro+wxkeep"
+          },
+          {
+            "arch": "arm64",
+            "addr": "49425e4",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "vvanglro+wxkeep"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "32a0d9d",
+            "expected": [
+              "4889C2",
+              "31D290"
+            ],
+            "asm": "4889C2",
+            "source": "wxkeep:旧keeptip尝试点清理(恢复mov rdx,rax;新keeptip切换时自动还原)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4bc5940",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "variant-switch: restore silent (undo 4BC5940 neuter)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "50a5bad",
+            "expected": [
+              "E8BE26E9FF488983C8010000",
+              "E812DC7D01488983C8010000"
+            ],
+            "asm": "4831C06690488983C8010000",
+            "source": "wxkeep:arm64对照定位(TryParseMessage内newmsgid→[this+0x1C8]存储清零,使撤回删除失效而提示保留)"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1a886ec",
+            "expected": [
+              "FF0306D1FC6F12A9FA6713A9F85F14A9"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "wxkeep:vtable桥(getter槽0x9635310+0x58=x64同位)+唯一BL链0x1a886ec→0x1a88c14→0x1a89b44(唯一MacStoreUpdate.xml);单ret返回句柄,mov w0,#0;ret安全"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "1c9cf60",
+            "expected": "554889E54157415641554154534881EC",
+            "asm": "31C0C3",
+            "source": "wxkeep:UpdateUIService周期检查工人(唯一MacStoreUpdate.xml构建点+定时器重置;返回int句柄,31C0C3安全;调用链0x1C9CF60→0x1C9D460→0x1C9E5E0)"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip2",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4bc5940",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "wxkeep:v2(恢复isRevokemsg,同keeptip)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "32a0d9d",
+            "expected": [
+              "4889C2",
+              "31D290"
+            ],
+            "asm": "4889C2",
+            "source": "wxkeep:v2(旧点清理,同keeptip)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "50a5bad",
+            "expected": [
+              "4831C06690488983C8010000",
+              "E8BE26E9FF488983C8010000",
+              "E812DC7D01488983C8010000"
+            ],
+            "asm": "E812DC7D01",
+            "source": "wxkeep:v7——call重指向代码洞stub(返回恒定非零假id=1);原expected保留便于restore;store(0x50a5bb2)不动"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36cb581",
+            "expected": [
+              "E89A12FFFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#1, in CoRevokeBatchMessages子调用0x36cafc0)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36cd1db",
+            "expected": [
+              "E840F6FEFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#2, in 0x36cba90=CoReplaceOriginMessageByRevoke孪生)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36c36e0",
+            "expected": [
+              "E83B91FFFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#3, in 0x36c19e0)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36d1b06",
+            "expected": [
+              "E815ADFEFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#4, in 0x36d0b20)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "32a959f",
+            "expected": [
+              "E8FCDD0300"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v3动态编排实证——活撤回在处理器0x36D58D0内经0x32aa7b0→0x32a8370→0x32a9060调0x32e73a0对原消息写+0x118=9状态并落库(=删除语义);NOP此调用点同时覆盖活路径与0x43d7e30批量路;newmsgid不动故提示全保"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "32abdc6",
+            "expected": [
+              "E815FD4200"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v4动态实证——批扫描器0x36dbae0是唯一删除出口(遍历0x278步长消息数组,谓词0x4d6efd0选中,收集[msg+0xF8]后经哈希名接口0x36dd7f0删除);全镜像唯一调用点在handler-d,活路径/分发器直调/0x43D异步三路均汇于此;返回值无消费"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36d853e",
+            "expected": [
+              "E82DD2FFFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v5全链条路由实证——处理器A每轮处理末尾把撤回信息入队(0x36d5770),专用排水线程(0x3325670)出队后在册处理(=UI隐藏原消息的真身);NOP入队调用饿死排水器,DB路径(v2/v3/v4已NOP)与之并行;newmsgid不动保提示"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36d6841",
+            "expected": [
+              "498B85C8010000"
+            ],
+            "asm": "4831C090909090",
+            "source": "wxkeep:v6——A内提示构建块(mov esi,0x2710建0x2710提示对象)读[r13+0x1C8]newmsgid喂0x50b5ef0执行替换/隐藏;此处xor rax清零=外科手术式v1(仅此消费者拿0,提示定位等仍拿真实id);全镜像该读取模式6处,其余5处在Qt UI区0x73cd-0x73ce"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "68782c4",
+            "expected": [
+              "9090909090909090"
+            ],
+            "asm": "48C7C001000000C3",
+            "source": "wxkeep:v7代码洞——函数间隙ret后nop填充(0x68782c3为retq),8字节stubmov rax,1;ret;标记引用id=1:非零过校验+JOIN永不失配"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269579",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "302578",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4958aa0",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "50C5990",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4958aa0",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4959240",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27d068",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f1a0",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f464",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f844",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bb0",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bb8",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bc0",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bc8",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269578",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "302578",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4958abc",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "50C5970",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4958abc",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "495925c",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27d068",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f1a0",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f464",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f844",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bb8",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bc0",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bc8",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bd0",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269577",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4958a94",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4958a94",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4959234",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27d068",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f1a0",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f464",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f844",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bb0",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bb8",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bc0",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289bc8",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269576",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "490548c",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "490548c",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4905c2c",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27c814",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e94c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27ec10",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27eff0",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28935c",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289364",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28936c",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289374",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269575",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4905140",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4905140",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "49058e0",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27d814",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27f94c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27fc10",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27fff0",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28a35c",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28a364",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28a36c",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28a374",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269574",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49056f8",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "49056f8",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4905e98",
+            "expected": [
+              "60E600F9"
+            ],
+            "asm": "7FE600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "27c814",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27e94c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27ec10",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27eff0",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289364",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28936c",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "289374",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "28937c",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269365",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2FA038",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4F1C4A0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269341",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2F1748",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "462e87c",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4D34650",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "462e87c",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "462f01c",
+            "expected": [
+              "60CE00F9"
+            ],
+            "asm": "7FCE00F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "26e4c0",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2706ec",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2709bc",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "270ddc",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1d0",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1d8",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1e0",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1e8",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269340",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2F1748",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "462e470",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4D34210",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "462e470",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "462ec10",
+            "expected": [
+              "60CE00F9"
+            ],
+            "asm": "7FCE00F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "26e4c0",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2706ec",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2709bc",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "270ddc",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1d0",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1d8",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1e0",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1e8",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269338",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2F1738",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "462dc70",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4D34260",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "462dc70",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "462e410",
+            "expected": [
+              "60CE00F9"
+            ],
+            "asm": "7FCE00F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "26d4c0",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "26f6ec",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "26f9bc",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "26fddc",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27a1c8",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27a1d0",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27a1d8",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27a1e0",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269337",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2F1738",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4D335A0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269335",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2F1738",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4D335A0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269334",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "461d894",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "461d894",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "461e034",
+            "expected": [
+              "60CE00F9"
+            ],
+            "asm": "7FCE00F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "26c4c0",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "26e6ec",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "26e9bc",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "26eddc",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2791c8",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2791d0",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2791d8",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2791e0",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269333",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "463ef88",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "463ef88",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "463f728",
+            "expected": [
+              "60CE00F9"
+            ],
+            "asm": "7FCE00F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "26e4c0",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2706ec",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2709bc",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "270ddc",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1c0",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1c8",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1d0",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27b1d8",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269332",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "462f690",
+            "expected": [
+              "40100034"
+            ],
+            "asm": "82000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "462f690",
+            "expected": [
+              "40100034",
+              "82000014"
+            ],
+            "asm": "40100034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "462fe30",
+            "expected": [
+              "60CE00F9"
+            ],
+            "asm": "7FCE00F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "26f420",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27164c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27191c",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "271d3c",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27c120",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27c128",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27c130",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "27c138",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269136",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48a03b0",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48a03b0",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "48a0b44",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "269111",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2E6348",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "450a144",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4BE8DA0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "450a144",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "450a8d8",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269110",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2E6358",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "450a128",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4BE8D50",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "450a128",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "450a8bc",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "264870",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2668e0",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "266b70",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "266f5c",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2707c8",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2707d0",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2707d8",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "2707e0",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269079",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "247348",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48a7ebc",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4F50530",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48a7ebc",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "48a8650",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1d3304",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d543c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d5700",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d5ae0",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1df9b4",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1df9bc",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1df9c4",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1df9cc",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "269077",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "247B08",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48a4fd8",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4F4D4C0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48a4fd8",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "48a576c",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1d393c",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d5a74",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d5d38",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d6118",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1dffec",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1dfff4",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1dfffc",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1e0004",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "268880",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48831a0",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "268851",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "23DAE8",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "488c734",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4F33500",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "488c734",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "488cec8",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1cd5bc",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf8bc",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cfca8",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d2448",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d2a2c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d9514",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d951c",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d9524",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d952c",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "268850",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "23DAE8",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "488c734",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4F33500",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "488c734",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "488cec8",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1cd5bc",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf8bc",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cfca8",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d2448",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d2a2c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d9514",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d951c",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d9524",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d952c",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "268849",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "488c734",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "488c734",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "488cec8",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1cd5bc",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf8bc",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cfca8",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d2448",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d2a2c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d9514",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d951c",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d9524",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d952c",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "268831",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "24A5A8",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48f6fec",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4F6FB30",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "48f6fec",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "48f7780",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "268602",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "227BC8",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4785910",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4DDBEB0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4785910",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "47860a4",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1c7f2c",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1ca148",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1ca418",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1ca840",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cc9ec",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d1514",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d151c",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d1524",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d152c",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "268601",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4781660",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "4781660",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4781df4",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1c6f2c",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c9148",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c9418",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c9840",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cb9ec",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d0514",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d051c",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d0524",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d052c",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "268599",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "477783c",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "477783c",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4777fd0",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1c6f2c",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c9148",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c9418",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c9840",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cb9ec",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d0514",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d051c",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d0524",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1d052c",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "268597",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "47647b0",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "47647b0",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4764f44",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1c5f24",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c8140",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c8410",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c8830",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1ca728",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf248",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf250",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf258",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf260",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "version": "268596",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "227638",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "47647a0",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4DBC780",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "47647a0",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "4764f34",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1c5f24",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c8140",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c8410",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1c8830",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1ca728",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf248",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf250",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf258",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1cf260",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "268575",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "214908",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "45d05e4",
+            "expected": [
+              "E00F0034"
+            ],
+            "asm": "7F000014",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4C3FA10",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "45d05e4",
+            "expected": [
+              "E00F0034",
+              "7F000014"
+            ],
+            "asm": "E00F0034",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "45d0d78",
+            "expected": [
+              "60B600F9"
+            ],
+            "asm": "7FB600F9",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1b22e4",
+            "expected": [
+              "FC6FBBA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1b440c",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1b46d0",
+            "expected": [
+              "FF4301D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1b4ab0",
+            "expected": [
+              "F657BDA9"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1b6898",
+            "expected": [
+              "FFC305D1"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1bb110",
+            "expected": [
+              "00604039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1bb118",
+            "expected": [
+              "02600039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1bb120",
+            "expected": [
+              "00644039C0035FD6"
+            ],
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          },
+          {
+            "arch": "arm64",
+            "addr": "1bb128",
+            "expected": [
+              "02640039"
+            ],
+            "asm": "C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "37342",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "21EC38",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4C34E40",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "37335",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "21EC38",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4C318A0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "37331",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "21EC38",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4C31660",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "37303",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "21EC38",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4C2CA90",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "37293",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "21EC38",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4C2B310",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "36677",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "21F008",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4B870F0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "36603",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "21F008",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4B566A0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "36559",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "21f008",
+            "asm": "909090909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "binary": "Contents/Frameworks/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4B51260",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "34817",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "1001dbbc0",
+            "asm": "B801000000C3",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "1049c295b",
+            "asm": "31C0909090",
+            "source": "tanranv5/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "34371",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001b82c4",
+            "asm": "20008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "103e7cd2c",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "33480",
+    "targets": [
+      {
+        "identifier": "revoke",
+        "binary": "Contents/MacOS/WeChat",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "3cbe7b0",
+            "expected": "F44FBEA9FD7B01A9",
+            "asm": "00008052C0035FD6",
+            "source": "wxkeep-field-test (stub-era, disasm-verified)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "104201cae",
+            "expected": "554889E553504889FB",
+            "asm": "31C0C3909090909090",
+            "source": "recipe:revoke_x64 (stub-aware)"
+          }
+        ]
+      }
+    ],
+    "note": "4.1.6 夹缝构建（revoke 在主程序，桩代布局）；VA 含 PIE 基址 0x100000000"
+  },
+  {
+    "version": "32288",
+    "targets": [
+      {
+        "identifier": "automaticallyDownloadsUpdates",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001f59e0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "canCheckForUpdate",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001f59e0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "checkForUpdates",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ec73c",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "enableAutoUpdate",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ecfc0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "multiInstance",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001e1a74",
+            "asm": "20008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "103db34c0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "startBackgroundUpdatesCheck",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ecb10",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "startUpdater",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001e9ed0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "8 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "32281",
+    "targets": [
+      {
+        "identifier": "automaticallyDownloadsUpdates",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001f59e0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "canCheckForUpdate",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001f59e0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "checkForUpdates",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ec73c",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "enableAutoUpdate",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ecfc0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "multiInstance",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001e1a74",
+            "asm": "20008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "103db33e0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "startBackgroundUpdatesCheck",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ecb10",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "startUpdater",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001e9ed0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "8 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "31960",
+    "targets": [
+      {
+        "identifier": "multiInstance",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001e4a38",
+            "asm": "20008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "10408a408",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "2 entries lack expected bytes (quarantined)"
+  },
+  {
+    "version": "31927",
+    "targets": [
+      {
+        "identifier": "automaticallyDownloadsUpdates",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001f6ee8",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "canCheckForUpdate",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001f6ef8",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "checkForUpdates",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ecf9c",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "enableAutoUpdate",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ed920",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "multiInstance",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001e1c10",
+            "asm": "20008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "revoke",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "103dba3d0",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "startBackgroundUpdatesCheck",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ed3b4",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      },
+      {
+        "identifier": "startUpdater",
+        "entries": [
+          {
+            "arch": "arm64",
+            "addr": "1001ea41c",
+            "asm": "00008052C0035FD6",
+            "source": "zengtianli/WeChatTweak"
+          }
+        ]
+      }
+    ],
+    "note": "8 entries lack expected bytes (quarantined)"
+  }
+]

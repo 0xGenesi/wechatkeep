@@ -206,36 +206,46 @@ extension Wxkeep {
                 return
             }
             if append {
-                let configPath = options.config ?? "config.json"
-                let url = URL(fileURLWithPath: configPath)
-                guard FileManager.default.fileExists(atPath: configPath) else {
-                    throw ValidationError("config not found at \(configPath) — pass --config")
+                // 本地定位条目写入 config.local.json（与签名目录分离）：
+                // locate 派生数据信任域=用户机器，不走 Ed25519 清单门；
+                // 否则普通用户改完 config 会被 patch 拒绝且无私钥可重签。
+                // 本地定位文件固定在用户级数据目录（永远可写，brew 用户亦然）
+                let localURL = Config.userDataURL.appendingPathComponent("config.local.json")
+                let backup = localURL.appendingPathExtension("bak." + String(Int(Date().timeIntervalSince1970)))
+                if FileManager.default.fileExists(atPath: localURL.path) {
+                    try? FileManager.default.copyItem(at: localURL, to: backup)
                 }
-                let backup = url.appendingPathExtension("bak." + String(Int(Date().timeIntervalSince1970)))
-                try? FileManager.default.copyItem(at: url, to: backup)
-                var config = try Config.load(explicit: configPath)
-                var versionEntry = config.entry(build: build)
-                if versionEntry == nil {
-                    versionEntry = Config.VersionEntry(version: build, targets: [], note: nil)
-                    config.versions.insert(versionEntry!, at: 0)
+                var localConfig: Config
+                if FileManager.default.fileExists(atPath: localURL.path) {
+                    localConfig = try Config(data: Data(contentsOf: localURL), origin: localURL.path)
+                } else {
+                    localConfig = Config(versions: [])   // 首次定位：本地文件尚不存在
                 }
+                let existingIdx = localConfig.versions.firstIndex { $0.version == build }
+                var versionEntry = existingIdx.map { localConfig.versions[$0] }
+                    ?? Config.VersionEntry(version: build, targets: [], note: nil)
                 for (identifier, entries) in targets {
-                    if let idx = versionEntry!.targets.firstIndex(where: { $0.identifier == identifier }) {
+                    if let idx = versionEntry.targets.firstIndex(where: { $0.identifier == identifier }) {
                         // keep precise entries; add recipe-derived for arches not present
-                        let archs = Set(versionEntry!.targets[idx].entries.map(\.arch))
-                        versionEntry!.targets[idx].entries += entries.filter { !archs.contains($0.arch) }
+                        let archs = Set(versionEntry.targets[idx].entries.map(\.arch))
+                        versionEntry.targets[idx].entries += entries.filter { !archs.contains($0.arch) }
                     } else {
-                        versionEntry!.targets.append(Config.Target(
+                        versionEntry.targets.append(Config.Target(
                             identifier: identifier,
                             binary: signatures.recipes.values.first?.binary,
                             entries: entries))
                     }
                 }
+                if let idx = existingIdx {
+                    localConfig.versions[idx] = versionEntry
+                } else {
+                    localConfig.versions.append(versionEntry)
+                }
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                try encoder.encode(config.versions).write(to: url)
-                print("appended to \(configPath) (backup: \(backup.lastPathComponent))")
-                print("next: sudo wxkeep patch --variant silent")
+                try encoder.encode(localConfig.versions).write(to: localURL)
+                print("appended to \(localURL.path) (backup: \(backup.lastPathComponent))")
+                print("next: wxkeep patch --variant silent")
             }
         }
     }

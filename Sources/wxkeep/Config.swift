@@ -98,7 +98,8 @@ struct Config {
     /// Local-first resolution: explicit flag > ./config.json > next to the
     /// executable (resolving symlinks — brew's /usr/local/bin/wxkeep points
     /// into the Cellar) > walk up from it (max 8 levels).
-    static func load(explicit: String?, cwd: String = FileManager.default.currentDirectoryPath) throws -> Config {
+    static func load(explicit: String?, cwd: String = FileManager.default.currentDirectoryPath,
+                     localOverride: URL? = nil) throws -> Config {
         var candidates: [String] = []
         if let explicit { candidates.append(explicit) }
         candidates.append(cwd + "/config.json")
@@ -134,7 +135,50 @@ struct Config {
         let data: Data
         do { data = try Data(contentsOf: URL(fileURLWithPath: path)) }
         catch { throw LoadError.malformed("unreadable at \(path): \(error.localizedDescription)") }
-        return try Config(data: data, origin: path)
+        var config = try Config(data: data, origin: path)
+
+        // 本地定位条目（locate --append 产物）：与签名目录分文件、不走清单门——
+        // 它们派生自用户自己的二进制，expected 门在 patch 时仍然校验真实字节。
+        // 本地定位文件固定在用户级数据目录：brew（Cellar root 目录）用户也可写
+        let localURL = localOverride ?? Self.userDataURL.appendingPathComponent("config.local.json")
+        if FileManager.default.fileExists(atPath: localURL.path) {
+            do {
+                let ldata = try Data(contentsOf: localURL)
+                let local = try Config(data: ldata, origin: localURL.path)
+                config.merge(local: local)
+            } catch let e as LoadError {
+                throw LoadError.malformed("config.local.json: \(e.localizedDescription)")
+            } catch {
+                throw LoadError.malformed("config.local.json unreadable: \(error.localizedDescription)")
+            }
+        }
+        return config
+    }
+
+
+    /// 合并本地定位条目：同构建→同 identifier+binary 目标按 (arch, addr) 去重追加；
+    /// 新构建→整条插入。
+    mutating func merge(local: Config) {
+        for lver in local.versions {
+            if let idx = versions.firstIndex(where: { $0.version == lver.version }) {
+                for lt in lver.targets {
+                    let key = "\(lt.identifier)|\(lt.binary ?? "Contents/MacOS/WeChat")"
+                    if let tidx = versions[idx].targets.firstIndex(
+                        where: { "\($0.identifier)|\($0.binary ?? "Contents/MacOS/WeChat")" == key }) {
+                        let existing = Set(versions[idx].targets[tidx].entries.map {
+                            "\($0.arch.rawValue)|\($0.addr ?? "")"
+                        })
+                        versions[idx].targets[tidx].entries += lt.entries.filter {
+                            !existing.contains("\($0.arch.rawValue)|\($0.addr ?? "")")
+                        }
+                    } else {
+                        versions[idx].targets.append(lt)
+                    }
+                }
+            } else {
+                versions.append(lver)
+            }
+        }
     }
 
     /// 用户级数据目录（wxkeep update-data 的安装位；测试可注入）。
@@ -160,6 +204,8 @@ struct Config {
         }
         return URL(fileURLWithPath: path).deletingLastPathComponent()
     }
+
+    init(versions: [VersionEntry]) { self.versions = versions }
 
     init(data: Data, origin: String) throws {
         let decoder = JSONDecoder()
