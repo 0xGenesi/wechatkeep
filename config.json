@@ -892,7 +892,8 @@
             "arch": "x86_64",
             "addr": "50a5bad",
             "expected": [
-              "E8BE26E9FF488983C8010000"
+              "E8BE26E9FF488983C8010000",
+              "E812DC7D01488983C8010000"
             ],
             "asm": "4831C06690488983C8010000",
             "source": "wxkeep:arm64对照定位(TryParseMessage内newmsgid→[this+0x1C8]存储清零,使撤回删除失效而提示保留)"
