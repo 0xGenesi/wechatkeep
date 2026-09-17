@@ -2,10 +2,12 @@
 
 ## 已归档待办
 
-### ① DSL expected 通配/掩码 → branch-flip 配方化
-现状：RecipeEngine 的 expected 门是静态字节，call/jump 的 rel32 逐构建不同，
-"解析守卫翻转"类条目（fzlzjerry x64 silent 法，269574 = 0x5063F87 je→jmp）
-无法用现有 DSL 表达。
+### ① 解析守卫 branch-flip（冗余 silent）——工具已交付，配方化待 DSL 扩展
+已交付：`tools/locate_x64_parse_guard.py`（269602 实测：isRevokemsg 9 调用者 →
+8 处 `test al,al; je` 守卫 → 按"函数体含 newmsgid 存储"甄别出解析守卫
+**je@0x50a563b，expected 0F84A6000000，asm E9A700000090**，支持 --append）。
+剩余：RecipeEngine 的 expected 门是静态字节，call/jump 的 rel32 逐构建不同，
+自动配方化需 DSL expected 通配/掩码扩展（confirm 的 `bytes@+off:mask` 思想）。
 方案：expected 支持 `XX??????XX:mask...` 通配语法（掩码思想已在 confirm 的
 `bytes@+off:mask` 存在，扩展到 expected 即可）。
 位点族已存档（269602 x64：isRevokemsg 9 调用者中 8 处 `test al,al; je +disp32`，
