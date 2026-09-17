@@ -79,3 +79,35 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 2. [ ] doctor 加「dylib 切片哈希不在 archive_index」告警（PoJie 白名单思路）
 3. [ ] V2-PLAN v3 节：配置通道改微信偏好域前缀键（X1a0He 思路）；通知加登录态门控
       （RecallKeeper 思路）
+
+## 深挖补充（2026-09-17 第二轮：hook 机制核实）
+
+### X1a0He 的真正底牌：SQLCipher 直读微信数据库
+
+反汇编核实（7.3MB dylib，Dobby inline-hook 框架 + SQLCipher 静态链接）：
+- **`showDbKeys:`** 选择子 + `{wxid}/{talkerWxid}` 模板 + `contact`/`message` 表名 +
+  SQLCipher 全套 PRAGMA 字符串——插件**在进程内直接解密并查询微信的加密消息库**
+- 35 个配置键（`interceptOthers*Msg` × 18 / `interceptSelf*Msg` × 17，按消息类型）
+  + `configureRecalledMessageBackground`（遮罩）+ 撤回转发（文件大小上限/媒体间隔/目标）
+- **这就是它"遮罩+内容转发"能成立的根**：Dobby hook 消息处理入口拿到事件后，
+  从解密库里捞原文，再调 `sendTextMessage:` 等把内容转发出去——不依赖撤回 XML
+  （XML 里本就没有原文），也不需要在删除前拦截
+- UI 文案全部运行时解密（连中文串都无明文，同微信本体混淆手法）
+- 注意：进程内持有 db key + 撤回转发 = 高敏感面；开源可审计是唯一信任基础
+
+### 对 wxkeep 的战略启示（重要度排序）
+
+1. **SQLCipher 直读 = v3 运行时组件的"内容"来源**。此前认为"撤回原文只有
+   fzlzjerry 式进程内缓存可得"——错：**加密库里原文一直都在**（撤回只是打删除标记/
+   移除 UI 引用，库里未必真删）。v3 若做"撤回内容提示"，从库读原文比消息流缓存
+   可靠得多（不限本次启动、不限部分构建）。X1a0He 证明进程内拿 key + SQLCipher
+   可行。⚠️ 但 wxkeep 是无注入路线——读库要么离线（拿 key 的方式完全不同，
+   需独立研究）要么放弃。记录为开放课题。
+2. **按消息类型的细粒度开关**（35 键）值得抄：我们的 revoke 是一刀切，加
+   `--types text,image,...` 过滤是纯配置层工作。
+3. RecallKeeper 客户端二进制内无配方特征字节（配方在服务端/运行时取）——
+   其"构建号支持列表"机制与我们等价，无新信息。
+
+### 本轮落地
+- 细粒度类型开关：暂缓（v2 语义未定，先不加配置面）
+- 文档沉淀：本节
