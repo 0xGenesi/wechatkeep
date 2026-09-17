@@ -392,7 +392,7 @@ extension Wxkeep {
                 try WeChatApp.validate(options.app)
                 let main = RuntimeCommand.mainExecURL(options.app)
                 let data = try Data(contentsOf: main)
-                let injected = MachOInjector.isInjected(data: data, base: 0, path: lcPath)
+                let injected = MachOInjector.isInjectedAnySlice(data: data, path: lcPath)
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 let dylibExists = FileManager.default.fileExists(atPath: dylib.path)
                 let marker = Config.userDataURL.appendingPathComponent("runtime.marker")

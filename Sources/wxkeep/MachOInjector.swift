@@ -120,11 +120,17 @@ enum MachOInjector {
 
     /// True if ANY 64-bit slice carries an LC_LOAD_DYLIB for `path`.
     static func isInjectedAnySlice(data: Data, path: String) -> Bool {
-        guard let bases = try? slices(in: data) else { return false }
-        return bases.contains { base in
-            let end = min(base + 0x10000, data.count)
-            return isInjected(data: data.subdata(in: base..<end), base: 0, path: path)
+        guard let bases = try? slices(in: data) else {
+            print("[diag] slices() failed"); return false
         }
+        print("[diag] slices: \(bases.map({ hex in String(hex, radix: 16) }).joined(separator: ","))")
+        for base in bases {
+            let end = min(base + 0x10000, data.count)
+            let hit = isInjected(data: data.subdata(in: base..<end), base: 0, path: path)
+            print("[diag] base=\(String(base, radix: 16)) hit=\(hit)")
+            if hit { return true }
+        }
+        return false
     }
 
     /// True if any LC_LOAD_DYLIB in the slice carries `path`.
@@ -132,11 +138,20 @@ enum MachOInjector {
         let info = try? sliceInfo(in: data, base: base)
         guard let info else { return false }
         var cursor = info.commandsOff
+        var dbg = 0
         for _ in 0..<info.ncmds {
+            dbg += 1
+            if dbg <= 8 || dbg >= info.ncmds - 2 {
+                let c = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor, as: UInt32.self) }
+                let sz = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 4, as: UInt32.self) }
+                print("[diag-walk] cmd#\(dbg) @\(cursor) cmd=\(c) size=\(sz) ncmds=\(info.ncmds) sc=\(info.sizeofcmds)")
+            }
             guard cursor + 8 <= data.count else { break }
             let cmd = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor, as: UInt32.self) }
             let cmdsize = Int(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 4, as: UInt32.self) })
-            guard cmdsize >= 24, cursor + cmdsize <= data.count else { break }
+            // 合法命令最小 8B（LC_SOURCE_VERSION 只有 16B）——不能因小命令中断遍历，
+            // 否则追加在命令区末尾的 LC_LOAD_DYLIB 永远不可见（真机实证）
+            guard cmdsize >= 8, cursor + cmdsize <= data.count else { break }
             if cmd == loadDylibCmd {
                 let nameOff = Int(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 8, as: UInt32.self) })
                 let end = cursor + cmdsize
