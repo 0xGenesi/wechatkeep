@@ -6,7 +6,7 @@ struct Wxkeep: ParsableCommand {
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
         version: "0.1.2",
-        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self]
+        subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self, RuntimeCommand.self]
     )
 
     struct Options: ParsableArguments {
@@ -367,6 +367,96 @@ extension Wxkeep {
                 let url = Wxkeep.CloneCommand.CloneRemove.resolve(target, in: options.app.deletingLastPathComponent())
                 try Clone.launch(url)
                 print("已启动 \(url.lastPathComponent)")
+            }
+        }
+    }
+
+    struct RuntimeCommand: ParsableCommand {
+        static var _commandName: String { "runtime" }
+        static let configuration = CommandConfiguration(
+            abstract: "Runtime component (optional): inject a support dylib into WeChat",
+            subcommands: [RuntimeStatus.self, RuntimeInstall.self, RuntimeRemove.self])
+
+        static func mainExecURL(_ app: URL) -> URL {
+            WeChatApp.binaryURL(app: app, relative: "Contents/MacOS/WeChat")
+        }
+        static func frameworkDylibURL(_ app: URL) -> URL {
+            WeChatApp.binaryURL(app: app, relative: "Contents/Frameworks/wxkeep_runtime.dylib")
+        }
+        static let lcPath = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
+
+        struct RuntimeStatus: ParsableCommand {
+            static var _commandName: String { "status" }
+            @OptionGroup var options: Options
+            mutating func run() throws {
+                try WeChatApp.validate(options.app)
+                let main = RuntimeCommand.mainExecURL(options.app)
+                let data = try Data(contentsOf: main)
+                let injected = MachOInjector.isInjected(data: data, base: 0, path: lcPath)
+                let dylib = RuntimeCommand.frameworkDylibURL(options.app)
+                let dylibExists = FileManager.default.fileExists(atPath: dylib.path)
+                let marker = Config.userDataURL.appendingPathComponent("runtime.marker")
+                let markerExists = FileManager.default.fileExists(atPath: marker.path)
+                print("LC_LOAD_DYLIB 注入: \(injected ? "是" : "否")")
+                print("runtime dylib:     \(dylibExists ? "存在" : "缺失") (\(dylib.path))")
+                print("加载标记:          \(markerExists ? "已加载（上次启动）" : "无记录")")
+                let state = injected && dylibExists ? (markerExists ? "已启用" : "已注入（启动微信后生效）") : "未启用"
+                print("整体:              \(state)")
+            }
+        }
+
+        struct RuntimeInstall: ParsableCommand {
+            static var _commandName: String { "install" }
+            static let configuration = CommandConfiguration(abstract: "Install the runtime dylib into WeChat (requires WeChat quit)")
+            @OptionGroup var options: Options
+            @Option(help: "Path of the built libwxkeep_runtime.dylib")
+            var dylib: String = ".build/release/libwxkeep_runtime.dylib"
+            mutating func run() throws {
+                try WeChatApp.validate(options.app)
+                if WeChatApp.isRunning(app: options.app) {
+                    throw ValidationError("WeChat 正在运行。退出后重试。")
+                }
+                let fm = FileManager.default
+                guard fm.fileExists(atPath: dylib) else {
+                    throw ValidationError("runtime dylib 不存在: \(dylib)（先 swift build -c release）")
+                }
+                let main = RuntimeCommand.mainExecURL(options.app)
+                let backup = try Backup.make(binary: main)
+                print("backup: \(backup.lastPathComponent)")
+
+                var data = try Data(contentsOf: main)
+                try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: lcPath)
+                try data.write(to: main)
+
+                let dest = RuntimeCommand.frameworkDylibURL(options.app)
+                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                try fm.copyItem(at: URL(fileURLWithPath: dylib), to: dest)
+
+                try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat", "Contents/Frameworks/wxkeep_runtime.dylib"])
+                print("✓ runtime 已注入（微信下次启动时加载）")
+                print("  验证: 启动微信后运行 wxkeep runtime status")
+                print("  移除: wxkeep runtime remove")
+            }
+        }
+
+        struct RuntimeRemove: ParsableCommand {
+            static var _commandName: String { "remove" }
+            static let configuration = CommandConfiguration(abstract: "Remove the runtime dylib and its load command")
+            @OptionGroup var options: Options
+            mutating func run() throws {
+                if WeChatApp.isRunning(app: options.app) {
+                    throw ValidationError("WeChat 正在运行。退出后重试。")
+                }
+                let main = RuntimeCommand.mainExecURL(options.app)
+                let backup = try Backup.make(binary: main)
+                var data = try Data(contentsOf: main)
+                try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: lcPath)
+                try data.write(to: main)
+                let dylib = RuntimeCommand.frameworkDylibURL(options.app)
+                try? FileManager.default.removeItem(at: dylib)
+                try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat"])
+                print("✓ runtime 已移除（备份: \(backup.lastPathComponent)）")
             }
         }
     }
