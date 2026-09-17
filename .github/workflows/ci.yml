@@ -23,7 +23,7 @@ jobs:
         run: |
           swift --version
           sw_vers
-      - name: Guard: no private key material tracked
+      - name: "Guard - no private key material tracked"
         run: |
           match=$(git ls-files -z | xargs -0 grep -lI "BEGIN [A-Z ]*PRIVATE KEY" 2>/dev/null || true)
           if [ -n "$match" ]; then
