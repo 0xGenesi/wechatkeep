@@ -24,11 +24,15 @@ Contents/Frameworks/wxkeep_runtime.dylib                                    ← 
 
 - **M-R1 ✅（已交付）**：注入机制 + 最小 dylib（marker 构造器）+
   `wxkeep runtime status/install/remove`
-- **M-R2**：提示文本替换——drive14 定位 270099 提示渲染消费点 → dylib 内
-  ObjC/C++ hook 替换为 runtime.json 固定文案（私聊先行）
+- **M-R2**：提示文本替换——hook 设计已定案（ROADMAP ⑥）：hook isRevokemsg
+  入口（0x4e8d440@270099），以内容 SSO 为参的调用点原地改写为 runtime.json
+  文案；hook 安装走 `_dyld_register_func_for_add_image` 同步回调。待 drive22
+  一轮真实撤回终验（到达 tip 内容串确过 isRevokemsg）
 - **M-R3**：{from}/{content} 占位符（消息缓存，按 serverId 终结器缓存——
   fzlzjerry 同款思路）+ 群聊适配
-- **M-R4**：消息"已撤回"标记（状态写与删除分离研究）
+- **M-R4**：消息"已撤回"标记——状态写位点已定位（`mov [rdx+0x118],9`
+  @0x355ab00@270099，全镜像唯一，269602 0x32e73a0 双子）；runtime hook 其
+  入口即「状态写与删除分离」落点，drive22 同轮取 rdx 对象布局
 
 ## 信任与安全
 

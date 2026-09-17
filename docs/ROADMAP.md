@@ -99,7 +99,16 @@ M-R2 hook 点结论：自定义提示的 runtime hook 需要挂在 tip 文本组
    旧判定。状态：待实机验证。
 2. **verify 规格 270099**：真机 verify worker 崩溃（spec 仍是 269602 家族的
    stubs/zero_regions）。需对 270099 x64 重新逆向 stubs（isRevokemsg 已知
-   0x4e8d440，stub 地址需重找）。状态：待逆向。
+   0x4e8d440，stub 地址需重找）。状态：**已完成**（同日收口）——
+   崩溃定性：SIGSEGV/GPFLT 于 isRevokemsg@0x4E8D47A 的第一个 call 目标
+   （strlen 桩 0x7A23CE4）——旧 stub VA 在 270099 非 `ff 25`，worker 桩守卫
+   静默跳过→GOT 槽 0xA40EF88 保持 chained-fixup 原始值
+   0x8010000000000834（非规范地址）；旧 zero 区 0xA988320 落在无关
+   __DATA（次要破坏）。崩溃=布局漂移的预期失败模式，非环境/Verifier 缺陷
+   （SIP off、同镜像同 worker 换新 spec 即通过）。270099 反解已落地
+   signatures.json（stubs 7A23CE4/7A2373E、zero AD2C3F8；gen_verify_spec
+   的第二 zero 区 AD2C408 属隔壁 qy_revoke_msg 比较器，已裁剪）；
+   pristine 1/0/0/0 + patched 全 0 双向实测通过。
 3. **catalog 缺口 270091–270098**：270099 已本地适配（x64 locate/keeptip），
    其余 8 个构建需 CI dispatch watch-wechat 实跑回填。注意：中间号可能是
    内部构建无公开 dmg——回填前先验证制品存在性。状态：流水线待实跑验证。
@@ -110,3 +119,54 @@ M-R2 hook 点结论：自定义提示的 runtime hook 需要挂在 tip 文本组
 5. **runtime hook 同步回调模式**：将来加 hook 必须用 fzlzjerry 的
    `_dyld_register_func_for_add_image` 同步回调（270090 启动闪退教训——
    异步时机错误即闪退）。当前 M-R1 仅 marker 无需。已写入 RUNTIME-DESIGN 约束。
+
+### ⑥ M-R2 第二轮（2026-09-18 凌晨，drive17-22：270099 全图谱 + hook 设计转向）
+
+**静态（tools/xref_x64.py 新工具：LC_FUNCTION_STARTS 边界 + E8 对齐验证；
+ULEB128 字节序陷阱已修——`cur=(cur<<7)|b` 是反的，正确为 `cur |= low7<<shift`）**
+
+270099 x64 撤回链与消息管道（269602 同构，全部重定位）：
+- isRevokemsg **0x4e8d440**（9 调用者，与复核会话第 2 条一致）；isType10000
+  谓词 0x4e8d430（`cmp [rdi+8],0x2710; sete al; ret`，紧贴 isRevokemsg 前）
+- 解析函数 [0x537db40..0x537efa0)（newmsgid→[obj+0x1C8] @0x537e39d =
+  keeptip v1 位点）；wrapper [0x537d910..0x537db40)（唯一调用者，拓扑同 269602）
+- **状态写 [0x355aa90..0x355af60)：`mov [rdx+0x118],9` @0x355ab00——全镜像
+  唯一**（269602 0x32e73a0 双子，M-R4 标记位点）；调用方 0x351cc8f / 0x355b42d
+- storage 服务解析器 [0x3952d50..0x3952de0)（"_b13e0758" @0x91ae9fc，
+  rip-disp32 反查定位）← 异步撤回任务体 [0x3951040..0x3951ea0)
+- decrypt_strings 270099 全量 120 串新图谱：**system_message_handler**
+  0x3449100/0x344baa0（vtable 派发，无私有 E8 调用者）、text_message_handler
+  0x3453900/0x3459270、emoticon/share_card 家族、**mac_message_storate_impl**
+  ×7（0x3a01fb0..0x3a15700）、**base_msg_data_producer** 0x4db8f20/0x4db9ff0
+- 23 处 `==0x2710` 比较；[0x3dc9250..0x3dcd490) 兼具 type@[+0xC]==10000 与
+  isRevokemsg 调用（撤回消息消费者）
+
+**动态（drive17-21，自主会话）**：
+- producer/storage/syshandler 的**解密循环 site 是冷路径**——启动+自动登录+
+  空闲全程零命中（登录已确认：账号 message_0.db 空闲期仍活跃写入）
+- **全堆扫描**（`memory region` 命令枚举 + needle 扫 1.1GB）："撤回了一条消息"
+  42 处，tip 文本以**四种容器**共存：① protobuf 同步批缓冲 ② 会话预览记录
+  （`loneboys你撤回了一条消息`）③ DB 页缓存（紧邻 `dialogue_id INTEGER`）
+  ④ **UI 气泡模型**（`"Rhaegar" 撤回了一条消息\0` + 头像 URL 相邻的
+  NUL 结尾 C 串三连——渲染就绪态）
+- WP 挂 tip 数据区后 URL scheme 切会话未触发重读（缓存）——消费链回溯
+  需真实撤回/消息事件（自主会话无触发源）
+
+**M-R2 hook 设计定案（转向）**：不再追渲染读取点——**hook isRevokemsg 入口**：
+管道处理到达 tip（10000 消息）时恰以内容 SSO 为参调用它，此刻把 SSO 原地
+改写为 runtime.json 自定义文案（长串形态指向 dylib 拥有的缓冲，生命周期随
+dylib 永驻），下游入库/会话预览/渲染全部拿到自定义文本。优势：isRevokemsg
+是跨构建锚点（locate 配方已覆盖）、调用约定简单（rdi=SSO*，返 al）、易区分
+tip 内容与 "revokemsg" 类型串（内容/长度判定）。约束（复核会话第 5 条）：
+hook 安装必须走 `_dyld_register_func_for_add_image` 同步回调。前提待验：
+到达 tip 内容串确实过 isRevokemsg（drive22 一轮真实撤回即验）。群聊合成
+tip 走 0x50B4F10 双子，二期再挂。
+
+**M-R4 就绪度**：状态写唯一位点 0x355ab00 已定位——runtime hook 其入口即可
+「保消息可见 + 打标记」（状态写与删除分离的落点）；drive22 同轮捕获 rdx
+对象布局。
+
+**下一轮（drive22，已归档）**：附加模式 + isRevokemsg/post-store/async-body/
+status-write/parse 五断点，人工触发一次对方撤回：①验证 isRevokemsg 收到
+tip 内容串并对含"撤回"串挂读 WP 抓消费链（M-R2 终验）②捕获 status-write
+的 rdx 对象转储（M-R4）。

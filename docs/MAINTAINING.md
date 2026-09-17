@@ -253,3 +253,56 @@ v2 A/B 实验修订：用 `decrypt_strings.py --grep` 命名全部 revoke 家族
 在 message_revoke_manager.cc 家族中找 Windows CoReplaceOriginMessageByRevoke
 的 macOS 孪生（特征：DeleteMessage 调用 + 提示插入，参考 r8 结构
 +8=type(0x2710)/+0xC0=srvid/+0x118=sysmsg，跨架构偏移需本地重推导）。
+
+## 270099 x64 撤回链与消息管道地图（2026-09-18 凌晨，drive17-22 轮；工具 tools/xref_x64.py）
+
+269602 全链在 270099 的重定位（同构不变，地址全漂移）：
+
+```
+isRevokemsg 0x4E8D440（9 真调用者；keeptip 态序言 554889e553504889fb = 地面真值）
+isType10000 0x4E8D430（cmp [rdi+8],0x2710; sete al; ret——紧贴 isRevokemsg 之前）
+解析函数 [0x537DB40..0x537EFA0)：newmsgid→[this+0x1C8] 存储点 0x537E39D（keeptip v1 位点）
+wrapper [0x537D910..0x537DB40)：解析函数唯一调用者（vtable 派发，拓扑同 269602 0x50A5120）
+状态写 [0x355AA90..0x355AF60)：mov [rdx+0x118],9 @0x355AB00 —— 全镜像唯一
+  （269602 0x32E73A0 双子；调用方 0x351CC8F / 0x355B42D）
+storage 解析器 [0x3952D50..0x3952DE0)："_b13e0758" 串@0x91AE9FC（__TEXT,__const）
+  ← 异步撤回任务体 [0x3951040..0x3951EA0)
+消息管道（decrypt_strings 270099 全量 120 串）：
+  system_message_handler 0x3449100 / 0x344baa0（vtable 派发）
+  text_message_handler 0x3453900 / 0x3459270
+  emoticon_message_handler 0x33a61c0 家族 ×5；share_card_message_handler 0x3443e20 家族
+  mac_message_storate_impl ×7（0x3a01fb0..0x3a15700）
+  base_msg_data_producer 0x4db8f20 / 0x4db9ff0
+23 处 ==0x2710 比较；[0x3DC9250..0x3DCD490) 兼具 type@[+0xC]==10000 + isRevokemsg 调用
+```
+
+堆内 tip 文本四种容器（drive19-21 全堆扫描实证，needle="撤回了一条消息"×42）：
+protobuf 同步批缓冲 / 会话预览记录（wxid+文本连写）/ DB 页缓存（紧邻
+`dialogue_id INTEGER` schema）/ UI 气泡模型（`"昵称" 撤回了一条消息\0` +
+头像 URL 的 NUL 结尾 C 串三连）。
+
+### 本轮方法论教训（防重蹈，drive17-21 实证）
+
+- **解密循环 site ≠ 热路径**：producer/storage/syshandler 的 xlog site 断点在
+  启动+登录+空闲全程零命中——符号恢复定位用可以，当断点用不行
+- **SBProcess.Continue() 在无停止事件时阻塞**：空闲等待必须 listener+
+  WaitForEvent 模式（drive.py 模式）；带时限的循环若先 Continue 后查时间，
+  时限永远不触发（drive18 卡死实证）
+- **SSO 长串反查语义**：ptr 指向串首（含昵称前缀），needle 命中在串中部——
+  指针值精确反查必然失配；必须按 `ptr ≤ needle < ptr+size` 区间验证
+- **本版 lldb Python API 缺口**：无 GetMemoryRegionAtIndex、无
+  SBMemoryRegionList 暴露；区域枚举用 `memory region` 命令逐段解析
+  （解析 `[0xbegin-0xend) perm name` 行，addr=end 前进）
+- **ULEB128 经典字节序坑**（LC_FUNCTION_STARTS 解析）：`cur=(cur<<7)|low7`
+  是反的；正确 `cur |= low7 << shift; shift += 7`。症状：函数边界大量非序言、
+  地址越出 __text
+- **E8 扫描对齐验证的正确写法**：从 site-k 起点反汇编的缓冲必须**延伸越过
+  site**（如 site+16），否则 capstone 永远解不出 site 处指令、全部误拒
+  （drive17 轮 9 个真调用者被误报 0 的根因）
+- 全堆扫描性能：1.1GB 经 ReadMemory 1MB 分块 ≈ 4-6 分钟/遍（可用）；
+  WeChat 空闲堆 ~950MB/520 区
+- 后台 lldb 仍必须托管后台任务（`&` 随 shell 退出被杀——再次实证）
+- **附加会话杀 lldb 的后果不确定**：多数情况微信被连带杀；偶尔存活——
+  收尾后必须 pgrep 验证微信状态并按需拉起
+- URL scheme `weixin://dl/chat?wxid=` 未证实能开聊天窗（无障碍受限无法确认），
+  但打开后有会话物化迹象（堆内出现该账号体系 tip 串）——不可依赖为重渲染触发器
