@@ -96,7 +96,17 @@ M-R2 hook 点结论：自定义提示的 runtime hook 需要挂在 tip 文本组
 1. **AMFI 判定重写**：基于外部证据推翻早前 kill_predicted 结论（旧判定疑似把
    verifier worker 的 RWX 杀机误外推到微信重签场景）。doctor 已改为证据中性表述。
    验证方案：原生 SIP 开机实机 patch 一次；若 .ips 显示 CODESIGNING kill 则恢复
-   旧判定。状态：待实机验证。
+   旧判定。状态：**实证协议已交付（tools/amfi_sip_probe.sh），待一次原生 SIP
+   引导执行**。本机先例补强（2026-09-17 复核发现）：Sep 15 16:28/16:29 两份
+   `WeChat-*.ips`（repo 首提交 17:58 之前的手工实验期）记录
+   `CODESIGNING / Taskgated Invalid Signature` SIGKILL，flags=0x1000000(CS_ADHOC)
+   ——ad-hoc 态在 AMFI 活跃引导下确曾被杀，随即 16:35 关机重启进 Recovery 开启
+   bypass（现 SIP off + amfi boot-arg 的由来）。定性：**当时重签配置无记录**
+   （早于 Resigner 管线，疑似 entitlements 剥光的裸 codesign，即 sunnyyoung
+   #1038 同款杀机路径），不能充当当前管线的受控反证。实证按 probe 脚本头部
+   runbook 执行：`sudo nvram -d boot-args` → Recovery `csrutil enable` →
+   `sudo tools/amfi_sip_probe.sh`（自动 patch→launch→harvest .ips→恢复 pristine，
+   判据 RUNS/KILLED/OTHER-KILL 内建）。
 2. **verify 规格 270099**：真机 verify worker 崩溃（spec 仍是 269602 家族的
    stubs/zero_regions）。需对 270099 x64 重新逆向 stubs（isRevokemsg 已知
    0x4e8d440，stub 地址需重找）。状态：**已完成**（同日收口）——
@@ -170,3 +180,98 @@ tip 走 0x50B4F10 双子，二期再挂。
 status-write/parse 五断点，人工触发一次对方撤回：①验证 isRevokemsg 收到
 tip 内容串并对含"撤回"串挂读 WP 抓消费链（M-R2 终验）②捕获 status-write
 的 rdx 对象转储（M-R4）。
+
+### ⑦ M-R2 第三轮（2026-09-18 凌晨，并行会话：0x538d700 排水函数 + hook 引擎落地）
+
+与 ⑥ 并行的自主会话产出（静态 xref/capstone + drive22 被动侦察）：
+
+**静态实证链（推翻两个旧结论）**：
+- parse@0x537e3b9 以 `movabs rax,0x6d6563616c706572` + `mov word,0x6773`
+  构建 **"replacemsg"** 标签（立即数编码）→ ROADMAP ③「replacemsg 零明文
+  零解密串」结论**被推翻**（strings 工具看不见 movabs 立即数）。
+- 0x5212c70 提取 → `lea r14,[rbx+0x1d0]`：drive16 的未定性字段 **+0x1d0
+  即 tip 文本 SSO**（当时按裸指针解引用扫描，把 SSO 结构体当地址漏检）。
+- **0x538d700（排水函数，async-body 0x3951040 的被调）**：rdi=信息对象
+  （+0x1d0 SSO setter：free 旧串→movups 写入→`lea rsi,[rbx+0x1d0]` 传递
+  消费），**rsi=刚提取的 replacemsg 裸 SSO 指针**。序言 12B 恰为纯栈操作
+  （554889e54157415641554154，蹦床安全边界）。
+- async-body rsi=消息向量（步长 0x278=632B，社区已证 Message 尺寸）——
+  原消息批在此，revoke-manager 全族无 0x2710 立即数（tip 无本地 10000
+  常量构造路径）。
+
+**drive22 被动侦察（附加运行中微信，有机消息流）**：消息对象布局实测
+type@+0xC、content SSO@+0x168（3.8KB 群消息实况）、msgsource@+0x198；
+decrypt_strings.json 的 func 值**基址有误**（用了首 section 地址而非
+__TEXT vmaddr）——storage/producer 断点此前零命中的根因，真入口已重算
+（见 tools/xref_x64.py 会话记录）。
+
+**M-R2 hook 引擎已落地（Sources/WxkeepRuntime/runtime.m）**：
+- inline hook 全机制：LC_UUID 门 + 12B 序言原像门 + RWX 蹦床
+  （saved+movabs r11/jmp r11）+ `movabs rax/jmp rax` 入口改写；
+  `_dyld_register_func_for_add_image` 同步回调 + 既有镜像线性扫描双保险
+  （复核会话第 5 条约束）。
+- 改写语义：**缩短式 SSO 原地重写**（长串只动 size+数据/短串只动 tag+
+  内联，分配器零接触），"撤回" needle 门防误伤。
+- 配置：`Application Support/wxkeep/runtime.json` 的 `tip_text`。
+- 地址表现挂 0x538d700 行（UUID 97e21436…）；4 项单测
+  （RuntimeHookTests）覆盖改写核心。
+- **两个候选点并存**：⑥ 的 isRevokemsg 入口（跨构建锚点优势，前提=
+  tip 内容串过 isRevokemsg，待 ⑥ drive22 结果）vs 本轮 0x538d700
+  （rsi=replacemsg 裸 SSO，静态实证最强，单构建地址表）。引擎两者通用，
+  换表行即切换。注意：并行会话对 isRevokemsg 比较器体的解读是 rdi=被比
+  的 type 属性短串（"revokemsg"），与 ⑥ 前提相抵——以实弹为准。
+
+**终验工具（tools/dyntrace/drive23.py，已就绪）**：断 0x538d700，命中即
+读 rsi SSO+回溯，并用调试器执行与 dylib 完全同语义的原地改写——一轮真实
+撤回后看微信界面是否显示自定义文案即可定案（无需先安装 dylib）。
+
+**AMFI 原生 SIP 实证协议亦已交付**（复核会话第 1 条的实验侧）：
+`tools/amfi_sip_probe.sh`——preflight（SIP/boot-args 门）→ pristine 快照 →
+标准 patch（完整 Resigner 管线）→ codesign 自检 → 启动观测 25s → .ips
+终止原因分类（RUNS/KILLED/OTHER-KILL）→ trap 保证恢复 pristine。头部含
+原生 SIP 引导 runbook（nvram -d boot-args → Recovery csrutil enable）。
+本机先例补强：Sep 15 16:28/16:29 两份 WeChat .ips =
+`CODESIGNING/Taskgated Invalid Signature`（flags 0x1000000 CS_ADHOC）——
+ad-hoc 态在 AMFI 活跃引导下确曾被杀（当时重签配置无记录，系 repo 诞生前
+手工实验，不能充当当前管线反证；doctor 注释已补）。
+
+### ⑦ M-R2 终验（2026-09-18 00:15，drive22 真实撤回实捕——研究阶段收口）
+
+一次对方私聊撤回，五断点全链捕获（/tmp/wxarm/d22_run2_full.log 已归档）：
+
+```
+到达漏斗: 0x6f4c919 → 0x6f53512 → 0x4b5d2ac → 0x4b8a078 → 0x4b56d05
+           → 0x4b2a807 → 0x4b3b6cf ∈ sysmsg处理器 [0x4b3aee0..0x4b3db20)
+  ├─ A 到达解析:  [0x3559430..0x35594b0) → [0x530ca60..0x530d2f0)
+  │    → [0x530e0f0..0x530e200) → wrapper [0x537d910..0x537db40) → parse
+  │    （parse 内部 isRevokemsg@0x537de29 类型检查 → post-store newmsgid=0 ✓keeptip）
+  ├─ B revoke_manager 二次解析: [0x35594b0..0x3559b00) → 0x394be13
+  │    ∈ [0x394ae30..0x394e4c0) → wrapper → parse（同 XML 再解析一遍）
+  ├─ C 异步任务体: [0x35594b0..0x3559b00) → [0x351f480..0x351f580)
+  │    → async-body [0x3951040..0x3951ea0)（静态猜测命中 ✓）
+  │    → 0x39510f8 → [0x5037ef0..0x5037fb0) → tiny [0x538e690..0x538e6e0) → isRevokemsg
+  └─ D 历史批扫（tid 独立，parse 洪峰 20+ 源头）: 0x5cda0e2 → 0x5d97333
+       → [0x364ee50..0x3652310) → [0x3611fa0..0x3612bf0) → [0x3664510..0x3664620)
+       → 同一漏斗 [0x530e0f0..0x530e200) → wrapper → parse
+```
+
+**关键判定**：
+1. **isRevokemsg 全程只收 "revokemsg" 类型串**（40+ 次实测，无一例外）——
+   ⑥ 的"hook isRevokemsg 改写内容 SSO"前提**证伪**。isRevokemsg 是纯类型谓词。
+2. **wrapper [0x537d910] 是全路径唯一汇点**（A 到达 / B 二次解析 / D 历史批扫
+   都过它）——**M-R2 hook 终点定案**：hook wrapper 入口，检查 XML 参数中
+   `<replacemsg>…</replacemsg>`，把内文替换为 runtime.json 文案（短则原位补空格、
+   长则 SSO 重指向 dylib 持有缓冲），再调原函数。下游（解析结果/入库/会话预览/
+   渲染/历史重扫）全部一致拿到自定义文案——连 DB 持久化都是自定义文本。
+   wrapper 为 vtable 派发（269602 槽位 +0x18 经验）→ 可选 vtable 槽替换
+   （免 inline trampoline，改 __DATA_CONST 一指针）。
+3. **keeptip v1 行为模型活体证实**：post-store newmsgid=0；status-write
+   **零命中**（newmsgid=0 → 原消息查不到 → 状态标记路径不达）——与 v1 模型
+   （私聊提示保留+消息保留）完全一致。M-R4 如需活体捕获 rdx 对象，需在
+   silent/无补丁态重跑 drive22（位点静态唯一性已足够支撑 hook 设计）。
+4. drive22 的 900s 时限卡在阻塞 Continue（消息流安静后无停止事件）——
+   心跳/时限检查不能依赖 Continue 返回（drive18 教训重演，脚本已带伤运行）。
+
+**M-R2 研究收口**：hook 点位、改写策略、安装时机（add_image 同步回调）、
+跨路径一致性全部落定。剩余为工程实现（runtime dylib 的 wrapper trampoline +
+XML 内文替换 + runtime.json 读取），无未知研究项。

@@ -306,3 +306,19 @@ protobuf 同步批缓冲 / 会话预览记录（wxid+文本连写）/ DB 页缓�
   收尾后必须 pgrep 验证微信状态并按需拉起
 - URL scheme `weixin://dl/chat?wxid=` 未证实能开聊天窗（无障碍受限无法确认），
   但打开后有会话物化迹象（堆内出现该账号体系 tip 串）——不可依赖为重渲染触发器
+
+## 270099 x64 撤回活体链（2026-09-18 drive22 实捕，真实对方撤回）
+
+全部路径汇于 wrapper [0x537d910..0x537db40)（parse 唯一调用者）：
+到达解析（sysmsg 处理器 [0x4b3aee0..0x4b3db20) → 0x3559430 → 0x530ca60 →
+0x530e0f0 → wrapper）、revoke_manager 二次解析（0x35594b0 → [0x394ae30..)
+→ wrapper）、历史批扫（0x5cda0e2 → [0x364ee50..) → [0x3611fa0..) →
+[0x3664510..) → 同一 0x530e0f0 漏斗）、异步任务体 [0x3951040..0x3951ea0)
+（→ [0x5037ef0..] → tiny [0x538e690..] → isRevokemsg）。
+- isRevokemsg 40+ 活体调用全部收到 "revokemsg" 字面类型串——**不是内容谓词**
+- keeptip v1 活体：post-store newmsgid=0 ✓；status-write 零命中（查找落空→
+  标记路径不达，v1 行为模型闭环证实）
+- M-R4 活体捕获需在无 keeptip 态跑（status-write 才会命中）
+- 教训补充：带时限的驱动循环里 Continue() 在安静期永久阻塞——时限判断必须
+  在 Continue 之前或用事件超时驱动（drive22 第二次踩坑，d22_run2_full.log
+  会话即如此结束）
