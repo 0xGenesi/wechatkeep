@@ -71,7 +71,8 @@ enum Engine {
     /// Selects targets for a variant: `revoke` for silent, `revoke-keeptip` for
     /// keeptip; every non-variant identifier (update, multiInstance, …) always applies.
     static func targets(for version: Config.VersionEntry, variant: String) throws -> [Config.Target] {
-        let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"
+        let variantID = variant == "keeptip" ? "revoke-keeptip"
+                     : (variant == "keeptip2" ? "revoke-keeptip2" : "revoke")
         var selected = [Config.Target]()
         for target in version.targets {
             if target.identifier == "revoke" || target.identifier == "revoke-keeptip" {
@@ -110,7 +111,7 @@ enum Engine {
 
         // 变体切换：先还原另一变体的写入（幂等），再应用本变体。
         // 否则 silent 的 x64 补丁会与 keeptip 并存，静默语义覆盖 keeptip。
-        let otherID = variant == "keeptip" ? "revoke" : "revoke-keeptip"
+        let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"
         if let other = versionEntry.targets.first(where: { $0.identifier == otherID }),
            !other.entries.isEmpty, !dryRun {
             var undo = RunSummary()

@@ -1,0 +1,697 @@
+[
+{
+"func": "0xce4e30",
+"site": "0xce4f49",
+"str": "FromAppMessageExtInfo"
+},
+{
+"func": "0x1034670",
+"site": "0x10346c9",
+"str": "FavoritePhotoListView"
+},
+{
+"func": "0x161ba60",
+"site": "0x161bad9",
+"str": "ReportSwitchStatusOnLogin"
+},
+{
+"func": "0x17d45e0",
+"site": "0x17d4609",
+"str": "SFDetailListViewModel"
+},
+{
+"func": "0x1bc80e0",
+"site": "0x1bc8149",
+"str": "~WeishangViewController"
+},
+{
+"func": "0x1e035c0",
+"site": "0x1e03689",
+"str": "SetToolbarButtonsEnabledExceptVoice"
+},
+{
+"func": "0x29ef060",
+"site": "0x29ef1b9",
+"str": "dynamic_config_manager.cc"
+},
+{
+"func": "0x2aa8d30",
+"site": "0x2aa8df9",
+"str": "OnRelatedStorageCleared"
+},
+{
+"func": "0x2ea6650",
+"site": "0x2ea6669",
+"str": "FavoriteDataUploadTaskScheduler"
+},
+{
+"func": "0x2ed5f30",
+"site": "0x2ed6729",
+"str": "favorite_upload_task.cc"
+},
+{
+"func": "0x2ed6aa0",
+"site": "0x2ed6d59",
+"str": "favorite_upload_task.cc"
+},
+{
+"func": "0x2ed6aa0",
+"site": "0x2ed73e9",
+"str": "favorite_upload_task.cc"
+},
+{
+"func": "0x2ed7480",
+"site": "0x2ed7729",
+"str": "favorite_upload_task.cc"
+},
+{
+"func": "0x2ed7480",
+"site": "0x2ed7a29",
+"str": "favorite_upload_task.cc"
+},
+{
+"func": "0x2edf9b0",
+"site": "0x2edf9c9",
+"str": "favorite_upload_task.cc"
+},
+{
+"func": "0x30df8c0",
+"site": "0x30e0f89",
+"str": "chat_message_storage.cc"
+},
+{
+"func": "0x30df8c0",
+"site": "0x30e1469",
+"str": "chat_message_storage.cc"
+},
+{
+"func": "0x3349700",
+"site": "0x33497e9",
+"str": "CreateMessageVoiceInfoTableIfNeeded"
+},
+{
+"func": "0x33f0570",
+"site": "0x33f08c9",
+"str": "AddMessageListToDBForImport"
+},
+{
+"func": "0x364c5e0",
+"site": "0x364c609",
+"str": "RecordItemThumbUploadTask"
+},
+{
+"func": "0x3749b80",
+"site": "0x374b009",
+"str": "CanLoadAllPageToCache"
+},
+{
+"func": "0x378d120",
+"site": "0x378d429",
+"str": "mac_message_storate_impl.cc"
+},
+{
+"func": "0x378f480",
+"site": "0x378f549",
+"str": "mac_message_storate_impl.cc"
+},
+{
+"func": "0x3792810",
+"site": "0x3792ba9",
+"str": "mac_message_storate_impl.cc"
+},
+{
+"func": "0x379ac80",
+"site": "0x379ad19",
+"str": "mac_message_storate_impl.cc"
+},
+{
+"func": "0x379d6b0",
+"site": "0x379d6d9",
+"str": "mac_message_storate_impl.cc"
+},
+{
+"func": "0x379fb50",
+"site": "0x379fc49",
+"str": "mac_message_storate_impl.cc"
+},
+{
+"func": "0x37a0700",
+"site": "0x37a1979",
+"str": "mac_message_storate_impl.cc"
+},
+{
+"func": "0x3a308a0",
+"site": "0x3a30979",
+"str": "richtext_edit_tag_task_handler.cc"
+},
+{
+"func": "0x3a6a7f0",
+"site": "0x3a6a859",
+"str": "richtext_save_task_handler.cc"
+},
+{
+"func": "0x3af9a50",
+"site": "0x3af9ad9",
+"str": "CreateSearchRecentTable"
+},
+{
+"func": "0x3b4a000",
+"site": "0x3b4ae49",
+"str": "CreateAccessBookmarkWithDraftPath"
+},
+{
+"func": "0x3c0e180",
+"site": "0x3c0e1a9",
+"str": "SnsChatBotHistoryDownloadTask"
+},
+{
+"func": "0x3d2d880",
+"site": "0x3d2dd39",
+"str": "ConfigChunkSizeIfNeeded"
+},
+{
+"func": "0x3fe82e0",
+"site": "0x3fe9489",
+"str": "wa_contact_manager.cc"
+},
+{
+"func": "0x3fe9f00",
+"site": "0x3fe9fb9",
+"str": "wa_contact_manager.cc"
+},
+{
+"func": "0x3fed0d0",
+"site": "0x3fed3e9",
+"str": "wa_contact_manager.cc"
+},
+{
+"func": "0x3fee8a0",
+"site": "0x3fef309",
+"str": "wa_contact_manager.cc"
+},
+{
+"func": "0x3ff0e30",
+"site": "0x3ff0f39",
+"str": "wa_contact_manager.cc"
+},
+{
+"func": "0x3ff2490",
+"site": "0x3ff2529",
+"str": "wa_contact_manager.cc"
+},
+{
+"func": "0x4a59700",
+"site": "0x4a59809",
+"str": "GetFavSourceIDByMessage"
+},
+{
+"func": "0x4c1bbb0",
+"site": "0x4c1bc19",
+"str": "GetLastVersionSummaryData"
+},
+{
+"func": "0x4c358d0",
+"site": "0x4c358e9",
+"str": "performance_util_mac.mm"
+},
+{
+"func": "0x4dbd3a0",
+"site": "0x4dbddd9",
+"str": "upgrade_to_v4_beta_migrate_mac.mm"
+},
+{
+"func": "0x4dbd3a0",
+"site": "0x4dbe6b9",
+"str": "upgrade_to_v4_beta_migrate_mac.mm"
+},
+{
+"func": "0x4ef39a0",
+"site": "0x4ef3a19",
+"str": "EmplaceUpgradeHistorySync"
+},
+{
+"func": "0x5133020",
+"site": "0x5133239",
+"str": "IsFirstPageNoMoreData"
+},
+{
+"func": "0x2e23c80",
+"site": "0x2e23cc9",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e23fb0",
+"site": "0x2e24019",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e26cd0",
+"site": "0x2e26d29",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e27760",
+"site": "0x2e277e9",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e27760",
+"site": "0x2e27f39",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e28580",
+"site": "0x2e28599",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e28980",
+"site": "0x2e28ba9",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e28980",
+"site": "0x2e29269",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e29610",
+"site": "0x2e29629",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e29ae0",
+"site": "0x2e29ba9",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e29d30",
+"site": "0x2e2a1e9",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e2a420",
+"site": "0x2e2a499",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e2a720",
+"site": "0x2e2a738",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e2a720",
+"site": "0x2e2a8b0",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e2abf0",
+"site": "0x2e2ac25",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e2ae60",
+"site": "0x2e2b229",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x2e2dd00",
+"site": "0x2e2ddb9",
+"str": "favorite_reupload_helper.cc"
+},
+{
+"func": "0x3131d90",
+"site": "0x3132009",
+"str": "emoticon_message_handler.cc"
+},
+{
+"func": "0x3136390",
+"site": "0x31367b9",
+"str": "emoticon_message_handler.cc"
+},
+{
+"func": "0x31395a0",
+"site": "0x31397d9",
+"str": "emoticon_message_handler.cc"
+},
+{
+"func": "0x3139a60",
+"site": "0x3139b89",
+"str": "emoticon_message_handler.cc"
+},
+{
+"func": "0x3144600",
+"site": "0x31457c9",
+"str": "emoticon_message_handler.cc"
+},
+{
+"func": "0x318a5b0",
+"site": "0x318bb89",
+"str": "location_message_handler.cc"
+},
+{
+"func": "0x318a5b0",
+"site": "0x318c2f9",
+"str": "location_message_handler.cc"
+},
+{
+"func": "0x318cd30",
+"site": "0x318d589",
+"str": "location_message_handler.cc"
+},
+{
+"func": "0x318e880",
+"site": "0x31903b9",
+"str": "location_message_handler.cc"
+},
+{
+"func": "0x31d5310",
+"site": "0x31d5359",
+"str": "system_message_handler.cc"
+},
+{
+"func": "0x31d5310",
+"site": "0x31d5739",
+"str": "system_message_handler.cc"
+},
+{
+"func": "0x31d6130",
+"site": "0x31d63c9",
+"str": "system_message_handler.cc"
+},
+{
+"func": "0x31d7cb0",
+"site": "0x31d7dd9",
+"str": "system_message_handler.cc"
+},
+{
+"func": "0x31d7cb0",
+"site": "0x31d8679",
+"str": "system_message_handler.cc"
+},
+{
+"func": "0x31d7cb0",
+"site": "0x31d94f9",
+"str": "system_message_handler.cc"
+},
+{
+"func": "0x3663700",
+"site": "0x3665849",
+"str": "app_msg_resource_upload_task.cc"
+},
+{
+"func": "0x36662f0",
+"site": "0x3667059",
+"str": "app_msg_resource_upload_task.cc"
+},
+{
+"func": "0x3667f90",
+"site": "0x3668069",
+"str": "app_msg_resource_upload_task.cc"
+},
+{
+"func": "0x366c5e0",
+"site": "0x366d0b9",
+"str": "img_msg_resource_upload_task.cc"
+},
+{
+"func": "0x366e1c0",
+"site": "0x366e2e9",
+"str": "img_msg_resource_upload_task.cc"
+},
+{
+"func": "0x36729a0",
+"site": "0x3672a69",
+"str": "img_msg_resource_upload_task.cc"
+},
+{
+"func": "0x36764f0",
+"site": "0x3676b29",
+"str": "img_msg_resource_upload_task.cc"
+},
+{
+"func": "0x3677c30",
+"site": "0x36781c9",
+"str": "img_msg_resource_upload_task.cc"
+},
+{
+"func": "0x367c520",
+"site": "0x367c6d9",
+"str": "img_msg_resource_upload_task.cc"
+},
+{
+"func": "0x367c520",
+"site": "0x367cc69",
+"str": "img_msg_resource_upload_task.cc"
+},
+{
+"func": "0x36836f0",
+"site": "0x3685389",
+"str": "msg_compress_video_upload_task.cc"
+},
+{
+"func": "0x3686800",
+"site": "0x3687549",
+"str": "msg_compress_video_upload_task.cc"
+},
+{
+"func": "0x3686800",
+"site": "0x3687e49",
+"str": "msg_compress_video_upload_task.cc"
+},
+{
+"func": "0x3688100",
+"site": "0x3688649",
+"str": "msg_compress_video_upload_task.cc"
+},
+{
+"func": "0x36886f0",
+"site": "0x3689249",
+"str": "msg_compress_video_upload_task.cc"
+},
+{
+"func": "0x3689ef0",
+"site": "0x368a0a9",
+"str": "msg_compress_video_upload_task.cc"
+},
+{
+"func": "0x36a67c0",
+"site": "0x36a76a9",
+"str": "msg_resource_upload_helper_private.cc"
+},
+{
+"func": "0x36ba000",
+"site": "0x36ba189",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36bb210",
+"site": "0x36bb689",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c15c0",
+"site": "0x36c1619",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c2630",
+"site": "0x36c2809",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c2630",
+"site": "0x36c2cc9",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c2630",
+"site": "0x36c3869",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c2630",
+"site": "0x36c3cf9",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c4b40",
+"site": "0x36c4b69",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c5e90",
+"site": "0x36c5eb9",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c7d10",
+"site": "0x36c7da9",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c87e0",
+"site": "0x36c8a89",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c87e0",
+"site": "0x36c8cf9",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c8d50",
+"site": "0x36c8f19",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36c8d50",
+"site": "0x36c9ab9",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36cfa10",
+"site": "0x36cfc79",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36d02b0",
+"site": "0x36d0309",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36d0330",
+"site": "0x36d0d79",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36d3750",
+"site": "0x36d3c89",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36d3750",
+"site": "0x36d4b49",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36d3750",
+"site": "0x36d5429",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36d5a50",
+"site": "0x36d5c09",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36d69e0",
+"site": "0x36d91c9",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36daa70",
+"site": "0x36db219",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36dbcd0",
+"site": "0x36dbf89",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x36ea8d0",
+"site": "0x36edc39",
+"str": "message_revoke_manager.cc"
+},
+{
+"func": "0x3a5cd70",
+"site": "0x3a5d90f",
+"str": "richtext_player_task_handler.cc"
+},
+{
+"func": "0x3a5e950",
+"site": "0x3a5eac9",
+"str": "richtext_player_task_handler.cc"
+},
+{
+"func": "0x3a5e950",
+"site": "0x3a5ee99",
+"str": "richtext_player_task_handler.cc"
+},
+{
+"func": "0x3a5f290",
+"site": "0x3a5f809",
+"str": "richtext_player_task_handler.cc"
+},
+{
+"func": "0x3a5f290",
+"site": "0x3a5fe49",
+"str": "richtext_player_task_handler.cc"
+},
+{
+"func": "0x3a600c0",
+"site": "0x3a60ed9",
+"str": "richtext_player_task_handler.cc"
+},
+{
+"func": "0x4030110",
+"site": "0x40305c9",
+"str": "wxwork_forward_manager.cc"
+},
+{
+"func": "0x4031ba0",
+"site": "0x4031c29",
+"str": "wxwork_forward_manager.cc"
+},
+{
+"func": "0x40344f0",
+"site": "0x4034509",
+"str": "wxwork_forward_manager.cc"
+},
+{
+"func": "0x4038b40",
+"site": "0x4038bb9",
+"str": "wxwork_forward_manager.cc"
+},
+{
+"func": "0x4af1150",
+"site": "0x4af1219",
+"str": "base_msg_data_producer.cc"
+},
+{
+"func": "0x4af2220",
+"site": "0x4af2259",
+"str": "base_msg_data_producer.cc"
+},
+{
+"func": "0x4d64b00",
+"site": "0x4d67ca9",
+"str": "message_helper_private.cc"
+},
+{
+"func": "0x4d64b00",
+"site": "0x4d68069",
+"str": "message_helper_private.cc"
+},
+{
+"func": "0x4d64b00",
+"site": "0x4d69d69",
+"str": "message_helper_private.cc"
+},
+{
+"func": "0x4d6dbe0",
+"site": "0x4d6e4e9",
+"str": "message_helper_private.cc"
+},
+{
+"func": "0x4d70480",
+"site": "0x4d73349",
+"str": "message_helper_private.cc"
+},
+{
+"func": "0x4e60870",
+"site": "0x4e61069",
+"str": "CreateXEditorAppConfigFromFavItem"
+}
+]

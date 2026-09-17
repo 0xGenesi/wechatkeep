@@ -911,6 +911,78 @@
             "source": "wxkeep:UpdateUIService周期检查工人(唯一MacStoreUpdate.xml构建点+定时器重置;返回int句柄,31C0C3安全;调用链0x1C9CF60→0x1C9D460→0x1C9E5E0)"
           }
         ]
+      },
+      {
+        "identifier": "revoke-keeptip2",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "4bc5940",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "wxkeep:v2(恢复isRevokemsg,同keeptip)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "32a0d9d",
+            "expected": [
+              "4889C2",
+              "31D290"
+            ],
+            "asm": "4889C2",
+            "source": "wxkeep:v2(旧点清理,同keeptip)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "50a5bad",
+            "expected": [
+              "4831C06690488983C8010000",
+              "E8BE26E9FF488983C8010000"
+            ],
+            "asm": "E8BE26E9FF488983C8010000",
+            "source": "wxkeep:v2(恢复newmsgid存储——查找需成功,与v1相反)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36cb581",
+            "expected": [
+              "E89A12FFFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#1, in CoRevokeBatchMessages子调用0x36cafc0)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36cd1db",
+            "expected": [
+              "E840F6FEFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#2, in 0x36cba90=CoReplaceOriginMessageByRevoke孪生)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36c36e0",
+            "expected": [
+              "E83B91FFFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#3, in 0x36c19e0)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "36d1b06",
+            "expected": [
+              "E815ADFEFF"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#4, in 0x36d0b20)"
+          }
+        ]
       }
     ]
   },

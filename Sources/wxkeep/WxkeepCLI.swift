@@ -57,7 +57,7 @@ extension Wxkeep {
 
         @OptionGroup var options: Options
 
-        @Option(help: "silent (default): revoked messages stay, no tip. keeptip: keep the recall tip where supported.")
+        @Option(help: "silent (default): revoked messages stay, no tip. keeptip: keep the recall tip where supported. keeptip2: experimental in-place tip (keeps message, deletes nothing).")
         var variant: Variant = .silent
 
         @Flag(help: "Read and verify everything, write nothing.")
@@ -75,7 +75,7 @@ extension Wxkeep {
         @Option(name: .shortAndLong, help: "Path to signatures.json for the auto-locate fallback")
         var signaturesPath: String?
 
-        enum Variant: String, ExpressibleByArgument { case silent, keeptip }
+        enum Variant: String, ExpressibleByArgument { case silent, keeptip, keeptip2 }
 
         mutating func run() throws {
             try WeChatApp.validate(options.app)
