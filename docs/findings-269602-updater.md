@@ -120,3 +120,23 @@ expected `FF0306D1FC6F12A9FA6713A9F85F14A9`（sub sp,sp,#0x180; stp×3 序言）
 已入 config.json（269602 update 目标双架构齐备），真机 arm64 slice 上 expected 门
 经 dry-run 验证通过。方法论沉淀：**arm64 vtable 引用静态定位 = 精确 FUNCTION_STARTS
 入口 + fixup 槽扫描**，入口差一个字节就全链落空。
+
+## v3 破局（2026-09-17 下午，动态编排实证）
+
+v2 真机失败（提示完美但消息仍被删）后，动态三轮定位出真实活路径：
+
+- **wrapper 0x50A5120 只在登录同步重放时走**，活撤回的 vtable 解析到别的实现
+  （drive4 教训：HandleCommand 打bt会打到选中线程；必须遍历命中线程帧——drive5）
+- 活路径：分发器 0x32E5D40 → **0x36D58D0**（A）→ parse(0x36d68ae→0x5039410) →
+  notify(0x32ce790) → msgsvc(0x50380b0×2) → **load+mark(0x32aa7b0)** → disp(0x32e69b0)
+  → enqueue(0x36d5770，仅入队)；B(0x36D9120) 同样只入队
+- **删除的真身**：0x32aa7b0 → 0x32a8370 → 0x32a9060 → **0x32e73a0**
+  对原消息写 `+0x118=9`（撤回状态位）并经存储接口 getter(0x30f8e50，按哈希名
+  `_671c1c9e` 取接口) 调 0x31a2030 落库——**标记即删除**（UI 按状态过滤）
+- 批量路 0x43d7e30 → 0x32a9060 汇入同一标记点——v2 NOP DeleteBatchByUniqueId
+  无效的完整解释
+- 提示 = 那条独立进来的 XML 消息本身（msgsvc 正常保存），不依赖标记步骤
+
+**v3 补丁**：`0x32a959f: E8FCDD0300 → 9090909090`（NOP 0x32a9060 内对 0x32e73a0
+的调用；返回值无消费，已核实）。一次覆盖活路径+批量路；newmsgid 全程不动 →
+提示保持 v2 表现，消息保持可见。四 DeleteBatch NOP 保留（仍挡登录同步批删）。

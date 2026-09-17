@@ -990,6 +990,15 @@
             ],
             "asm": "9090909090",
             "source": "wxkeep:v2(NOP DeleteBatchByUniqueId 调用#4, in 0x36d0b20)"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "32a959f",
+            "expected": [
+              "E8FCDD0300"
+            ],
+            "asm": "9090909090",
+            "source": "wxkeep:v3动态编排实证——活撤回在处理器0x36D58D0内经0x32aa7b0→0x32a8370→0x32a9060调0x32e73a0对原消息写+0x118=9状态并落库(=删除语义);NOP此调用点同时覆盖活路径与0x43d7e30批量路;newmsgid不动故提示全保"
           }
         ]
       }
