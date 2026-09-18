@@ -426,7 +426,7 @@ extension Wxkeep {
         static var _commandName: String { "runtime" }
         static let configuration = CommandConfiguration(
             abstract: "Runtime component (optional): inject a support dylib into WeChat",
-            subcommands: [RuntimeStatus.self, RuntimeInstall.self, RuntimeRemove.self])
+            subcommands: [RuntimeStatus.self, RuntimeHooks.self, RuntimeInstall.self, RuntimeRemove.self])
 
         static func mainExecURL(_ app: URL) -> URL {
             WeChatApp.binaryURL(app: app, relative: "Contents/MacOS/WeChat")
@@ -435,6 +435,26 @@ extension Wxkeep {
             WeChatApp.binaryURL(app: app, relative: "Contents/Frameworks/wxkeep_runtime.dylib")
         }
         static let lcPath = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
+
+        struct RuntimeHooks: ParsableCommand {
+            static var _commandName: String { "hooks" }
+            static let configuration = CommandConfiguration(
+                abstract: "Refresh the hooks address table in runtime.json (effective on next WeChat launch)")
+            @OptionGroup var options: Options
+            mutating func run() throws {
+                do {
+                    let rows = try RuntimeConfig.mergeKnownHooks(into: RuntimeConfig.url())
+                    var builds: [String] = []
+                    for r in rows where !builds.contains(r.build) { builds.append(r.build) }
+                    print("✓ hooks: \(rows.count) 行（构建 \(builds.joined(separator: "/"))）")
+                    print("  \(RuntimeConfig.url().path)")
+                    print("  微信下次启动生效——已装运行时组件时无需重装 dylib")
+                } catch {
+                    print("⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")
+                    throw error
+                }
+            }
+        }
 
         struct RuntimeStatus: ParsableCommand {
             static var _commandName: String { "status" }
@@ -447,7 +467,9 @@ extension Wxkeep {
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 let dylibExists = FileManager.default.fileExists(atPath: dylib.path)
                 let marker = RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker")
-                let markerExists = FileManager.default.fileExists(atPath: marker.path)
+                let markerText = FileManager.default.fileExists(atPath: marker.path)
+                    ? (try? String(contentsOf: marker, encoding: .utf8)) : nil
+                let markerExists = markerText != nil
                 print("LC_LOAD_DYLIB 注入: \(injected ? "是" : "否")")
                 print("runtime dylib:     \(dylibExists ? "存在" : "缺失") (\(dylib.path))")
                 print("加载标记:          \(markerExists ? "已加载（上次启动）" : "无记录")")
@@ -457,7 +479,8 @@ extension Wxkeep {
                     from: Data(contentsOf: RuntimeConfig.url()),
                     options: [], format: nil)) as? [String: Any]
                 if let hooks = cfg?["hooks"] as? [[String: Any]] {
-                    let builds = hooks.compactMap { $0["build"] as? String }.joined(separator: "/")
+                    let builds = Set(hooks.compactMap { $0["build"] as? String })
+                        .sorted().joined(separator: "/")
                     print("hooks 地址表:      \(hooks.count) 行（\(builds)）")
                 } else {
                     print("hooks 地址表:      无（dylib 用内置表，仅 270099 x64）")
@@ -467,6 +490,15 @@ extension Wxkeep {
                 } else {
                     print("自定义文案:        未配置（无 tip_text 则 hook 只武装不改写）")
                 }
+                // hook 实际武装状态来自 marker 的 mr2= 字段（dylib 每次启动
+                // 回写）——「已启用」只代表注入在位；构建无匹配地址行/序言
+                // 不符时 dylib 加载但 hook 不武装，必须显式区分。
+                let armed = markerText?.contains("mr2=hook-armed") ?? false
+                let hookState = !markerExists
+                    ? "未知（无启动记录）"
+                    : (armed ? "已武装（对已匹配构建生效）"
+                             : "未武装（当前构建无匹配地址行或序言不符）")
+                print("hook 武装:         \(hookState)")
                 let state = injected && dylibExists ? (markerExists ? "已启用" : "已注入（启动微信后生效）") : "未启用"
                 print("整体:              \(state)")
             }
@@ -531,7 +563,9 @@ extension Wxkeep {
                 // 用户手写的值原样保留。
                 do {
                     let rows = try RuntimeConfig.mergeKnownHooks(into: RuntimeConfig.url())
-                    print("  hooks: \(rows.count) 行（runtime.json，构建 \(rows.map(\.build).joined(separator: "/"))）")
+                    var builds: [String] = []
+                    for r in rows where !builds.contains(r.build) { builds.append(r.build) }
+                    print("  hooks: \(rows.count) 行（runtime.json，构建 \(builds.joined(separator: "/"))）")
                     print("  文案: 编辑 \(RuntimeConfig.url().path) 的 tip_text（支持 {from} 占位符）")
                 } catch {
                     print("  ⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")

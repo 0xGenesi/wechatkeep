@@ -1,6 +1,5 @@
 #ifndef WXKEEP_RUNTIME_H
 #define WXKEEP_RUNTIME_H
-void wxkeep_runtime_marker(void);
 
 // ---- 测试缝（仅单测使用；运行时走 runtime.json 配置）----
 // 把 data 构造成长串 SSO（内容须为含 <replacemsg>…</replacemsg> 的 XML），

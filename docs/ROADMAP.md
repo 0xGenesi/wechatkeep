@@ -580,3 +580,20 @@ arm64 gen3 0x4BC4FA4）+ 解析守卫 0x537dfb9（漂移链 270099:+0x1F0），�
    3.x–4.1.12 时代构建——**回填队列实质清空**（余量永久缺口）。
    教训：脚本 zsbai 回落对慢网不可控（urllib 900s×多候选）且输出全缓冲，
    本轮以 curl 断点续传 + 手工提取收尾；CDN 源上线后该路径仅剩历史价值。
+
+### ⑮ 第二轮复查（2026-09-19 晨：新堆代码精读，修复三处）
+
+对 ⑬⑭ 新增代码的复查结论与修复：
+1. **RuntimeStatus 补 hook 武装状态行**（设计缺陷）：此前「整体: 已启用」
+   在 dylib 加载但 hook 未武装时（构建无匹配地址行/序言不符）具有误导性
+   ——现解析 marker 的 mr2= 字段显式区分「已武装/未武装/未知」。
+2. **`wxkeep runtime hooks` 子命令**（流程缺口）：runtime.json 刷新原先
+   必须走完整 install（退出微信+重签+换 dylib）；实际只需重写配置文件
+   （dylib 仅启动时读取）——新命令免退出免重签即刷新地址表。
+3. install/status 的构建列表去重显示；header 里 M-R1 时代死声明清理。
+
+复查确认无问题的（有依据）：@autoreleasepool 内返回 NSString（ARC
+autoreleaseReturnValue 安全）；expand_tip 多占位符上界（cap 检查放弃）；
+Backup.prune 前缀匹配无跨二进制误删；restoreAsm 与新 validate 不变量的
+交互（inverted 条目 asm=restoreAsm ≤ 原跨度恒成立）；外部表 14 行 ≤
+kMaxExtHooks 16（越限有测试锁死）。
