@@ -675,3 +675,16 @@ expected 12B 逐字节相同 `E83E4BE9FF488983C8010000`——270099 亦同，此
 keeptip 语义边界不变：v1 行为模型（私聊提示保留 + 消息保留；群聊静默）
 为 269602/270099 实测，家族同构推定同 wrapper 诚实边界。README 限制
 条目已更新。
+
+### ⑳ 补遗（2026-09-19 晨：runtime 分发闭环）
+
+**发现**：runtime 组件从未随 release 分发——`runtime install` 默认找
+`.build/release/`，brew 用户（无源码树）实际无法使用 runtime 功能。
+闭环修复：
+- release.yml 构建 universal libwxkeep_runtime.dylib 并挂 release
+- tap formula 加 `runtime` resource → Cellar lib/
+- RuntimeInstall dylib 搜索序（--dylib > WXKEEP_RUNTIME_DYLIB > brew
+  Cellar lib/（符号链接解析）> exe 同目录 > .build/release）
+端到端验证：重打 v0.2.0 tag → CI 产出双资产 → tap 更新推送 →
+brew reinstall（7 files 含 Cellar lib dylib）→ 免参数
+`wxkeep runtime install` 自动解析 Cellar dylib → 重启微信 armed ✓。
