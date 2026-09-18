@@ -5455,6 +5455,31 @@
           }
         ],
         "identifier": "revoke"
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "5376b7d",
+            "expected": [
+              "E83E4BE9FF488983C8010000"
+            ],
+            "asm": "4831C06690488983C8010000",
+            "source": "wxkeep:x64-keeptip newmsgid 存储点（parse+0x85d 家族位点，字节实证）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4e83150",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "wxkeep:keeptip 恢复型 isRevokemsg 入口（归一化）"
+          }
+        ]
       }
     ],
     "version": "270091"
@@ -5493,6 +5518,31 @@
           }
         ],
         "identifier": "revoke"
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "537926d",
+            "expected": [
+              "E83E4BE9FF488983C8010000"
+            ],
+            "asm": "4831C06690488983C8010000",
+            "source": "wxkeep:x64-keeptip newmsgid 存储点（parse+0x85d 家族位点，字节实证）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4e88310",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "wxkeep:keeptip 恢复型 isRevokemsg 入口（归一化）"
+          }
+        ]
       }
     ],
     "version": "270093"
@@ -5531,6 +5581,31 @@
           }
         ],
         "identifier": "revoke"
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "537db1d",
+            "expected": [
+              "E83E4BE9FF488983C8010000"
+            ],
+            "asm": "4831C06690488983C8010000",
+            "source": "wxkeep:x64-keeptip newmsgid 存储点（parse+0x85d 家族位点，字节实证）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4e8cbc0",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "wxkeep:keeptip 恢复型 isRevokemsg 入口（归一化）"
+          }
+        ]
       }
     ],
     "version": "270095"
@@ -5569,6 +5644,31 @@
           }
         ],
         "identifier": "revoke"
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "537dafd",
+            "expected": [
+              "E83E4BE9FF488983C8010000"
+            ],
+            "asm": "4831C06690488983C8010000",
+            "source": "wxkeep:x64-keeptip newmsgid 存储点（parse+0x85d 家族位点，字节实证）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4e8cba0",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "wxkeep:keeptip 恢复型 isRevokemsg 入口（归一化）"
+          }
+        ]
       }
     ],
     "version": "270096"
@@ -5607,6 +5707,31 @@
           }
         ],
         "identifier": "revoke"
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "537e32d",
+            "expected": [
+              "E83E4BE9FF488983C8010000"
+            ],
+            "asm": "4831C06690488983C8010000",
+            "source": "wxkeep:x64-keeptip newmsgid 存储点（parse+0x85d 家族位点，字节实证）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4e8d3d0",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "wxkeep:keeptip 恢复型 isRevokemsg 入口（归一化）"
+          }
+        ]
       }
     ],
     "version": "270098"
@@ -5645,6 +5770,31 @@
           }
         ],
         "identifier": "revoke"
+      },
+      {
+        "identifier": "revoke-keeptip",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "537e52d",
+            "expected": [
+              "E83E4BE9FF488983C8010000"
+            ],
+            "asm": "4831C06690488983C8010000",
+            "source": "wxkeep:x64-keeptip newmsgid 存储点（parse+0x85d 家族位点，字节实证）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "4e8d5d0",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "asm": "554889E553504889FB",
+            "source": "wxkeep:keeptip 恢复型 isRevokemsg 入口（归一化）"
+          }
+        ]
       },
       {
         "identifier": "update",
