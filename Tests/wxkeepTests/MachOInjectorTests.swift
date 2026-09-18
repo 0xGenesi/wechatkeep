@@ -81,4 +81,41 @@ struct MachOInjectorTests {
             try MachOInjector.insertLoadDylib(data: &d, dylibInstallPath: "@x/y.dylib")
         }
     }
+
+    // MARK: - 2026-09-18 事故回归：小命令必须不阻断遍历
+
+    /// 真实主程序在注入 LC 之前有 LC_SOURCE_VERSION（16B）——旧 remove 的
+    /// `cmdsize >= 24 else break` 让遍历提前中断 → remove 假成功 → 删 dylib
+    /// 文件后启动必崩。本测试用带 SOURCE_VERSION 的夹具锁死该场景。
+    private func makeExecutableWithSourceVersion() -> Data {
+        var d = makeExecutable()
+        func put32(_ o: Int, _ v: UInt32) {
+            d[o] = UInt8(v & 0xFF); d[o+1] = UInt8((v >> 8) & 0xFF)
+            d[o+2] = UInt8((v >> 16) & 0xFF); d[o+3] = UInt8((v >> 24) & 0xFF)
+        }
+        // LC_SOURCE_VERSION @184（cmd=0x32, cmdsize=16），追加在 SEG 之后
+        put32(184, 0x32); put32(188, 16)
+        put32(16, 2)                       // ncmds: 1 → 2
+        put32(20, 152 + 16)                // sizeofcmds: 152 → 168
+        return d
+    }
+
+    @Test func removeWithSourceVersionBeforeInjectRoundTrip() throws {
+        var data = makeExecutableWithSourceVersion()
+        let cmd = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
+        try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: cmd)
+        #expect(MachOInjector.isInjected(data: data, base: 0, path: cmd))
+        try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: cmd)
+        #expect(!MachOInjector.isInjected(data: data, base: 0, path: cmd),
+                "SOURCE_VERSION 不得阻断 remove 遍历（2026-09-18 事故回归）")
+    }
+
+    /// remove 在没有任何匹配 LC 时必须抛错（CLI 依赖此信号中止删 dylib 文件）
+    @Test func removeWithoutInjectThrows() {
+        #expect(throws: MachOInjector.InjectorError.self) {
+            var data = makeExecutableWithSourceVersion()
+            try MachOInjector.removeLoadDylib(data: &data,
+                                              dylibInstallPath: "@x/y.dylib")
+        }
+    }
 }

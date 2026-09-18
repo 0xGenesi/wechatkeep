@@ -18,6 +18,6 @@ let package = Package(
         // 运行时注入组件（可选功能）：dynamic library 产物，
         // `wxkeep runtime install` 拷入微信 bundle 并注入 LC_LOAD_DYLIB。
         .target(name: "WxkeepRuntime"),
-        .testTarget(name: "wxkeepTests", dependencies: ["wxkeep"]),
+        .testTarget(name: "wxkeepTests", dependencies: ["wxkeep", "WxkeepRuntime"]),
     ]
 )

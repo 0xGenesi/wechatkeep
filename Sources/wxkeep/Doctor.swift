@@ -92,6 +92,13 @@ struct Doctor {
     /// 的「必杀 + AMFI boot-arg 处方」把 verifier worker 的 RWX 杀机经验误外推
     /// 到了微信重签场景。现降级为 watch：不再处方关 SIP/boot-arg，改为
     /// 崩溃日志取证指引（Termination Reason, Namespace CODESIGNING）。
+    ///
+    /// 本机先例（2026-09-15 16:28/16:29，repo 诞生前的手工实验期）：
+    /// WeChat-*.ips ×2 记录 `CODESIGNING / Taskgated Invalid Signature` SIGKILL，
+    /// codeSigningFlags=0x1000000（CS_ADHOC）——ad-hoc 态在 AMFI 活跃的引导下
+    /// 确曾被杀。但当时重签配置无记录（早于 Resigner 管线，疑似 entitlements
+    /// 被剥的裸 codesign），**不能**作为当前管线的受控证据。受控实证协议见
+    /// tools/amfi_sip_probe.sh（原生 SIP 下 patch→launch→harvest→restore 一键化）。
     static func assessAmfiRisk(
         adhocSigned: Bool,
         restrictedEntitlements: Bool,

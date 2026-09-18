@@ -239,17 +239,38 @@ enum Engine {
         return try restoreTargets(app: app, targets: versionEntry.targets, dryRun: dryRun)
     }
 
+    /// Bytes `restore` writes back for an entry: `expected[0]` verbatim when
+    /// concrete; when its wildcards start beyond the original asm span, only
+    /// the asm-length prefix is needed — a patch never writes past
+    /// `asm.count`, so the tail on disk already IS the original tail (the
+    /// branch-flip form `expected 84C00F84???????? / asm 30C0` restores by
+    /// writing `84C0` alone). Nil = not restorable from catalog data.
+    static func restoreAsm(for entry: Config.PatchEntry) -> String? {
+        guard let values = entry.expected?.values, let first = values.first else { return nil }
+        if values.contains(entry.asm) { return entry.asm }   // normalized entry (asm ∈ expected)
+        guard let pattern = ExpectedPattern(spec: first) else { return first }   // pre-validation data
+        // 全具体时用物化字节而非原样透传 spec：带冗余 `:maskFFFF` 后缀的
+        // 全具体条目若把后缀一起返回，下游 Data(hex:) 会解析失败。
+        if let full = pattern.concretePrefix(pattern.byteCount) { return full.hexUppercase }
+        guard let asm = Data(hex: entry.asm) else { return nil }
+        return pattern.concretePrefix(asm.count)?.hexUppercase
+    }
+
     /// Restore core for an explicit target list. Preflight: every target must
-    /// be restorable (all entries carry expected bytes) BEFORE any write.
+    /// be restorable (all entries carry materializable original bytes) BEFORE
+    /// any write.
     @discardableResult
     static func restoreTargets(app: URL, targets: [Config.Target], dryRun: Bool) throws -> RunSummary {
         var summary = RunSummary()
         // Preflight: every target must be restorable.
         for target in targets {
-            let unrestorable = target.entries.enumerated().filter { $0.element.expected == nil }
+            let unrestorable = target.entries.enumerated().filter {
+                $0.element.expected == nil || restoreAsm(for: $0.element) == nil
+            }
             if !unrestorable.isEmpty {
                 throw EngineError.restoreUnavailable(
-                    "target \(target.identifier) entries \(unrestorable.map(\.offset)) have no original bytes")
+                    "target \(target.identifier) entries \(unrestorable.map(\.offset)) have no "
+                    + "materializable original bytes (missing expected, or wildcards reach into the written span)")
             }
         }
         let grouped = Dictionary(grouping: targets, by: { $0.binary ?? "Contents/MacOS/WeChat" })
@@ -259,13 +280,13 @@ enum Engine {
             for target in group {
                 let inverted = target.entries.map { entry -> Config.PatchEntry in
                     var copy = entry
-                    let asm = entry.asm
                     // asm ∈ expected 的条目是「归一化条目」（如 keeptip 在 isRevokemsg
                     // 入口写的恢复型条目）：其 expected[0] 是另一变体的补丁字节而非
                     // 原始字节。恢复目标必须是 asm 本身，否则 restore 会把 silent
                     // 补丁写回去（269602 x64 实证：revoke 先还原、keeptip 再覆盖）。
-                    copy.asm = entry.expected!.values.contains(asm) ? asm : entry.expected!.values[0]
-                    copy.expected = Config.ExpectedVariants([asm] + entry.expected!.values)
+                    // 通配条目只物化 asm 长度的前缀（见 restoreAsm 注释）。
+                    copy.asm = restoreAsm(for: entry)!   // preflight 保证非空
+                    copy.expected = Config.ExpectedVariants([entry.asm] + entry.expected!.values)
                     return copy
                 }
                 let outcomes = try Patcher.patch(

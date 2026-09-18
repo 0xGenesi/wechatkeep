@@ -181,7 +181,10 @@ enum MachOInjector {
     }
 
     /// Removes the LC_LOAD_DYLIB carrying `dylibInstallPath` from every slice.
+    /// 任何切片都没有该命令 → 抛 loadCommandNotFound（调用方必须据此中止，
+    /// 绝不能在 LC 未移除时删除 dylib 文件——2026-09-18 事故防线）。
     static func removeLoadDylib(data: inout Data, dylibInstallPath: String) throws {
+        var removedAny = false
         for base in try slices(in: data) {
             var info = try sliceInfo(in: data, base: base)
             var commands = Data(data[info.commandsOff..<(info.commandsOff + Int(info.sizeofcmds))])
@@ -190,8 +193,11 @@ enum MachOInjector {
             while cursor + 8 <= commands.count {
                 let cmd = commands.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor, as: UInt32.self) }
                 let cmdsize = Int(commands.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 4, as: UInt32.self) })
-                guard cmdsize >= 24, cursor + cmdsize <= commands.count else { break }
-                if cmd == loadDylibCmd {
+                // 合法命令最小 8B（LC_SOURCE_VERSION 只有 16B）——与 isInjected 同款遍历。
+                // 2026-09-18 事故根因：此处曾是 cmdsize >= 24 else break，真实主程序的
+                // 16B 小命令让遍历提前中断 → 注入的 LC 永远找不到 → remove 假成功。
+                guard cmdsize >= 8, cursor + cmdsize <= commands.count else { break }
+                if cmd == loadDylibCmd && cmdsize >= 24 {
                     let nameOff = Int(commands.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 8, as: UInt32.self) })
                     let nstart = cursor + nameOff
                     let nend = nstart + dylibInstallPath.utf8.count
@@ -205,6 +211,7 @@ enum MachOInjector {
                 cursor += cmdsize
             }
             guard found else { continue }
+            removedAny = true
             // 写回：命令区总长不变——移除后尾部补零（保持文件长度与内容偏移不变）
             let freed = Int(info.sizeofcmds) - commands.count
             var padded = commands
@@ -214,6 +221,9 @@ enum MachOInjector {
                 raw.storeBytes(of: info.ncmds - 1, toByteOffset: info.ncmdsOff, as: UInt32.self)
                 raw.storeBytes(of: UInt32(commands.count), toByteOffset: info.sizeofcmdsOff, as: UInt32.self)
             }
+        }
+        guard removedAny else {
+            throw InjectorError.loadCommandNotFound(dylibInstallPath)
         }
     }
 }

@@ -17,15 +17,23 @@ import sys
 
 
 def dest_version(body: str):
-    """release body 里的 DestVersion（构建号）——取首个独立数字段。
+    """release body 里的 DestVersion（构建号）——行锚定取「DestVersion:」
+    字段的纯数字值。
 
     body 形如 "…DestVersion: 270099…"（历史格式有过冒号/引号变体，宽松匹配）。
+    注意必须行/字段锚定：现行 body 还带 ContentLength 等大数字字段，
+    按任意 token 抓 5+ 位数字会把 ContentLength 误当构建号（4.x 时代
+    DestVersion 是点分版本号，抓不到构建号时返回 None，交由调用方处理）。
     """
     if not body:
         return None
-    for tok in body.replace(":", " ").replace('"', " ").split():
-        if tok.isdigit() and len(tok) >= 5:   # 构建号至少 5 位（31927 起）
-            return int(tok)
+    for line in body.splitlines():
+        if "DestVersion" not in line:
+            continue
+        value = line.split(":", 1)[1] if ":" in line else ""
+        for tok in value.replace('"', " ").split():
+            if tok.isdigit() and len(tok) >= 5:   # 构建号至少 5 位（31927 起）
+                return int(tok)
     return None
 
 

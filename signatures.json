@@ -11,12 +11,12 @@
       "_comment": "isRevokemsg(std::string*) 比较函数：movabs 立即数锚点 + 函数入口 + 唯一有直接调用者。2026-09 在 269602 验证（0x4BC5940, 9 callers）。",
       "verify": {
         "stubs": {
-          "778B55C": "strlen",
-          "778AFBC": "memcmp"
+          "7A23CE4": "strlen",
+          "7A2373E": "memcmp"
         },
         "zero_regions": [
           [
-            "A988320",
+            "AD2C3F8",
             "16"
           ]
         ],
@@ -38,7 +38,7 @@
             "0"
           ]
         ],
-        "_verify_note": "VA 来自 269602 x64 slice 实测；新构建需重新定位 stub/zero 区"
+        "_verify_note": "VA 为 270099 x64 实测反解（isRevokemsg 0x4E8D440：call strlen 桩 0x7A23CE4@+0x3A、memcmp 桩 0x7A2373E@+0x70；movabs 懒初始化槽 0xAD2C3F8 含 +0xA guard 字节，本构建落 __DATA BSS 尾、zero 为保险）。269602 旧值 stubs 778B55C/778AFBC、zero A988320 对 270099 必崩：桩守卫失配不重定向→GOT 槽保持 chained-fixup 原始值（非规范地址 GPFLT）。pristine 探针 1/0/0/0、patched 全 0 双向实测。新构建需重反解"
       }
     },
     "revoke_arm64_gen1": {

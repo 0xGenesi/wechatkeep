@@ -1,17 +1,71 @@
 # 路线图（待办归档）
 
+## 研究队列处置（2026-09-18 深夜会话，从队尾起做）
+
+1. **DSL expected 通配 ✅（已交付）**：`ExpectedPattern`（`?` 半字节通配 +
+   `:maskHEX` 后缀，与 confirm 的 mask 思想统一；半字节粒度，mask 朝严格侧
+   取整）进 Patcher/Config 校验/Engine restore。关键设计：branch-flip 配方
+   改用 **test al,al(84C0) → xor al,al(30C0)** 编码——al 清零 ⇒ ZF=1 ⇒
+   je 恒跳，与 je→jmp 翻转同语义，但 asm 与构建无关、restore 只写回
+   `84C0` 前缀（通配起点必须在 asm 跨度之外才可物化，渗入则
+   restoreUnavailable，安全不变量维持）。端到端实测：真 270099 dylib
+   副本 patch（`30C0`，disp32 原样）→ restore（前缀物化）完美还原。
+   locate_x64_parse_guard.py 同步改发 xor 形条目（269602:
+   test@0x50a5639 / 270099: test@0x537de29，后者与 d22 实测 parse 内
+   isRevokemsg 调用点吻合）；工具另修两处：--append 的 site_va NameError
+   （研究期只跑过只读模式故未触发）、isRevokemsg 入口边界启发式在
+   270099 失配（懒初始化块 `cmpb [rip+d]; jne` 制造假边界——改多边界
+   +调用者数筛；解析函数甄别改为围绕 je 的固定窗口）。
+2. **M-R4 消息标记 ⛔（跳过，活体数据缺）**：keeptip 态 status-write
+   零命中（newmsgid=0 → 路径不达，d22 实证），rdx 对象布局需
+   silent/无补丁态重跑 drive22 同轮捕获。位点 0x355ab00 静态唯一性
+   已足够支撑 hook 设计，数据到手即可开工。
+3. **M-R2 渲染层 hook ✅（工程落地）**：研究已收口（⑦ 终验），本轮把
+   runtime.m 从排水函数候选切到 **wrapper 0x537d910 终案**：hook 入口
+   改写 rsi+0x130 XML SSO 数据缓冲内的 `<replacemsg>` 内文（等长、
+   needle 门、空格填充、`<>&` 配置期剥除），6 项单测 + 全量 74 测通过。
+   剩余：真机装 dylib 一轮真实撤回肉眼验收。
+4. **③ 270091-270098 回填 🔶（前置检查完成，6/8 永久缺口）**：
+   - 版本映射实证：`WeChatBundleVersion` ↔ CFBundleVersion 线性对应
+     4.1.15.N ↔ 2700(80+N)（.10=270090 fzlzjerry 实证 + .19=270099
+     本机 Info.plist 双点验证）。
+   - **270094（4.1.15.14）/ 270097（4.1.15.17）**：zsbai 归档有 dmg asset，
+     **本轮已本地回填**（GitHub 资产直连超时，走 gh-proxy 镜像取 dmg；
+     WeChatBundleVersion↔CFBundleVersion 映射实测复核 .14=270094、
+     .17=270097）：wxkeep locate 各 2 条（revoke_x64 0x4E884C0 /
+     0x4E8CBB0 + arm64 gen3 0x4BC1C88 / 0x4BC4724）+ 解析守卫 xor 条目
+     （test@0x5378ea9 / 0x537d599，expected `84C00F84????????`）入
+     config.local.json。270094 真 dylib 副本端到端：patch 3 写入（silent
+     函数级 + xor 守卫，disp32 原样）→ restore 3 还原（前缀物化）字节级
+     往返 ✓。守卫位点随解析簇规律漂移（269602 0x50a5639 → 270094
+     0x5378ea9 → 270097 0x537d599 → 270099 0x537de29）。
+   - **270091/92/93/95/96/98**：归档无 release、官方 CDN 从不暴露
+     构建号直链（`WeChatMac_<营销版本>.dmg` 覆盖式）——从未公开发布，
+     目录永久缺口（除非未来出现第三方存档）。
+   - **watch 收集器 bug 已修**：现行 body 的任意-token 数字提取抓的是
+     ContentLength（DestVersion 已改点分格式）→ dest_version 改行锚定，
+     数字命中/点分返回 None/ContentLength 不误抓（回归过）。CI 实跑
+     回填若要覆盖 4.x 时代，workflow 需改为挂载后读 Info.plist 的
+     WeChatBundleVersion/CFBundleVersion 判新（设计已记录，未实施）。
+5. **② 270099 stubs ✅（前会话完成，本轮复核确认）**：signatures.json
+   revoke_x64.verify 带 270099 反解（stubs 7A23CE4/7A2373E、zero
+   AD2C3F8），pristine 1/0/0/0 + patched 全 0 双向实测通过（见复核会
+   话第 2 条）。
+6. **① AMFI 判定实证 ⛔（跳过，硬件动作）**：需原生 SIP 引导执行
+   tools/amfi_sip_probe.sh（nvram -d boot-args → Recovery csrutil
+   enable → 一键 patch→launch→harvest→恢复），本轮无法代做。
+
 ## 已归档待办
 
-### ① 解析守卫 branch-flip（冗余 silent）——工具已交付，配方化待 DSL 扩展
+### ① 解析守卫 branch-flip（冗余 silent）——✅ 已交付（2026-09-18，见顶部处置记录 1）
 已交付：`tools/locate_x64_parse_guard.py`（269602 实测：isRevokemsg 9 调用者 →
 8 处 `test al,al; je` 守卫 → 按"函数体含 newmsgid 存储"甄别出解析守卫
 **je@0x50a563b，expected 0F84A6000000，asm E9A700000090**，支持 --append）。
-剩余：RecipeEngine 的 expected 门是静态字节，call/jump 的 rel32 逐构建不同，
-自动配方化需 DSL expected 通配/掩码扩展（confirm 的 `bytes@+off:mask` 思想）。
-方案：expected 支持 `XX??????XX:mask...` 通配语法（掩码思想已在 confirm 的
-`bytes@+off:mask` 存在，扩展到 expected 即可）。
-位点族已存档（269602 x64：isRevokemsg 9 调用者中 8 处 `test al,al; je +disp32`，
-解析函数内 = 0x50a5634）。完成后：未来 x64 新构建获得第二条独立 silent 路径
+~~剩余：RecipeEngine 的 expected 门是静态字节~~ → **已解决**：expected 通配
+DSL（`?` 半字节 + `:maskHEX`）落地，配方改 test→xor 编码（asm 静态、restore
+可逆）。269602 条目形态：addr=50a5639（test 位点）、expected
+`84C00F84????????`、asm `30C0`；270099 同构（test@537de29）。
+完成后效果：未来 x64 新构建获得第二条独立 silent 路径
 （不依赖 isRevokemsg 函数存活）。
 
 ### ② 入口指纹纳入 archive 工具链
@@ -275,3 +329,79 @@ ad-hoc 态在 AMFI 活跃引导下确曾被杀（当时重签配置无记录，�
 **M-R2 研究收口**：hook 点位、改写策略、安装时机（add_image 同步回调）、
 跨路径一致性全部落定。剩余为工程实现（runtime dylib 的 wrapper trampoline +
 XML 内文替换 + runtime.json 读取），无未知研究项。
+
+### ⑧ M-R2 实弹定案 + M-R4 侦察（2026-09-18 晨，drive24-26 三轮实弹）
+
+**drive24（判别实验）**：普通消息+真实撤回对照——pred10000 命中 93 次、
+parse(0x537db40) 3 次、async-body(0x3951040) 4 次、**drain(0x538d700) 0 次**。
+⑦ 的 drain hook 假设被推翻（call 边在条件分支，keeptip 置零 newmsgid 后未走）；
+parse/async-body 实时撤回路径实证。断点四项全部 resolved=1（排除断点失效）。
+
+**drive25（M-R2 终验，端到端通过 ✅）**：parse 入口 rsi = **sysmsg XML 裸 SSO**
+（154B 全文实拍：`<?xml version="1.0"?><sysmsg type="revokemsg"><revokemsg>
+<content>"joy👀" 撤回了一条消息…`）——**提示文本承载元素是 <content>**，
+非 <replacemsg>（后者是 parse 内另一分支的静态形态）。等长改写 <content>
+内文（尾部空格填充）后微信界面灰字变为 `🔒wxkeep M-R2 hook OK`——
+**且旧撤回提示在 sysmsg 重解析时被追溯改写**（parse 对同一 XML 多轮重派，
+已入库提示亦可换文案）。M-R2 hook 语义闭环。
+
+**runtime.m 集成**：并行会话 wrapper 方案（0x537d910 入口，XML SSO@rsi+0x130）
++ 本轮补 `<content>`/`<replacemsg>` 双标签 + CDATA `]]>` 闭合保护；
+tip_text 剥 `<>&` 防破 XML；8 项单测含线上形态，全仓 76 测试通过。
+⚠️ wrapper 的 +0x130 偏移未经独立动态验证（parse 直挂 rsi 已验证）——
+首次 `runtime install` 实机若 hook 未生效，地址表切 parse 入口方案即回退。
+
+**drive26（M-R4 侦察）**：真实撤回下 **status-write(0x355aa90) 零命中**——
+keeptip 置零 newmsgid 使查找失败，状态写（+0x118=9）与删除**同源阻断**，
+「写状态不删除」的天然分离点不存在于当前补丁态。Message 向量布局实证
+（async-body rsi，步长 0x278）：+0xC=type(1文本/3图片/49表情)、+0x18=talker、
++0x30=self、+0x48=sender、+0x118=状态(常态 0x3)、async-body 为通用消息
+处理器（撤回与普通批流共用，非撤回专属）。
+
+**M-R4 标记方案判定**（待做，需新研究轮）：
+- A 状态位注入（+0x118=9）：语义未观察过（keeptip 下从未执行），可能触发
+  UI 隐藏（自毁）——风险高；
+- B 内容前缀打标（存储层改 content 加「[已撤回]」前缀）：需挂 async-body
+  向量处理段 + 按 XML 的 session/msgid 定位目标消息——XML 已含
+  `<session>/<msgid>`（drive25 #5 实拍），可行性中；
+- C UI 气泡层遮罩（X1a0He 式）：drive20 曾扫到气泡模型，工程量最大。
+近期最实用替代：M-R2 文案即标记（tip_text 写「⚠️已拦截撤回并保留」语义，
+一行配置零新代码）。
+
+### ⑨ 全仓复审（2026-09-18 午，独立会话：⑧ 集成代码审查，八处修复）
+
+对 ⑧ 落地的 M-R2 工程（runtime.m hook 引擎 / expected 通配 / CLI 防线）
+做独立代码审查，确认并修复（79 测全过，release 构建通过）：
+
+1. **uuid_matches 恒假（致命，hook 永不安装）**：`buf+'----'` 填充实现在
+   want 耗尽后 a 停在填充字符上，收尾 `*a==0 && *b==0` 永假——任何镜像
+   （含目标本尊）都判不匹配，构造器扫描/add_image 回调/区域扫描**全链
+   失效**。独立 C 程序实证后修复：与 header_uuid_is（逐半字节正确实现）
+   合并为单一 uuid_matches。新增测试缝 `wxkeep_runtime_test_uuid_match`
+   + 回归测试锁死该失效类。
+2. **测试进程确定性 SIGSEGV**：区域扫描只查 max_protection（PROT_NONE 的
+   保留区 max_protection 可含 X，实测 0x7ff800000000）即解引用 header。
+   `swift test` 三次复现，crash 栈指 find_wechat_base_by_region_scan。
+   修复=加当前 protection 可读门。
+3. **宿主门缺失**：dylib 被 test target 链接后构造器在任意宿主进程跑
+   扫描/定时器/写 marker——既崩宿主又污染 `runtime status` 的「已加载」
+   判定。修复=host_is_wechat()（主程序 basename == "WeChat"）门控，
+   非微信宿主零副作用；测试缝为直接函数调用不受影响。
+4. **install_hook mprotect 缺大括号**：`return -1` 无条件执行——hook 已
+   武装但 g_hook_installed/marker 永报失败（真机验收会被误导成未生效）。
+5. **write_marker 移出 try_hook_image**：add_image 回调持 dyld 锁，不在
+   其中做 Foundation 磁盘 I/O；armed 态 marker 改由构造器尾部 /
+   arm_late / 定时器在安全上下文回写（覆盖等价）。
+6. **CDATA 未闭合拒绝改写**：`]]>` 不在闭合标签前时旧逻辑会把 CDATA 段
+   改破（永不闭合）——现放弃改写保原文。
+7. **Engine.restoreAsm mask 后缀崩溃**：全具体带 `:maskFFFF` 后缀的条目
+   原样透传 spec → 下游 `Data(hex:)` 强解包崩。修复=物化字节（concretePrefix
+   全长），补测试。
+8. **CLI 原子性**：install 的 LC 注入后 dylib 拷贝/重签失败原先留「LC 在场
+   但库缺失」半装态（启动必崩）——现回滚主程序+清理 dylib；remove 对
+   「LC 缺失+孤儿 dylib」从报错改为安全清理（与 2026-09-18 事故防线互补：
+   危险的是 LC 仍在时删 dylib，LC 已实证缺失时清理无风险）。
+
+未动项（有意）：真机装 dylib 肉眼验收 / AMFI probe（均需硬件动作）；
+watch CI 的 4.x Info.plist 判新——其服务的 270094/270097 缺口已本地回填
+闭环，改造现役流水线无本地验证手段，风险大于收益，维持「设计已记录」。

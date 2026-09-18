@@ -86,7 +86,7 @@ struct Patcher {
         var outcomes = [EntryOutcome]()
         var writes = [(offset: UInt64, data: Data)]()
         for (index, plan) in plans.enumerated() {
-            let siteLen = max(plan.asm.count, plan.expected?.map(\.count).max() ?? 0)
+            let siteLen = max(plan.asm.count, plan.expected?.map(\.byteCount).max() ?? 0)
             let current = try readBytes(handle: handle, offset: plan.fileOffset, count: siteLen)
             if current.prefix(plan.asm.count) == plan.asm {
                 outcomes.append(.alreadyPatched)
@@ -100,10 +100,10 @@ struct Patcher {
                 }
                 throw PatchError.missingExpected(index: index, identifier: identifier)
             }
-            guard variants.contains(where: { current.prefix($0.count) == $0 }) else {
+            guard variants.contains(where: { $0.matches(current) }) else {
                 throw PatchError.expectedMismatch(
                     index: index, identifier: identifier, va: plan.va,
-                    expected: variants.map(\.hexUppercase), current: current.hexUppercase)
+                    expected: variants.map(\.spec), current: current.hexUppercase)
             }
             outcomes.append(.written)
             writes.append((plan.fileOffset, plan.asm))
@@ -127,11 +127,11 @@ struct Patcher {
         let plans = try buildPlans(handle: handle, entries: try resolveRecipes(entries, binary: binary),
                                    identifier: identifier)
         return try plans.map { plan in
-            let siteLen = max(plan.asm.count, plan.expected?.map(\.count).max() ?? 0)
+            let siteLen = max(plan.asm.count, plan.expected?.map(\.byteCount).max() ?? 0)
             let current = try readBytes(handle: handle, offset: plan.fileOffset, count: siteLen)
             let state: Inspection.State
             if current.prefix(plan.asm.count) == plan.asm { state = .patched }
-            else if plan.expected?.contains(where: { current.prefix($0.count) == $0 }) == true { state = .pristine }
+            else if plan.expected?.contains(where: { $0.matches(current) }) == true { state = .pristine }
             else { state = .unknown }
             return Inspection(arch: plan.entry.arch, va: plan.va, state: state, current: current.hexUppercase)
         }
@@ -167,7 +167,7 @@ struct Patcher {
         let entry: Config.PatchEntry
         let va: UInt64
         let asm: Data
-        let expected: [Data]?
+        let expected: [ExpectedPattern]?
         let fileOffset: UInt64
     }
 
@@ -181,7 +181,7 @@ struct Patcher {
             guard let addrHex = entry.addr, let va = UInt64(addrHex, radix: 16) else { continue } // recipe entries: M2
             let fileOffset = try resolveVA(va: va, handle: handle, sliceOffset: slice.offset, arch: entry.arch)
             let asm = Data(hex: entry.asm)!
-            let expected = entry.expected?.values.compactMap { Data(hex: $0) }
+            let expected = entry.expected?.values.compactMap { ExpectedPattern(spec: $0) }
             plans.append(Plan(entry: entry, va: va, asm: asm, expected: expected, fileOffset: fileOffset))
         }
         guard !plans.isEmpty else { throw PatchError.noArchMatched }

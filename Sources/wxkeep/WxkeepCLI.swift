@@ -482,17 +482,32 @@ extension Wxkeep {
                     Wxkeep.printPermissionHintIfTCC(error)
                     throw error
                 }
+                // 写盘后重读验证（2026-09-18 事故防线：LC 必须真的在场，
+                // 否则 dylib 装了也永远不加载——静默失效比失败更危险）
+                let verifyData = try Data(contentsOf: main)
+                guard MachOInjector.isInjectedAnySlice(data: verifyData, path: lcPath) else {
+                    try? Data(contentsOf: backup).write(to: main)
+                    throw ValidationError("LC_LOAD_DYLIB 写入未生效（已回滚备份）——请汇报此问题")
+                }
 
                 let dest = RuntimeCommand.frameworkDylibURL(options.app)
-                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
-                try fm.copyItem(at: URL(fileURLWithPath: dylib), to: dest)
-
-                // 子组件先签：主程序 codesign 的验证会检查 bundle 内 dylib 的签名状态
-                let rel = "Contents/Frameworks/wxkeep_runtime.dylib"
-                let dylibAbs = RuntimeCommand.frameworkDylibURL(options.app).path
-                _ = Shell.run("/usr/bin/codesign", ["--force", "--sign", "-", dylibAbs])
-                try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat", rel])
+                do {
+                    try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                    try fm.copyItem(at: URL(fileURLWithPath: dylib), to: dest)
+                    // 子组件先签：主程序 codesign 的验证会检查 bundle 内 dylib 的签名状态
+                    _ = Shell.run("/usr/bin/codesign", ["--force", "--sign", "-", dest.path])
+                    try Resigner.resign(app: options.app,
+                                        patchedBinaries: ["Contents/MacOS/WeChat",
+                                                          "Contents/Frameworks/wxkeep_runtime.dylib"])
+                } catch {
+                    // LC 已注入但 dylib 拷贝/重签失败 = 下次启动 dyld 找不到库必崩的
+                    // 混合态——回滚主程序并尽力清掉已拷入的 dylib，保持原子性。
+                    Wxkeep.printPermissionHintIfTCC(error)
+                    try? Data(contentsOf: backup).write(to: main)
+                    try? fm.removeItem(at: dest)
+                    throw error
+                }
                 print("✓ runtime 已注入（微信下次启动时加载）")
                 print("  验证: 启动微信后运行 wxkeep runtime status")
                 print("  移除: wxkeep runtime remove")
@@ -511,17 +526,43 @@ extension Wxkeep {
                 let main = RuntimeCommand.mainExecURL(options.app)
                 let backup = try Backup.make(binary: main)
                 var data = try Data(contentsOf: main)
+                var lcWasPresent = true
                 do {
-                    try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: lcPath)
-                    try data.write(to: main)
+                    do {
+                        try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: lcPath)
+                    } catch MachOInjector.InjectorError.loadCommandNotFound {
+                        // LC 本就不在场（历史半装态的孤儿 dylib）：删除 dylib 无
+                        // 启动风险（无引用者），主程序一字节不动，仍走清理路径。
+                        lcWasPresent = false
+                    }
+                    if lcWasPresent {
+                        // 内存态先验证：LC 真的没了才落盘
+                        guard !MachOInjector.isInjectedAnySlice(data: data, path: lcPath) else {
+                            throw ValidationError("LC_LOAD_DYLIB 移除未生效（遍历校验失败）——已中止，dylib 保留")
+                        }
+                        try data.write(to: main)
+                    }
                 } catch {
                     Wxkeep.printPermissionHintIfTCC(error)
                     throw error
                 }
+                if lcWasPresent {
+                    // 落盘后重读验证（2026-09-18 事故防线：LC 未清零时删除 dylib
+                    // 文件 = 下次启动必崩。失败即回滚备份，dylib 文件原样保留）
+                    let verifyData = try Data(contentsOf: main)
+                    guard !MachOInjector.isInjectedAnySlice(data: verifyData, path: lcPath) else {
+                        try? Data(contentsOf: backup).write(to: main)
+                        throw ValidationError("LC_LOAD_DYLIB 移除写盘未生效（已回滚备份）——请汇报此问题")
+                    }
+                }
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 try? FileManager.default.removeItem(at: dylib)
-                try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat"])
-                print("✓ runtime 已移除（备份: \(backup.lastPathComponent)）")
+                if lcWasPresent {
+                    try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat"])
+                }
+                print(lcWasPresent
+                      ? "✓ runtime 已移除（备份: \(backup.lastPathComponent)）"
+                      : "✓ LC 未注入，孤儿 dylib 已清理（主程序未改动）")
             }
         }
     }

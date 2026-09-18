@@ -239,9 +239,10 @@ struct Config {
                             "build \(v.version) target \(t.identifier): bad hex asm \"\(e.asm)\"")
                     }
                     for variant in e.expected?.values ?? [] {
-                        if Data(hex: variant) == nil {
+                        if ExpectedPattern(spec: variant) == nil {
                             throw LoadError.malformed(
-                                "build \(v.version) target \(t.identifier): bad hex expected \"\(variant)\"")
+                                "build \(v.version) target \(t.identifier): bad expected \"\(variant)\" "
+                                + "(hex, `?` wildcard nibbles, optional :maskHEX suffix)")
                         }
                     }
                 }
