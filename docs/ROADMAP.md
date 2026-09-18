@@ -637,3 +637,22 @@ doctor 不再重复（单一 verdict 原则）；测试缝符号未做 hidden（
 发布链其余（release.yml 单文件产物流程、ci.yml 双 runner 矩阵 + 私钥
 守卫 + manifest-sign secret 流程、GUI 子包未入库、contribute_expected
 machutil 化）核对无缺陷。
+
+### ⑱ 第五轮复查（2026-09-19：工具链尾部 + 发布流水线空转修复）
+
+1. **sign_manifest.py 幂等化（消 bot 空转提交）**：manifest 带 generated_at
+   → 每次签名必然产生新字节 → manifest-sign job 每次 master 推送都生成
+   bot 提交，迫使协作者反复 rebase（⑬⑭ 两轮连实历三次）。修复：现有清单
+   的受保护文件哈希与当前数据一致时保留原清单不重写（时间戳仅在真实数据
+   变化时刷新）。连续两次签名实测第二次跳过、git 干净。
+2. **gen_matrix 补 4.1.15 家族展示版本**：270091-270100 十个构建在兼容
+   矩阵里显示为「?」——按 4.1.15.N ↔ 2700(80+N)（270100 观测为 4.1.15）
+   补全 KNOWN_DISPLAY，矩阵重生成。
+3. 工具链尾部核对无缺陷：count_quarantined（root 相对解析 ✓）、
+   merge_catalogs（SOURCES_PRI 模块级定义已由并行审计修正 ✓）、GUI 子包
+   （只读状态面板，职责收窄诚实）、contribute_expected（machutil 化）。
+
+至此五轮复查累计：3 个真缺陷（validate 跨度不变量/沙盒路径/区域扫描崩
+溃）+ 半套态重签防线 + 流水线空转与故障隔离 + 若干可用性收尾，全部带
+回归或实测。主源码与工具链进入低熵稳态，下一轮复查的边际收益主要来自
+新功能面（M-R3 {content}、arm64 实机数据）而非存量代码。

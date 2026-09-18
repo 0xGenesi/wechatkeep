@@ -84,7 +84,22 @@ def main():
         print('sig:', sig_b64)
         return
 
-    open(os.path.join(root, 'manifest.json'), 'w').write(json.dumps(manifest, indent=2) + '\n')
+    # 幂等门：受保护文件哈希与现有清单一致 = 数据未变，保留现有清单
+    # （generated_at 每次重写都会让 CI 产生空转 bot 提交，迫使下次推送
+    # rebase——2026-09-19 连续三轮实历）。仅 schema/files 变化才重写。
+    mpath = os.path.join(root, 'manifest.json')
+    try:
+        cur = json.load(open(mpath))
+        if isinstance(cur, dict) and cur.get('schema') == manifest['schema'] \
+                and cur.get('files') == files:
+            print('清单无变化（受保护文件哈希一致，保留现有 manifest）')
+            for k, v in files.items():
+                print(f'  {k}: {v[:16]}…')
+            return
+    except (OSError, ValueError):
+        pass
+
+    open(mpath, 'w').write(json.dumps(manifest, indent=2) + '\n')
     open(os.path.join(root, 'manifest.sig'), 'w').write(sig_b64 + '\n')
     print('已写 manifest.json + manifest.sig')
     print('受保护文件:')
