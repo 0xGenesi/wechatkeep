@@ -5,6 +5,21 @@
 
 | 构建号 | 微信版本 | 防撤回(silent) | keeptip | keeptip2 | 屏蔽更新 | 多开 | 备注 |
 |---|---|---|---|---|---|---|---|
+| 530725055 | ? | x86_64/arm64 | — | — | — | — |  |
+| 530711963 | ? | x86_64/arm64 | — | — | — | — |  |
+| 530700743 | ? | x86_64/arm64 | — | — | — | — |  |
+| 521477708 | ? | x86_64/arm64 | — | — | — | — |  |
+| 521406036 | ? | x86_64/arm64 | — | — | — | — |  |
+| 520910395 | ? | x86_64/arm64 | — | — | — | — |  |
+| 520850131 | ? | x86_64/arm64 | — | — | — | — |  |
+| 520532091 | ? | x86_64/arm64 | — | — | — | — |  |
+| 520388487 | ? | x86_64/arm64 | — | — | — | — |  |
+| 520386867 | ? | x86_64/arm64 | — | — | — | — |  |
+| 520386747 | ? | x86_64/arm64 | — | — | — | — |  |
+| 513267408 | ? | x86_64/arm64 | — | — | — | — |  |
+| 509679172 | ? | x86_64/arm64 | — | — | — | — |  |
+| 509675192 | ? | x86_64/arm64 | — | — | — | — |  |
+| 509508392 | ? | x86_64/arm64 | — | — | — | — |  |
 | 270090 | 4.1.15.10 | arm64 | arm64 | — | arm64 | — | merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded) |
 | 269631 | 4.1.13.63 | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269629 | 4.1.13 | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
@@ -61,4 +76,4 @@
 | 31960 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 31927 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 
-共 55 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
+共 70 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
