@@ -482,6 +482,12 @@ extension Wxkeep {
                     let builds = Set(hooks.compactMap { $0["build"] as? String })
                         .sorted().joined(separator: "/")
                     print("hooks 地址表:      \(hooks.count) 行（\(builds)）")
+                    let currentBuild = (try? WeChatApp.buildNumber(app: options.app)) ?? "?"
+                    let rowsForBuild = hooks.filter { ($0["build"] as? String) == currentBuild }
+                    let matchNote = rowsForBuild.isEmpty
+                        ? "无地址行——hook 不会武装（新构建需 derive_runtime_hooks 产出数据）"
+                        : "\(rowsForBuild.count) 行匹配（\(rowsForBuild.compactMap { $0["arch"] as? String }.joined(separator: "+"))）"
+                    print("当前构建 \(currentBuild):    \(matchNote)")
                 } else {
                     print("hooks 地址表:      无（dylib 用内置表，仅 270099 x64）")
                 }

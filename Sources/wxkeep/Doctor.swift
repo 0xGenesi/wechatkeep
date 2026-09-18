@@ -28,6 +28,10 @@ struct Doctor {
         let manifest: String?              // verified/legacy/invalid:<reason>（数据供应链）
         let verdicts: [String]
         let nextCommand: String?
+        // runtime 组件（可选功能）。nil = 无启动记录（marker 缺失）——
+        // 注入在位但微信尚未启动过时无法判定武装与否。
+        var runtimeInjected: Bool? = nil
+        var runtimeHookArmed: Bool? = nil
 
         enum CodingKeys: String, CodingKey {
             case overall, build
@@ -46,6 +50,8 @@ struct Doctor {
             case manifest
             case verdicts
             case nextCommand = "next_command"
+            case runtimeInjected = "runtime_injected"
+            case runtimeHookArmed = "runtime_hook_armed"
         }
     }
 
@@ -184,6 +190,21 @@ struct Doctor {
         let running = WeChatApp.isRunning(app: app)
         let writable = fm.isWritableFile(atPath: main.path)
 
+        // ---- runtime 组件状态（可选功能，只读探测） ----
+        let runtimeDylibURL = WeChatApp.binaryURL(app: app, relative: "Contents/Frameworks/wxkeep_runtime.dylib")
+        let runtimeDylibExists = fm.fileExists(atPath: runtimeDylibURL.path)
+        var runtimeInjected = false
+        if runtimeDylibExists, let mainData = try? Data(contentsOf: main) {
+            runtimeInjected = MachOInjector.isInjectedAnySlice(
+                data: mainData, path: Wxkeep.RuntimeCommand.lcPath)
+        }
+        let runtimeMarkerURL = RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker")
+        let runtimeMarkerText = fm.fileExists(atPath: runtimeMarkerURL.path)
+            ? (try? String(contentsOf: runtimeMarkerURL, encoding: .utf8)) : nil
+        let runtimeHookArmed: Bool? = runtimeMarkerText == nil
+            ? nil
+            : (runtimeMarkerText?.contains("mr2=hook-armed") == true)
+
         // ---- single verdict point ----
 
         var verdicts: [String] = []
@@ -246,6 +267,9 @@ struct Doctor {
         if let ms = manifestStatus, ms.hasPrefix("invalid:") {
             verdicts.append("⚠️ catalog manifest INVALID — \(String(ms.dropFirst(8))). Refusing to trust bundled data; fetch a fresh copy.")
         }
+        if runtimeInjected && runtimeHookArmed == false {
+            verdicts.append("runtime hook 未武装——当前构建无匹配地址行或序言不符：`wxkeep runtime hooks` 刷新后重启微信，`wxkeep runtime status` 看详情")
+        }
 
         // next command
         var nextCommand: String? = nil
@@ -278,7 +302,9 @@ struct Doctor {
             patchStates: patchStates,
             manifest: manifestStatus,
             verdicts: verdicts,
-            nextCommand: nextCommand)
+            nextCommand: nextCommand,
+            runtimeInjected: runtimeDylibExists ? runtimeInjected : nil,
+            runtimeHookArmed: runtimeDylibExists ? runtimeHookArmed : nil)
     }
 
     private static func aggregate(_ states: [Patcher.Inspection.State]) -> String {
@@ -320,6 +346,10 @@ struct Doctor {
         lines.append("update-guard: \(guardTag)")
         let privacy = PrivacyGuard.read()
         lines.append("privacy-guard: \(privacy.allSatisfy(\.guarded) ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）")")
+        if let injected = report.runtimeInjected, let armed = report.runtimeHookArmed {
+            let hook = armed ? "已武装" : "未武装（wxkeep runtime hooks 刷新后重启微信）"
+            lines.append("runtime:      注入=\(injected ? "是" : "否") hook=\(hook)")
+        }
         lines.append("entitlements: \(report.entitlementKeyCount) keys, restricted=\(report.restrictedEntitlements ? "yes" : "no")")
         for (identifier, state) in report.patchStates.sorted(by: { $0.key < $1.key }) {
             lines.append("patch[\(identifier)]: \(state)")
