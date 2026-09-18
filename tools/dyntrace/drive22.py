@@ -1,5 +1,11 @@
 import lldb
 import time
+import os
+
+# 工件一律写仓库 var/wxarm/（持久；/tmp 会被清——d22_run2_full.log 已因此丢失）。
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), 'var', 'wxarm')
+os.makedirs(OUT, exist_ok=True)
 
 # drive22：M-R2 hook 点终验 + M-R4 状态写捕获（270099 x64，附加模式）。
 #
@@ -188,8 +194,8 @@ def drive22(debugger, command, result, internal_dict):
                 print('   regs: ' + ' '.join(f'{k}={v:#x}' for k, v in regs.items()), flush=True)
                 blob = proc.ReadMemory(regs['rdi'], 0x120, err) if err.Success() else b''
                 if err.Success():
-                    open('/tmp/wxarm/d22_asyncobj.bin', 'wb').write(blob)
-                    print('   → /tmp/wxarm/d22_asyncobj.bin', flush=True)
+                    open(os.path.join(OUT, 'd22_asyncobj.bin'), 'wb').write(blob)
+                    print('   → var/wxarm/d22_asyncobj.bin', flush=True)
             elif nm == 'status-write':
                 other['status-write'] = other.get('status-write', 0) + 1
                 rdx = f0.FindRegister('rdx').GetValueAsUnsigned()
@@ -197,8 +203,8 @@ def drive22(debugger, command, result, internal_dict):
                 print('   bt: ' + bt(t, base), flush=True)
                 blob = proc.ReadMemory(rdx, 0x300, err)
                 if err.Success():
-                    open('/tmp/wxarm/d22_statusobj.bin', 'wb').write(blob)
-                    print('   → /tmp/wxarm/d22_statusobj.bin（+0x118 将被写 9）', flush=True)
+                    open(os.path.join(OUT, 'd22_statusobj.bin'), 'wb').write(blob)
+                    print('   → var/wxarm/d22_statusobj.bin（+0x118 将被写 9）', flush=True)
             elif nm == 'parse':
                 other['parse'] = other.get('parse', 0) + 1
                 print(f'\n>> [parse] #{other["parse"]} tid={t.id}', flush=True)

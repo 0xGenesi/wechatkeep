@@ -17,7 +17,8 @@
 # 用法（必须在原生 SIP 已启用的系统上、以 sudo 运行）：
 #   sudo tools/amfi_sip_probe.sh [--wxkeep /path/to/wxkeep] [--variant keeptip]
 #                                [--allow-sip-off]   # 仅排练脚本机制，结论无效
-#   结果写入 /tmp/wxkeep_amfi_probe/（verdict.json + 前后 doctor 快照 + .ips）
+#   结果写入仓库 var/amfi_probe/（verdict.json + 前后 doctor 快照 + .ips；
+#   /tmp 会被清——重要工件一律落项目目录）
 #
 # 原生 SIP 引导 runbook（本机当前 SIP off + amfi_get_out_of_my_way=0x1）：
 #   1. sudo nvram -d boot-args          # 先删 AMFI bypass（否则 SIP on 下仍无效）
@@ -31,7 +32,7 @@ set -uo pipefail
 WXKEEP="${WXKEEP:-}"
 VARIANT="keeptip"
 ALLOW_SIP_OFF=0
-OUT=/tmp/wxkeep_amfi_probe
+OUT="$(cd "$(dirname "$0")/.." && pwd)/var/amfi_probe"
 APP=/Applications/WeChat.app
 WATCH_S=25
 

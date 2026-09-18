@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""270099 x64 静态交叉引用工具（LC_FUNCTION_STARTS 边界 + E8 对齐验证）"""
+"""270099 x64 静态交叉引用工具（LC_FUNCTION_STARTS 边界 + E8 对齐验证）
+输入 dylib 放仓库 var/wxarm/（持久；/tmp 会被清）：
+  lipo -thin x86_64 /Applications/WeChat.app/Contents/Resources/wechat.dylib \
+    -output var/wxarm/new270099_x64.dylib
+"""
 import struct, sys, bisect
 import capstone
+import os
 
-PATH = '/tmp/wxarm/new270099_x64.dylib'
+PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    'var', 'wxarm', 'new270099_x64.dylib')
 d = open(PATH, 'rb').read()
 
 sections = {}

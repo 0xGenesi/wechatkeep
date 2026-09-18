@@ -7,9 +7,15 @@ import time
 # 本轮只观察不改：
 #  1) async-body 入口：rsi=[start,end) 消息向量（步长 0x278）→
 #     逐条转储（type@+0xC / content SSO / 状态位扫描）
-#  2) 状态写入口：rdx 对象全量 hex → /tmp/wxarm/d26_status_obj_N.bin，
+#  2) 状态写入口：rdx 对象全量 hex → var/wxarm/d26_status_obj_N.bin，
 #     记录 +0x118 入口前值；返回后再读一次（写到文件，靠 offline 对比）
 # 目标：回答「+0x118=9 是撤回标记？标记与删除是否可分离」→ M-R4 hook 设计。
+# 工件一律写仓库 var/wxarm/（持久；/tmp 会被清——d22 日志丢失的教训）。
+
+import os
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), 'var', 'wxarm')
+os.makedirs(OUT, exist_ok=True)
 
 ISREVOKEMSG = 0x4e8d440
 ASYNC_BODY = 0x3951040
@@ -17,7 +23,7 @@ STATUS_WRITE = 0x355aa90
 NEEDLE = "撤回".encode("utf-8")
 TIME_CAP_S = 900
 DUMP_BUDGET = 8
-LOG = open('/tmp/wxarm/d26.log', 'a', buffering=1)
+LOG = open(os.path.join(OUT, 'd26.log'), 'a', buffering=1)
 
 
 def log(m):
@@ -136,7 +142,7 @@ def drive26(debugger, command, result, internal_dict):
                 log('   bt: ' + bt(t, base))
                 blob = proc.ReadMemory(rdx, 0x200, err)
                 if err.Success():
-                    open(f'/tmp/wxarm/d26_status_obj_{status_dumps}.bin', 'wb').write(blob)
+                    open(os.path.join(OUT, f'd26_status_obj_{status_dumps}.bin'), 'wb').write(blob)
                     s118 = int.from_bytes(blob[0x118:0x120], 'little')
                     log(f'   +0x118(入口前)={s118:#x}  dump→d26_status_obj_{status_dumps}.bin')
         proc.Continue()

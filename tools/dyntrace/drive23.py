@@ -17,7 +17,13 @@ import time
 #   lldb -b -p $(pgrep -x WeChat) \
 #        -o 'command script import tools/dyntrace/drive23.py' -o drive23
 #   然后用另一账号撤回一条消息（私聊优先）。
-#   文案可改：/tmp/wxarm/drive23.txt（UTF-8，≤原文长度；缺省用内置短语）
+#   文案可改：var/wxarm/drive23.txt（UTF-8，≤原文长度；缺省用内置短语）
+# 工件一律写仓库 var/wxarm/（持久；/tmp 会被清——d22 日志丢失的教训）。
+
+import os
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), 'var', 'wxarm')
+os.makedirs(OUT, exist_ok=True)
 
 ISREVOKEMSG = 0x4e8d440       # 地面真值：原始序言 554889e553504889fb
 DRAIN = 0x538d700              # M-R2 hook 目标
@@ -27,7 +33,7 @@ TIME_CAP_S = 900
 REWRITE_CAP = 3                # 最多改写次数（验证即可，别刷屏）
 DEFAULT_TIP = "🔒wxkeep M-R2 hook OK"
 
-LOG = open('/tmp/wxarm/d23.log', 'a', buffering=1)
+LOG = open(os.path.join(OUT, 'd23.log'), 'a', buffering=1)
 
 
 def log(msg):
@@ -37,7 +43,7 @@ def log(msg):
 
 def phrase():
     try:
-        return open('/tmp/wxarm/drive23.txt', 'rb').read().strip()
+        return open(os.path.join(OUT, 'drive23.txt'), 'rb').read().strip()
     except Exception:
         return DEFAULT_TIP.encode('utf-8')
 

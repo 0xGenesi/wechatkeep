@@ -1,9 +1,14 @@
 import lldb
+import os
 
 # drive16：M-R2 研究——定位提示文本（replacemsg）消费点。
 # 1) 断在 newmsgid 存储之后（0x537e3a9）
 # 2) 转储撤回信息对象的 SSO 字符串字段（找含"撤回"的 replacemsg）
 # 3) 对该字段下读取监视点 → 捕获消费链回溯（= runtime hook 落点）
+# 工件一律写仓库 var/wxarm/（持久；/tmp 会被清——d22 日志丢失的教训）。
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), 'var', 'wxarm')
+os.makedirs(OUT, exist_ok=True)
 BASE = None
 POST_STORE = 0x537e3a9
 NEEDLE = "撤回".encode("utf-8")
@@ -75,8 +80,8 @@ def drive16(debugger, command, result, internal_dict):
                 # 完整 hex 转储（离线分析用）
                 blob = proc.ReadMemory(obj, 0x1000, err)
                 if err.Success():
-                    open(f'/tmp/wxarm/obj_{dumps}.bin', 'wb').write(blob)
-                    print(f'  hex dump → /tmp/wxarm/obj_{dumps}.bin (0x1000B)', flush=True)
+                    open(os.path.join(OUT, f'obj_{dumps}.bin'), 'wb').write(blob)
+                    print(f'  hex dump → var/wxarm/obj_{dumps}.bin (0x1000B)', flush=True)
                 # 指针解引用扫描：找含"撤回"的堆文本字段
                 found = []
                 for off in range(0, 0x1000, 8):

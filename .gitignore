@@ -7,3 +7,8 @@ Package.resolved
 
 # 发布签名私钥——绝不入库（CI 有泄漏门禁兜底）
 keys/release.key
+
+# 本地研究工件（dyntrace 实弹日志/对象转储/amfi 取证）——含真实昵称、
+# wxid、消息内容等隐私，绝不入库；但要留在项目目录内防丢（/tmp 会被清，
+# d22_run2_full.log 已因此丢失）。工具脚本默认输出已指向 var/。
+var/

@@ -322,3 +322,19 @@ protobuf 同步批缓冲 / 会话预览记录（wxid+文本连写）/ DB 页缓�
 - 教训补充：带时限的驱动循环里 Continue() 在安静期永久阻塞——时限判断必须
   在 Continue 之前或用事件超时驱动（drive22 第二次踩坑，d22_run2_full.log
   会话即如此结束）
+
+## 工件目录惯例（2026-09-18 定）
+
+**重要文件一律放仓库 `var/`，不写 `/tmp`。** 动因：`/tmp/wxarm/d22_run2_full.log`
+（drive22 五断点全链捕获，ROADMAP ⑦ 的原始证据）已被系统清掉、无法找回——
+研究工件随会话蒸发。
+
+- `var/wxarm/`：dyntrace 实弹日志（d23–d26 已迁入）、对象转储 .bin、
+  lipo 抽取的架构 slice（`xref_x64.py` 的输入）
+- `var/amfi_probe/`：AMFI 实证取证（verdict.json / doctor 快照 / .ips）
+- `var/` 已进 .gitignore：日志含真实昵称、wxid、消息内容等隐私，**绝不入库**；
+  工具脚本（drive*.py / xref_x64.py / amfi_sip_probe.sh）默认输出已改为
+  按 `__file__` 相对仓库根解析，无需手动建目录
+- `/tmp` 只放即弃垃圾（一次性验证程序等）；`var/uuid_matches_bug_proof.c`
+  是 uuid 恒假 bug 的独立复现证明（结论已入 ROADMAP ⑨ + 回归测试，仅存档）
+- CI runner 上的 `/tmp` 不受此限（runner 本身即一次性）

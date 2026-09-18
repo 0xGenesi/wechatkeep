@@ -21,7 +21,12 @@ TIME_CAP_S = 900
 DUMP_CAP = 6          # 最多转储几轮参数
 REWRITE_CAP = 3
 DEFAULT_TIP = "🔒wxkeep M-R2 hook OK"
-LOG = open('/tmp/wxarm/d25.log', 'a', buffering=1)
+
+import os
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), 'var', 'wxarm')   # 仓库 var/，/tmp 会被清
+os.makedirs(OUT, exist_ok=True)
+LOG = open(os.path.join(OUT, 'd25.log'), 'a', buffering=1)
 
 
 def log(m):
@@ -31,7 +36,7 @@ def log(m):
 
 def phrase():
     try:
-        return open('/tmp/wxarm/drive25.txt', 'rb').read().strip()
+        return open(os.path.join(OUT, 'drive25.txt'), 'rb').read().strip()
     except Exception:
         return DEFAULT_TIP.encode('utf-8')
 

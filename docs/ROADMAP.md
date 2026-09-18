@@ -405,3 +405,11 @@ keeptip 置零 newmsgid 使查找失败，状态写（+0x118=9）与删除**同�
 未动项（有意）：真机装 dylib 肉眼验收 / AMFI probe（均需硬件动作）；
 watch CI 的 4.x Info.plist 判新——其服务的 270094/270097 缺口已本地回填
 闭环，改造现役流水线无本地验证手段，风险大于收益，维持「设计已记录」。
+
+**工件目录整改（同日追加）**：研究工件不再写 `/tmp`（⑦ 引用的
+`/tmp/wxarm/d22_run2_full.log` 已被系统清掉、无法找回）。d23–d26 实弹
+日志已迁入仓库 `var/wxarm/`（gitignore——含真实昵称/wxid 隐私，不入库），
+lldb 诊断脚本 `check_hook.py`/`uuid_check.py` 入 `tools/dyntrace/`
+（check_hook 直接服务真机验收：读 wrapper 入口 12B 判 ARMED），
+drive16/22–26、xref_x64、amfi_probe 的输出路径全部改为按 `__file__`
+相对仓库根解析。惯例见 MAINTAINING「工件目录惯例」。

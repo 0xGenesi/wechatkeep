@@ -7,6 +7,12 @@ import time
 # (b) 函数确实不在实时撤回路径上。
 # 本脚本：打印每个断点的 locations/resolved/enabled + 原样打印此后
 # 【任何】停止的线程级 stop reason / pc / 一段回溯，不做任何改写。
+# 工件一律写仓库 var/wxarm/（持久；/tmp 会被清——d22 日志丢失的教训）。
+
+import os
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), 'var', 'wxarm')
+os.makedirs(OUT, exist_ok=True)
 
 ISREVOKEMSG = 0x4e8d440
 SITES = [
@@ -16,7 +22,7 @@ SITES = [
     (0x50342e0, 'pred10000'),   # 对照组：普通消息流应命中（drive22 实证）
 ]
 TIME_CAP_S = 600
-LOG = open('/tmp/wxarm/d24.log', 'a', buffering=1)
+LOG = open(os.path.join(OUT, 'd24.log'), 'a', buffering=1)
 
 
 def log(m):
