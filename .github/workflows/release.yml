@@ -14,23 +14,29 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Build universal single-file binary
+      - name: Build universal binaries (CLI + runtime dylib)
         run: |
           swift build -c release --arch arm64 --arch x86_64
           # 交叉构建产物在 .build/apple/Products/Release/，非 .build/release/
           BIN=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/wxkeep
+          DYLIB=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/libwxkeep_runtime.dylib
           echo "binary: $BIN"
+          echo "dylib:  $DYLIB"
           strip -x "$BIN"
           codesign -f -s - "$BIN"
+          codesign -f -s - "$DYLIB"
           "$BIN" --version
-          ls -lh "$BIN"
+          lipo -info "$BIN" "$DYLIB"
+          test -f "$DYLIB"
+          ls -lh "$BIN" "$DYLIB"
       - name: Attach to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
+          DIR=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)
           gh release create "$tag" --generate-notes --verify-tag || true
-          BIN=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/wxkeep
-          gh release upload "$tag" "$BIN#wxkeep" --clobber
-          echo "单文件产物已挂到 https://github.com/${GITHUB_REPOSITORY}/releases/tag/$tag"
+          gh release upload "$tag" "$DIR/wxkeep#wxkeep" --clobber
+          gh release upload "$tag" "$DIR/libwxkeep_runtime.dylib#libwxkeep_runtime.dylib" --clobber
+          echo "产物已挂到 https://github.com/${GITHUB_REPOSITORY}/releases/tag/$tag"
 

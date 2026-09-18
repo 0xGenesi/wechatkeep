@@ -510,20 +510,55 @@ extension Wxkeep {
             }
         }
 
+        /// runtime dylib 搜索序（返回候选列表，第一个存在者胜出）：
+        /// 1. 显式 --dylib（绝对或相对 cwd）
+        /// 2. 环境变量 WXKEEP_RUNTIME_DYLIB
+        /// 3. brew 布局：<Cellar>/wxkeep/<v>/lib/libwxkeep_runtime.dylib
+        ///    （/usr/local/bin/wxkeep 是符号链接，resolve 后 ../lib 命中）
+        /// 4. 可执行文件同目录（随手放置）
+        /// 5. 开发构建：cwd/.build/release/
+        static func dylibSearchOrder(
+            explicit: String?, env: String?, exePath: String, cwd: String
+        ) -> [String] {
+            var c: [String] = []
+            if let explicit, !explicit.isEmpty { c.append(explicit) }
+            if let env, !env.isEmpty { c.append(env) }
+            let bin = URL(fileURLWithPath: exePath).resolvingSymlinksInPath()
+                .deletingLastPathComponent()
+            c.append(bin.deletingLastPathComponent()
+                .appendingPathComponent("lib/libwxkeep_runtime.dylib").path)
+            c.append(bin.appendingPathComponent("libwxkeep_runtime.dylib").path)
+            c.append(URL(fileURLWithPath: ".build/release/libwxkeep_runtime.dylib",
+                         relativeTo: URL(fileURLWithPath: cwd)).path)
+            return c
+        }
+
+        static func resolveDylibPath(explicit: String?) -> String? {
+            dylibSearchOrder(
+                explicit: explicit,
+                env: ProcessInfo.processInfo.environment["WXKEEP_RUNTIME_DYLIB"],
+                exePath: CommandLine.arguments[0],
+                cwd: FileManager.default.currentDirectoryPath
+            ).first { FileManager.default.fileExists(atPath: $0) }
+        }
+
         struct RuntimeInstall: ParsableCommand {
             static var _commandName: String { "install" }
             static let configuration = CommandConfiguration(abstract: "Install the runtime dylib into WeChat (requires WeChat quit)")
             @OptionGroup var options: Options
-            @Option(help: "Path of the built libwxkeep_runtime.dylib")
-            var dylib: String = ".build/release/libwxkeep_runtime.dylib"
+            @Option(help: "Path of the built libwxkeep_runtime.dylib (default: search brew lib/ → exe dir → .build/release)")
+            var dylib: String?
             mutating func run() throws {
                 try WeChatApp.validate(options.app)
                 if WeChatApp.isRunning(app: options.app) {
                     throw ValidationError("WeChat 正在运行。退出后重试。")
                 }
                 let fm = FileManager.default
-                guard fm.fileExists(atPath: dylib) else {
-                    throw ValidationError("runtime dylib 不存在: \(dylib)（先 swift build -c release）")
+                guard let dylib = resolveDylibPath(explicit: dylib) else {
+                    throw ValidationError(
+                        "runtime dylib 未找到。搜索序：--dylib 显式路径 → $WXKEEP_RUNTIME_DYLIB → "
+                        + "brew lib/ → 可执行文件同目录 → .build/release/。"
+                        + "brew 用户升级到 ≥0.2.0 后自带；源码用户先 swift build -c release")
                 }
                 let main = RuntimeCommand.mainExecURL(options.app)
                 let backup = try Backup.make(binary: main)
