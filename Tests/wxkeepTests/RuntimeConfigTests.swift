@@ -100,3 +100,28 @@ extension RuntimeConfigTests {
         #expect(tipLen == "⚠️ 已拦截撤回 · 原文已保留".utf8.count)
     }
 }
+
+/// dylibSearchOrder：runtime dylib 解析序（显式 > env > brew lib > exe 同目录 > .build）。
+/// brew 用户流程（Cellar lib 命中）是 0.2.0 分发的关键路径，锁死顺序防回归。
+extension RuntimeConfigTests {
+    @Test func dylibSearchOrderPrefersExplicitThenBrewLib() {
+        let order = Wxkeep.RuntimeCommand.dylibSearchOrder(
+            explicit: "/explicit/lib.dylib", env: "/env/lib.dylib",
+            exePath: "/usr/local/Cellar/wxkeep/0.2.0/bin/wxkeep", cwd: "/tmp")
+        #expect(order.count == 5)
+        #expect(order[0] == "/explicit/lib.dylib")
+        #expect(order[1] == "/env/lib.dylib")
+        #expect(order[2] == "/usr/local/Cellar/wxkeep/0.2.0/lib/libwxkeep_runtime.dylib",
+                "brew 布局：符号链接解析到 Cellar 后取 ../lib")
+        #expect(order[3] == "/usr/local/Cellar/wxkeep/0.2.0/bin/libwxkeep_runtime.dylib")
+        #expect(order[4] == "/tmp/.build/release/libwxkeep_runtime.dylib")
+    }
+
+    @Test func dylibSearchOrderSkipsEmptyExplicitAndEnv() {
+        let order = Wxkeep.RuntimeCommand.dylibSearchOrder(
+            explicit: nil, env: "",
+            exePath: "/opt/cli/wxkeep", cwd: "/work")
+        #expect(order.count == 3)
+        #expect(order[0] == "/opt/lib/libwxkeep_runtime.dylib")
+    }
+}
