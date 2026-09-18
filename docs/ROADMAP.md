@@ -597,3 +597,22 @@ autoreleaseReturnValue 安全）；expand_tip 多占位符上界（cap 检查放
 Backup.prune 前缀匹配无跨二进制误删；restoreAsm 与新 validate 不变量的
 交互（inverted 条目 asm=restoreAsm ≤ 原跨度恒成立）；外部表 14 行 ≤
 kMaxExtHooks 16（越限有测试锁死）。
+
+### ⑯ 第三轮复查（2026-09-19 晨：watch 流水线病根 + 防御性收紧）
+
+1. **watch-wechat 失败根因判定与修复**：旧失败（51ad552，日志需 admin
+   权限读不到）由代码侧定位——「Download & locate」步骤在 set -e 下，
+   任一构建的 zsbai asset 403/404/XZ 损坏即杀死整轮；且 PR/issue 步骤
+   从未执行过（仓库 PR/issues 全空实证）。修复：单构建故障隔离（下载
+   失败/空 dmg/挂载失败均只记录转人工，不再中止整轮）+ 官方 CDN 构建
+   归档直链作为 zsbai asset 失败时的自动回落（collector 输出补 tag 字段
+   供构造 URL，bash -n + collector 对真实 API 实测通过）。
+2. **runtime.m 防御性收紧**：uuid_matches 与 on_image_add 诊断走查的
+   循环条件 `p < end` → `p + 8 <= end`——病态尾部数据时防 4B 越读
+   （缓冲式调用路径；合法镜像行为不变）。
+3. 实机 dylib 同步重装，armed 复验 ✅。
+
+复查过不改：locate_update_x64 的 NOP 前缀长度启发式对 SIB 边角可能
+短算（失败方向=拒绝条目，保守安全）；RuntimeStatus 已含全部诊断面，
+doctor 不再重复（单一 verdict 原则）；测试缝符号未做 hidden（能调用
+它们的威胁模型下本已可写内存，符号可见性不改变信任边界）。

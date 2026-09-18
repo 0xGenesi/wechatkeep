@@ -583,7 +583,9 @@ static int uuid_matches(const struct mach_header_64 *hdr, const char *want) {
     int found = 0;
     const uint8_t *p = (const uint8_t *)hdr + sizeof(struct mach_header_64);
     const uint8_t *end = p + hdr->sizeofcmds;
-    while (p < end) {
+    // p+8<=end：cmd/size 字段本身 8B——缓冲式调用（probe_match_target 的
+    // malloc 缓冲）下防病态尾部 4B 越读；合法镜像每条 cmd ≥8B 不受影响
+    while (p + 8 <= end) {
         uint32_t cmd, size;
         memcpy(&cmd, p, 4); memcpy(&size, p + 4, 4);
         if (cmd == LC_UUID && size >= 24) {
@@ -637,7 +639,7 @@ static void on_image_add(const struct mach_header *mh, intptr_t slide) {
         // 记录最后一个到达镜像的 UUID（诊断：wechat.dylib 是否经过回调）
         const uint8_t *p = (const uint8_t *)mh + sizeof(struct mach_header_64);
         const uint8_t *end = p + mh->sizeofcmds;
-        while (p < end) {
+        while (p + 8 <= end) {
             uint32_t cmd, size;
             memcpy(&cmd, p, 4); memcpy(&size, p + 4, 4);
             if (cmd == LC_UUID && size >= 24) {

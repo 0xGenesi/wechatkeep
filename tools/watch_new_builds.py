@@ -4,7 +4,7 @@
 输入：zsbai/wechat-versions 最近若干个 release 的 JSON（已由调用方下载到
 /tmp/zsbai_releases.json）+ 本仓 config.json 的最大已知构建号。
 
-输出（stdout）：每行 `<build> <dmg_asset_url>`（无 asset 则 URL 为空），
+输出（stdout）：每行 `<build> <dmg_asset_url> <tag>`（无 asset 则 URL 为空），
 按 release 时间倒序去重，只保留高于 known 的构建。归档源不可达时输出为空
 （干净跳过，不算失败）——构建号↔dmg 用 release asset 精确对应，修复旧流水线
 「只看 latest release 漏掉同日多发子构建」与「官网首页直链只对应当前版」两处。
@@ -58,7 +58,9 @@ def main() -> int:
             "",
         )
         seen.add(build)
-        out.append(f"{build} {dmg}")
+        # 第三字段 = release tag（营销版本号）——供流水线在 asset 失败时
+        # 构造官方 CDN 构建归档直链（xWeChatMac_universal_<tag>_<build>.dmg）
+        out.append(f"{build} {dmg} {rel.get('tag_name', '')}")
     if out:
         print("\n".join(out))
     return 0

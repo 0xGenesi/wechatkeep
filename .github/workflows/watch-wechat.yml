@@ -45,17 +45,23 @@ jobs:
           set -euo pipefail
           swift build -c release
           : > /tmp/report.md
-          while read -r BUILD DMG_URL; do
+          # 单构建故障隔离：任何一个 asset 403/404/XZ 损坏只跳过该构建，
+          # 不再让 set -e 杀死整轮（历史失败根因）。下载优先 zsbai asset，
+          # 失败回落官方 CDN 构建归档直链（tag=营销版本）。
+          while read -r BUILD DMG_URL TAG; do
             [ -n "$BUILD" ] || continue
             echo "## 新微信构建 $BUILD — 自动定位结果" >> /tmp/report.md
             if [ -z "$DMG_URL" ]; then
-              echo "- 归档 release 无 dmg asset——无法自动定位，转人工（官网/CDN 直链下载后跑 wxkeep locate）" >> /tmp/report.md
-              echo "  （版本化直链规律：https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_<版本>_<构建>.dmg）" >> /tmp/report.md
-              continue
+              DMG_URL="https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${TAG}_${BUILD}.dmg"
+              echo "- zsbai 归档无 dmg asset，改用官方 CDN 构建归档直链" >> /tmp/report.md
             fi
             echo "构建 $BUILD — 下载归档 dmg 并提取 dylib"
-            curl -sfL -o /tmp/wx.dmg "$DMG_URL"
-            hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmount /tmp/wx.dmg
+            rm -f /tmp/wx.dmg
+            curl -sfL --retry 2 -o /tmp/wx.dmg "$DMG_URL" || \
+              curl -sfL --retry 2 -o /tmp/wx.dmg "https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${TAG}_${BUILD}.dmg" || \
+              { echo "- ❌ 两个下载源均失败（asset 与 CDN 直链）——转人工" >> /tmp/report.md; continue; }
+            [ -s /tmp/wx.dmg ] || { echo "- ❌ dmg 下载为空——转人工" >> /tmp/report.md; continue; }
+            hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmount /tmp/wx.dmg || { echo "- ❌ 挂载失败" >> /tmp/report.md; rm -f /tmp/wx.dmg; continue; }
             cp /tmp/wxmount/WeChat.app/Contents/Resources/wechat.dylib /tmp/wechat.dylib
             hdiutil detach /tmp/wxmount >/dev/null
             echo "slice sha256: $(shasum -a 256 /tmp/wechat.dylib | cut -d' ' -f1)" >> /tmp/report.md
