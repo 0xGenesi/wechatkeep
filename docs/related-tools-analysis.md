@@ -174,3 +174,44 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 3. 可组合 expected（接受多历史状态）：本项目已实现（跨变体登记）✓。
 4. 入口指纹存档：小改进，纳入 archive 工具链待办。
 5. Intel x64 真机验证数据：全生态独有，可（经批准）反哺社区。
+
+## 2026-09-18 全网生态调研（双代理调研 + 本机验证）
+
+### 版本事实（本机 CDN 直连验证）
+- **4.1.15.19（270099）仍是最新**：官网/mac.weixin.qq.com 均 4.1.15（09-15 发），
+  `WeChatMac_4.1.16.dmg` 404，GitHub 全站与各工具 issue 区无 270100+ 痕迹
+- **官方 CDN 存在按构建号归档的直链**（生态此前不知）：
+  `https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_<ver>_<build>.dmg`
+  ——本机实测 270091/93/95/96/97/98/99 全部 200（仅 4.1.15.12_270092 404）。
+  这推翻了 MAINTAINING「历史构建 expected 回填暂无可靠免费源」与 ROADMAP
+  「270091-98 永久缺口」的结论，本轮已借此回填 5 个缺口构建
+- WeChatTweak 上游停更（最后 config 34371，2026-02），社区 PR 无人合并；
+  X1a0He v2.9.0（09-12）支持到 270090 后**闭源化**（仓库只剩 README+dylib+pkg）
+
+### 竞品动态
+| 项目 | 状态 | 要点 |
+|---|---|---|
+| X1a0He/X1a0HeWeChatPlugin | v2.9.0 → 270090，arm64 only，**已闭源二进制分发** | 撤回遮罩/媒体自动下载转发/防自己撤回/退群监控仍在迭代；Intel 依旧 ❌ |
+| fzlzjerry/wechat-antirecall | 2026-09-13 活跃，arm64 only | **新增自动抢红包**（269624/628/270090，0-5000ms 延迟可配）；{from}/{time}/{content} 占位符（{content} 靠 serverId 缓存预览原文） |
+| WeChatTool/WeChatTool | **2026-09-18 当天出现**，1★ | 对位 wxkeep：270099 双架构验证，拷贝式多开；独有「辅助功能接口保留」实验功能 |
+| a244573118/WeChatIntercept | 952★，2026-06 停更 | **内置特征码搜索**（新版本免硬编码偏移表自动定位）；双架构；撤回系统通知带原文（群聊降级） |
+| zengtianli 三件套 | 2026-09-17 推送，arm64 → 269631 | **群聊提示根因文档化**：newmsgid 同时锚定删除与群提示插入，清零保消息必连群提示一起消失（与我们 v1 模型一致，互相印证） |
+| MustangYM/SovietExtension | 484★，9 月极活跃，锁 269079 | 撤回媒体「同步到手机」=转发到自聊天/文件传输助手（含媒体自动下载） |
+
+### 技术情报（对 wxkeep 有用的）
+1. **WeChat 4.x 撤回管线 Windows 侧完整逆向**（看雪 thread-286611，4.0.3）：
+   `CoReplaceOriginMessageByRevoke → GetMessageBySvrId → DeleteMessage（物理删行）→
+   AddMessageToDBbyWxID（插提示）`——**撤回处理后原文不保留在库里**（Mac/Win 共用
+   C++ 核心）。X1a0He 的「从库里捞原文」实为消息流缓存（hook 消息处理入口先存）
+2. **4.1.11+ SQLCipher 密钥内存扫描已死**（堆里无 PRAGMA ASCII 串、mach_vm_read
+   全区扫不到）：现行方案=进程内观测 CommonCrypto（Frida hook
+   CCCryptorCreateWithMode/CCKeyDerivationPBKDF，或 lldb 断点）——对无注入
+   路线不适用，记录为开放课题
+3. **arm64 hook 工程事实**：wechat.dylib arm64 切片**无 PAC/BTI**（bti c/paciasp/
+   autibsp 全零计数）——inline 蹦床无需签名/对齐处理；改 __TEXT 标准路径
+   vm_protect(RW+COPY)→memcpy→`sys_icache_invalidate`（Dobby darwin 后端实证）。
+   本仓 runtime.m 的 arm64 机器已按此落地
+4. WeChatTweak 上游 issue #1036：Intel 上 patch 报成功但只处理 arm64 slice
+   （静默无效）——上游 4.x 补丁仅 arm64 的又一实证；双架构仍是本仓独有优势
+5. fzlzjerry {content} 占位符靠「按 serverId 的消息缓存」——M-R3 完整版的
+   同款思路已在 ROADMAP（终结器缓存）

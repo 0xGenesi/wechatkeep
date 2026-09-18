@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import WxkeepRuntime
+@testable import wxkeep   // RuntimeConfig.knownHooks（跨边界回归用）
 
 // M-R2 runtime hook 核心纯逻辑：<replacemsg> 内文等长改写。
 // hook 点 = 撤回解析汇点 wrapper（0x537d910@270099，drive22 终验定案），
@@ -177,5 +178,191 @@ import Foundation
         #expect(miss.withUnsafeBufferPointer {
             wxkeep_runtime_test_uuid_match(UnsafeRawPointer($0.baseAddress!))
         } == 0)
+    }
+
+    // ---- {from} 占位符（M-R3-lite：昵称取自原内文首对引号） ----
+
+    /// tip 写 {from} → 以原内文 `"张三" 撤回了一条消息` 的昵称展开
+    @Test func fromPlaceholderSubstituted() {
+        let inner = "\"张三\" 撤回了一条消息"
+        var xml = Array(("<revokemsg><replacemsg>" + inner + "</replacemsg></revokemsg>").utf8)
+        let tip = Array("{from} 想撤回已拦截".utf8)
+        let r: Int = xml.withUnsafeMutableBufferPointer { d -> Int in
+            tip.withUnsafeBufferPointer { t -> Int in
+                wxkeep_runtime_test_rewrite(
+                    d.baseAddress, CUnsignedLong(d.count),
+                    UnsafeRawPointer(t.baseAddress!).assumingMemoryBound(to: CChar.self),
+                    CUnsignedLong(t.count))
+            }
+        }
+        #expect(r == Array(inner.utf8).count)
+        let got = Array(xml)
+        let openIdx = got.firstRange(of: Array("<replacemsg>".utf8))!.upperBound
+        let expect = Array("张三 想撤回已拦截".utf8)
+        #expect(Array(got[openIdx..<openIdx + expect.count]) == expect)
+        #expect(Array(got[(openIdx + expect.count)..<got.firstRange(of: Array("</replacemsg>".utf8))!.lowerBound]
+                .filter { $0 != UInt8(ascii: " ") }) == [])
+    }
+
+    /// 内文无引号形态（昵称不可解析）→ 占位符展开为空，不放弃改写
+    @Test func fromPlaceholderWithoutQuotesExpandsEmpty() {
+        var xml = Array("<revokemsg><replacemsg>张三撤回了一条消息</replacemsg></revokemsg>".utf8)
+        let tip = Array("已拦截{from}".utf8)
+        let r: Int = xml.withUnsafeMutableBufferPointer { d -> Int in
+            tip.withUnsafeBufferPointer { t -> Int in
+                wxkeep_runtime_test_rewrite(
+                    d.baseAddress, CUnsignedLong(d.count),
+                    UnsafeRawPointer(t.baseAddress!).assumingMemoryBound(to: CChar.self),
+                    CUnsignedLong(t.count))
+            }
+        }
+        #expect(r == Array("张三撤回了一条消息".utf8).count)
+        let got = Array(xml)
+        let openIdx = got.firstRange(of: Array("<replacemsg>".utf8))!.upperBound
+        let expect = Array("已拦截".utf8)
+        #expect(Array(got[openIdx..<openIdx + expect.count]) == expect)
+        #expect(got[openIdx + expect.count] == UInt8(ascii: " "))   // {from} → 空，紧跟填充空格
+    }
+
+    /// 展开后超内文长 → 放弃保原文（截断昵称会切碎 UTF-8，宁可不写）
+    @Test func fromExpansionTooLongDeclined() {
+        let xml = Array("<revokemsg><replacemsg>\"李\" 撤回</replacemsg></revokemsg>".utf8)
+        let snapshot = xml
+        #expect(run(xml, tip: Array("{from}的这条消息被拦截保留展示".utf8)) == -1)
+        #expect(xml == snapshot)
+    }
+
+    // ---- 自发撤回门（默认不改写「你撤回了一条消息」） ----
+
+    @Test func selfRevokeTipSkippedByDefault() {
+        let xml = Array("<revokemsg><replacemsg>你撤回了一条消息</replacemsg></revokemsg>".utf8)
+        let snapshot = xml
+        #expect(run(xml, tip: Array("已拦截".utf8)) == -1)
+        #expect(xml == snapshot)   // 自发撤回保持诚实反馈
+    }
+
+    @Test func selfRevokeRewrittenWhenPolicyEnabled() {
+        defer { wxkeep_runtime_test_set_policy(0) }
+        wxkeep_runtime_test_set_policy(1)
+        var xml = Array("<revokemsg><replacemsg>你撤回了一条消息</replacemsg></revokemsg>".utf8)
+        let tip = Array("已拦截".utf8)
+        let r: Int = xml.withUnsafeMutableBufferPointer { d -> Int in
+            tip.withUnsafeBufferPointer { t -> Int in
+                wxkeep_runtime_test_rewrite(
+                    d.baseAddress, CUnsignedLong(d.count),
+                    UnsafeRawPointer(t.baseAddress!).assumingMemoryBound(to: CChar.self),
+                    CUnsignedLong(t.count))
+            }
+        }
+        #expect(r == Array("你撤回了一条消息".utf8).count)
+    }
+
+    // ---- 外部 hooks 地址表（runtime.json 数据通道） ----
+
+    private func parseHooks(_ json: String) -> Int32 {
+        json.withCString { p -> Int32 in
+            wxkeep_runtime_test_parse_hooks(p, CUnsignedLong(strlen(p)))
+        }
+    }
+
+    /// 合法行（270099 wrapper 形态）被接受，字段逐一可回读
+    @Test func hooksParseValidRow() {
+        let n = parseHooks("""
+        {"hooks":[{"build":"270099","uuid":"97e21436-abda-3b79-bec0-ef2653c6b423",
+        "arch":"x86_64","hook_off":"0x537d910","msg_arg":1,"xml_sso_off":304,
+        "expected":"554889E54157415641554154"}]}
+        """)
+        #expect(n == 1)
+        var off: CUnsignedLong = 0, marg: CUnsignedLong = 0, soff: CUnsignedLong = 0
+        var arm: CInt = 0, elen: CInt = 0
+        #expect(wxkeep_runtime_test_hook_row(0, &off, &marg, &soff, &arm, &elen) == 0)
+        #expect(off == 0x537d910)
+        #expect(marg == 1)
+        #expect(soff == 0x130)
+        #expect(arm == 0)
+        #expect(elen == 12)
+        #expect(wxkeep_runtime_test_hook_row(1, &off, &marg, &soff, &arm, &elen) == -1)
+    }
+
+    /// 坏行整表拒绝（宁可不挂也不挂错）：坏 hex / expected 长度不符 /
+    /// arm64 序言含 ADRP（PC 相对，换址即崩）
+    @Test func hooksRejectBadRows() {
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
+        "expected":"ZZGG"}]}
+        """) == 0)
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
+        "arch":"x86_64","expected":"554889E5"}]}
+        """) == 0)   // x64 必须 12B
+        // ADRP x0, #0（字 0x90000000，LE 字节 00 00 00 90）+ 合法栈序言凑 16B → 必须被拒
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
+        "arch":"arm64","expected":"00000090A9BF7BFDFD7BBFA9FD6F01A9"}]}
+        """) == 0)
+        // 非法 UUID 形制
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"not-a-uuid","hook_off":"0x1","expected":"554889E54157415641554154"}]}
+        """) == 0)
+        // 非 JSON / hooks 缺失 → -1 / 0
+        #expect(parseHooks("not-json") == -1)
+        #expect(parseHooks("{\"tip_text\":\"x\"}") == 0)
+    }
+
+    /// 好坏混合：只收好行
+    @Test func hooksMixedRowsKeepGood() {
+        let n = parseHooks("""
+        {"hooks":[
+          {"uuid":"bad","hook_off":"0x1","expected":"554889E54157415641554154"},
+          {"build":"270099","uuid":"97e21436-abda-3b79-bec0-ef2653c6b423",
+           "arch":"x86_64","hook_off":"0x537d910","msg_arg":1,"xml_sso_off":304,
+           "expected":"554889E54157415641554154"}]}
+        """)
+        #expect(n == 1)
+    }
+
+    /// 合法 arm64 行（纯栈序言 16B，无 PC 相对）被接受
+    @Test func hooksAcceptRelocatableArm64Row() {
+        let n = parseHooks("""
+        {"hooks":[{"build":"x","uuid":"97e21436-abda-3b79-bec0-ef2653c6b423",
+        "arch":"arm64","hook_off":"0x4000000","msg_arg":1,"xml_sso_off":304,
+        "expected":"FD7BBFA9FD6F01A9F85FBCA9F44F02A9"}]}
+        """)
+        #expect(n == 1)
+        var off: CUnsignedLong = 0, marg: CUnsignedLong = 0, soff: CUnsignedLong = 0
+        var arm: CInt = 0, elen: CInt = 0
+        #expect(wxkeep_runtime_test_hook_row(0, &off, &marg, &soff, &arm, &elen) == 0)
+        #expect(arm == 1)
+        #expect(elen == 16)
+    }
+}
+
+/// 跨边界回归：RuntimeConfig.knownHooks（Swift 管理面）必须被 C 侧
+/// hook_row_parse 全数接受——两侧行 schema 漂移（字段改名/形制不符/
+/// 序言含 PC 相对编码）在此锁死，而不是等 runtime install 后 hook 静默不装。
+/// （本测试通过 RuntimeConfig 常量驱动；RuntimeHookTests 文件内
+/// @testable WxkeepRuntime + wxkeep 双模块可用。）
+extension RuntimeHookTests {
+    @Test func knownHooksRowsAllPassCParser() throws {
+        #if canImport(wxkeep)
+        let rows = RuntimeConfig.knownHooks
+        try #require(!rows.isEmpty)
+        let enc = JSONEncoder()
+        var json = "{\"hooks\":["
+        for (i, row) in rows.enumerated() {
+            if i > 0 { json += "," }
+            json += String(decoding: try enc.encode(row), as: UTF8.self)
+        }
+        json += "]}"
+        let accepted = json.withCString { p -> Int32 in
+            wxkeep_runtime_test_parse_hooks(p, CUnsignedLong(strlen(p)))
+        }
+        #expect(accepted == Int32(rows.count),
+                "knownHooks 必须全数通过 C 侧解析门（accepted=\(accepted), rows=\(rows.count)）")
+        // 唯一性：uuid 不得重复（重复行会静默覆盖 match_target 的先后序）；
+        // 同一构建 x64/arm64 双切片各一行，(build, arch) 亦须唯一
+        #expect(Set(rows.map(\.uuid)).count == rows.count)
+        #expect(Set(rows.map { "\($0.build)/\($0.arch)" }).count == rows.count)
+        #endif
     }
 }

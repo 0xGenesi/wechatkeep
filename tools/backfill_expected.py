@@ -16,14 +16,15 @@ import argparse
 import json
 import os
 import shutil
-import struct
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
 
-ARCH_CPU = {"arm64": ["-arch", "arm64"], "x86_64": ["-arch", "x86_64"]}
+import machutil
+
+ARCH_CPU = {"arm64": machutil.CPU_ARM64, "x86_64": machutil.CPU_X86_64}
 
 # 构建号 → 归档 tag（= 展示版本号）。zsbai 的 DestVersion 字段存的是展示版本
 # 而非构建号（实测 4.1.13.63 sidecar），构建号只能挂载 dmg 读 Info.plist。
@@ -48,21 +49,17 @@ def run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
-def read_bytes_at(dylib, arch, addr_hex, count):
-    """lipo -thin 抽 slice 后按 VA==offset 读 count 字节（本镜像族恒等）。"""
-    with tempfile.NamedTemporaryFile(suffix=".thin", delete=False) as f:
-        thin = f.name
-    try:
-        r = run(["/usr/bin/lipo", "-thin", arch, dylib, "-output", thin])
-        if r.returncode != 0:
-            return None
-        data = open(thin, "rb").read()
-        offset = int(addr_hex, 16)
-        if offset + count > len(data):
-            return None
-        return data[offset:offset + count]
-    finally:
-        os.unlink(thin)
+def read_bytes_at(slices, arch, addr_hex, count):
+    """按段表换算 VA→offset 后读 count 字节（不再依赖 VA==offset 假设——
+    那只在 __TEXT 段成立，条目一旦落在 __DATA 即读错字节）。
+    slices: machutil.load_slices 的 {cputype: bytes} 缓存。"""
+    sb = slices.get(ARCH_CPU.get(arch))
+    if sb is None:
+        return None
+    off = machutil.va2off(sb, int(addr_hex, 16))
+    if off is None or off + count > len(sb):
+        return None
+    return sb[off:off + count]
 
 
 def archive_releases():
@@ -116,7 +113,7 @@ def decompress_if_xz(path):
     if r.returncode != 0:
         os.rename(xzpath, path)
         raise RuntimeError(f"xz 解压失败: {(r.stderr or '')[:120]}")
-    os.unlink(path)
+    os.unlink(xzpath)   # 删 .xz 原件（此前误删刚解压出的 dmg——2026-09 审计修复）
     return out
 
 
@@ -234,8 +231,17 @@ def main():
                         continue
                     print(f"      下载 {actual/1048576:.0f}MB")
                     dylib, build = mount_read_build_and_extract(dmg.name)
+                except Exception as e:
+                    # 单个归档损坏（XZ corrupt 等）只跳过该候选，不中止整轮
+                    print(f"      处理失败，跳过 {tag}: {e}")
+                    continue
                 finally:
-                    os.unlink(dmg.name)
+                    # mount 内部已删 dmg；xz 失败路径可能改名为 .xz——全部容错清理
+                    for leftover in (dmg.name, dmg.name + ".xz"):
+                        try:
+                            os.unlink(leftover)
+                        except FileNotFoundError:
+                            pass
                 if build:
                     tagmap[tag] = build
                     json.dump(tagmap, open(cachepath, "w"))
@@ -256,14 +262,10 @@ def main():
     filled = missed = 0
     for version, dylib in todo.items():
         entries = quarantined[version]
-        cache = {}
+        slices = machutil.load_slices(dylib)   # 每 dylib 只解析一次，双 arch 共享
         for vi, ti, ei, e in entries:
             count = len(bytes.fromhex(e["asm"]))
-            key = e["arch"]
-            if key not in cache:
-                # 同一 arch 的 slice 只抽一次：临时文件按 arch 缓存
-                cache[key] = dylib
-            raw = read_bytes_at(dylib, e["arch"], e["addr"], count)
+            raw = read_bytes_at(slices, e["arch"], e["addr"], count)
             if raw is None:
                 print(f"  [{version}] {e['arch']}@{e['addr']}: 读取失败")
                 missed += 1

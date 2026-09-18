@@ -5236,5 +5236,483 @@
       }
     ],
     "note": "8 entries lack expected bytes (quarantined)"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bc4e90",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e8d440",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          }
+        ],
+        "identifier": "revoke"
+      },
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4e8d440",
+            "arch": "x86_64",
+            "asm": "554889E553504889FB",
+            "expected": [
+              "31C0C3909090909090",
+              "554889E553504889FB"
+            ],
+            "source": "wxkeep:270099 keeptip——还原 isRevokemsg（解除 silent）"
+          },
+          {
+            "addr": "537e39d",
+            "arch": "x86_64",
+            "asm": "4831C06690488983C8010000",
+            "expected": [
+              "E83E4BE9FF488983C8010000"
+            ],
+            "source": "wxkeep:270099 keeptip——v1语义：解析函数内 newmsgid 转换call置零，消息保留但撤回流程正常走（提示正常生成）；位点甄别=isRevokemsg(0x4e8d440)调用者中函数体含newmsgid存储者"
+          }
+        ],
+        "identifier": "revoke-keeptip"
+      },
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "2b8bb0",
+            "arch": "x86_64",
+            "asm": "C3",
+            "expected": [
+              "554889E5"
+            ],
+            "source": "wxkeep:objc:startUpdater@270099（XAppUpdateManager，Sparkle 驱动；locate_update_x64 定位+imp字段修正）"
+          },
+          {
+            "addr": "2bb240",
+            "arch": "x86_64",
+            "asm": "C3",
+            "expected": [
+              "554889E5"
+            ],
+            "source": "wxkeep:objc:checkForUpdates:@270099"
+          },
+          {
+            "addr": "2bb560",
+            "arch": "x86_64",
+            "asm": "C3",
+            "expected": [
+              "554889E5"
+            ],
+            "source": "wxkeep:objc:startBackgroundUpdatesCheck:@270099"
+          },
+          {
+            "addr": "2bb9c0",
+            "arch": "x86_64",
+            "asm": "C3",
+            "expected": [
+              "554889E5"
+            ],
+            "source": "wxkeep:objc:enableAutoUpdate:@270099"
+          }
+        ],
+        "identifier": "update"
+      }
+    ],
+    "version": "270099"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bc1c88",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e884c0",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          },
+          {
+            "addr": "5378ea9",
+            "arch": "x86_64",
+            "asm": "30C0",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "source": "wxkeep:parse-guard test→xor 翻转（解析级 silent 冗余位，expected 通配，见 docs/related-tools-analysis.md）"
+          }
+        ],
+        "identifier": "revoke"
+      }
+    ],
+    "version": "270094"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bc4724",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e8cbb0",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          },
+          {
+            "addr": "537d599",
+            "arch": "x86_64",
+            "asm": "30C0",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "source": "wxkeep:parse-guard test→xor 翻转（解析级 silent 冗余位，expected 通配，见 docs/related-tools-analysis.md）"
+          }
+        ],
+        "identifier": "revoke"
+      }
+    ],
+    "version": "270097"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bbea28",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e83150",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          },
+          {
+            "addr": "5376609",
+            "arch": "x86_64",
+            "asm": "30C0",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "source": "wxkeep:parse-guard test→xor 翻转（解析级 silent 冗余位，expected 通配，见 docs/related-tools-analysis.md）"
+          }
+        ],
+        "identifier": "revoke"
+      }
+    ],
+    "version": "270091"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bc1a0c",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e88310",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          },
+          {
+            "addr": "5378cf9",
+            "arch": "x86_64",
+            "asm": "30C0",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "source": "wxkeep:parse-guard test→xor 翻转（解析级 silent 冗余位，expected 通配，见 docs/related-tools-analysis.md）"
+          }
+        ],
+        "identifier": "revoke"
+      }
+    ],
+    "version": "270093"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bc4710",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e8cbc0",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          },
+          {
+            "addr": "537d5a9",
+            "arch": "x86_64",
+            "asm": "30C0",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "source": "wxkeep:parse-guard test→xor 翻转（解析级 silent 冗余位，expected 通配，见 docs/related-tools-analysis.md）"
+          }
+        ],
+        "identifier": "revoke"
+      }
+    ],
+    "version": "270095"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bc46f8",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e8cba0",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          },
+          {
+            "addr": "537d589",
+            "arch": "x86_64",
+            "asm": "30C0",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "source": "wxkeep:parse-guard test→xor 翻转（解析级 silent 冗余位，expected 通配，见 docs/related-tools-analysis.md）"
+          }
+        ],
+        "identifier": "revoke"
+      }
+    ],
+    "version": "270096"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bc4e1c",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e8d3d0",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          },
+          {
+            "addr": "537ddb9",
+            "arch": "x86_64",
+            "asm": "30C0",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "source": "wxkeep:parse-guard test→xor 翻转（解析级 silent 冗余位，expected 通配，见 docs/related-tools-analysis.md）"
+          }
+        ],
+        "identifier": "revoke"
+      }
+    ],
+    "version": "270098"
+  },
+  {
+    "targets": [
+      {
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "addr": "4bc4fa4",
+            "arch": "arm64",
+            "asm": "82000014",
+            "expected": [
+              "40100034"
+            ],
+            "source": "recipe:revoke_arm64_gen3"
+          },
+          {
+            "addr": "4e8d5d0",
+            "arch": "x86_64",
+            "asm": "31C0C3909090909090",
+            "expected": [
+              "554889E553504889FB"
+            ],
+            "source": "recipe:revoke_x64"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "537dfb9",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "asm": "30C0",
+            "source": "wxkeep:parse-guard test→xor 翻转（解析级 silent 冗余位，expected 通配，见 docs/related-tools-analysis.md）"
+          }
+        ],
+        "identifier": "revoke"
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2b8bb0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startUpdater@270100（XAppUpdateManager；区域字节与 270099 同，locate_update_x64 复核）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb240",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:checkForUpdates:@270100"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb560",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startBackgroundUpdatesCheck:@270100"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb9c0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:enableAutoUpdate:@270100"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2c7330",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "31C0C3",
+            "source": "wxkeep:objc:automaticallyDownloadsUpdates(getter→0)@270100——治 SUAutomaticallyUpdate 被改回"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2c7340",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:setAutomaticallyDownloadsUpdates:@270100"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2c7350",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "31C0C3",
+            "source": "wxkeep:objc:canCheckForUpdate(getter→0)@270100"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2c7360",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:setCanCheckForUpdate:@270100"
+          }
+        ]
+      }
+    ],
+    "version": "270100"
   }
 ]

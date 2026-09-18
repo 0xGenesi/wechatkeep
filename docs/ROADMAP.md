@@ -413,3 +413,154 @@ lldb 诊断脚本 `check_hook.py`/`uuid_check.py` 入 `tools/dyntrace/`
 （check_hook 直接服务真机验收：读 wrapper 入口 12B 判 ARMED），
 drive16/22–26、xref_x64、amfi_probe 的输出路径全部改为按 `__file__`
 相对仓库根解析。惯例见 MAINTAINING「工件目录惯例」。
+
+### ⑩ 全网调研 + 五线交付（2026-09-18 午后，独立会话）
+
+**调研输入**：双代理全网调研（生态/技术前沿）+ 本机验证。关键外部事实：
+270099 仍是最新构建（无 4.1.16）；官方 CDN 存在 `xWeChatMac_universal_<ver>_<build>.dmg`
+按构建号归档直链（生态此前不知，实测仅 4.1.15.12_270092 404）——
+「270091-98 永久缺口」与「历史构建无可靠回填源」两个旧结论**作废**。
+X1a0He 已闭源化（v2.9.0→270090）；fzlzjerry 新增抢红包+{content} 占位符；
+WeChatIntercept 的特征码自动定位思路与我们 recipe 引擎同向。详见
+related-tools-analysis.md 2026-09-18 节。
+
+**五线交付**：
+1. **目录回填（5 构建闭环）**：270091/93/95/96/98 全部下载→挂载→
+   `locate --append`（arm64 gen3 + x64 双命中）→ 解析守卫 xor 条目 →
+   BackfillRoundtripTests 端到端（pristine→patch→幂等→restore 字节级一致 ✓×5）。
+   守卫位点漂移链补全：269602:50a5639 → 270094:5378ea9 → 270097:537d599 →
+   **270091:5376609 → 270093:5378cf9 → 270095:537d5a9 → 270096:537d589 →
+   270098:537ddb9** → 270099:537de29。270080-270099 目录缺口只剩 270092
+   （CDN 无该文件，疑似从未发布）。新增通用验证 harness：
+   `WXKEEP_BACKFILL_DYLIB` + `WXKEEP_BACKFILL_JSON` 环境变量驱动的
+   BackfillRoundtripTests（未来回填 SOP 直接复用）
+2. **runtime 地址表外置（day-0 数据通道）**：runtime.json 增 `hooks` 数组
+   （uuid/arch/hook_off/msg_arg/xml_sso_off/expected），dylib 侧
+   hook_row_parse 全字段过门（UUID 形制/hex/长度匹配 arch/arm64 序言无
+   PC 相对编码——ADRP/B/BL/CBZ/TBZ/LDR-literal 编码级过滤）；外部表在场
+   则只用外部表，否则回落编译期内置表。`runtime install` 经
+   RuntimeConfig.mergeKnownHooks 按 uuid 合并写入（未知 uuid 行保留，
+   tip_text/rewrite_self 用户键透传）。新构建支持 = 数据一行，dylib 不重编
+3. **M-R3-lite {from} 占位符 + 自发撤回门**：tip_text 支持 `{from}`（展开为
+   原内文首对引号内昵称，>64B 或超缓冲放弃保原文）；`rewrite_self`（默认
+   false）——「你撤回了一条消息」自发提示默认不改写（RecallKeeper 语义）
+4. **arm64 hook 机器就位**：install_hook 双路径（x64 12B movabs/jmp 不变；
+   arm64 16B `ldr x17,#8; br x17; .quad` + 蹦床 + `sys_icache_invalidate`，
+   依据=调研实证 wechat.dylib arm64 切片无 PAC/BTI）。缺 arm64 wrapper
+   地址行（RE 待做）——机器+解析门已测，数据到手即用
+5. **270099 二进制级屏蔽更新破局**：XAppUpdateManager 在 4.1.15 回归
+   （91 方法+SPUUpdaterDelegate），Sparkle.framework 2.6.4 fork 重新在位
+   且被 dylib 直接链接——269602「纯 C++ 更新器」结论对该构建失效。
+   locate_update_x64.py 修掉 relative 方法表 imp 解析 bug（偏移相对 imp
+   字段自身 entry+8，按 name 字段解析会落在真入口前 8B 填充区——270099
+   startUpdater 处穿帮成 `dec [rdi]` 才暴露；NOP 前导假象同时解释了此前
+   「看似正常」的错位）。四条 update 条目（startUpdater/checkForUpdates:/
+   startBackgroundUpdatesCheck:/enableAutoUpdate: → C3，expected 554889E5）
+   已入 config.local 并过 pristine 端到端。待真机行为验证 + arm64 同轮
+   （详见 findings-269602-updater.md 2026-09-18 节）
+
+**顺手修复**：arm_late 定时器 retain cycle（__weak 打破 source→block→source
+环，ARC 实证 -fobjc-arc 在场）。
+
+**未动（诚实边界）**：arm64 wrapper/parse 的 RE（M-R2 arm64 行）；update
+条目真机行为轮（启动后偏好重写是否停止）；270092 永久缺口维持；抢红包/
+撤回转发等新功能面（非防撤回核心，未立项）。
+
+### ⑪ 全代码审查 + 270100 现场事件（2026-09-18 晚，独立会话）
+
+**全源码审查（Sources/ 22 文件 + runtime.m 逐行）**，修复六项、全部带回归：
+
+1. **Config.validate 新安全不变量（最重要）**：`asm` 写入跨度 ≤ expected 溯源
+   跨度（max 变体 byteCount）。原 expected 门只比较 expected 长度的前缀，
+   asm 更长的条目会覆盖无出处尾部字节且 restore 无法回补——catalog 拒载是
+   唯一安全侧。全量 463 条真实 entry 程序化审计 0 违例；通配/等长/短于形态
+   均有测试锁定（ConfigLocalTests.asmSpanBeyondProvenanceIsRejected）。
+2. **Engine.patch 半套态防线**：多 target 顺序补丁中前一个已写盘、后续失败
+   抛错时不再跳过重签——尽力补签（成功=可启动、doctor 报 mixed）+ 失败给
+   人工恢复指引，再抛原错。与 runtime install 回滚同哲学（2026-09-18 事故
+   防线推广到 catalog patch 路径）。
+3. **runtime.m 三处**：expand_tip 昵称缺失时 memcpy(dst,NULL,0) UB 消除；
+   install_hook 的 mprotect 失败路径补 munmap+g_hook 复位（原泄漏 RWX 页且
+   残留武装态字段）；定时器 cancel 加 nil 门（dispatch_source_cancel(NULL)
+   在 libdispatch 显式 CRASH）。
+4. RuntimeStatus 双重 JSON 解析合一；UpdateGuard 头注释的「269602+ 纯 C++
+   无 ObjC 更新器」表述按 ⑩ 发现修正；Doctor 死 MARK 清理；Config.PatchEntry
+   缩进修正。
+
+**审查过不改的（有意的，防引入新问题）**：inline hook 入口 12B 写的非原子性
+（线程竞争窗口=微秒级、Dobby 同款行业限制，线程挂起方案风险更大）；Patcher
+callerCount O(N×text)（仅配方期）；isRevokemsg 谓词化等既有设计——均有实测
+依据，维持现状。
+
+**270100 现场事件（重要情报）**：审查期间本机微信被热修通道从 270099 自动
+升级到 **270100**（营销版本同为 4.1.15）——「每日热修」节奏与 auto-update
+威胁的活体实证（270099 的偏好层防护在位但字节级 update 未打，升级照常发生）。
+**配方引擎 day-0 表现**：`wxkeep locate` 双架构命中（x64 0x4E8D5D0 /
+arm64 gen3 0x4BC4FA4）+ 解析守卫 0x537dfb9（漂移链 270099:+0x1F0），端到端
+往返验证通过——未适配新构建时配方自动兜底的完整闭环首秀。
+守卫位点链更新：…270098:537ddb9 → 270099:537de29 → **270100:537dfb9**。
+
+### ⑫ hooks 表家族化 + 目录晋升（2026-09-18 深夜，同审查会话续）
+
+1. **runtime hooks 地址表扩到 4.1.15 全家族（7 构建）**：新工具
+   `tools/derive_runtime_hooks.py`（守卫位点→LC_FUNCTION_STARTS→parse 唯一
+   E8 调用者→wrapper 入口→12B 纯栈序言门→LC_UUID）从官方 DMG 派生
+   270091/93/95/96/98/99/100 全部 7 行（expected 全部
+   554889E54157415641554154）。**方法论互证**：270099 行（0x537d910 +
+   UUID 97e21436…）与 drive22 实弹定案的内置表逐字段一致。行进
+   RuntimeConfig.knownHooks，`runtime install` 随装写入 runtime.json；
+   新增跨边界回归测试（knownHooks JSON → C 侧 hook_row_parse 全数通过 +
+   uuid/build 唯一性）锁死两侧行 schema 漂移。⚠️ 诚实边界不变：
+   wrapper+0x130 偏移为家族同构推定，首次实机验收未做。
+2. **270100 update 条目**：XAppUpdateManager 四方法（startUpdater/
+   checkForUpdates:/startBackgroundUpdatesCheck:/enableAutoUpdate:）imp 与
+   270099 逐字节相同（热修未动该区域，slice md5/UUID 不同已核实）——
+   条目直接沿用，revoke+update 7 条目端到端往返通过。
+3. **目录晋升**：config.local 的 9 构建（270091/93/94/95/96/97/98/99/100）
+   36 条目按 Config.merge 语义合入签名 config.json（source 溯源全保留），
+   manifest 重签（keys/release.key），COMPATIBILITY.md 再生成（64 构建），
+   97 测试全绿。此后新用户 `update-data` 即得全家族支持；config.local
+   保留为备份（合并幂等）。
+
+### ⑬ 真机验收轮（2026-09-19 凌晨：两真缺陷实弹揪出并修复，overall=protected 达成）
+
+**微信 270100 实机全链**（patch → verify → runtime install → launch → 行为观测）。
+这一轮的价值在「验收揪 bug」——两个此前测试网完全漏掉的真缺陷被真机暴露：
+
+1. **区域扫描直解引用崩溃（P0，实弹崩溃）**：首次 launch 即 SIGSEGV @
+   0x7ff800000000（ips: find_wechat_base_by_region_scan）。⑨ 的修复
+   （查当前 protection 可读）**被证伪**——该共享缓存孔洞的 vm_region
+   basic_info 报告 protection 含 R，访问照样 KERN_INVALID_ADDRESS。
+   唯一可靠防线 = `mach_vm_read_overwrite` 安全探针（probe_match_target：
+   header+load commands 拷进本地缓冲再比对；读失败返回错误码不崩）。
+   protection 降级为启发式预筛，直解引用在全路径禁止。
+2. **runtime 配置/markers 的沙盒路径缺陷（P0，静默失效）**：微信是沙盒
+   应用（app-sandbox + App Group），NSSearchPath 的 ~/ 在其内部展开到
+   **容器**——CLI 写的真实 home runtime.json dylib 读不到、marker 写进
+   容器 CLI 看不到（marker=marker-only status=9 实证）。修复：统一走
+   **App Group Container**（5A4RE8SF68.com.tencent.xinWeChat，双端唯一
+   可达位点）：dylib containerURL(…)（非沙盒宿主 nil 回落 legacy）、
+   CLI 直拼真实 home；旧路径保留为迁移种子。连带修复 runtime.json 格式
+   缺陷（CLI-JSON / dylib-plist 不兼容——现统一 XML plist）与 status
+   显示路径同款 bug。新增 plist 端到端测试缝
+   （wxkeep_runtime_test_load_config_file）锁死跨格式回归。
+
+**验收结果（全部通过）**：
+- patch：revoke 3 + update 8 条目写入，strict verify OK，wxkeep verify
+  行为级证明（isRevokemsg 全探针归零）
+- runtime：LC 注入 + dylib 加载 + **hook-armed**（marker status=13 =
+  armed+callback，构造器→scan→install_hook 全链真机走通）
+- update 行为：SUEnableAutomaticChecks 启动后保持 0；SUAutomaticallyUpdate
+  经判别实验（退出→重写 0→重启→观察 60s）**保持 0**——访问器对补丁
+  （automaticallyDownloadsUpdates getter→0 / setter→ret、canCheckForUpdate
+  对）拦住了改写者，此前观测的 1 是补丁前启动的残留值
+- doctor overall = **protected**（revoke/update 双 patched）
+
+**新情报**：270100 的 C++ 更新器字符串锚点更名（MacStoreUpdate.xml →
+`MacUpdate_%@.xml` 格式串，与 StartCheckUpdate/try check update 混在
+混淆串里）；行为层已被上述补丁封死（无改写/无弹窗/无自动下载路径），
+深挖其引用链暂无必要。locate_update_x64 访问器对（getter/setter）在
+270100 的 imp 较 270099 漂移 +0x20。
+
+**备份保留策略**：Backup.make 增 prune（同前缀保留最新 3 个，时间戳
+字典序即时间序）；locate 的 config.local.json.bak.* 同规；存量清理完毕。

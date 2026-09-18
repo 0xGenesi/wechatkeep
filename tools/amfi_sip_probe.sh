@@ -167,6 +167,15 @@ fi
 
 # ---------- Phase 6: 结论 ----------
 log "verdict: $VERDICT — $DETAIL"
+# DETAIL 两种形态：KILLED 路径已是 JSON 对象（TERM_JSON），RUNS/DIED-LATER
+# 是普通文本——裸内插后者会产出非法 JSON（2026-09 审计修复），统一编码。
+if [[ -z "$DETAIL" ]]; then
+  DETAIL_JSON=null
+elif python3 -c 'import json,sys; json.loads(sys.stdin.read())' <<<"$DETAIL" 2>/dev/null; then
+  DETAIL_JSON="$DETAIL"   # 已是合法 JSON（TERM_JSON）——原样嵌入保持对象形态
+else
+  DETAIL_JSON=$(printf '%s' "$DETAIL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+fi
 cat > "$OUT/verdict.json" <<EOF
 {
   "ts": "$(date -Iseconds)",
@@ -174,7 +183,7 @@ cat > "$OUT/verdict.json" <<EOF
   "boot_args": "${BOOTARGS:-none}",
   "variant": "$VARIANT",
   "verdict": "$VERDICT",
-  "detail": ${DETAIL:-null},
+  "detail": $DETAIL_JSON,
   "new_ips_copied": $new_ips,
   "protocol": "restore->patch(resign)->codesign verify->launch->observe->harvest->restore"
 }

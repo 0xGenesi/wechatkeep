@@ -15,7 +15,10 @@ SSH_REMOTE="git@github.com:${USER}/${REPO}.git"
 HTTPS_REMOTE="https://github.com/${USER}/${REPO}.git"
 
 echo "==> 检测推送通道"
-if ssh -T -o BatchMode=yes -o ConnectTimeout=8 git@github.com 2>&1 | grep -q "successfully authenticated"; then
+# ssh -T 对 GitHub 恒以退出码 1 结束（不分配终端），set -o pipefail 下直接
+# 接管道会把「认证成功」也判为假——先落变量再 grep。
+ssh_out="$(ssh -T -o BatchMode=yes -o ConnectTimeout=8 git@github.com 2>&1 || true)"
+if grep -q "successfully authenticated" <<<"$ssh_out"; then
     REMOTE="$SSH_REMOTE"; echo "SSH 认证可用"
 elif command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
     REMOTE="$HTTPS_REMOTE"; echo "gh 已认证（推送时 gh 作为 credential helper）"

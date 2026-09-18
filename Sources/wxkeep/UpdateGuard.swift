@@ -5,10 +5,8 @@ import Darwin
 
 /// Blocks WeChat's updater at the preferences layer — zero binary changes.
 ///
-/// On 269602+ the binary-level updater block is unavailable (the updater is
-/// pure C++, no ObjC metadata to locate; see docs/findings-269602-updater.md),
-/// but the Sparkle channel remains prefs-driven and the accidental-upgrade
-/// risk is exactly these three switches:
+/// The Sparkle channel is prefs-driven and the accidental-upgrade risk is
+/// exactly these three switches:
 ///   SUEnableAutomaticChecks → no update checks at all, no prompts
 ///   SUAutomaticallyUpdate   → never download/install without asking
 ///   SUSendProfileInfo       → telemetry off as a bonus
@@ -16,12 +14,14 @@ import Darwin
 ///
 /// 诚实边界（2026-09 实证复盘）：微信 4.1.13+ 的更新管理器会在**启动时把
 /// SUEnableAutomaticChecks / SUAutomaticallyUpdate 改回 1**（zengtianli 定位
-/// 脚本结论 + 本机观测：两键被改回、SULastCheckTime 持续刷新、当日静默自更
-/// 新）。三键中只有 SUSendProfileInfo 存活。因此本层只是 best-effort：
+/// 脚本结论 + 本机观测：两键被改回、SULastCheckTime 持续刷新）。三键中只有
+/// SUSendProfileInfo 存活。改写者在 4.1.15 已定位为回归的 XAppUpdateManager
+/// + Sparkle 2.6.4 fork（docs/findings-269602-updater.md 2026-09-18 节）——
+/// 269602 有 mmui 周期工人的字节级目标、270099 x64 有 XAppUpdateManager
+/// 四方法条目（待真机行为验证）。因此本层只是 best-effort：
 /// - 旧构建 / 未重写的构建：三键有效
 /// - 4.1.13+：遥测键有效，更新开关会被改回（rewrittenByApp 可检出）
-/// 真正可靠的更新防护是 patch 附带的字节级目标（可用构建）；升级发生后
-/// 重跑 `wxkeep doctor` 重新评估。
+/// 二进制级目标随 `wxkeep patch` 附带；升级发生后重跑 `wxkeep doctor` 重新评估。
 enum UpdateGuard {
     static let domain = "com.tencent.xinWeChat"
     static let keys: [(key: String, guardedValue: String, meaning: String)] = [

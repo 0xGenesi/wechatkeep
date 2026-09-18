@@ -220,3 +220,46 @@ newmsgid 所致（arm64 270090 未见差异报告，或属构建差异）。**x6
    污染 Intel 机器判定为 mixed/unprotected）；overall=protected 不再被
    update/multiInstance 未打阻断；废弃变体残留单独告警行。
 6. 报错误导、JSON 契约新增 native_arch 字段（DoctorTests 同步）。
+
+## 270099 推翻性发现（2026-09-18 全网调研轮）：XAppUpdateManager 回归 + Sparkle 重新在位
+
+269602 时代「无 XAppUpdateManager、无 Sparkle.framework、更新器纯 C++」的结论
+**在 4.1.15 上失效**（腾讯在 4.1.15 重建了 ObjC 更新器）：
+
+- **`XAppUpdateManager` 存在于 270099 双 slice**（x64 实证解剖；arm64 slice
+  选择子字符串同在）：91 个实例方法 + 元类单例（imp 0x2b8600），
+  实现 `SPUUpdaterDelegate` + `SPUStandardUserDriverDelegate`，持有
+  `sparkleUpdater`(SPUUpdater)/`userDriver`/`automaticallyDownloadsUpdates`/
+  `canCheckForUpdate` 等 24 属性——WeChatTweak 式按名打点重新可用
+- **Sparkle.framework 2.6.4-1870-gf19e9091（腾讯 fork）回到 bundle 内**
+  （Contents/Frameworks/，含 Autoupdate/Updater.app/Installer.xpc），
+  wechat.dylib 的 LC_LOAD_DYLIB 直接链接它；Info.plist 带
+  `SUEnableInstallerLauncherService=true` + `SUPublicEDKey`
+- 这同时解释了「4.1.13+ 启动时把 SUEnableAutomaticChecks/SUAutomaticallyUpdate
+  改回开」的偏好重写行为——改写者就是这套重建的更新器
+
+### locate_update_x64.py 的关键 bug 修复（relative 方法表 imp 解析）
+
+imp 偏移相对 **imp 字段自身**（entry+8），不是相对 name 字段（entry+0）。
+按 name 字段解析会落到真入口前 8B 的函数间填充区：多数构建里那恰好是
+`0F1F8400…` NOP 前导（假象「形态正常」，实则错位 8B）；270099 的
+startUpdater 处前一函数尾字节 `FF` 在场，假象穿帮成 `dec [rdi]` 才暴露。
+修正后四方法全部命中干净的 `55 48 89 E5` 真序言。
+
+### 270099 x64 update 目标（已入 config.local，待真机行为验证）
+
+| 选择子 | imp | 补丁 |
+|---|---|---|
+| startUpdater | 0x2b8bb0 | C3（expected 554889E5） |
+| checkForUpdates: | 0x2bb240 | C3 |
+| startBackgroundUpdatesCheck: | 0x2bb560 | C3 |
+| enableAutoUpdate: | 0x2bb9c0 | C3 |
+
+- getter 对（automaticallyDownloadsUpdates / canCheckForUpdate）在 270099
+  是带栈帧的完整函数（非纯访问器 stub），工具按形态不符跳过——不打。
+  canCheckForUpdate 真入口直接就是 `C3`（天然返回，语义待查）
+- checkForUpdates: 一并封死 = 手动检查也失效（升级须先 `wxkeep restore`，
+  与防覆盖目的一致）；只封后台检查的窄版可按需裁剪
+- **下一步**：arm64 slice 同轮定位（同一工具走 arm64 方法表，需 arm64
+  版 classify：stp 序言 + `mov w0,#0; ret`）；真机行为验证（启动后确认
+  偏好不再被改回 + 无更新弹窗）

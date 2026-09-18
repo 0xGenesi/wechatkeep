@@ -75,6 +75,34 @@ enum Engine {
                                    note: "auto-located via signature recipes")
     }
 
+    /// locate --append 的合并核心（纯函数，便于回归测试）。
+    /// 定位产物必须按 binary 分组落位：同 identifier 不同 binary 的条目互不
+    /// 相干——gen0 主程序配方与 wechat.dylib 配方并存时，单键合并会把主程序
+    /// 条目塞进 dylib 的 Target（或反之），expected 门就去错误的文件上校验，
+    /// patch 必然 expectedMismatch。命中 identifier+binary 双键的已有 Target
+    /// 则按 arch 去重追加（精编条目优先，与 Config.merge 同语义）。
+    static func mergeLocated(
+        _ located: [(binary: String?, entry: Config.PatchEntry)],
+        into versionEntry: inout Config.VersionEntry
+    ) {
+        var groups: [String: (binary: String?, entries: [Config.PatchEntry])] = [:]
+        for item in located {
+            groups[item.binary ?? "Contents/MacOS/WeChat", default: (item.binary, [])]
+                .entries.append(item.entry)
+        }
+        for (relative, group) in groups.sorted(by: { $0.key < $1.key }) {
+            if let idx = versionEntry.targets.firstIndex(where: {
+                $0.identifier == "revoke" && ($0.binary ?? "Contents/MacOS/WeChat") == relative
+            }) {
+                let archs = Set(versionEntry.targets[idx].entries.map(\.arch))
+                versionEntry.targets[idx].entries += group.entries.filter { !archs.contains($0.arch) }
+            } else {
+                versionEntry.targets.append(Config.Target(
+                    identifier: "revoke", binary: group.binary, entries: group.entries))
+            }
+        }
+    }
+
     /// Selects targets for a variant: `revoke` for silent, `revoke-keeptip` for
     /// keeptip; every non-variant identifier (update, multiInstance, …) always applies.
     /// (`revoke-keeptip2` is deprecated and can no longer be selected — it is kept
@@ -193,37 +221,54 @@ enum Engine {
         }
 
         let grouped = Dictionary(grouping: selected, by: { $0.binary ?? "Contents/MacOS/WeChat" })
-        for (relative, targets) in grouped.sorted(by: { $0.key < $1.key }) {
-            let binary = WeChatApp.binaryURL(app: app, relative: relative)
-            summary.lines.append("binary: \(relative) (\(targets.map(\.identifier).joined(separator: ", ")))")
-            let willWrite: (Config.PatchEntry, String) -> Bool = { entry, identifier in
-                let inspections = (try? Patcher.inspect(binary: binary, entries: [entry], identifier: identifier)) ?? []
-                return inspections.first?.state != .patched
-            }
-            // Decide whether a backup is needed before mutating anything.
-            var needsBackup = false
-            for target in targets {
-                if target.entries.contains(where: { willWrite($0, target.identifier) }) {
-                    needsBackup = true
-                    break
+        do {
+            for (relative, targets) in grouped.sorted(by: { $0.key < $1.key }) {
+                let binary = WeChatApp.binaryURL(app: app, relative: relative)
+                summary.lines.append("binary: \(relative) (\(targets.map(\.identifier).joined(separator: ", ")))")
+                let willWrite: (Config.PatchEntry, String) -> Bool = { entry, identifier in
+                    let inspections = (try? Patcher.inspect(binary: binary, entries: [entry], identifier: identifier)) ?? []
+                    return inspections.first?.state != .patched
+                }
+                // Decide whether a backup is needed before mutating anything.
+                var needsBackup = false
+                for target in targets {
+                    if target.entries.contains(where: { willWrite($0, target.identifier) }) {
+                        needsBackup = true
+                        break
+                    }
+                }
+                if needsBackup && !dryRun {
+                    let backup = try Backup.make(binary: binary)
+                    summary.lines.append("  backup: \(backup.lastPathComponent)")
+                }
+                for target in targets {
+                    let outcomes = try Patcher.patch(
+                        binary: binary, entries: target.entries, identifier: target.identifier,
+                        dryRun: dryRun, allowUnverified: allowUnverified)
+                    let written = outcomes.filter { $0 == .written }.count
+                    let skipped = outcomes.filter { $0 == .alreadyPatched }.count
+                    summary.wroteAnything = summary.wroteAnything || written > 0
+                    if written > 0, !summary.patchedBinaries.contains(relative) {
+                        summary.patchedBinaries.append(relative)   // once per binary: multi-target groups re-sign once
+                    }
+                    summary.lines.append("  \(target.identifier): \(written) written, \(skipped) already-patched")
                 }
             }
-            if needsBackup && !dryRun {
-                let backup = try Backup.make(binary: binary)
-                summary.lines.append("  backup: \(backup.lastPathComponent)")
-            }
-            for target in targets {
-                let outcomes = try Patcher.patch(
-                    binary: binary, entries: target.entries, identifier: target.identifier,
-                    dryRun: dryRun, allowUnverified: allowUnverified)
-                let written = outcomes.filter { $0 == .written }.count
-                let skipped = outcomes.filter { $0 == .alreadyPatched }.count
-                summary.wroteAnything = summary.wroteAnything || written > 0
-                if written > 0, !summary.patchedBinaries.contains(relative) {
-                    summary.patchedBinaries.append(relative)   // once per binary: multi-target groups re-sign once
+        } catch {
+            // 半套态防线（与 runtime install 回滚同哲学）：本 run 已写入字节、
+            // 却在后续 target 上失败抛错 → 不走正常重签，bundle 处于「字节已改
+            // + 旧签名」的启动必崩态。尽力补一次重签：成功则微信可启动、doctor
+            // 会把半套态如实报成 mixed；重签也失败则给人工恢复路径后再抛原错。
+            if !dryRun && summary.wroteAnything, !summary.patchedBinaries.isEmpty {
+                do {
+                    try Resigner.resign(app: app, patchedBinaries: summary.patchedBinaries)
+                    summary.lines.append("  [recovery] partial write re-signed — bundle launches; "
+                                         + "run `wxkeep doctor` (expect mixed) and re-patch")
+                } catch {
+                    summary.lines.append("  [recovery] resign failed — run `sudo wxkeep restore` BEFORE launching WeChat")
                 }
-                summary.lines.append("  \(target.identifier): \(written) written, \(skipped) already-patched")
             }
+            throw error
         }
         return summary
     }

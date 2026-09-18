@@ -16,10 +16,11 @@ brew install 0xGenesi/tap/wxkeep
 
 - **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 269602 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）
 - **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效
-- **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示，可靠的更新防护仍是 patch 附带的字节级目标
+- **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示。**270099 x64 已有二进制级 update 目标**（XAppUpdateManager 四方法 → ret，待真机行为验证，见 docs/findings-269602-updater.md）；269602 双架构为周期工人 → ret
 - **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）
 - **多开（克隆式）**——独立数据目录的第二/第 N 个微信，与构建号无关（`clone create`）
 - **体检**——`doctor` 含 AMFI 观察级提示与精确修复指引
+- **运行时组件（可选，默认不装）**——`runtime install` 注入支持 dylib：自定义撤回提示文案（支持 `{from}` 占位符；自发撤回默认不改写，`rewrite_self` 可开）。hook 地址表走 runtime.json 数据通道，新构建 day-0 生效
 
 ## 快速上手
 
@@ -70,17 +71,19 @@ WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib �
 Sources/wxkeep/   CLI 与引擎（Patcher/RecipeEngine/Resigner/Doctor/Verifier/…）
 config.json       双架构补丁库（条目级溯源：zengtianli/tanranv5/wxkeep-analysis）
 signatures.json   定位配方 SSOT（x64 imm64 锚点 + arm64 几何三代 + verify 规格）
-tools/            Python 孪生（定位/合并/矩阵）与 spike 存档
-docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现
+tools/            Python 孪生（定位/合并/矩阵，machutil 统一 Mach-O 解析）与 spike 存档
+docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现 / 工具审计记录
 .github/          CI（macos-14/15 build+test）+ 新版本追踪流水线
 ```
 
 ## 诚实的限制
 
 - **keeptip 仅 arm64**（x64 的 newmsgid 存储点未定位，silent 双架构可用）
-- **269602+ 的二进制级屏蔽更新未覆盖**：更新器为纯 C++（见 docs）；已通过 `wxkeep update-guard`（偏好层三开关：不检查更新/不自动安装/关遥测，patch 时自动附带）防护升级弹窗与误升级（两个 slice 均无 XAppUpdateManager），需新一轮字符串锚点逆向（docs/findings-269602-updater.md）
+- **二进制级屏蔽更新的覆盖按构建分代**：269602 双架构（mmui 周期工人）、270099 x64（XAppUpdateManager 四方法，待真机行为验证）已有目标；4.1.13–4.1.15 其余构建的 update 目标待逐轮补齐（工具链已就位：`tools/locate_update_x64.py`）。偏好层三开关（`wxkeep update-guard`，patch 时自动附带）在无二进制目标的构建上兜底
 - verify 的行为验证在 SIP 开启的机器上不可用（RWX 映射被禁）；CI 上自动跳过
 - tanranv5 来源的 29 个构建条目缺 expected 字节，处于隔离区（补验后放行）
+- 运行时组件的 M-R2 hook 当前仅 270099 x64 地址行（arm64 机器已就位待 RE 数据）；首次实机验收未做（`wrapper+0x130` 为静态推定，失效则切 parse 入口方案）
+- 270092 一个构建号官方 CDN 无归档（疑似从未公开发布），目录永久缺口
 
 ## 贡献
 

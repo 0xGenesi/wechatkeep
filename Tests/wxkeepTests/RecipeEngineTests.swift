@@ -152,6 +152,98 @@ final class RecipeEngineTests {
 }
 
 struct AutoLocateTests {
+    /// 回归（locate --append 跨 binary 分组）：gen0 主程序配方与 wechat.dylib
+    /// 配方同轮命中时，条目必须落进各自 binary 的 Target——旧实现把全部条目
+    /// 池进一个 "revoke" 组，Target.binary 取 recipes.values.first（字典迭代
+    /// 序不定），主程序条目会被贴上 dylib 的 binary，expected 门去错误的文件
+    /// 上校验，patch 必然 expectedMismatch。
+    @Test func mergeLocatedSplitsEntriesByBinary() {
+        var versionEntry = Config.VersionEntry(version: "33480", targets: [
+            Config.Target(identifier: "revoke", binary: "Contents/Resources/wechat.dylib", entries: [
+                MachOFixture.entry(.arm64, addr: "100", asm: "00008052C0035FD6",
+                                   expected: ["F44FBEA9FD7B01A9"]),
+            ])
+        ])
+        let located: [(binary: String?, entry: Config.PatchEntry)] = [
+            ("Contents/Resources/wechat.dylib",
+             MachOFixture.entry(.x86_64, addr: "200", asm: "31C0C3909090909090",
+                                expected: ["554889E553504889FB"], source: "recipe:revoke_x64")),
+            ("Contents/MacOS/WeChat",
+             MachOFixture.entry(.arm64, addr: "3CBE7B0", asm: "00008052C0035FD6",
+                                expected: ["F44FBEA9FD7B01A9"], source: "recipe:revoke_arm64_gen0")),
+        ]
+        Engine.mergeLocated(located, into: &versionEntry)
+
+        // dylib 条目并入既有 Target（arch 去重：arm64 已在场，仅追加 x86_64）
+        let dylibTarget = versionEntry.targets.first {
+            $0.identifier == "revoke" && $0.binary == "Contents/Resources/wechat.dylib"
+        }
+        #expect(dylibTarget?.entries.count == 2)
+        #expect(dylibTarget?.entries.map(\.arch) == [.arm64, .x86_64])
+
+        // 主程序条目必须独立成 Target：binary 正确，不被并进 dylib 组
+        let mainTarget = versionEntry.targets.first {
+            $0.identifier == "revoke" && $0.binary == "Contents/MacOS/WeChat"
+        }
+        #expect(mainTarget?.entries.count == 1)
+        #expect(mainTarget?.entries.first?.addr == "3CBE7B0")
+    }
+
+    /// 同 arch 已在场时 recipe 条目不重复追加（精编条目优先，合并幂等）
+    @Test func mergeLocatedDedupesByArch() {
+        var versionEntry = Config.VersionEntry(version: "270099", targets: [
+            Config.Target(identifier: "revoke", binary: "Contents/Resources/wechat.dylib", entries: [
+                MachOFixture.entry(.x86_64, addr: "4e8d440", asm: "31C0C3909090909090",
+                                   expected: ["554889E553504889FB"]),
+            ])
+        ])
+        let located: [(binary: String?, entry: Config.PatchEntry)] = [
+            ("Contents/Resources/wechat.dylib",
+             MachOFixture.entry(.x86_64, addr: "537de29", asm: "30C0",
+                                expected: ["84C00F84????????"])),
+        ]
+        Engine.mergeLocated(located, into: &versionEntry)
+        #expect(versionEntry.targets.count == 1)
+        #expect(versionEntry.targets[0].entries.count == 1, "同 arch 已有精编条目，recipe 条目不追加")
+    }
+
+    /// Signatures.load 的 hex 门：auto-locate 合成条目绕过 Config.validate，
+    /// 坏 asm/expected 会让 Patcher 的 Data(hex:) 强解包 trap——必须在装载期
+    /// 拒成干净的 malformed 错误。
+    @Test func signaturesLoadRejectsBadHex() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-sig-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let badAsm = """
+        {"recipes":{"r1":{"arch":"x86_64","anchor":"imm64:revokems","derive":"padding-boundary",
+        "expected":"554889E553504889FB","asm":"31C0C390909090909","binary":null}}}
+        """
+        try badAsm.write(to: dir.appendingPathComponent("signatures.json"), atomically: true, encoding: .utf8)
+        #expect(throws: (any Error).self) {
+            _ = try Signatures.load(explicit: dir.appendingPathComponent("signatures.json").path)
+        }
+
+        let badExpected = """
+        {"recipes":{"r1":{"arch":"x86_64","anchor":"imm64:revokems","derive":"padding-boundary",
+        "expected":"ZZGG","asm":"31C0C3","binary":null}}}
+        """
+        try badExpected.write(to: dir.appendingPathComponent("signatures.json"), atomically: true, encoding: .utf8)
+        #expect(throws: (any Error).self) {
+            _ = try Signatures.load(explicit: dir.appendingPathComponent("signatures.json").path)
+        }
+
+        // 合法通配形态不受影响
+        let wild = """
+        {"recipes":{"r1":{"arch":"x86_64","anchor":"imm64:revokems","derive":"padding-boundary",
+        "expected":"84C00F84????????","asm":"30C0","binary":null}}}
+        """
+        try wild.write(to: dir.appendingPathComponent("signatures.json"), atomically: true, encoding: .utf8)
+        let signatures = try Signatures.load(explicit: dir.appendingPathComponent("signatures.json").path)
+        #expect(signatures.recipes["r1"]?.asm == "30C0")
+    }
+
     @Test func autoLocatedEntrySynthesizesAndPatches() throws {
         let workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-autolocate-\(UUID().uuidString)")

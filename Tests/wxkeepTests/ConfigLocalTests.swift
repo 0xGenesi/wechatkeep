@@ -61,3 +61,38 @@ struct ConfigLocalTests {
         }
     }
 }
+
+/// 安全不变量回归：asm 写入跨度不得超过 expected 溯源跨度。
+/// expected 门只校验 expected 长度的前缀——asm 更长的条目会覆盖无出处的
+/// 尾部字节且 restore 无法回补（catalog 拒载是唯一安全侧）。
+extension ConfigLocalTests {
+    @Test func asmSpanBeyondProvenanceIsRejected() {
+        // asm 6B > expected 4B：必须拒载
+        let over = """
+        [{"version":"900001","targets":[
+          {"identifier":"revoke","binary":"x","entries":[
+            {"arch":"x86_64","addr":"100","expected":"AABBCCDD","asm":"112233445566"}]}]}]
+        """
+        #expect(throws: (any Error).self) {
+            _ = try Config(data: Data(over.utf8), origin: "inline")
+        }
+        // 通配 expected 同规（通配不影响字节计数）
+        let wild = """
+        [{"version":"900002","targets":[
+          {"identifier":"revoke","binary":"x","entries":[
+            {"arch":"x86_64","addr":"100","expected":"84C00F84????????","asm":"30C0CCDDEEFF00112233"}]}]}]
+        """
+        #expect(throws: (any Error).self) {
+            _ = try Config(data: Data(wild.utf8), origin: "inline")
+        }
+        // 等长（silent 形态 9B=9B）与短于（守卫形态 2B≤8B）均放行
+        let ok = """
+        [{"version":"900003","targets":[
+          {"identifier":"revoke","binary":"x","entries":[
+            {"arch":"x86_64","addr":"100","expected":"554889E553504889FB","asm":"31C0C3909090909090"},
+            {"arch":"x86_64","addr":"200","expected":"84C00F84????????","asm":"30C0"}]}]}]
+        """
+        do { _ = try Config(data: Data(ok.utf8), origin: "inline") }
+        catch { Issue.record("等长/短于溯源跨度必须放行: \(error)") }
+    }
+}

@@ -12,52 +12,29 @@ gen_verify_spec.py — 从补丁点自动反解行为验证规格（verify spec�
 输出: verify spec JSON（贴进 signatures.json 对应配方的 "verify" 字段）
 """
 import json
-import struct
 import sys
 
-from capstone import *
-from capstone.x86 import X86_REG_RIP, X86_OP_MEM, X86_OP_IMM
+import machutil
 
-def parse_text(d):
-    p, ncmds, secs = 32, struct.unpack_from('<I', d, 16)[0], []
-    for _ in range(ncmds):
-        cmd, cmdsize = struct.unpack_from('<II', d, p)
-        if cmd == 0x19:
-            nsects = struct.unpack_from('<I', d, p+64)[0]; sp = p+72
-            for i in range(nsects):
-                sname = d[sp:sp+16].rstrip(b'\0').decode()
-                saddr, ssize = struct.unpack_from('<QQ', d, sp+32)
-                soff = struct.unpack_from('<I', d, sp+48)[0]
-                secs.append((sname, saddr, ssize, soff)); sp += 80
-        if cmdsize == 0: break
-        p += cmdsize
-    return next(s for s in secs if s[0] == '__text')
-
-def parse_segments(d):
-    """__TEXT 段级 VA→fileoff（PLT 桩在 __stubs，不在 __text——section 级换算会漏）。"""
-    p, ncmds, segs = 32, struct.unpack_from('<I', d, 16)[0], []
-    for _ in range(ncmds):
-        cmd, cmdsize = struct.unpack_from('<II', d, p)
-        if cmd == 0x19:
-            segname = d[p+8:p+24].rstrip(b'\0').decode()
-            vmaddr, vmsize, fileoff, _ = struct.unpack_from('<QQQQ', d, p+24)
-            segs.append((segname, vmaddr, vmsize, fileoff))
-        if cmdsize == 0: break
-        p += cmdsize
-    return segs
+try:
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_64
+    from capstone.x86 import X86_OP_IMM
+except ImportError:
+    sys.exit('需要 capstone: pip3 install capstone')
 
 def va2off(text, va):
-    return text[3] + (va - text[1])
+    # text = machutil.text_range 的 (addr, size, fileoff) 三元组
+    return text[2] + (va - text[0])
 
 def main():
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     d = open(sys.argv[1], 'rb').read()
     site = int(sys.argv[2], 16)
-    text = parse_text(d)
-    segs = parse_segments(d)
+    text = machutil.text_range(d)
+    segs = machutil.segments(d)
     def seg_off(va):
-        for name, vmaddr, vmsize, fileoff in segs:
+        for name, vmaddr, vmsize, fileoff, filesize in segs:
             if vmaddr <= va < vmaddr + vmsize:
                 return fileoff + (va - vmaddr)
         return None

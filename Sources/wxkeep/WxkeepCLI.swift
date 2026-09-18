@@ -214,7 +214,10 @@ extension Wxkeep {
             print("build \(build) — \(signatures.recipes.count) recipes")
 
             var derived: [Config.PatchEntry] = []
-            var targets: [String: [Config.PatchEntry]] = [:]
+            // 定位产物带 binary 归属：合并时按 binary 分组落进各自的 Target
+            // （Engine.mergeLocated），不再池化进单组——gen0 主程序配方与
+            // wechat.dylib 配方并存时，池化会把 binary 字段写错文件。
+            var located: [(binary: String?, entry: Config.PatchEntry)] = []
             for (name, spec) in signatures.recipes.sorted(by: { $0.key < $1.key }) {
                 let binary = WeChatApp.binaryURL(app: options.app, relative: spec.binary)
                 guard FileManager.default.fileExists(atPath: binary.path) else {
@@ -233,7 +236,7 @@ extension Wxkeep {
                         expected: Config.ExpectedVariants(spec.expected),
                         asm: spec.asm, source: "recipe:\(name)")
                     derived.append(entry)
-                    targets["revoke", default: []].append(entry)
+                    located.append((spec.binary, entry))
                 } catch {
                     print("  [\(name)] — \(error)")
                 }
@@ -257,6 +260,15 @@ extension Wxkeep {
                 let backup = localURL.appendingPathExtension("bak." + String(Int(Date().timeIntervalSince1970)))
                 if FileManager.default.fileExists(atPath: localURL.path) {
                     try? FileManager.default.copyItem(at: localURL, to: backup)
+                    // 保留策略：config.local.json.bak.* 只留最新 3 个
+                    let dir = localURL.deletingLastPathComponent()
+                    if let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path) {
+                        let baks = entries.filter { $0.hasPrefix(localURL.lastPathComponent + ".bak.") }
+                            .sorted(by: >)
+                        for stale in baks.dropFirst(3) {
+                            try? FileManager.default.removeItem(atPath: dir.appendingPathComponent(stale).path)
+                        }
+                    }
                 }
                 var localConfig: Config
                 if FileManager.default.fileExists(atPath: localURL.path) {
@@ -267,18 +279,7 @@ extension Wxkeep {
                 let existingIdx = localConfig.versions.firstIndex { $0.version == build }
                 var versionEntry = existingIdx.map { localConfig.versions[$0] }
                     ?? Config.VersionEntry(version: build, targets: [], note: nil)
-                for (identifier, entries) in targets {
-                    if let idx = versionEntry.targets.firstIndex(where: { $0.identifier == identifier }) {
-                        // keep precise entries; add recipe-derived for arches not present
-                        let archs = Set(versionEntry.targets[idx].entries.map(\.arch))
-                        versionEntry.targets[idx].entries += entries.filter { !archs.contains($0.arch) }
-                    } else {
-                        versionEntry.targets.append(Config.Target(
-                            identifier: identifier,
-                            binary: signatures.recipes.values.first?.binary,
-                            entries: entries))
-                    }
-                }
+                Engine.mergeLocated(located, into: &versionEntry)
                 if let idx = existingIdx {
                     localConfig.versions[idx] = versionEntry
                 } else {
@@ -445,11 +446,27 @@ extension Wxkeep {
                 let injected = MachOInjector.isInjectedAnySlice(data: data, path: lcPath)
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 let dylibExists = FileManager.default.fileExists(atPath: dylib.path)
-                let marker = Config.userDataURL.appendingPathComponent("runtime.marker")
+                let marker = RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker")
                 let markerExists = FileManager.default.fileExists(atPath: marker.path)
                 print("LC_LOAD_DYLIB 注入: \(injected ? "是" : "否")")
                 print("runtime dylib:     \(dylibExists ? "存在" : "缺失") (\(dylib.path))")
                 print("加载标记:          \(markerExists ? "已加载（上次启动）" : "无记录")")
+                // runtime.json 在微信 App Group 容器（dylib 沙盒内读同一路径），
+                // plist 格式——与 RuntimeConfig.mergeKnownHooks 同源同格式。
+                let cfg = (try? PropertyListSerialization.propertyList(
+                    from: Data(contentsOf: RuntimeConfig.url()),
+                    options: [], format: nil)) as? [String: Any]
+                if let hooks = cfg?["hooks"] as? [[String: Any]] {
+                    let builds = hooks.compactMap { $0["build"] as? String }.joined(separator: "/")
+                    print("hooks 地址表:      \(hooks.count) 行（\(builds)）")
+                } else {
+                    print("hooks 地址表:      无（dylib 用内置表，仅 270099 x64）")
+                }
+                if let tip = cfg?["tip_text"] as? String, !tip.isEmpty {
+                    print("自定义文案:        \(tip)")
+                } else {
+                    print("自定义文案:        未配置（无 tip_text 则 hook 只武装不改写）")
+                }
                 let state = injected && dylibExists ? (markerExists ? "已启用" : "已注入（启动微信后生效）") : "未启用"
                 print("整体:              \(state)")
             }
@@ -509,6 +526,17 @@ extension Wxkeep {
                     throw error
                 }
                 print("✓ runtime 已注入（微信下次启动时加载）")
+                // hooks 地址表随装写入 runtime.json（新构建 day-0 数据通道，
+                // 详见 RuntimeConfig 注释）；tip_text/rewrite_self 不在管理面，
+                // 用户手写的值原样保留。
+                do {
+                    let rows = try RuntimeConfig.mergeKnownHooks(into: RuntimeConfig.url())
+                    print("  hooks: \(rows.count) 行（runtime.json，构建 \(rows.map(\.build).joined(separator: "/"))）")
+                    print("  文案: 编辑 \(RuntimeConfig.url().path) 的 tip_text（支持 {from} 占位符）")
+                } catch {
+                    print("  ⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")
+                    print("     dylib 将回落内置地址表（当前构建仍可用）")
+                }
                 print("  验证: 启动微信后运行 wxkeep runtime status")
                 print("  移除: wxkeep runtime remove")
             }

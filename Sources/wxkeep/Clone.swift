@@ -96,6 +96,7 @@ enum Clone {
         // 2. Rewrite Info.plist: unique bundle ID + marker + strip URL schemes
         let plist = dest.appendingPathComponent("Contents/Info.plist")
         guard let dict = NSMutableDictionary(contentsOf: plist) else {
+            cleanup()
             throw CloneError.plistWriteFailed("unreadable")
         }
         let newBundleID = "\(originalBundleID).wxkeep.\(idx)"

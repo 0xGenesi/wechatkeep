@@ -290,10 +290,6 @@ struct Doctor {
 
     // MARK: - Rendering
 
-    // MARK: - 切片哈希观察
-
-
-
     static func render(_ report: Report) -> String {
         var lines: [String] = []
         lines.append("------ Doctor ------")

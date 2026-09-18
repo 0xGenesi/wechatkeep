@@ -34,16 +34,30 @@ Contents/Frameworks/wxkeep_runtime.dylib                                    ← 
   `<>&` 配置期剥除），SSO 结构与分配器零接触；下游解析/入库/会话预览/
   渲染/历史重扫全链一致（连 DB 持久化都是自定义文本）。引擎：UUID 门 +
   序言 12B 门 + RWX 蹦床 + `_dyld_register_func_for_add_image` 同步回调
-  与既有镜像扫描双保险；6 项单测（RuntimeHookTests）。剩余：真机装
-  dylib 后一轮真实撤回肉眼验收（研究语义已被 drive22 全链证明）。
+  与既有镜像扫描双保险。
   **实弹定案补遗（2026-09-18 drive25）**：调试器同语义改写已肉眼验收 ✅
   ——线上撤回 XML 的提示文本承载元素实测为 **<content>**（非
   <replacemsg>，后者为 parse 内另一分支形态），改写已补充双标签 +
-  CDATA `]]>` 闭合保护（8 项单测）；且 sysmsg 会被多轮重解析，**已入库
+  CDATA `]]>` 闭合保护；且 sysmsg 会被多轮重解析，**已入库
   的旧提示亦可追溯换文案**。注：wrapper+0x130 偏移为静态推定，若实机
   hook 未生效则地址表切 parse 入口（rsi 直挂，drive25 实证）。
-- **M-R3**：{from}/{content} 占位符（消息缓存，按 serverId 终结器缓存——
-  fzlzjerry 同款思路）+ 群聊适配
+  **2026-09-18 午后增补**：
+  - **{from} 占位符（M-R3-lite）**：tip_text 里的 `{from}` 展开为原内文
+    首对引号内的撤回者昵称；昵称 >64B 或展开超缓冲 → 放弃改写保原文
+    （截断会切碎 UTF-8）；无引号形态展开为空
+  - **自发撤回门 rewrite_self（默认 false）**：「你撤回了一条消息」
+    内文默认不改写——自己的撤回保持诚实反馈（RecallKeeper 同款语义）
+  - **地址表外置**：runtime.json `hooks` 数组 = day-0 数据通道（行 schema
+    见 runtime.m hook_row_parse；UUID 形制/hex/长度/arm64 序言编码全过门，
+    坏行整行丢弃）。`runtime install` 按 uuid 合并写入已知行；外部表在场
+    则 dylib 只用外部表，否则回落内置表。新构建 = 数据一行，无需重编
+  - **arm64 hook 机器**：16B `ldr x17,#8; br x17; .quad` 入口桩 + 蹦床 +
+    `sys_icache_invalidate`（wechat.dylib arm64 切片实测无 PAC/BTI）；
+    序言可换址性有编码级防线（ADRP/ADR/B/BL/CBZ/TBZ/LDR-literal 拒绝）。
+    待 RE 产出 arm64 wrapper 地址行即可启用
+- **M-R3 余项**：{content} 占位符（消息缓存，按 serverId 终结器缓存——
+  fzlzjerry 同款思路，其 {from}/{time} 已由本轮 {from} + 服务端时间戳
+  文案部分覆盖）+ 群聊适配实弹验证
 - **M-R4 ⛔（阻塞：活体数据缺）**：消息"已撤回"标记——状态写位点已定位
   （`mov [rdx+0x118],9` @0x355ab00@270099，全镜像唯一，269602 0x32e73a0
   双子）。阻塞点：keeptip 态下该路径不达（newmsgid=0 → 状态标记零命中，
@@ -70,3 +84,11 @@ Contents/Frameworks/wxkeep_runtime.dylib                                    ← 
   dylib 拷贝/重签失败会回滚主程序并清理 dylib（不留「LC 在场但库缺失」
   的启动必崩态）；remove 对「LC 缺失 + 孤儿 dylib」做安全清理而非报错
   （LC 已实证缺失时删除 dylib 无启动风险）
+- **外部 hooks 表的信任边界（2026-09-18 增补）**：runtime.json 属用户
+  本地信任域（与 tip_text 同域）。hooks 行被全部结构性门约束：UUID 必须
+  形制合法且与在载镜像 LC_UUID 全等（错构建零作用）、expected 必须与
+  目标入口原像逐字节相等（错位点零作用）、arm64 序言过 PC 相对编码
+  过滤、偏移/参数有界——恶意/误配行最坏结果是「hook 不装」或「在指定
+  构建上对指定入口改写撤回文案」，无法注入任意执行语义。数据权威源
+  仍是经 Ed25519 清单签名的工具侧（RuntimeConfig.knownHooks / 未来的
+  signatures.json 分发），runtime.json 只是投放通道

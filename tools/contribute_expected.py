@@ -17,38 +17,16 @@ contribute_expected.py — 用一份原版 wechat.dylib 回填 config.json 里�
   - 条目地址超出 dylib 范围/落在非加载段 → 报告 skipped（构建不符的信号），绝不猜
   - 打印 dylib 各架构切片 SHA-256 供贡献者留档
 """
-import argparse, json, shutil, struct, sys, time, hashlib
+import argparse, json, shutil, sys, time, hashlib
+
+import machutil
 
 def load_slices(path):
-    """返回 {cputype: slice_bytes}；thin/fat 均可。"""
-    data = open(path, 'rb').read()
-    magic = struct.unpack_from('>I', data, 0)[0]
-    out = {}
-    if magic in (0xCAFEBABE, 0xBEBAFECA):
-        nfat = struct.unpack_from('>I', data, 4)[0]
-        for i in range(nfat):
-            ct, cs, off, size, align = struct.unpack_from('>IIIII', data, 8 + i * 20)
-            out[ct] = data[off:off + size]
-    else:
-        ct = struct.unpack_from('<i', data, 4)[0]
-        out[ct] = data
-    return out
-
-def segments(slice_bytes):
-    p, ncmds = 32, struct.unpack_from('<I', slice_bytes, 16)[0]
-    cur = 32
-    for _ in range(ncmds):
-        cmd, cmdsize = struct.unpack_from('<II', slice_bytes, cur)
-        if cmd == 0x19:
-            vmaddr, vmsize, fileoff, filesize = struct.unpack_from('<QQQQ', slice_bytes, cur + 24)
-            yield vmaddr, vmsize, fileoff, filesize
-        cur += cmdsize
+    """返回 {cputype: slice_bytes}；thin/fat 均可（machutil 统一实现）。"""
+    return machutil.load_slices(path)
 
 def va2off(slice_bytes, va):
-    for vmaddr, vmsize, fileoff, filesize in segments(slice_bytes):
-        if vmaddr <= va < vmaddr + vmsize and (va - vmaddr) < filesize:
-            return fileoff + (va - vmaddr)
-    return None
+    return machutil.va2off(slice_bytes, va)
 
 def dylib_build_from_app(app):
     import subprocess, os
@@ -83,7 +61,7 @@ def main():
         import hashlib as _h
         entry = {}
         for ct, sb in sorted(slices.items()):
-            name = {0x01000007: 'x86_64', 0x0100000C: 'arm64'}.get(ct, f'cputype{ct:x}')
+            name = machutil.CPU_NAMES.get(ct, f'cputype{ct:x}')
             entry[name] = _h.sha256(sb).hexdigest()
             print(f'  {name}: {entry[name]}')
         known_path = 'known_dylib_hashes.json'
@@ -104,7 +82,7 @@ def main():
     ver = next((v for v in cfg if str(v['version']) == str(build)), None)
     if ver is None:
         sys.exit(f'config.json 里没有构建 {build} 的条目')
-    CPU = {'arm64': 0x0100000C, 'x86_64': 0x01000007}
+    CPU = {'arm64': machutil.CPU_ARM64, 'x86_64': machutil.CPU_X86_64}
 
     filled = skipped = still = 0
     for t in ver['targets']:
@@ -121,12 +99,16 @@ def main():
                 print(f'  skipped {t["identifier"]}/{arch}@{e["addr"]}: 地址不在该 slice 的加载段（构建不符？）')
                 skipped += 1
                 continue
-            want = 8   # 所有条目的 expected ≥4 字节；取 8 字节足够（引擎按条目 asm 长度做前缀比较）
+            # patch 侧是前缀比较（短 expected 也匹配），但 restore 会把
+            # expected[0] 原样写回——短于 asm 的条目还原后会残留补丁尾巴
+            # （269602 的 9/12 字节 asm 实证）。取 max(asm, 8)：覆盖整个
+            # 写入跨度，短补丁保留 8 字节溯源裕量。
+            want = max(len(bytes.fromhex(e['asm'])), 8)
             raw = sb[off:off + want]
             if args.dry_run:
                 print(f'  would fill {t["identifier"]}/{arch}@{e["addr"]}: {raw.hex().upper()}')
             else:
-                e['expected'] = raw.hex().upper()
+                e['expected'] = [raw.hex().upper()]   # 数组形态（与引擎编码/backfill 一致）
                 e.setdefault('source', '')
                 e['source'] = (e['source'] + ' ' if e['source'] else '') + f'contributed:{build}'
             filled += 1

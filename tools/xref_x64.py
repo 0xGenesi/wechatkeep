@@ -3,104 +3,85 @@
 输入 dylib 放仓库 var/wxarm/（持久；/tmp 会被清）：
   lipo -thin x86_64 /Applications/WeChat.app/Contents/Resources/wechat.dylib \
     -output var/wxarm/new270099_x64.dylib
+用法:
+  python3 tools/xref_x64.py [--dylib <path>] callers <fn-va-hex>
+  python3 tools/xref_x64.py dis <va-hex> [n] | find <str> | xrefs <str>
+  （--dylib 缺省取 var/wxarm/new270099_x64.dylib，或环境变量 WXKEEP_X64_DYLIB）
+依赖 tools/machutil.py（段表/function_starts 统一口径）。
 """
-import struct, sys, bisect
-import capstone
+import bisect
 import os
+import struct
+import sys
 
-PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    'var', 'wxarm', 'new270099_x64.dylib')
-d = open(PATH, 'rb').read()
+import capstone
+import machutil
 
-sections = {}
-func_starts_off = func_starts_size = 0
-p, ncmds = 32, struct.unpack_from('<I', d, 16)[0]
-text_seg_addr = 0
-for _ in range(ncmds):
-    cmd, cmdsize = struct.unpack_from('<II', d, p)
-    if cmd == 0x19:  # LC_SEGMENT_64
-        segname = d[p+8:p+24].rstrip(b'\0').decode()
-        if segname == '__TEXT':
-            text_seg_addr = struct.unpack_from('<Q', d, p+24)[0]
-        nsects = struct.unpack_from('<I', d, p+64)[0]
-        sp = p + 72
-        for _ in range(nsects):
-            sectname = d[sp:sp+16].rstrip(b'\0').decode()
-            addr, size = struct.unpack_from('<QQ', d, sp+32)
-            offset = struct.unpack_from('<I', d, sp+48)[0]
-            sections[(segname, sectname)] = (addr, size, offset)
-            sp += 80
-    elif cmd == 0x26:  # LC_FUNCTION_STARTS
-        func_starts_off, func_starts_size = struct.unpack_from('<II', d, p+8)
-    p += cmdsize
+DEFAULT_DYLIB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             'var', 'wxarm', 'new270099_x64.dylib')
 
-TEXT_ADDR, TEXT_SIZE, TEXT_OFF = sections[('__TEXT', '__text')]
 
-# LC_FUNCTION_STARTS: ULEB128 deltas, base = __TEXT vmaddr
-fs = d[func_starts_off:func_starts_off+func_starts_size]
-vals, cur, shift = [], 0, 0
-for b in fs:
-    cur |= (b & 0x7f) << shift
-    shift += 7
-    if not (b & 0x80):
-        vals.append(cur)
-        cur, shift = 0, 0
-funcs, acc = [], text_seg_addr
-for v in vals:
-    acc += v
-    funcs.append(acc)
-funcs = sorted(set(funcs))
-print(f'__text [{TEXT_ADDR:#x}..{TEXT_ADDR+TEXT_SIZE:#x}) fileoff={TEXT_OFF:#x} functions={len(funcs)}', file=sys.stderr)
+def load(path):
+    d = open(path, 'rb').read()
+    ta, tsz, to = machutil.text_range(d)
+    sections = {(seg, sect): (addr, size, off)
+                for seg, sect, addr, size, off in machutil.sections(d)}
+    funcs = sorted(set(machutil.function_starts(d)))
+    return d, ta, tsz, to, sections, funcs
 
-md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
 
-def func_of(va):
+def func_of(funcs, va):
     i = bisect.bisect_right(funcs, va) - 1
     return funcs[i] if i >= 0 else None
 
-def func_end(va):
-    i = bisect.bisect_right(funcs, va)
-    return funcs[i] if i < len(funcs) else TEXT_ADDR + TEXT_SIZE
 
-def disasm(va, n=16):
-    off = va - TEXT_ADDR + TEXT_OFF
+def func_end(ta, tsz, funcs, va):
+    i = bisect.bisect_right(funcs, va)
+    return funcs[i] if i < len(funcs) else ta + tsz
+
+
+def disasm(md, d, ta, to, va, n=16):
+    off = va - ta + to
     out = []
-    for ins in md.disasm(d[off:off+n*18], va):
+    for ins in md.disasm(d[off:off + n * 18], va):
         out.append(f'{ins.address:#x}: {ins.mnemonic} {ins.op_str}')
         if len(out) >= n:
             break
     return out
 
-def aligned(site):
+
+def aligned(md, d, ta, to, site):
     """E8 对齐验证：site-1..site-16 任一起点线性反汇编恰好落在 site"""
-    off = site - TEXT_ADDR + TEXT_OFF
+    off = site - ta + to
     for k in range(1, 17):
         o = off - k
-        for ins in md.disasm(d[o:off+16], site - k):
+        for ins in md.disasm(d[o:off + 16], site - k):
             if ins.address == site:
                 return True
             if ins.address > site:
                 break
     return False
 
-def callers_of(target):
+
+def callers_of(md, d, ta, tsz, to, funcs, target):
     res = []
-    blob = d[TEXT_OFF:TEXT_OFF+TEXT_SIZE]
+    blob = d[to:to + tsz]
     pos = 0
     while True:
         i = blob.find(b'\xe8', pos)
         if i < 0:
             break
         pos = i + 1
-        rel = struct.unpack_from('<i', blob, i+1)[0]
-        if rel + (i + TEXT_ADDR) + 5 != target:
+        rel = struct.unpack_from('<i', blob, i + 1)[0]
+        if rel + (i + ta) + 5 != target:
             continue
-        site = TEXT_ADDR + i
-        if aligned(site):
-            res.append((site, func_of(site)))
+        site = ta + i
+        if aligned(md, d, ta, to, site):
+            res.append((site, func_of(funcs, site)))
     return res
 
-def find_str(s):
+
+def find_str(d, s):
     out, pos = [], 0
     b = s.encode() if isinstance(s, str) else s
     while True:
@@ -110,48 +91,76 @@ def find_str(s):
         out.append(i)
         pos = i + 1
 
-def rip_xrefs(target_off):
-    """__text 内 lea rip-rel 引用（目标为文件偏移 target_off）"""
+
+def rip_xrefs(d, ta, tsz, to, sections, target_off):
+    """__text 内 lea rip-rel 引用（目标为文件偏移 target_off）。
+    模式 = REX(48/4c) 8d modrm(mod=00,rm=101) disp32——旧实现找单个 0x8d 再回看
+    两字节，实际匹配的是 `48 8d 8d`（lea [rbp+d]）形态，rip 引用恒漏（2026-09
+    审计实测发现：对 libsystem_kernel 全零命中）。"""
     res = []
-    blob = d[TEXT_OFF:TEXT_OFF+TEXT_SIZE]
-    pos = 0
-    while True:
-        i = blob.find(b'\x8d', pos)
-        if i < 0:
-            break
-        pos = i + 1
-        if i < 2:
-            continue
-        pre = blob[i-2:i]
-        if pre not in (b'\x48\x8d', b'\x4c\x8d'):
-            continue
-        modrm = blob[i+1]
-        if (modrm & 0xC7) != 0x05:
-            continue
-        disp = struct.unpack_from('<i', blob, i+2)[0]
-        site = TEXT_ADDR + i - 2
-        tgt_va = site + 7 + disp
-        for (seg, sec), (addr, size, off) in sections.items():
-            if addr and addr <= tgt_va < addr + size:
-                if off + (tgt_va - addr) == target_off:
-                    res.append(site)
+    blob = d[to:to + tsz]
+    for rex in (b'\x48\x8d', b'\x4c\x8d'):
+        pos = 0
+        while True:
+            i = blob.find(rex, pos)
+            if i < 0:
                 break
+            pos = i + 1
+            if i + 7 > len(blob):
+                continue
+            modrm = blob[i + 2]
+            if (modrm & 0xC7) != 0x05:
+                continue
+            disp = struct.unpack_from('<i', blob, i + 3)[0]
+            site = ta + i
+            tgt_va = site + 7 + disp   # rip = 指令末尾
+            for (_seg, _sec), (addr, size, off) in sections.items():
+                if addr and addr <= tgt_va < addr + size:
+                    if off + (tgt_va - addr) == target_off:
+                        res.append(site)
+                    break
     return res
 
-if __name__ == '__main__':
-    cmd = sys.argv[1]
+
+def main():
+    args = sys.argv[1:]
+    if args and args[0] == '--dylib':
+        if len(args) < 2:
+            raise SystemExit('--dylib 需要路径参数')
+        path, args = args[1], args[2:]
+    else:
+        path = os.environ.get('WXKEEP_X64_DYLIB', DEFAULT_DYLIB)
+    if not args:
+        raise SystemExit(__doc__)
+    cmd = args[0]
+
+    if not os.path.exists(path):
+        raise SystemExit(f'输入 dylib 不存在: {path}\n'
+                         f'（lipo -thin x86_64 <wechat.dylib> -output {path}）')
+    d, ta, tsz, to, sections, funcs = load(path)
+    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    print(f'__text [{ta:#x}..{ta + tsz:#x}) fileoff={to:#x} functions={len(funcs)}',
+          file=sys.stderr)
+
     if cmd == 'callers':
-        t = int(sys.argv[2], 16)
-        for site, f in callers_of(t):
-            print(f'call@{site:#x} in [{f:#x}..{func_end(f):#x})')
+        t = int(args[1], 16)
+        for site, f in callers_of(md, d, ta, tsz, to, funcs, t):
+            print(f'call@{site:#x} in [{f:#x}..{func_end(ta, tsz, funcs, f):#x})')
     elif cmd == 'dis':
-        va = int(sys.argv[2], 16)
-        n = int(sys.argv[3]) if len(sys.argv) > 3 else 20
-        print('\n'.join(disasm(va, n)))
+        va = int(args[1], 16)
+        n = int(args[2]) if len(args) > 2 else 20
+        print('\n'.join(disasm(md, d, ta, to, va, n)))
     elif cmd == 'find':
-        for off in find_str(sys.argv[2]):
+        for off in find_str(d, args[1]):
             print(f'{off:#x}')
     elif cmd == 'xrefs':
-        for off in find_str(sys.argv[2]):
-            for s in rip_xrefs(off):
-                print(f'str@{off:#x} <- lea@{s:#x} in [{func_of(s):#x}..{func_end(s):#x})')
+        for off in find_str(d, args[1]):
+            for s in rip_xrefs(d, ta, tsz, to, sections, off):
+                print(f'str@{off:#x} <- lea@{s:#x} in '
+                      f'[{func_of(funcs, s):#x}..{func_end(ta, tsz, funcs, s):#x})')
+    else:
+        raise SystemExit(f'未知子命令: {cmd}\n{__doc__}')
+
+
+if __name__ == '__main__':
+    main()

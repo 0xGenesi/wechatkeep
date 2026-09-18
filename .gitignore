@@ -12,3 +12,6 @@ keys/release.key
 # wxid、消息内容等隐私，绝不入库；但要留在项目目录内防丢（/tmp 会被清，
 # d22_run2_full.log 已因此丢失）。工具脚本默认输出已指向 var/。
 var/
+
+# Python 字节码缓存（tools/ 脚本被直接运行时产生）
+__pycache__/

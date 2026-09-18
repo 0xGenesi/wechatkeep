@@ -23,10 +23,14 @@ SOURCES = [
     ("vvanglro+wxkeep",        os.path.expanduser("~/wechattweak-intel/config.json"), 2),
 ]
 
+SOURCES_PRI = {name: pri for name, _path, pri in SOURCES}
+
 
 def entry_key(version, target, entry):
-    # 同一 target 同 arch 可以有多个补丁点（如 keeptip 三点），key 必须细到 addr
-    return (version, target.get("identifier"), target.get("binary", ""), entry["arch"], entry.get("addr"))
+    # 同一 target 同 arch 可以有多个补丁点（如 keeptip 三点），key 必须细到 addr。
+    # binary 用 `or ""`：显式 null 与缺字段同权（否则 null 存进 key、输出端
+    # 按 `or ""` 查找时条目会被静默丢弃——2026-09 审计修复）。
+    return (version, target.get("identifier"), target.get("binary") or "", entry["arch"], entry.get("addr"))
 
 
 def normalize_expected(entry):
@@ -122,17 +126,14 @@ def main():
             for e in t["entries"]:
                 archs[e["arch"]] = archs.get(e["arch"], 0) + 1
     print("架构分布:", archs)
+    # 溯源报告：被替换的条目（此前只收集不输出——2026-09 审计补上）
+    replaced = [(k, winner) for k, (winner, losers) in provenance.items()
+                if any("replaced" in reason for _loser, reason in losers)]
+    if replaced:
+        print(f"\n替换决策 {len(replaced)} 条:")
+        for (version, ident, _binary, arch, addr), winner in sorted(replaced):
+            print(f"  {version} {ident}/{arch}@{addr} → {winner}")
 
-
-SOURCES_PRI = {}  # placeholder, filled below
-
-
-def _init_pri():
-    for name, _path, pri in SOURCES:
-        SOURCES_PRI[name] = pri
-
-
-_init_pri()
 
 if __name__ == "__main__":
     main()

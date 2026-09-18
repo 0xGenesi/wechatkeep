@@ -21,38 +21,16 @@ locate_x64_parse_guard.py — 定位 x64 解析守卫分支（fzlzjerry x64 sile
   python3 tools/locate_x64_parse_guard.py /Applications/WeChat.app          # 只读定位
   python3 tools/locate_x64_parse_guard.py /Applications/WeChat.app --append config.json
 """
-import struct, re, json, sys, os, shutil, time
+import re, json, struct, sys, os, shutil, subprocess, time
 import collections
 
+import machutil
+
 def read_x64_slice(path):
-    data = open(path, 'rb').read()
-    magic = struct.unpack_from('>I', data, 0)[0]
-    if magic in (0xCAFEBABE, 0xBEBAFECA):
-        nfat = struct.unpack_from('>I', data, 4)[0]
-        for i in range(nfat):
-            cputype, _, off, size, _ = struct.unpack_from('>IIIII', data, 8 + i * 20)
-            if cputype == 0x01000007:
-                return data[off:off + size]
-        raise SystemExit('fat 里没有 x86_64 slice')
-    if struct.unpack_from('<i', data, 4)[0] != 0x01000007:
-        raise SystemExit('不是 x86_64 Mach-O')
-    return data
+    return machutil.load_slice(path, machutil.CPU_X86_64)
 
 def text_range(d):
-    p, ncmds = 32, struct.unpack_from('<I', d, 16)[0]
-    for _ in range(ncmds):
-        cmd, cmdsize = struct.unpack_from('<II', d, p)
-        if cmd == 0x19:
-            n = struct.unpack_from('<I', d, p + 64)[0]
-            sp = p + 72
-            for _ in range(n):
-                if d[sp:sp + 16].rstrip(b'\0') == b'__text':
-                    a, sz = struct.unpack_from('<QQ', d, sp + 32)
-                    o = struct.unpack_from('<I', d, sp + 48)[0]
-                    return a, sz, o
-                sp += 80
-        p += cmdsize
-    raise SystemExit('找不到 __text')
+    return machutil.text_range(d)
 
 def find_entry(d, t_off, site_off):
     o = site_off
@@ -191,5 +169,4 @@ def main():
         print(f'已写入 {cfg_path}（备份 {bak}）；重打 silent 即生效')
 
 if __name__ == '__main__':
-    import subprocess
     main()

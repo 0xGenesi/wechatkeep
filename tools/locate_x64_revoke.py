@@ -16,46 +16,19 @@ locate_x64_revoke.py — 为 Intel (x86_64) 微信自动定位防撤回 silent �
 
 只读分析 WeChat 二进制; --append 只改本工具链的 config.json (先自动备份)。
 """
-import struct, re, json, sys, os, shutil, subprocess, time
+import re, json, struct, sys, os, shutil, subprocess, time
+
+import machutil
 
 PATCH_ASM = '31C0C3909090909090'   # xor eax,eax; ret + 6x nop
 EXPECTED_LEN = 9
 
 def read_x64_slice(path):
-    data = open(path, 'rb').read()
-    magic = struct.unpack_from('>I', data, 0)[0]
-    if magic == 0xCAFEBABE or magic == 0xBEBAFECA:
-        nfat = struct.unpack_from('>I', data, 4)[0]
-        for i in range(nfat):
-            cputype, cpusub, off, size, align = struct.unpack_from('>IIIII', data, 8 + i * 20)
-            if cputype == 0x01000007:  # x86_64
-                return data[off:off + size]
-        raise SystemExit('fat 文件里没有 x86_64 slice')
-    # thin: 确认是 x86_64
-    cputype = struct.unpack_from('<i', data, 4)[0]
-    if cputype != 0x01000007:
-        raise SystemExit('不是 x86_64 thin Mach-O (cputype=0x%x)' % cputype)
-    return data
+    # fat/thin 均可；非 x86_64 时 machutil 报可读错误
+    return machutil.load_slice(path, machutil.CPU_X86_64)
 
 def parse_text_section(d):
-    p, ncmds, secs = 32, struct.unpack_from('<I', d, 16)[0], []
-    for _ in range(ncmds):
-        cmd, cmdsize = struct.unpack_from('<II', d, p)
-        if cmd == 0x19:
-            nsects = struct.unpack_from('<I', d, p + 64)[0]
-            sp = p + 72
-            for i in range(nsects):
-                sname = d[sp:sp+16].rstrip(b'\0').decode()
-                saddr, ssize = struct.unpack_from('<QQ', d, sp + 32)
-                soff = struct.unpack_from('<I', d, sp + 48)[0]
-                secs.append((sname, saddr, ssize, soff))
-                sp += 80
-        p += cmdsize
-    t = [s for s in secs if s[0] == '__text']
-    if not t:
-        raise SystemExit('找不到 __TEXT,__text')
-    _, t_addr, t_size, t_off = t[0]
-    return t_addr, t_size, t_off
+    return machutil.text_range(d)
 
 def find_entry(d, t_off, site_off):
     """向前找上一个函数结尾 (C3/E9/EB) + padding (CC/90/66 90) 之后的第一个字节"""

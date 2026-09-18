@@ -17,8 +17,16 @@ BASE = __TEXT,__const 里某块常量区（lea rcx,[rip+X]）；key 为 20 字�
 
 已验证（269602 x64）：139 串，含 message_revoke_manager.cc 全家族 24 函数——
 定位撤回子系统的首选武器。
+
+依赖: tools/machutil.py（同目录，VA 换算/函数边界统一口径）。
+2026-09 审计修复: 函数基址由「第一个 section 的 addr」改为 __TEXT 段 vmaddr
+（dyld 语义）——旧版 func 字段的 VA 系统性偏大（多加了 mach header + load
+commands 区域的大小）；str 字段不受影响。历史 decrypted_strings.json 的
+func 值如需精确引用，请用本工具重跑刷新。
 """
-import argparse, bisect, json, re, struct, sys
+import argparse, bisect, json, re, sys
+
+import machutil
 
 PATS = [
     rb'\x0f\xb6\x44\x0e(.)\x04(.)\x32\x42(.)',                 # movzx eax,[rsi+rcx+d8]; add al,i; xor al,[rdx+d8]
@@ -26,49 +34,6 @@ PATS = [
     rb'\x0f\xb6\x84\x0e(....)\x04(.)\x32\x42(.)',              # disp32 变体
     rb'\x44\x0f\xb6\x84\x0e(....)\x44\x04(.)\x44\x32\x42(.)',
 ]
-
-def load_slice(path, cputype=0x01000007):
-    data = open(path, 'rb').read()
-    magic = struct.unpack_from('>I', data, 0)[0]
-    if magic in (0xCAFEBABE, 0xBEBAFECA):
-        nfat = struct.unpack_from('>I', data, 4)[0]
-        for i in range(nfat):
-            ct, cs, o, s, al = struct.unpack_from('>IIIII', data, 8 + i * 20)
-            if ct == cputype:
-                return data[o:o + s]
-        raise SystemExit('no x86_64 slice')
-    return data
-
-def parse(d):
-    p, ncmds, secs, fs = 32, struct.unpack_from('<I', d, 16)[0], [], None
-    for _ in range(ncmds):
-        cmd, cmdsize = struct.unpack_from('<II', d, p)
-        if cmd == 0x19:
-            nsects = struct.unpack_from('<I', d, p + 64)[0]
-            sp = p + 72
-            for _ in range(nsects):
-                sname = d[sp:sp+16].rstrip(b'\0').decode()
-                saddr, ssize = struct.unpack_from('<QQ', d, sp + 32)
-                soff = struct.unpack_from('<I', d, sp + 48)[0]
-                secs.append((sname, saddr, ssize, soff))
-                sp += 80
-        elif cmd == 0x26:
-            fs = struct.unpack_from('<II', d, p + 8)
-        p += cmdsize
-    return secs, fs
-
-def function_starts(d, fs, first_vm):
-    blob = d[fs[0]:fs[0] + fs[1]]
-    funcs, addr, i = [], first_vm, 0
-    while i < len(blob):
-        delta = shift = 0
-        while True:
-            b = blob[i]; i += 1
-            delta |= (b & 0x7F) << shift; shift += 7
-            if not (b & 0x80): break
-        if delta:
-            addr += delta; funcs.append(addr)
-    return funcs
 
 def main():
     ap = argparse.ArgumentParser()
@@ -79,8 +44,9 @@ def main():
 
     src = args.source.rstrip('/')
     dylib = src + '/Contents/Resources/wechat.dylib' if src.endswith('.app') else src
-    D = load_slice(dylib)
-    secs, fs = parse(D)
+    D = machutil.load_slice(dylib, machutil.CPU_X86_64)
+    # machutil.sections: (segname, sectname, addr, size, fileoff) → 本工具只需 4 元组
+    secs = [(s[1], s[2], s[3], s[4]) for s in machutil.sections(D)]
     ta, tsz, to = [(s[1], s[2], s[3]) for s in secs if s[0] == '__text'][0]
     def o2v(o):
         for name, a, z, so in secs:
@@ -88,7 +54,10 @@ def main():
     def sec_off(va):
         for name, a, z, so in secs:
             if a <= va < a + z: return so + (va - a)
-    funcs = function_starts(D, fs, secs[0][1])
+    # 基址 = __TEXT 段 vmaddr（machutil，dyld 语义）——旧实现取第一个
+    # section 的 addr，函数归属 VA 系统性偏移了头部区域大小（2026-09 审计修复，
+    # libsystem_kernel nm 1566/1566 全命中交叉验证）。
+    funcs = machutil.function_starts(D)
     def func_of(va):
         k = bisect.bisect_right(funcs, va) - 1
         return funcs[k] if k >= 0 else 0

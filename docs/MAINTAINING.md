@@ -323,6 +323,28 @@ protobuf 同步批缓冲 / 会话预览记录（wxid+文本连写）/ DB 页缓�
   在 Continue 之前或用事件超时驱动（drive22 第二次踩坑，d22_run2_full.log
   会话即如此结束）
 
+## 第四轮审查（2026-09-18，工具链全量审计）
+
+范围 `tools/` 15 个主脚本逐文件精读 + 引擎源码/CI 交叉验证，修复 7 个真实
+缺陷（含修复过程中新发现的 3 个）、8 处小问题，并新增 `tools/machutil.py`
+统一 Mach-O 解析口径（VA→offset 一律段表、function_starts 基址一律
+`__TEXT.vmaddr`）。**完整清单、复现与验证记录见 [TOOLS-AUDIT.md](TOOLS-AUDIT.md)。**
+要点：
+
+- backfill_expected.py 的 XZ 自删 + 成功路径 finally 崩溃（每日 CI 遇 XZ
+  asset 必炸）——两处同族，一并修掉，单坏归档改为跳过不中止
+- push-to-github.sh 的 pipefail SSH 死分支；amfi_sip_probe.sh 的
+  verdict.json 非法 JSON（RUNS 路径）
+- contribute_expected.py 固定 8 字节回填在 9/12 字节 asm 条目上 restore
+  残留补丁尾巴（restore 是原样写回 expected[0]，不是前缀比较）
+- **xref_x64.py 的 xrefs 子命令从未工作过**（字节模式写反，实测 0 命中），
+  已修正并在系统 dylib 上端到端验证
+- **decrypt_strings.py 的函数基址偏大**（第一个 section addr ≠
+  `__TEXT.vmaddr`）——libsystem_kernel nm 1566/1566 交叉验证后修正；
+  历史 decrypted_strings.json 的 func 值需重跑刷新
+- 第三轮的两个「观察未修」本轮关账：SOURCES_PRI 位置（B4）；ci.yml 的
+  `versions || true` 维持原判（有意的冒烟）
+
 ## 工件目录惯例（2026-09-18 定）
 
 **重要文件一律放仓库 `var/`，不写 `/tmp`。** 动因：`/tmp/wxarm/d22_run2_full.log`

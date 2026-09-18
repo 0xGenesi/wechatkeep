@@ -115,7 +115,7 @@ class Image:
                     # 间接：name 偏移指向 __objc_selrefs 槽位，槽内是指向字符串的指针
                     slot = self.u64(name_va)
                     sel = self.cstr(self.decode_ptr(slot) or 0, 96) if slot else None
-                imp = entry_va + imp_rel
+                imp = entry_va + 8 + imp_rel   # imp 偏移相对 imp 字段自身（entry+8），非 name 字段——270099 实证：按 name 字段解析会落在真入口前 8B 的函数间填充区（nop 前导/前一函数尾字节），startUpdater 假形 `dec [rdi]` 即此假象
             else:
                 e = o + 8 + i * 24
                 name_p, _types_p, imp_p = struct.unpack_from("<QQQ", self.data, e)
@@ -126,13 +126,37 @@ class Image:
         return out
 
 
+def nop_prefix_len(b):
+    """标准 NOP 前导长度：90 / 66 90 / 0F 1F /0 族（按 modrm 解长度）。
+    4.1.15 编译器给 ObjC 方法常插 8B 对齐垫（270099 实测 0F1F8400 00000000）。"""
+    if b[0] == 0x90:
+        return 1
+    if b[:2] == b"\x66\x90":
+        return 2
+    if b[0] == 0x0F and b[1] == 0x1F and (b[2] & 0xC0) != 0xC0:   # 0F 1F /0，mod≠11
+        mod = b[2] & 0xC0
+        rm = b[2] & 0x07
+        n = 3
+        if mod == 0x40: n += 1
+        elif mod == 0x80: n += 4
+        if rm == 4 and mod != 0x00:  # SIB（mod=00 rm=100 是 RIP 相对，非 NOP 形态）
+            n += 1
+        return n
+    return 0
+
+
 def classify_ret_method(img, va):
-    """入口应为 push 序言。返回 (expected_hex, ok)。"""
+    """入口应为 push 序言（允许标准 NOP 前导）。返回 (expected_hex, ok)。
+    expected 覆盖 前导+序言首字节（asm="C3" 1B 跨度 ⊆ expected 跨度）。"""
     o = img.off(va)
-    b = img.data[o:o + 4]
-    if b[:3] == b"\x55\x48\x89" or b[0] in (0x55, 0x41, 0x53, 0x56, 0x57):
-        return b[:1].hex().upper(), True
-    if b[:1] == b"\xC3":
+    b = img.data[o:o + 16]
+    pad = nop_prefix_len(b)
+    b2 = b[pad:]
+    if b2[:3] == b"\x55\x48\x89":
+        return b[:pad + 4].hex().upper(), True   # 4B 门（asm 1B ⊆ 跨度）
+    if b2[:3] == b"\x55\x48\x89" or b2[0] in (0x55, 0x41, 0x53, 0x56, 0x57):
+        return (b[:pad + 1].hex().upper()), True
+    if b2[:1] == b"\xC3":
         return "C3", True  # already patched
     return b[:4].hex().upper(), False
 
@@ -238,7 +262,9 @@ def main():
         print(f"  get  {getter:38s} imp 0x{g:X} {gk} disp={gd} expected {gexp}")
         print(f"  set  {setter:38s} imp 0x{s:X} {sk} disp={sd} expected {sexp}")
         if not gok or not sok:
-            problems.append(f"bad accessor shape {getter}")
+            # 访问器非纯 stub 形态（如 270099 为带栈帧的完整函数体）→ 只降级
+            # 跳过该对，不阻断 ret 方法条目的产出（行为验证留给真机轮）。
+            print(f"  !! 访问器形态不符（跳过 {getter} 对，其余条目照常产出）")
             continue
         if gk == "getter" and sk == "setter" and gd != sd:
             problems.append(f"field mismatch {getter}: {gd} vs {sd}")

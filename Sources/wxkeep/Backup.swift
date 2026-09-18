@@ -15,6 +15,10 @@ enum Backup {
         }
     }
 
+    /// 同目录下最多保留的 wxkeep-bak 数量（保留最新 N 个；二进制备份
+    /// 340MB/个，无上限会吃满磁盘）。
+    static let keepCount = 3
+
     /// Copies `binary` next to itself as `<name>.wxkeep-bak-<yyyyMMdd-HHmmss>`.
     /// Returns the backup URL.
     @discardableResult
@@ -42,6 +46,20 @@ enum Backup {
             try? FileManager.default.removeItem(at: destination)
             throw BackupError.copyFailed("size mismatch after copy (\(originalSize) vs \(backupSize))")
         }
+        prune(keepingNewest: keepCount, matching: binary.path + ".wxkeep-bak-")
         return destination
+    }
+
+    /// 删除匹配前缀的旧备份，保留最新 `keep` 个（按文件名排序 = 时间序，
+    /// 时间戳格式保证字典序即时间序）。
+    static func prune(keepingNewest keep: Int, matching prefix: String) {
+        let dir = (prefix as NSString).deletingLastPathComponent
+        let base = (prefix as NSString).lastPathComponent
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return }
+        let backups = entries.filter { $0.hasPrefix(base) }
+            .sorted(by: >)   // 新的在前
+        for stale in backups.dropFirst(keep) {
+            try? FileManager.default.removeItem(atPath: dir + "/" + stale)
+        }
     }
 }

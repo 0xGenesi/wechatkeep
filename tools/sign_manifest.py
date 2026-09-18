@@ -56,10 +56,14 @@ def main():
         pem = open(pem_path).read()
         b64 = re.sub(r'-----[^-]+-----|\s', '', pem)
         der = base64.b64decode(b64)
-        seed = der[-32:]   # PKCS8 Ed25519: ...04 22 04 20 <32-byte seed>
-        if len(seed) != 32:
-            raise ValueError('not an Ed25519 PKCS8 key')
-        return SigningKey(seed).sign(message).signature
+        # PKCS8 Ed25519 DER 恒为 48 字节：302e020100300506032b657004220420 <seed32>。
+        # 旧版 der[-32:] 切片恒 32 字节、长度检查形同虚设——传错 PEM 类型
+        # （如 RSA/EC）会静默抠出 32 字节垃圾签出无效签名（2026-09 审计修复）。
+        PKCS8_ED25519_PREFIX = bytes.fromhex('302e020100300506032b657004220420')
+        if not der.startswith(PKCS8_ED25519_PREFIX) or len(der) != 48:
+            raise ValueError('not an Ed25519 PKCS8 key '
+                             '(expect: openssl genpkey -algorithm ed25519)')
+        return SigningKey(der[16:48]).sign(message).signature
 
     try:
         sig = sign_pynacl(args.key, canonical)

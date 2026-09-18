@@ -75,3 +75,64 @@ struct RealDylibTests {
         #expect(states.map(\.state) == [.pristine, .pristine])
     }
 }
+
+/// 通用回填端到端 harness（目录回填 SOP 的机器证明步骤）：
+/// WXKEEP_BACKFILL_DYLIB 指向真 wechat.dylib（源不被修改，副本上操作），
+/// WXKEEP_BACKFILL_JSON 给出 revoke target 的 entries JSON（locate +
+/// parse-guard 产物直接粘贴）。证明链：全 pristine（expected 门对原始字节
+/// 成立）→ patch 全写入 → 幂等重打 → restoreAsm 反演 → 文件与原版
+/// 字节级一致。无环境自动跳过（CI）。
+struct BackfillRoundtripTests {
+    private static var dylib: URL? {
+        guard let path = ProcessInfo.processInfo.environment["WXKEEP_BACKFILL_DYLIB"],
+              FileManager.default.fileExists(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+    private static var entriesJSON: String? {
+        guard let json = ProcessInfo.processInfo.environment["WXKEEP_BACKFILL_JSON"],
+              !json.isEmpty else { return nil }
+        return json
+    }
+
+    @Test(.disabled(if: dylib == nil || entriesJSON == nil,
+                    "WXKEEP_BACKFILL_DYLIB/JSON not set — backfill roundtrip skipped"))
+    func backfillPatchRestoreRoundtrip() throws {
+        let source = try #require(Self.dylib)
+        let json = try #require(Self.entriesJSON)
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-backfill-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let dylib = work.appendingPathComponent("wechat.dylib")
+        try FileManager.default.copyItem(at: source, to: dylib)
+        let before = try Data(contentsOf: dylib)
+
+        let catalog = try Config(data: Data(
+            ("[{\"version\":\"bf\",\"targets\":[{\"identifier\":\"revoke\",\"binary\":\"x\",\"entries\":"
+             + json + "}]}]").utf8), origin: "inline")
+        let entries = try #require(catalog.entry(build: "bf")?.targets.first?.entries)
+        try #require(!entries.isEmpty)
+
+        // 1. pristine：expected 门对原始字节成立（定位正确性的机器证明）
+        #expect(try Patcher.inspect(binary: dylib, entries: entries, identifier: "revoke")
+            .allSatisfy { $0.state == .pristine })
+        // 2. patch 全写入 + 态翻转
+        #expect(try Patcher.patch(binary: dylib, entries: entries, identifier: "revoke")
+            .allSatisfy { $0 == .written })
+        #expect(try Patcher.inspect(binary: dylib, entries: entries, identifier: "revoke")
+            .allSatisfy { $0.state == .patched })
+        // 3. 幂等重打
+        #expect(try Patcher.patch(binary: dylib, entries: entries, identifier: "revoke")
+            .allSatisfy { $0 == .alreadyPatched })
+        // 4. 反演恢复（通配条目经 restoreAsm 物化前缀），字节级与原版一致
+        let inverted = try entries.map { e -> Config.PatchEntry in
+            var copy = e
+            copy.asm = try #require(Engine.restoreAsm(for: e), "entry not restorable: \(e.addr)")
+            copy.expected = Config.ExpectedVariants([e.asm] + (e.expected?.values ?? []))
+            return copy
+        }
+        #expect(try Patcher.patch(binary: dylib, entries: inverted, identifier: "revoke")
+            .allSatisfy { $0 == .written })
+        #expect(try Data(contentsOf: dylib) == before)
+    }
+}

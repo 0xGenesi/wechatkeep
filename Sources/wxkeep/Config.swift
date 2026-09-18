@@ -28,20 +28,20 @@ struct Config {
         var entries: [PatchEntry]
     }
 
-        struct PatchEntry: Codable {
-            let arch: Arch
-            /// Hex VA within the arch slice (precise mode). Nil for recipe entries.
-            var addr: String?
-            /// Locator recipe (M2). Reserved now so the schema is stable.
-            var recipe: [String: String]?
-            /// Original bytes accepted before patching, hex. May list several
-            /// variants (pristine + already-patched states). Nil = quarantined.
-            var expected: ExpectedVariants?
-            /// Bytes to write, hex. (`var`: restore inverts asm/expected in a copy.)
-            var asm: String
-            /// Provenance: which upstream catalog / analysis produced this entry.
-            var source: String?
-        }
+    struct PatchEntry: Codable {
+        let arch: Arch
+        /// Hex VA within the arch slice (precise mode). Nil for recipe entries.
+        var addr: String?
+        /// Locator recipe (M2). Reserved now so the schema is stable.
+        var recipe: [String: String]?
+        /// Original bytes accepted before patching, hex. May list several
+        /// variants (pristine + already-patched states). Nil = quarantined.
+        var expected: ExpectedVariants?
+        /// Bytes to write, hex. (`var`: restore inverts asm/expected in a copy.)
+        var asm: String
+        /// Provenance: which upstream catalog / analysis produced this entry.
+        var source: String?
+    }
 
     struct ExpectedVariants: Codable, Equatable {
         let values: [String]
@@ -243,6 +243,20 @@ struct Config {
                             throw LoadError.malformed(
                                 "build \(v.version) target \(t.identifier): bad expected \"\(variant)\" "
                                 + "(hex, `?` wildcard nibbles, optional :maskHEX suffix)")
+                        }
+                    }
+                    // 写入跨度不得超出溯源跨度：expected 门只校验 expected 长度的
+                    // 前缀，asm 超过所有 expected 变体的字节数 = 覆盖无出处的尾部
+                    // 字节，restore 无法回补（安全不变量，宁拒载不暗写）。
+                    if let expected = e.expected {
+                        let asmLen = Data(hex: e.asm)?.count ?? 0
+                        let provenance = expected.values
+                            .compactMap { ExpectedPattern(spec: $0)?.byteCount }.max() ?? 0
+                        if asmLen > provenance {
+                            throw LoadError.malformed(
+                                "build \(v.version) target \(t.identifier): asm span (\(asmLen)B) "
+                                + "exceeds expected provenance (\(provenance)B) — the write would "
+                                + "touch bytes the catalog cannot restore")
                         }
                     }
                 }
