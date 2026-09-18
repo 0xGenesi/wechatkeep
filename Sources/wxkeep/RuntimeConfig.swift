@@ -149,7 +149,8 @@ enum RuntimeConfig {
                                                 withIntermediateDirectories: true)
         let out = try PropertyListSerialization.data(
             fromPropertyList: dict, format: .xml, options: 0)
-        try out.write(to: target)
+        // 原子写：微信启动瞬间撞上写入会读到半文件并静默回落内置表
+        try out.write(to: target, options: .atomic)
         return rows.map { row in
             // 合并产物回读为 HookRow 只为计数/展示；不合法的自定义行会被
             // dylib 丢弃（宁可不挂也不挂错），这里不因此失败。

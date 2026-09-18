@@ -616,3 +616,24 @@ kMaxExtHooks 16（越限有测试锁死）。
 短算（失败方向=拒绝条目，保守安全）；RuntimeStatus 已含全部诊断面，
 doctor 不再重复（单一 verdict 原则）；测试缝符号未做 hidden（能调用
 它们的威胁模型下本已可写内存，符号可见性不改变信任边界）。
+
+### ⑰ 第四轮复查（2026-09-19：发布链审查——一条误报更正 + 两处收尾）
+
+1. **「私钥入库」误报更正**：keys/release.key 在 .gitignore（仅 release.pub
+   入库），CI 有「无私钥材料入库」守卫步、签名走 RELEASE_SIGNING_KEY
+   secret——信任链完好，本地密钥与 CI secret 同源（双端签名对同一内嵌
+   公钥验证通过互证）。复核方法教训：看到本地文件存在 ≠ 已入库，需
+   `git ls-files`/`check-ignore` 实证。
+2. **主仓 Formula 同步**：brew 用户实际消费的 0xGenesi/homebrew-tap 为
+   0.1.3（当前最新 release），主仓参考副本停在 0.1.0——已按 tap 原样
+   同步（含 config/signatures resource 段）。
+3. **brew 安装的目录数据冻结问题**：tap formula 的 config/signatures
+   resource 指向 v0.1.2 tag——brew 用户默认拿到旧 catalog。已有双兜底
+   （wxkeep locate 配方 day-0 + update-data），README 安装节补
+   `wxkeep update-data` 提示，消除盲区。
+4. **runtime.json 原子写**：mergeKnownHooks 落盘改 .atomic——微信启动
+   瞬间撞上写入会读到半文件静默回落内置表。
+
+发布链其余（release.yml 单文件产物流程、ci.yml 双 runner 矩阵 + 私钥
+守卫 + manifest-sign secret 流程、GUI 子包未入库、contribute_expected
+machutil 化）核对无缺陷。

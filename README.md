@@ -8,6 +8,7 @@ macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具�
 
 ```bash
 brew install 0xGenesi/tap/wxkeep
+wxkeep update-data   # 拉取最新补丁数据（brew 安装的 catalog 随发版冻结；此命令 day-0 跟进新构建）
 ```
 
 或从 [Releases](https://github.com/0xGenesi/wechatkeep/releases) 下载单文件（universal，约 2.4MB）。
