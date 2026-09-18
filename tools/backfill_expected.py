@@ -26,6 +26,12 @@ import machutil
 
 ARCH_CPU = {"arm64": machutil.CPU_ARM64, "x86_64": machutil.CPU_X86_64}
 
+# 官方 CDN 构建归档直链（2026-09-19 发现）：按 营销版本_构建号 归档全部
+# 新版 dmg，非 XZ、无速率限制——优先于 zsbai（XZ 损坏频发）。实测覆盖
+# 269631/2700xx+ 时代；更老构建 404（回落 zsbai）。
+CDN_URL_FMT = ("https://dldir1v6.qq.com/weixin/Universal/Mac/"
+               "xWeChatMac_universal_{ver}_{build}.dmg")
+
 # 构建号 → 归档 tag（= 展示版本号）。zsbai 的 DestVersion 字段存的是展示版本
 # 而非构建号（实测 4.1.13.63 sidecar），构建号只能挂载 dmg 读 Info.plist。
 # 此表使回填无需盲扫 108 个 release：直接下候选 tag 挂载验证即可。
@@ -209,10 +215,16 @@ def main():
                 for t, _ in releases:
                     if t.startswith(base) and t not in cands and len(cands) < 8:
                         cands.append(t)
+            # CDN 构建归档直链排最前（hints 给出营销版本即可构造）
+            if hint and hint.count(".") >= 2:
+                cands.insert(0, "cdn:" + hint)
             candidates = cands
             done = False
             for tag in candidates:
-                url = next((u for t, u in releases if t == tag), None)
+                if tag.startswith("cdn:"):
+                    url = CDN_URL_FMT.format(ver=tag[4:], build=version)
+                else:
+                    url = next((u for t, u in releases if t == tag), None)
                 if not url:
                     continue
                 if tag in tagmap and tagmap[tag] != version and hit_tag is None:

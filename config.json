@@ -114,7 +114,10 @@
             "arch": "x86_64",
             "addr": "301DD8",
             "asm": "909090909090",
-            "source": "tanranv5/WeChatTweak"
+            "source": "tanranv5/WeChatTweak",
+            "expected": [
+              "0F84A30C0000"
+            ]
           }
         ]
       },
@@ -135,7 +138,10 @@
             "arch": "x86_64",
             "addr": "512C720",
             "asm": "B801000000C3",
-            "source": "tanranv5/WeChatTweak"
+            "source": "tanranv5/WeChatTweak",
+            "expected": [
+              "554889E54157"
+            ]
           }
         ]
       },
@@ -256,7 +262,10 @@
             "arch": "x86_64",
             "addr": "301DB8",
             "asm": "909090909090",
-            "source": "tanranv5/WeChatTweak"
+            "source": "tanranv5/WeChatTweak",
+            "expected": [
+              "0F84A30C0000"
+            ]
           }
         ]
       },
@@ -268,7 +277,10 @@
             "arch": "x86_64",
             "addr": "512BE50",
             "asm": "B801000000C3",
-            "source": "tanranv5/WeChatTweak"
+            "source": "tanranv5/WeChatTweak",
+            "expected": [
+              "554889E54157"
+            ]
           }
         ]
       }

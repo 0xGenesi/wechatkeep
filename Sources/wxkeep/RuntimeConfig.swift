@@ -55,9 +55,24 @@ enum RuntimeConfig {
                 arch: "x86_64", hook_off: "0x537daa0", msg_arg: 1, xml_sso_off: 0x130,
                 expected: "554889E54157415641554154"),
         // arm64 行：同款拓扑派生（gen3 cbz 位点→FUNCTION_STARTS→唯一 BL 调用者），
-        // 序言 = sub sp,#0x80 + stp×3（无 PC 相对，270099/270100 逐字节相同——
+        // 序言 = sub sp,#0x80 + stp×3（无 PC 相对，全部构建逐字节相同——
         // 家族信号）。msg_arg=1（x1）/+0x130 偏移为跨架构同构推定，同受
         // expected 门与运行时 needle/tag 门保护。
+        HookRow(build: "270091", uuid: "640c0f43-c42d-3ba4-bee5-e5602a30f699",
+                arch: "arm64", hook_off: "0x4bbe5a4", msg_arg: 1, xml_sso_off: 0x130,
+                expected: "FF0302D1FC6F02A9FA6703A9F85F04A9"),
+        HookRow(build: "270093", uuid: "86525cee-eb28-3dd3-af6e-691ea9c62d76",
+                arch: "arm64", hook_off: "0x4bc1588", msg_arg: 1, xml_sso_off: 0x130,
+                expected: "FF0302D1FC6F02A9FA6703A9F85F04A9"),
+        HookRow(build: "270095", uuid: "05646a53-6683-3fb3-acbc-c680e911bda8",
+                arch: "arm64", hook_off: "0x4bc428c", msg_arg: 1, xml_sso_off: 0x130,
+                expected: "FF0302D1FC6F02A9FA6703A9F85F04A9"),
+        HookRow(build: "270096", uuid: "60cd6a16-26f0-33d6-bb3e-41e28b7559fc",
+                arch: "arm64", hook_off: "0x4bc4274", msg_arg: 1, xml_sso_off: 0x130,
+                expected: "FF0302D1FC6F02A9FA6703A9F85F04A9"),
+        HookRow(build: "270098", uuid: "6b9c4c1a-e03b-33f3-a1a9-b522bd8462f7",
+                arch: "arm64", hook_off: "0x4bc4998", msg_arg: 1, xml_sso_off: 0x130,
+                expected: "FF0302D1FC6F02A9FA6703A9F85F04A9"),
         HookRow(build: "270099", uuid: "ed4dcbd2-4896-3a6d-8a70-7d8d88f74b0d",
                 arch: "arm64", hook_off: "0x4bc4a0c", msg_arg: 1, xml_sso_off: 0x130,
                 expected: "FF0302D1FC6F02A9FA6703A9F85F04A9"),

@@ -15,8 +15,8 @@
 | 270093 | ? | x86_64/arm64 | — | — | — | — |  |
 | 270091 | ? | x86_64/arm64 | — | — | — | — |  |
 | 270090 | 4.1.15.10 | arm64 | arm64 | — | arm64 | — | merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded) |
-| 269631 | 4.1.13.63 | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
-| 269629 | 4.1.13 | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
+| 269631 | 4.1.13.63 | x86_64/arm64 | arm64 | — | arm64 | x86_64 | 2 entries lack expected bytes (quarantined) |
+| 269629 | 4.1.13 | x86_64 | — | — | — | x86_64 | 2 entries lack expected bytes (quarantined) |
 | 269628 | ? | arm64 | arm64 | — | arm64 | — | merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded) |
 | 269627 | 4.1.13 | arm64 | arm64 | — | arm64 | — |  |
 | 269626 | 4.1.13 | arm64 | arm64 | — | — | — |  |
