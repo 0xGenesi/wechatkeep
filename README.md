@@ -57,7 +57,9 @@ wxkeep runtime remove    # 完整移除（幂等）
 | `tip_text` | 自定义文案。**必须保持官方骨架** `"<X>" 撤回了一条消息`（渲染层按此模式匹配，非规范形态显示为 Unsupported 占位）；`{from}` 占位符展开为撤回者昵称；总长 ≤ 原提示内文（约 31B，超长自动放弃保原文）。推荐：`"⚠️" 撤回了一条消息` |
 | `rewrite_self` | `true` 时自发撤回（「你撤回了一条消息」）也改写；默认 false 保持诚实反馈 |
 
-示例：`tip_text = "⚠️ {from} 想撤回，已被拦截"`。改写是**等长原位替换**（多余长度空格填充），文案长于原提示时放弃保原文；hook 按构建 UUID + 入口字节双门匹配，未知构建零作用。地址表随 `install` 写入（14 行 = 4.1.15 全家族 × 双架构），新构建由 `tools/derive_runtime_hooks.py` 产出数据行即生效。
+示例：`tip_text = "⚠️" 撤回了一条消息`（实测可渲染形态）。改写是**等长原位替换**（多余长度空格填充），文案长于原提示时放弃保原文；hook 按构建 UUID + 入口字节双门匹配，未知构建零作用。地址表随 `install` 写入（14 行 = 4.1.15 全家族 × 双架构），新构建由 `tools/derive_runtime_hooks.py` 产出数据行即生效。**格式约束（实测）**：渲染层按官方骨架 `"…" 撤回了一条消息` 匹配显示，非规范形态会显示为 Unsupported 占位。
+
+**通用 keeptip（默认开启）**：hook 还会在解析前把撤回 XML 的 `<newmsgid>` 清零——撤回删除按目标查不到，**原消息保留**。runtime 用户无需 keeptip 字节补丁即得「消息保留 + 提示正常显示」（实测消息与灰条提示同时成立）；`keep_message: false` 可关闭。进阶配置：`wxkeep restore` 撤掉 revoke/keeptip 字节补丁 + `wxkeep patch --variant keeptip --only update` 仅保留更新屏蔽——撤回防护完全由 runtime 承担，微信升级后 revoke 域无需重新打点。
 
 ## 安全模型
 
