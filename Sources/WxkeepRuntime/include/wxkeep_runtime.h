@@ -19,6 +19,8 @@ int wxkeep_runtime_test_hook_row(int idx, unsigned long *hook_off,
                                  unsigned long *msg_arg, unsigned long *xml_sso_off,
                                  int *is_arm64, int *expected_len);
 #endif
+// 通用 keeptip 缝：对 XML 缓冲执行 <newmsgid> 数字清零，返回清零个数。
+int wxkeep_runtime_test_zero(unsigned char *data, unsigned long len);
 // 按 plist 语义从任意路径加载配置并应用（生产同路径），返回接受的 hooks
 // 行数（-1 = 文件不可解析）；应用前重置 tip/策略/hooks。
 int wxkeep_runtime_test_load_config_file(const char *path);

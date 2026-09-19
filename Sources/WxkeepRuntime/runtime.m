@@ -90,6 +90,8 @@ static size_t g_tip_len;
 static int g_rewrite_self;         // 自发撤回提示是否也改写（默认 0=不改）
 static int g_rewrite_hits;         // 撤回 needle 命中计数（含自发跳过/超长放弃）
 static int g_rewrite_fires;        // 实际完成改写的计数（验证肉眼化的证据面）
+static int g_keep_message = 1;     // 通用 keeptip：parse 前清零 XML newmsgid（默认开）
+static int g_zero_fires;           // newmsgid 清零计数
 static char g_last_fired[96];      // 最后一次改写后的内文前 95B（渲染问题取证）
 static char g_last_inner[96];      // 最后一次 needle 命中时的原始内文前 95B
 static int g_hook_installed;
@@ -301,6 +303,9 @@ static void apply_config_dict(NSDictionary *cfg) {
     // 自发撤回（“你撤回了一条消息”）默认不改写——自己的撤回保持诚实反馈；
     // 置 true 才连自发提示一起换文案。
     g_rewrite_self = [cfg[@"rewrite_self"] boolValue];
+    // keep_message 缺省即开（runtime hook 的核心价值）；显式 false 关闭
+    id km = cfg[@"keep_message"];
+    g_keep_message = (km == nil) ? 1 : [km boolValue];
     load_hooks_from(cfg);
 }
 
@@ -459,6 +464,25 @@ static int rewrite_inner_with(uint8_t *ptr, uint64_t size,
     return 1;
 }
 
+/// 通用 keeptip 核心（0.2.x 降维实现）：不改任何指令，直接把 XML 里
+/// <newmsgid> 的数字等长清零（'1'-'9' → '0'）——parse 读到 0 → 撤回删除
+/// 按目标查不到 → 原消息保留（v1 语义），提示文本不受影响。不依赖任何
+/// 指令地址：hook 能武装的构建即工作，跨构建通用。
+/// 返回清零的数字个数（0 = 无 <newmsgid> 或已是 0）。
+static int zero_newmsgid_digits(uint8_t *buf, uint64_t size) {
+    static const char tag[] = "<newmsgid>";
+    uint8_t *p = find_bytes(buf, size, tag, sizeof(tag) - 1);
+    if (!p) return 0;
+    uint64_t i = (uint64_t)(p - buf) + (sizeof(tag) - 1);
+    int n = 0;
+    while (i < size && buf[i] != '<') {
+        if (buf[i] >= '1' && buf[i] <= '9') { buf[i] = '0'; n++; }
+        else if (buf[i] != '0') break;   // 非数字（空白/异常形态）即停
+        i++;
+    }
+    return n;
+}
+
 static int rewrite_replacemsg_inner(uint8_t *sso) {
     uint8_t tag = sso[0];
     if (!(tag & 1)) return 0;   // 短串装不下完整撤回 XML（≥60B），必非撤回
@@ -501,11 +525,23 @@ static void *(*g_real_wrapper)(void *, void *, void *, void *, void *, void *);
 
 static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
                                  void *a3, void *a4, void *a5) {
-    if (g_hook.target && g_tip_len) {
+    if (g_hook.target && (g_tip_len || g_keep_message)) {
         void *args[6] = {a0, a1, a2, a3, a4, a5};
         uint8_t *msg = (uint8_t *)args[g_hook.msg_arg];
         if (msg > (uint8_t *)0x10000) {
-            rewrite_replacemsg_inner(msg + g_hook.xml_sso_off);
+            uint8_t *sso = msg + g_hook.xml_sso_off;
+            if (sso[0] & 1) {   // 长串形态（撤回 XML 必为长串）
+                uint64_t size;
+                uint8_t *ptr;
+                memcpy(&size, sso + 8, 8);
+                memcpy(&ptr, sso + 16, 8);
+                if (size >= 32 && size <= (1 << 20) && ptr >= (uint8_t *)0x10000) {
+                    if (g_keep_message) {
+                        if (zero_newmsgid_digits(ptr, size) > 0) g_zero_fires++;
+                    }
+                    if (g_tip_len) rewrite_replacemsg_inner(sso);
+                }
+            }
         }
     }
     return g_real_wrapper(a0, a1, a2, a3, a4, a5);
@@ -705,10 +741,10 @@ void write_marker(void) {
                                   withIntermediateDirectories:YES attributes:nil error:nil];
         NSString *marker = [dir stringByAppendingPathComponent:@"runtime.marker"];
         NSString *now = [NSString stringWithFormat:
-            @"loaded ts=%f mr2=%@ status=%d fires=%d hits=%d last=%@ inner=%@ probe=%@\n",
+            @"loaded ts=%f mr2=%@ status=%d fires=%d hits=%d zero=%d last=%@ inner=%@ probe=%@\n",
             [NSDate date].timeIntervalSince1970,
             g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
-            g_rewrite_fires, g_rewrite_hits,
+            g_rewrite_fires, g_rewrite_hits, g_zero_fires,
             g_last_fired[0] ? @(g_last_fired) : @"<none>",
             g_last_inner[0] ? @(g_last_inner) : @"<none>",
             [NSString stringWithFormat:@"cb=%d last=%@ scanmiss=%d probe=%@",
@@ -927,6 +963,12 @@ int wxkeep_runtime_test_hook_row(int idx, unsigned long *hook_off,
     *is_arm64 = t->is_arm64;
     *expected_len = t->expected_len;
     return 0;
+}
+
+/// 通用 keeptip 缝：对 XML 缓冲执行 <newmsgid> 数字清零（等长），
+/// 返回清零的数字个数。锁死 v1 语义的 runtime 化实现。
+int wxkeep_runtime_test_zero(unsigned char *data, unsigned long len) {
+    return zero_newmsgid_digits(data, (uint64_t)len);
 }
 
 /// 配置文件端到端缝：按生产路径（dictionaryWithContentsOfFile 的 plist

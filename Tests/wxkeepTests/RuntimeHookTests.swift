@@ -366,3 +366,42 @@ extension RuntimeHookTests {
         #endif
     }
 }
+
+/// 通用 keeptip（runtime XML 清零）：parse 前把 <newmsgid> 数字等长清零
+/// → 撤回删除按目标查不到 → 消息保留。跨构建通用（不依赖指令地址）。
+extension RuntimeHookTests {
+    @Test func zeroNewmsgidDigits() {
+        var xml = Array("<msg><newmsgid>467688165590285950</newmsgid><msgid>720</msgid></msg>".utf8)
+        var copy = xml
+        let n = copy.withUnsafeMutableBufferPointer { b -> Int32 in
+            wxkeep_runtime_test_zero(b.baseAddress, CUnsignedLong(b.count))
+        }
+        #expect(n == 16, "18 位中 16 位非零数字清零（已有 0 不计）")
+        let expect = Array("<msg><newmsgid>000000000000000000</newmsgid><msgid>720</msgid></msg>".utf8)
+        #expect(copy == expect, "数字等长替换为 0，其余（含 msgid）不动")
+        _ = xml
+    }
+
+    @Test func zeroNewmsgidEdgeCases() {
+        // 无 newmsgid 标签 → 0
+        var xml = Array("<msg><content>x</content></msg>".utf8)
+        let n1 = xml.withUnsafeMutableBufferPointer { b -> Int32 in
+            wxkeep_runtime_test_zero(b.baseAddress, CUnsignedLong(b.count))
+        }
+        #expect(n1 == 0)
+        // 已是 0 的数字不改（幂等）
+        var zeroed = Array("<newmsgid>000</newmsgid>".utf8)
+        let n2 = zeroed.withUnsafeMutableBufferPointer { b -> Int32 in
+            wxkeep_runtime_test_zero(b.baseAddress, CUnsignedLong(b.count))
+        }
+        #expect(n2 == 0)
+        #expect(zeroed == Array("<newmsgid>000</newmsgid>".utf8))
+        // 数字后紧跟非数字字符即停
+        var mixed = Array("<newmsgid>12x34</newmsgid>".utf8)
+        let n3 = mixed.withUnsafeMutableBufferPointer { b -> Int32 in
+            wxkeep_runtime_test_zero(b.baseAddress, CUnsignedLong(b.count))
+        }
+        #expect(n3 == 2)
+        #expect(mixed == Array("<newmsgid>00x34</newmsgid>".utf8))
+    }
+}

@@ -55,6 +55,14 @@ Contents/Frameworks/wxkeep_runtime.dylib                                    ← 
     `sys_icache_invalidate`（wechat.dylib arm64 切片实测无 PAC/BTI）；
     序言可换址性有编码级防线（ADRP/ADR/B/BL/CBZ/TBZ/LDR-literal 拒绝）。
     待 RE 产出 arm64 wrapper 地址行即可启用
+- **通用 keeptip（0.2.x，✅ 实机验证）**：parse 直挂 hook 的降维实现——
+  不改任何指令，把 XML 里 <newmsgid> 数字等长清零（'1'-'9'→'0'），parse
+  读到 0 → 撤回删除按目标查不到 → 消息保留（v1 语义），提示文本不受影响。
+  跨构建通用：不依赖指令地址，hook 能武装即工作。配置键 keep_message
+  （默认开）。实机对照实验（270100，Jennifer 撤回"1"/"2"）：字节补丁全撤
+  （revoke/keeptip pristine，仅 update 在位）→ 消息保留 ✓ + 灰条正常渲染
+  ✓ + zero=1/fires=25 计数器证据 ✓。**附带收益**：isRevokemsg 恢复原状后
+  提示正常渲染（silent 变体的 "Unsupported message" 占位消失）。
 - **M-R3 余项**：{content} 占位符（消息缓存，按 serverId 终结器缓存——
   fzlzjerry 同款思路，其 {from}/{time} 已由本轮 {from} + 服务端时间戳
   文案部分覆盖）+ 群聊适配实弹验证

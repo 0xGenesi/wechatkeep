@@ -20,14 +20,14 @@ struct RuntimeConfigTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let rows = try RuntimeConfig.mergeKnownHooks(into: url)
         #expect(rows.count == RuntimeConfig.knownHooks.count)
-        #expect(rows.contains { $0.build == "270099" && $0.hook_off == "0x537d910" })
+        #expect(rows.contains { $0.build == "270099" && $0.hook_off == "0x537db40" })
 
         // 落盘形态：hooks 在场且可回读（含 270099 实流行）
         let dict = try PropertyListSerialization.propertyList(from: Data(contentsOf: url), options: [], format: nil) as? [String: Any]
         let hooks = dict?["hooks"] as? [[String: Any]]
         #expect(hooks?.count == RuntimeConfig.knownHooks.count)
         #expect(hooks?.contains { ($0["uuid"] as? String) == "97e21436-abda-3b79-bec0-ef2653c6b423" } == true)
-        #expect(hooks?.contains { ($0["hook_off"] as? String) == "0x537d910" } == true)
+        #expect(hooks?.contains { ($0["hook_off"] as? String) == "0x537db40" } == true)
     }
 
     @Test func mergePreservesUserKeysAndUnknownRows() throws {
@@ -52,7 +52,7 @@ struct RuntimeConfigTests {
         let rows = try RuntimeConfig.mergeKnownHooks(into: url)
         // 旧 270099 行被替换为 knownHooks 版本（全表重写），future 行保留
         #expect(rows.count == RuntimeConfig.knownHooks.count + 1)
-        #expect(rows.first { $0.build == "270099" }?.hook_off == "0x537d910")
+        #expect(rows.first { $0.build == "270099" }?.hook_off == "0x537db40")
         #expect(rows.contains { $0.uuid == future.uuid && $0.hook_off == future.hook_off })
 
         // 用户键透传
