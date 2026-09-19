@@ -26,9 +26,14 @@ def merge(cfg, report):
     for path in sorted(glob.glob(
             os.path.join(args.staging_dir, "*.json"))):
         name = os.path.basename(path)
-        if "." in name.replace(".json", ""):
-            continue   # 验证用的分组文件（build.group.json）跳过
         st = json.load(open(path))
+        if "build" not in st:
+            # 单 target 文件（<build>.<family>.<arch>.json，locate_*/几何派生
+            # 的裸 target 对象）→ 包装成整建形态；其余点号文件 = 验证分组，跳过
+            if not ("identifier" in st and "entries" in st
+                    and name.split(".")[0].isdigit()):
+                continue
+            st = {"build": name.split(".")[0], "targets": [st]}
         build = st["build"]
         v = next((x for x in cfg if x["version"] == build), None)
         if v is None:

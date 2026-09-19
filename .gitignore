@@ -15,3 +15,4 @@ var/
 
 # Python 字节码缓存（tools/ 脚本被直接运行时产生）
 __pycache__/
+.wxkeep-tagmap.json

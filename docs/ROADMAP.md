@@ -1,5 +1,63 @@
 # 路线图（待办归档）
 
+## ㉛ 全版本一致性大二轮（2026-09-19 深夜：CDN 家族前段发现 ×6 + arm64 补齐 + zsbai 回填路线打通）
+
+**任务**：以最新派生脚本对「所有 4 以上版本」复核功能点/补丁点一致性；
+补齐未完成条目；与 GitHub 生态对比（用户指令原文口径）。
+
+**1. 基线回归（30/30 全 PASS，0 FAIL）**：verify_derivations 对全部有工件
+构建（4.1.13 线 21 + 4.1.15 家族 10，269602 无 CDN 工件预期除外）逐构建
+7 项回归——目录数据与「CDN 原版重新派生」逐点一致（㉙ ㉚ 结论复核成立）。
+
+**2. CDN 家族前段发现（六构建入库）**：对 4.1.15.0-.9（270080-89）补 HEAD
+探测——**.4/.5/.6/.8/.9 五构建归档在**（.0-.3/.7 无）。㉙ 的「家族=.10 起」
+是探边界探窄了。加上 4.1.13.64（269632 亦在档，.65+ 无），六构建全部
+derive_build_from_cdn 派生（revoke 双架构 + guard + keeptip 对 + update 8
+点）+ 引擎级六组往返 36/36 PASS。守卫漂移链与 call 变体链同步扩链
+（269632 延续 E81E66E9FF 时代变体；270084-89 为 E83E4BE9FF 4.1.15 变体）。
+
+**3. arm64 update 全线同构（新工具 + 152 条）**：`tools/locate_update_arm64.py`
+（locate_update_x64 的 arm64 孪生：同一套 ObjC 元数据遍历 + arm64 形态校验
+——栈序言 4B→ret / ldrb w0,[x0,#disp];ret→movz w0,#0;ret / strb w2,[x0,#disp]
+→ret，disp 成对交叉验证）。**互证基线**：zengtianli/fzlzjerry 已登记的 11
+构建 + 270090（fzlzjerry）共 12 构建逐字节 EXACT-MATCH。派生 25 构建
+（4.1.13 线 10 + 4.1.15 家族 15）× 8 条 + 引擎级往返 31/31 文件 PASS。
+update 域自此「四方法+访问器对 8 点双架构」贯穿 4.1.13.5-.64 + 4.1.15.4-.20
+（269602 为纯 C++ 更新器时代单点，维持）。
+
+**4. keeptip arm64 家族缺口（18 条）**：审计发现 270091-270100 九构建缺
+arm64 keeptip 对（⑲ 只做了 x64；270090 来自 fzlzjerry 导入）+ 269629 缺——
+全部按 gen3 几何（revoke 位点+0x7A0，store 恒 60E600F9）派生 + 往返 PASS。
+**4.1.13+4.1.15 全线 keeptip 2+2（双架构）对称达成**。
+
+**5. 270100 脏 thin 定位与修复**：全 thin pristine 审计（按 expected[0]
+全位点扫描）发现 270100_arm64.dylib 是 ⑪⑪ 轮补丁实验残留（revoke 位点
+82000014）——㉗ 只替换了 fat，thin 从未被验。从 pristine fat 重抽 + 复验。
+教训入 MAINTAINING「工件目录惯例」：**thin 与 fat 都要查**。
+
+**6. zsbai 回填路线（4.1.9-4.1.12 时代）：打通工程、判定源头损坏**：
+⑭「zsbai 均无归档」结论半对半错——archive_index 里 4.1.9-4.1.12 全线
+在档（此前从未逐 tag 探明），但逐 tag 实测后确认**老线资产系统性源头
+损坏**：抽样 4.1.9.26/.27/.31/.57、4.1.10.24、4.1.11.51、4.1.12.53 全部
+同签名失败——sha256 与 GitHub digest 完全一致（排除传输损坏）+ XZ 解到
+99.9% 处 corrupt（上传时即坏）；dmg 尾部 UDIF footer 落在损坏段，无挂载
+路径。隔离回填就此定性永久缺口（无据推定升级为 digest 级实证）。工具
+`tools/derive_from_zsbai.py` 沉淀为可复用框架（digest 校验下载 + tag→build
+映射 + 全条目官方字节审计 + 派生），未来第三方存档出现即续用。**坑三条**：
+镜像跨源断点续传拼坏 XZ（必须整文件+digest）；镜像 content-length 不可信；
+解压/挂载峰值 ~2GB×并发任务会挤爆盘（fat 删除 + arm64 切片即删纪律）。
+
+**7. 生态对比（related-tools-analysis 同日节）**：tanranv5 09-19 新增
+blockUpdate 6 点 vs 我们 8 点——四公共方法位点**逐字节同址**（独立逆向
+互证），其两点额外（initSparkleConfigIfNeeded /
+setAutomaticallyChecksForUpdatesIfNeeded:）为无访问器对路线的替代面，
+我们 ⑬ 真机已证现有 8 点封死改写；六新构建号 GitHub 全站无覆盖（wxkeep
+首发）；fzlzjerry patches.json（29 构建全带 expected）入手作第三方互证源。
+
+**目录终态**：77 构建 / 1156 条（+6 构建 +302 条 vs ㉚ 后）；4.1.13+4.1.15
+全线 revoke 2/keeptip 2+2/update 8+8 完全对称。knownHooks 20→30 行
+（kMaxExtHooks 32 内）。
+
 ## 研究队列处置（2026-09-18 深夜会话，从队尾起做）
 
 1. **DSL expected 通配 ✅（已交付）**：`ExpectedPattern`（`?` 半字节通配 +

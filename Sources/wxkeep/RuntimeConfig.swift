@@ -31,9 +31,25 @@ enum RuntimeConfig {
     /// 位点→FUNCTION_STARTS→parse 入口；arm64 行 = catalog arm64 revoke 位点
     /// 所在函数起点），x64 序言门 554889E54157415641554154、arm64 序言门
     /// F85FBCA9F65701A9F44F02A9FD7B03A9 全过。270090/94/97 六行为 2026-09-19
-    /// CDN 归档补齐（同款拓扑 + 序言门，与 ㉒ parse 直挂口径一致）——地址表
-    /// 达 20 行 = 4.1.15 全家族（除未发布的 270092）× 双架构。
+    /// CDN 归档补齐（同款拓扑 + 序言门，与 ㉒ parse 直挂口径一致）；270084-89
+    /// 十行为同日一致性轮发现的家族前段（4.1.15.4-.9，.7 从未发布）——地址表
+    /// 达 30 行 = 4.1.15 全家族（除未发布的 270087/270092）× 双架构。
     static let knownHooks: [HookRow] = [
+        HookRow(build: "270084", uuid: "94cd7862-7e56-3a22-a4b2-e75c45d2a9b4",
+                arch: "x86_64", hook_off: "0x5368c60", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
+        HookRow(build: "270085", uuid: "5d9c751b-5837-3de0-838b-0f930dbf96ff",
+                arch: "x86_64", hook_off: "0x536efd0", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
+        HookRow(build: "270086", uuid: "85cef051-50e4-3811-a66c-1e0082b106e3",
+                arch: "x86_64", hook_off: "0x5370000", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
+        HookRow(build: "270088", uuid: "12960899-15f9-33e6-b425-e942dac51905",
+                arch: "x86_64", hook_off: "0x53705f0", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
+        HookRow(build: "270089", uuid: "eb8ca404-c44e-3eff-9cc5-34c3a0fa762b",
+                arch: "x86_64", hook_off: "0x5372080", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
         HookRow(build: "270090", uuid: "7cb8d056-ca85-3a26-9da5-0b3e45578559",
                 arch: "x86_64", hook_off: "0x5374b80", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
@@ -64,6 +80,21 @@ enum RuntimeConfig {
         HookRow(build: "270100", uuid: "23350838-734b-3df6-a4ff-93cf2dd8c704",
                 arch: "x86_64", hook_off: "0x537dcd0", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
+        HookRow(build: "270084", uuid: "a08e3e78-cc29-3927-9375-883c644d8ff8",
+                arch: "arm64", hook_off: "0x4bb380c", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270085", uuid: "f4572074-d11b-3316-969f-3804cfa55f7c",
+                arch: "arm64", hook_off: "0x4bb74dc", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270086", uuid: "77c16863-ccaf-31da-af2a-9ed8514939ab",
+                arch: "arm64", hook_off: "0x4bba488", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270088", uuid: "851a7d08-fed7-3cb8-86cb-a229d126a903",
+                arch: "arm64", hook_off: "0x4bba8e8", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270089", uuid: "72f09a88-cafb-3142-88a6-6c4c88c72d97",
+                arch: "arm64", hook_off: "0x4bbae80", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270090", uuid: "79b766ed-31d7-3bf9-a313-08b64d521c1d",
                 arch: "arm64", hook_off: "0x4bbe5cc", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),

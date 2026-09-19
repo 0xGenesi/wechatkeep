@@ -343,3 +343,23 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
   无新机制可吸收；其 WCDYWrapper 绕过结论维持（流程差异，非普适）
 - **zengtianli / fzlzjerry / sunnyyoung**：09-13/09-17 后无新提交；
   sunnyyoung PR #1042（269602）仍挂着
+
+## 2026-09-19 深夜第四轮（全版本一致性大二轮配套对比）
+
+- **tanranv5 09-19 新增 `--block-update`**（270098 x64，6 条带 expected+sig）：
+  四条与我们目录同址（startUpdater/checkForUpdates:/startBackgroundUpdates
+  Check:/enableAutoUpdate: **逐字节一致**——独立逆向同源互证）；其额外两点
+  经方法表识别为 `initSparkleConfigIfNeeded`（0x2BAC70）与
+  `setAutomaticallyChecksForUpdatesIfNeeded:`（0x2BEE20）——他们无访问器对
+  路线的替代面；我们 8 点（四方法+访问器对）在 270100 已真机验证封死偏好
+  改写（⑬），两点不吸收，登记为「若未来真机再现改写」的备选扩点
+- **六新构建号（269632/270084-86/88/89）**：GitHub 全站搜索无任何仓库覆盖
+  ——wxkeep 首个适配（CDN 家族前段补探发现，生态全部漏探）
+- **fzlzjerry patches.json**（29 构建，全 arm64，全带 expected）：作为
+  zsbai 官方归档审计之外的第三方互证源入手（/tmp 快照）；其 270090
+  arm64 update 8 点与我们 locate_update_arm64 派生 EXACT-MATCH
+- **zengtianli / sunnyyoung / X1a0He / zsbai**：较 ㉙ 复查无新动向
+  （zengtianli 止 269631；zsbai 顶格 4.1.15.20；X1a0He 2.10.0 闭源）
+- **zsbai 归档资产质量**：4.1.9.26 源头损坏（digest 验证过仍 XZ 99.9%
+  corrupt）；镜像（gh-proxy）content-length 不可信且大文件偶发损坏——
+  回填必须 GitHub API digest 校验（derive_from_zsbai 已内置）
