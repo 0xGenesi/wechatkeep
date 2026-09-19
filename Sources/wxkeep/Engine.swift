@@ -39,6 +39,17 @@ enum Engine {
         var patchedBinaries: [String] = []
     }
 
+    /// 配方名 → catalog target identifier。现役配方全为 revoke*（signatures.json
+    /// 的 SSOT），但 locate_update_x64 等工具产出的 update* 配方一旦并入
+    /// signatures.json，硬编码 "revoke" 会把它们错标成变体域目标（silent 才应用、
+    /// keeptip 漏打）——按名字前缀归类，未知前缀保守归 revoke（现状行为）。
+    static func identifier(forRecipeName name: String) -> String {
+        let lower = name.lowercased()
+        if lower.hasPrefix("update") { return "update" }
+        if lower.hasPrefix("multiinstance") { return "multiInstance" }
+        return "revoke"
+    }
+
     /// Auto-locate fallback: when the installed build is not in the catalog,
     /// run every signature recipe against the real binaries and synthesize a
     /// version entry on the fly. Derived addresses still pass the expected
@@ -61,11 +72,12 @@ enum Engine {
                 arch: spec.arch, addr: String(va, radix: 16), recipe: nil,
                 expected: Config.ExpectedVariants(spec.expected),
                 asm: spec.asm, source: "recipe:\(name)")
+            let identifier = identifier(forRecipeName: name)
             var group = targetsByBinary[relative, default: []]
-            if let idx = group.firstIndex(where: { $0.identifier == "revoke" }) {
+            if let idx = group.firstIndex(where: { $0.identifier == identifier }) {
                 group[idx].entries.append(entry)
             } else {
-                group.append(Config.Target(identifier: "revoke", binary: spec.binary, entries: [entry]))
+                group.append(Config.Target(identifier: identifier, binary: spec.binary, entries: [entry]))
             }
             targetsByBinary[relative] = group
         }
@@ -76,29 +88,31 @@ enum Engine {
     }
 
     /// locate --append 的合并核心（纯函数，便于回归测试）。
-    /// 定位产物必须按 binary 分组落位：同 identifier 不同 binary 的条目互不
-    /// 相干——gen0 主程序配方与 wechat.dylib 配方并存时，单键合并会把主程序
-    /// 条目塞进 dylib 的 Target（或反之），expected 门就去错误的文件上校验，
-    /// patch 必然 expectedMismatch。命中 identifier+binary 双键的已有 Target
-    /// 则按 arch 去重追加（精编条目优先，与 Config.merge 同语义）。
+    /// 定位产物必须按 identifier+binary 分组落位：同 identifier 不同 binary 的
+    /// 条目互不相干——gen0 主程序配方与 wechat.dylib 配方并存时，单键合并会把
+    /// 主程序条目塞进 dylib 的 Target（或反之），expected 门就去错误的文件上
+    /// 校验，patch 必然 expectedMismatch。命中 identifier+binary 双键的已有
+    /// Target 则按 arch 去重追加（精编条目优先，与 Config.merge 同语义）。
     static func mergeLocated(
-        _ located: [(binary: String?, entry: Config.PatchEntry)],
+        _ located: [(binary: String?, identifier: String, entry: Config.PatchEntry)],
         into versionEntry: inout Config.VersionEntry
     ) {
-        var groups: [String: (binary: String?, entries: [Config.PatchEntry])] = [:]
+        var groups: [String: (binary: String?, identifier: String, entries: [Config.PatchEntry])] = [:]
         for item in located {
-            groups[item.binary ?? "Contents/MacOS/WeChat", default: (item.binary, [])]
+            groups["\(item.identifier)|\(item.binary ?? "Contents/MacOS/WeChat")",
+                   default: (item.binary, item.identifier, [])]
                 .entries.append(item.entry)
         }
-        for (relative, group) in groups.sorted(by: { $0.key < $1.key }) {
+        for (_, group) in groups.sorted(by: { $0.key < $1.key }) {
             if let idx = versionEntry.targets.firstIndex(where: {
-                $0.identifier == "revoke" && ($0.binary ?? "Contents/MacOS/WeChat") == relative
+                $0.identifier == group.identifier
+                && ($0.binary ?? "Contents/MacOS/WeChat") == (group.binary ?? "Contents/MacOS/WeChat")
             }) {
                 let archs = Set(versionEntry.targets[idx].entries.map(\.arch))
                 versionEntry.targets[idx].entries += group.entries.filter { !archs.contains($0.arch) }
             } else {
                 versionEntry.targets.append(Config.Target(
-                    identifier: "revoke", binary: group.binary, entries: group.entries))
+                    identifier: group.identifier, binary: group.binary, entries: group.entries))
             }
         }
     }

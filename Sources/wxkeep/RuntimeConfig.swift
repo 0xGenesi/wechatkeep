@@ -27,23 +27,33 @@ enum RuntimeConfig {
 
     /// 编译期已知行（与 runtime.m 内置表同源——改任一侧必须同步另一侧）。
     /// 4.1.15 全家族 x86_64：撤回解析汇点 wrapper（270099 行 = drive22 实弹
-    /// 定案；其余行由 tools/derive_runtime_hooks.py 从官方 DMG 派生——
-    /// 守卫位点→FUNCTION_STARTS→parse 唯一调用者→wrapper，序言门
-    /// 554889E54157415641554154 全过，270099 行与实弹结果互证）。
-    /// ⚠️ wrapper+0x130 偏移为家族同构推定（270099 实测），实机 hook 未生效
-    /// 时按 RUNTIME-DESIGN 切 parse 入口方案（rsi 直挂）。
+    /// 定案；其余行由 tools/derive_runtime_hooks.py 从官方 DMG 派生（守卫
+    /// 位点→FUNCTION_STARTS→parse 入口；arm64 行 = catalog arm64 revoke 位点
+    /// 所在函数起点），x64 序言门 554889E54157415641554154、arm64 序言门
+    /// F85FBCA9F65701A9F44F02A9FD7B03A9 全过。270090/94/97 六行为 2026-09-19
+    /// CDN 归档补齐（同款拓扑 + 序言门，与 ㉒ parse 直挂口径一致）——地址表
+    /// 达 20 行 = 4.1.15 全家族（除未发布的 270092）× 双架构。
     static let knownHooks: [HookRow] = [
+        HookRow(build: "270090", uuid: "7cb8d056-ca85-3a26-9da5-0b3e45578559",
+                arch: "x86_64", hook_off: "0x5374b80", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
         HookRow(build: "270091", uuid: "259ae4b6-eca0-3685-8542-6a33807e1d1f",
                 arch: "x86_64", hook_off: "0x5376320", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
         HookRow(build: "270093", uuid: "2db576af-bb0e-3f47-a769-e522096ab8e3",
                 arch: "x86_64", hook_off: "0x5378a10", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
+        HookRow(build: "270094", uuid: "d245ce13-a7eb-3f6b-98d9-9f820ba32518",
+                arch: "x86_64", hook_off: "0x5378bc0", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
         HookRow(build: "270095", uuid: "4c586e00-1d9d-30dc-bd8f-5df4f1d8bebb",
                 arch: "x86_64", hook_off: "0x537d2c0", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
         HookRow(build: "270096", uuid: "46fe99c2-6fe3-34a5-a7de-6d3560d769e7",
                 arch: "x86_64", hook_off: "0x537d2a0", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
+        HookRow(build: "270097", uuid: "c8c1dd52-27bb-39a3-912d-b0909ae3a198",
+                arch: "x86_64", hook_off: "0x537d2b0", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
         HookRow(build: "270098", uuid: "3e57bc84-fe65-31c3-9d4f-c25237932211",
                 arch: "x86_64", hook_off: "0x537dad0", msg_arg: 1, xml_sso_off: 0,
@@ -54,17 +64,26 @@ enum RuntimeConfig {
         HookRow(build: "270100", uuid: "23350838-734b-3df6-a4ff-93cf2dd8c704",
                 arch: "x86_64", hook_off: "0x537dcd0", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
+        HookRow(build: "270090", uuid: "79b766ed-31d7-3bf9-a313-08b64d521c1d",
+                arch: "arm64", hook_off: "0x4bbe5cc", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270091", uuid: "640c0f43-c42d-3ba4-bee5-e5602a30f699",
                 arch: "arm64", hook_off: "0x4bbe7b8", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270093", uuid: "86525cee-eb28-3dd3-af6e-691ea9c62d76",
                 arch: "arm64", hook_off: "0x4bc179c", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270094", uuid: "1d482dab-78a6-323e-bf7e-f14e0a0fcf3e",
+                arch: "arm64", hook_off: "0x4bc1a18", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270095", uuid: "05646a53-6683-3fb3-acbc-c680e911bda8",
                 arch: "arm64", hook_off: "0x4bc44a0", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270096", uuid: "60cd6a16-26f0-33d6-bb3e-41e28b7559fc",
                 arch: "arm64", hook_off: "0x4bc4488", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270097", uuid: "ae733a46-fff4-3d0e-9fee-40a510c84197",
+                arch: "arm64", hook_off: "0x4bc44b4", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270098", uuid: "6b9c4c1a-e03b-33f3-a1a9-b522bd8462f7",
                 arch: "arm64", hook_off: "0x4bc4bac", msg_arg: 1, xml_sso_off: 0,
@@ -107,6 +126,101 @@ enum RuntimeConfig {
             return loaded
         }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    // MARK: - tip 文案管理（`wxkeep runtime tip`）
+
+    /// 文案配置的当前值（文件缺失 → 全部缺省）。
+    static func readTip(at target: URL = url()) -> (text: String?, rewriteSelf: Bool, keepMessage: Bool) {
+        guard let dict = readDict(at: target) else { return (nil, false, true) }
+        let text = dict["tip_text"] as? String
+        let rewriteSelf = dict["rewrite_self"] as? Bool ?? false
+        let keepMessage = (dict["keep_message"] as? Bool) ?? true
+        return (text?.isEmpty == true ? nil : text, rewriteSelf, keepMessage)
+    }
+
+    /// 校验结果：accepted / 带告警的接受 / 拒绝（原因人话化）。
+    enum TipValidation {
+        case ok
+        case acceptedWithNotes([String])
+        case rejected(String)
+    }
+
+    /// 0.2.0 实机验证的渲染契约（ROADMAP ㉒）：
+    /// - 文案必须保持官方骨架 `"<X>" 撤回了一条消息`——渲染层按骨架匹配，
+    ///   非规范形态显示为 Unsupported 占位；
+    /// - 总长 ≤ 原提示内文（~31B）——超长 hook 逐次放弃保原文；
+    /// - `<>&` 会被 dylib 剥除（XML 文本节点安全）——这里提前剥并告知；
+    /// - `{from}` 占位符展开为撤回者昵称，实际长度随昵称变化，超长逐次放弃。
+    static let skeletonSuffix = "\" 撤回了一条消息"
+
+    static func validateTip(_ raw: String) -> (normalized: String, verdict: TipValidation) {
+        var notes: [String] = []
+        // 与 dylib apply_config_dict 同语义：剥除（非替换）会破坏 XML 的字符
+        var stripped = ""
+        for ch in raw {
+            guard ch == "<" || ch == ">" || ch == "&" else { stripped.append(ch); continue }
+            notes.append("已剥除会破坏 XML 的字符「\(ch)」（dylib 侧同规则）")
+        }
+        let data = stripped.data(using: .utf8) ?? Data()
+        // 骨架 = `"` + 非空内文（不含引号）+ `" 撤回了一条消息`，到尾无多余字符
+        guard stripped.hasPrefix("\""),
+              let close = stripped.dropFirst().firstIndex(of: "\""),
+              close > stripped.index(after: stripped.startIndex),
+              String(stripped[close...]) == skeletonSuffix
+        else {
+            return (stripped, .rejected(
+                "文案必须保持官方骨架 \"<X>\" 撤回了一条消息（渲染层按骨架匹配显示，"
+                + "非规范形态会显示为 Unsupported 占位）。推荐：\"⚠️\" 撤回了一条消息"))
+        }
+        guard !data.isEmpty else {
+            return (stripped, .rejected("文案为空"))
+        }
+        // 长度门按「展开后等效」评估：{from} 占位符 6B 会被昵称替换，模板
+        // 原始字节数不能直接比对——静态等效部分超限才是真装不下。
+        let phCount = stripped.components(separatedBy: "{from}").count - 1
+        let staticEquivalent = data.count - phCount * 6
+        if staticEquivalent > 31 || (phCount == 0 && data.count > 31) {
+            return (stripped, .rejected(
+                "文案展开后约 \(max(data.count, staticEquivalent))B，超过原提示内文长度（~31B）——"
+                + "hook 会逐次放弃改写保原文。推荐 30B 实证形态：\"⚠️\" 撤回了一条消息，"
+                + "或恒等长的 \"{from}\" 撤回了一条消息"))
+        }
+        // 纯 {from} 形态在数学上恒等长：骨架 = `"`+昵称+`"`+空格+7 字短语，
+        // 展开后与原内文逐字节同构（昵称可解析时）——最稳形态。
+        if stripped == "\"{from}\" 撤回了一条消息" {
+            return (stripped, .ok)
+        }
+        if phCount > 0 {
+            notes.append("{from} 展开为撤回者昵称：展开后长度 = 静态部分 + 昵称长度，"
+                + "超过原内文时该次放弃保原文（安全方向）")
+        } else if data.count > 30 {
+            notes.append("31B 比实证形态（30B）长：撤回者昵称较短时原内文可能更短，该次放弃保原文")
+        }
+        return (stripped, notes.isEmpty ? .ok : .acceptedWithNotes(notes))
+    }
+
+    /// 写 tip_text / rewrite_self（保留 hooks 与其余键，原子写，plist 格式——
+    /// 与 mergeKnownHooks 同一格式契约）。text 为 nil = 不动文案；微信运行中
+    /// 也可写：dylib 仅启动时读，下次启动生效。
+    static func writeTip(text: String?, rewriteSelf: Bool?, at target: URL = url()) throws {
+        var dict: [String: Any] = readDict(at: target) ?? [:]
+        if let text { dict["tip_text"] = text }
+        if let rewriteSelf { dict["rewrite_self"] = rewriteSelf }
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let out = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
+        try out.write(to: target, options: .atomic)
+    }
+
+    /// 移除 tip_text（hook 仍武装：keep_message 通用 keeptip 不受影响）。
+    static func removeTip(at target: URL = url()) throws {
+        var dict: [String: Any] = readDict(at: target) ?? [:]
+        dict.removeValue(forKey: "tip_text")
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let out = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
+        try out.write(to: target, options: .atomic)
     }
 
     /// 把 knownHooks 合并进 runtime.json 的 "hooks" 数组：按 uuid 去重替换，

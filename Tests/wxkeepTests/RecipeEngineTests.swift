@@ -164,11 +164,11 @@ struct AutoLocateTests {
                                    expected: ["F44FBEA9FD7B01A9"]),
             ])
         ])
-        let located: [(binary: String?, entry: Config.PatchEntry)] = [
-            ("Contents/Resources/wechat.dylib",
+        let located: [(binary: String?, identifier: String, entry: Config.PatchEntry)] = [
+            ("Contents/Resources/wechat.dylib", "revoke",
              MachOFixture.entry(.x86_64, addr: "200", asm: "31C0C3909090909090",
                                 expected: ["554889E553504889FB"], source: "recipe:revoke_x64")),
-            ("Contents/MacOS/WeChat",
+            ("Contents/MacOS/WeChat", "revoke",
              MachOFixture.entry(.arm64, addr: "3CBE7B0", asm: "00008052C0035FD6",
                                 expected: ["F44FBEA9FD7B01A9"], source: "recipe:revoke_arm64_gen0")),
         ]
@@ -197,14 +197,47 @@ struct AutoLocateTests {
                                    expected: ["554889E553504889FB"]),
             ])
         ])
-        let located: [(binary: String?, entry: Config.PatchEntry)] = [
-            ("Contents/Resources/wechat.dylib",
+        let located: [(binary: String?, identifier: String, entry: Config.PatchEntry)] = [
+            ("Contents/Resources/wechat.dylib", "revoke",
              MachOFixture.entry(.x86_64, addr: "537de29", asm: "30C0",
                                 expected: ["84C00F84????????"])),
         ]
         Engine.mergeLocated(located, into: &versionEntry)
         #expect(versionEntry.targets.count == 1)
         #expect(versionEntry.targets[0].entries.count == 1, "同 arch 已有精编条目，recipe 条目不追加")
+    }
+
+    /// 配方名 → identifier 归类：update*/multiInstance* 前缀进各自目标域，
+    /// 未知前缀保守归 revoke（现役行为）。硬编码 "revoke" 的旧实现会把
+    /// update 配方错标成变体域目标——silent 才应用、keeptip 漏打。
+    @Test func recipeNameMapsToTargetIdentifier() {
+        #expect(Engine.identifier(forRecipeName: "revoke_x64") == "revoke")
+        #expect(Engine.identifier(forRecipeName: "revoke_arm64_gen3") == "revoke")
+        #expect(Engine.identifier(forRecipeName: "parse_guard_x64") == "revoke")
+        #expect(Engine.identifier(forRecipeName: "update_x64") == "update")
+        #expect(Engine.identifier(forRecipeName: "UpdateManager") == "update")
+        #expect(Engine.identifier(forRecipeName: "multiInstance_gen1") == "multiInstance")
+    }
+
+    /// update 配方条目与 revoke 条目同轮 locate 时必须落进不同 Target
+    /// （identifier+binary 双键分组），且不吞并既有 revoke 目标。
+    @Test func mergeLocatedSeparatesUpdateFromRevoke() {
+        var versionEntry = Config.VersionEntry(version: "270100", targets: [
+            Config.Target(identifier: "revoke", binary: "Contents/Resources/wechat.dylib", entries: [
+                MachOFixture.entry(.x86_64, addr: "4e8d5d0", asm: "31C0C3909090909090",
+                                   expected: ["554889E553504889FB"]),
+            ])
+        ])
+        let located: [(binary: String?, identifier: String, entry: Config.PatchEntry)] = [
+            ("Contents/Resources/wechat.dylib", "update",
+             MachOFixture.entry(.x86_64, addr: "6c00000", asm: "C3",
+                                expected: ["554889E5"], source: "recipe:update_x64")),
+        ]
+        Engine.mergeLocated(located, into: &versionEntry)
+        #expect(versionEntry.targets.count == 2)
+        let updateTarget = versionEntry.targets.first { $0.identifier == "update" }
+        #expect(updateTarget?.entries.count == 1)
+        #expect(versionEntry.targets.first { $0.identifier == "revoke" }?.entries.count == 1)
     }
 
     /// Signatures.load 的 hex 门：auto-locate 合成条目绕过 Config.validate，

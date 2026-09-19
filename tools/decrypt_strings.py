@@ -24,7 +24,7 @@ BASE = __TEXT,__const 里某块常量区（lea rcx,[rip+X]）；key 为 20 字�
 commands 区域的大小）；str 字段不受影响。历史 decrypted_strings.json 的
 func 值如需精确引用，请用本工具重跑刷新。
 """
-import argparse, bisect, json, re, sys
+import argparse, bisect, json, re, struct, sys
 
 import machutil
 

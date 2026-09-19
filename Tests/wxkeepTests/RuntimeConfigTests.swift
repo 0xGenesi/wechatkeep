@@ -125,3 +125,90 @@ extension RuntimeConfigTests {
         #expect(order[0] == "/opt/lib/libwxkeep_runtime.dylib")
     }
 }
+
+/// `wxkeep runtime tip` 的校验与读写（0.2.0 实机验证的渲染契约，ROADMAP ㉒）：
+/// 文案必须保持官方骨架 `"…" 撤回了一条消息`，总长 ≤ ~31B，`<>&` 剥除。
+extension RuntimeConfigTests {
+
+    @Test func tipValidationAcceptsVerifiedSkeleton() {
+        let (n, v) = RuntimeConfig.validateTip("\"⚠️\" 撤回了一条消息")
+        #expect(n == "\"⚠️\" 撤回了一条消息")
+        if case .ok = v {} else { Issue.record("verified form must pass clean") }
+    }
+
+    @Test func tipValidationAcceptsFromPlaceholder() {
+        // 纯 {from} 形态：展开后与原内文逐字节同构（昵称可解析时恒等长）
+        let (_, v) = RuntimeConfig.validateTip("\"{from}\" 撤回了一条消息")
+        if case .ok = v {} else { Issue.record("pure {from} form is the exact-fit form") }
+    }
+
+    @Test func tipValidationNotesMixedFromForm() {
+        // ⚠️ + {from} 混合：骨架合法但展开长度随昵称增长——带告警接受
+        let (_, v) = RuntimeConfig.validateTip("\"⚠️{from}\" 撤回了一条消息")
+        guard case .acceptedWithNotes(let notes) = v else {
+            Issue.record("mixed {from} form passes with note")
+            return
+        }
+        #expect(notes.contains { $0.contains("{from}") })
+    }
+
+    @Test func tipValidationRejectsBrokenSkeleton() {
+        // 空昵称 / 缺后缀 / 多尾巴 / 缺引号——渲染层会显示 Unsupported 占位
+        for bad in ["\"\" 撤回了一条消息", "\"⚠️\" 撤回了", "\"⚠️\" 撤回了一条消息 啊",
+                    "撤回了一条消息", "\"⚠️ 撤回了一条消息"] {
+            if case .rejected = RuntimeConfig.validateTip(bad).1 {} else {
+                Issue.record("must reject: \(bad)")
+            }
+        }
+    }
+
+    @Test func tipValidationRejectsOverlong() {
+        // 34B 实机实证被拒（㉒ 第 2 条）——超 ~31B 的静态文案直接拒绝
+        let long = "\"" + String(repeating: "警", count: 8) + "\" 撤回了一条消息"
+        #expect(long.utf8.count > 31)
+        if case .rejected = RuntimeConfig.validateTip(long).1 {} else {
+            Issue.record("34B tip must be rejected")
+        }
+    }
+
+    @Test func tipValidationStripsXmlBreakingChars() {
+        let (n, v) = RuntimeConfig.validateTip("\"<a&b>\" 撤回了一条消息")
+        #expect(!n.contains("<") && !n.contains(">") && !n.contains("&"))
+        guard case .acceptedWithNotes(let notes) = v else {
+            Issue.record("stripped skeleton still valid")
+            return
+        }
+        #expect(notes.contains { $0.contains("剥除") })
+    }
+
+    @Test func tipWriteReadRoundTripPreservesHooks() throws {
+        let url = tmpConfigPath()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        _ = try RuntimeConfig.mergeKnownHooks(into: url)   // 预置 hooks 管理段
+
+        try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: true, at: url)
+        let tip = RuntimeConfig.readTip(at: url)
+        #expect(tip.text == "\"⚠️\" 撤回了一条消息")
+        #expect(tip.rewriteSelf == true)
+        #expect(tip.keepMessage == true, "未触碰 keep_message（缺省开）")
+        // hooks 不被 tip 写入清掉
+        let dict = try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: url), options: [], format: nil) as? [String: Any]
+        #expect((dict?["hooks"] as? [[String: Any]])?.count == RuntimeConfig.knownHooks.count)
+
+        try RuntimeConfig.removeTip(at: url)
+        #expect(RuntimeConfig.readTip(at: url).text == nil)
+        #expect(RuntimeConfig.readTip(at: url).rewriteSelf == true, "removeTip 只动 tip_text")
+    }
+
+    /// CLI 写完的 tip 文件必须是 plist 格式（dylib dictionaryWithContentsOfFile
+    /// 语义；跨端到端读取回归由 mergedFileIsReadableByDylibProductionPath 锁死）
+    @Test func tipWriteProducesPlist() throws {
+        let url = tmpConfigPath()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: nil, at: url)
+        let head = try String(contentsOf: url, encoding: .utf8)
+        #expect(head.contains("<!DOCTYPE plist"))
+        #expect(head.contains("tip_text"))
+    }
+}

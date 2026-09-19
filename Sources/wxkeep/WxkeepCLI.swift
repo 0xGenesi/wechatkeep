@@ -5,7 +5,7 @@ struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
-        version: "0.2.0",
+        version: "0.2.1",
         subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self, RuntimeCommand.self]
     )
 
@@ -214,10 +214,10 @@ extension Wxkeep {
             print("build \(build) — \(signatures.recipes.count) recipes")
 
             var derived: [Config.PatchEntry] = []
-            // 定位产物带 binary 归属：合并时按 binary 分组落进各自的 Target
-            // （Engine.mergeLocated），不再池化进单组——gen0 主程序配方与
-            // wechat.dylib 配方并存时，池化会把 binary 字段写错文件。
-            var located: [(binary: String?, entry: Config.PatchEntry)] = []
+            // 定位产物带 binary 归属与目标域：合并时按 identifier+binary 分组
+            // 落进各自的 Target（Engine.mergeLocated），不再池化进单组——gen0
+            // 主程序配方与 wechat.dylib 配方并存时，池化会把 binary 字段写错文件。
+            var located: [(binary: String?, identifier: String, entry: Config.PatchEntry)] = []
             for (name, spec) in signatures.recipes.sorted(by: { $0.key < $1.key }) {
                 let binary = WeChatApp.binaryURL(app: options.app, relative: spec.binary)
                 guard FileManager.default.fileExists(atPath: binary.path) else {
@@ -236,7 +236,7 @@ extension Wxkeep {
                         expected: Config.ExpectedVariants(spec.expected),
                         asm: spec.asm, source: "recipe:\(name)")
                     derived.append(entry)
-                    located.append((spec.binary, entry))
+                    located.append((spec.binary, Engine.identifier(forRecipeName: name), entry))
                 } catch {
                     print("  [\(name)] — \(error)")
                 }
@@ -426,7 +426,7 @@ extension Wxkeep {
         static var _commandName: String { "runtime" }
         static let configuration = CommandConfiguration(
             abstract: "Runtime component (optional): inject a support dylib into WeChat",
-            subcommands: [RuntimeStatus.self, RuntimeHooks.self, RuntimeInstall.self, RuntimeRemove.self])
+            subcommands: [RuntimeStatus.self, RuntimeHooks.self, RuntimeTip.self, RuntimeInstall.self, RuntimeRemove.self])
 
         static func mainExecURL(_ app: URL) -> URL {
             WeChatApp.binaryURL(app: app, relative: "Contents/MacOS/WeChat")
@@ -453,6 +453,63 @@ extension Wxkeep {
                     print("⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")
                     throw error
                 }
+            }
+        }
+
+        struct RuntimeTip: ParsableCommand {
+            static var _commandName: String { "tip" }
+            static let configuration = CommandConfiguration(
+                abstract: "Show / set the custom revoke tip text (validated against the render-layer skeleton contract)")
+            @OptionGroup var options: Options
+
+            @Argument(help: "Tip text, e.g. \"⚠️\" 撤回了一条消息 （省略 = 查看当前配置）")
+            var text: String?
+
+            @Option(help: "on: 自发撤回（「你撤回了一条消息」）也改写；off: 保持诚实反馈（默认）")
+            var rewriteSelf: Mode?
+
+            enum Mode: String, ExpressibleByArgument { case on, off }
+
+            @Flag(help: "Remove tip_text (hook stays armed; universal keeptip unaffected)")
+            var clear: Bool = false
+
+            mutating func run() throws {
+                if clear {
+                    try RuntimeConfig.removeTip()
+                    print("✓ tip_text 已移除（hook 仍武装：keep_message 通用 keeptip 不受影响）")
+                    return
+                }
+                guard let text else {
+                    let tip = RuntimeConfig.readTip()
+                    print("runtime.json: \(RuntimeConfig.url().path)")
+                    print("tip_text:     \(tip.text ?? "<未配置（hook 只武装不改写）>")")
+                    if let t = tip.text {
+                        let (_, verdict) = RuntimeConfig.validateTip(t)
+                        switch verdict {
+                        case .ok: print("骨架校验:     ✓ 合规")
+                        case .acceptedWithNotes(let notes): notes.forEach { print("骨架校验:     ⚠️ \($0)") }
+                        case .rejected(let why): print("骨架校验:     ✗ \(why)")
+                        }
+                    }
+                    print("rewrite_self: \(tip.rewriteSelf ? "on（自发撤回也改写）" : "off（自发撤回保持诚实反馈）")")
+                    print("keep_message: \(tip.keepMessage ? "on（解析前清零 newmsgid，原消息保留）" : "off")")
+                    print("设置示例:     wxkeep runtime tip '\"⚠️\" 撤回了一条消息'")
+                    return
+                }
+                let (normalized, verdict) = RuntimeConfig.validateTip(text)
+                switch verdict {
+                case .rejected(let why):
+                    throw ValidationError(why)
+                case .acceptedWithNotes(let notes):
+                    notes.forEach { print("⚠️ \($0)") }
+                case .ok:
+                    break
+                }
+                try RuntimeConfig.writeTip(text: normalized, rewriteSelf: rewriteSelf.map { $0 == .on })
+                print("✓ tip_text = \(normalized)")
+                let selfOn = rewriteSelf.map { $0 == .on } ?? RuntimeConfig.readTip().rewriteSelf
+                print("  rewrite_self: \(selfOn ? "on" : "off")")
+                print("  \(RuntimeConfig.url().path)（dylib 启动时读取——微信下次启动生效，运行中可改）")
             }
         }
 
@@ -505,6 +562,19 @@ extension Wxkeep {
                     : (armed ? "已武装（对已匹配构建生效）"
                              : "未武装（当前构建无匹配地址行或序言不符）")
                 print("hook 武装:         \(hookState)")
+                // 改写证据计数（dylib 30s 周期回写 marker；微信重启归零——
+                // 读到的是当前会话的最近快照）。fires=完成改写次数、
+                // hits=「撤回」needle 命中（含自发跳过/超长放弃）、
+                // zero=newmsgid 清零次数（消息保留动作）。
+                if let markerText {
+                    func markerInt(_ key: String) -> String {
+                        guard let r = markerText.range(of: "\(key)=") else { return "?" }
+                        let digits = markerText[r.upperBound...].prefix(while: \.isNumber)
+                        return digits.isEmpty ? "?" : String(digits)
+                    }
+                    print("hook 证据:         fires=\(markerInt("fires")) hits=\(markerInt("hits")) "
+                        + "zero=\(markerInt("zero"))（本次启动累计，30s 粒度回写）")
+                }
                 let state = injected && dylibExists ? (markerExists ? "已启用" : "已注入（启动微信后生效）") : "未启用"
                 print("整体:              \(state)")
             }

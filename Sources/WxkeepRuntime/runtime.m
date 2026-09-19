@@ -77,7 +77,9 @@ static const hook_target_t kTarget270099 = {
 static const hook_target_t *const kBuiltins[] = { &kTarget270099 };
 static const size_t kBuiltinCount = sizeof(kBuiltins) / sizeof(kBuiltins[0]);
 
-enum { kMaxExtHooks = 16 };
+// 20 = 4.1.15 全家族（除未发布的 270092）× 双架构；32 留 update-data
+// 下发新构建行的余量（越限行被静默丢弃——parse 循环的 n >= 上限 break）。
+enum { kMaxExtHooks = 32 };
 static hook_target_t g_ext_hooks[kMaxExtHooks];
 static int g_ext_hook_count;
 
@@ -104,7 +106,21 @@ enum { kStIdle = 0, kStUuidMismatch = 1, kStPrologueMismatch = 2,
 static char g_probe_name[96];   // 构造器期匹配到的镜像名样本（诊断）
 static int uuid_matches(const struct mach_header_64 *hdr, const char *want);
 
-void write_marker(void);   // 容器路径回写（armed 后状态翻转）
+// marker 回写：armed 后状态翻转；构造器/武装路径 loud=1（带 NSLog），
+// 周期证据回写 loud=0（30s 一次，刷计数器——不刷则 marker 永远停在启动
+// 快照的 fires=0，`runtime status` 看不到会话内增长的证据）。
+void write_marker(void);
+static void write_marker_ex(int loud);
+
+// 计数器/采样由 hook 线程写、marker 写线程读，无锁并存（诊断面，撕裂只
+// 影响单次显示）。字符串采样必须先sanitize-copy：写方 memcpy 后才置 NUL，
+// 读方直接 @(cstr) 在该窗口可能越过数组尾——本地副本强制尾 NUL 兜底。
+static NSString *cstr_sample(const volatile char *src) {
+    char local[sizeof(g_last_fired) + 1];
+    memcpy(local, (const void *)src, sizeof(g_last_fired));
+    local[sizeof(g_last_fired)] = 0;
+    return local[0] ? @(local) : @"";
+}
 static volatile int32_t g_arm_done;   // 整个进程只装一次（多触发源竞态防御）
 static const char kTarget270099_uuid[] = "97e21436-abda-3b79-bec0-ef2653c6b423";
 static char g_last_uuid[40];     // 回调收到的最后一个镜像 UUID
@@ -718,7 +734,9 @@ static void on_image_add(const struct mach_header *mh, intptr_t slide) {
 // M-R1：标记文件
 // ---------------------------------------------------------------------------
 
-void write_marker(void) {
+void write_marker(void) { write_marker_ex(1); }
+
+static void write_marker_ex(int loud) {
     @autoreleasepool {
         // 与配置同策略：Group 容器优先（CLI/runtime status 在沙盒外读同一路
         // 径），legacy NSSearchPath 路径回落——容器内 ~/ 展开曾让 marker 对
@@ -745,16 +763,39 @@ void write_marker(void) {
             [NSDate date].timeIntervalSince1970,
             g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
             g_rewrite_fires, g_rewrite_hits, g_zero_fires,
-            g_last_fired[0] ? @(g_last_fired) : @"<none>",
-            g_last_inner[0] ? @(g_last_inner) : @"<none>",
+            g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
+            g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
             [NSString stringWithFormat:@"cb=%d last=%@ scanmiss=%d probe=%@",
                 g_cb_count,
                 g_last_uuid[0] ? @(g_last_uuid) : @"<none>",
                 g_scan_missed,
                 g_probe_name[0] ? @(g_probe_name) : @"<none>"]];
         [now writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        NSLog(@"[wxkeep-runtime] loaded, marker at %@, mr2=%d", marker, g_hook_installed);
+        if (loud) {
+            NSLog(@"[wxkeep-runtime] loaded, marker at %@, mr2=%d", marker, g_hook_installed);
+        }
     }
+}
+
+// ---- 周期证据回写 ----
+// marker 只在启动路径写的话，fires/hits/zero 永远是启动快照（≈0）——
+// 「读 marker 即得改写证据」需要会话内的周期刷新。30s 一次 Foundation
+// 写在后台队列，与武装路径的 marker 回写同上下文模型；进程生命周期内
+// 常驻（微信退出即随进程消失，marker 留最后一次快照）。
+static void start_evidence_timer(void) {
+    dispatch_source_t timer = dispatch_source_create(
+        DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+        dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
+    if (!timer) return;
+    dispatch_source_set_timer(timer,
+                              dispatch_walltime(NULL, (int64_t)30 * NSEC_PER_SEC),
+                              (int64_t)30 * NSEC_PER_SEC, 0);
+    dispatch_source_set_event_handler(timer, ^{ write_marker_ex(0); });
+    dispatch_resume(timer);
+    // 刻意被静态引用持有、永不 cancel：source→handler→全局函数 无环，
+    // 常驻即设计（进程内一次性安装）。
+    static dispatch_source_t keep;
+    keep = timer;
 }
 
 // ---- 迟到装载兜底 ----
@@ -916,6 +957,7 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
                    ^{ arm_late(); });
 
+    start_evidence_timer();   // fires/hits/zero 会话内周期回写（marker 证据闭环）
     write_marker();
 }
 

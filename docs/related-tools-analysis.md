@@ -215,3 +215,114 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
    （静默无效）——上游 4.x 补丁仅 arm64 的又一实证；双架构仍是本仓独有优势
 5. fzlzjerry {content} 占位符靠「按 serverId 的消息缓存」——M-R3 完整版的
    同款思路已在 ROADMAP（终结器缓存）
+
+## 2026-09-19 WeFlow 6.3.1 静态解剖（用户提供的双架构 DMG）
+
+> 样本：WeFlow-6.3.1-arm64.dmg / x64.dmg（Electron 应用，app.asar 497MB）。
+> 纯静态分析：asar 解包（dist-electron/main.js 2.8MB）+ 资源串解剖，未执行。
+
+### 定性：聊天记录导出/分析/AI 工具，不是防撤回补丁器
+
+- 主体是 **会话导出 / 年报 / AI 分析 / 转录 / 图片解密**（agentWorker、
+  annualReport、transcribe、imageDecrypt、wcdbWorker、keyRecover 等）
+- 其「revoke」相关符号（RevokeLookup/RevokeContextMessages/
+  RevokedOriginalMessage/RevokeFallbackContent）全是**导出侧的撤回消息展示**
+  （从解密库里查撤回消息及上下文），非拦截
+
+### 技术架构（值得关注的部分）
+
+1. **DB 密钥提取：Frida hook `ccpbkdf2_hmac`**（libcorecrypto.dylib 内部符号，
+   非公开 CommonCrypto 包装层）——比生态公开方案（Dengququ 等人的
+   `CCKeyDerivationPBKDF`）更深一层：微信的 PBKDF2 走 corecrypto 内部路径时
+   公开 API 断点可能漏。helper 二进制（xkey_helper_macos）内嵌 Frida JS 脚本，
+   等密钥回调后 JSON 回传
+2. **语义扫描定位**（image_scan_helper）：`semantic candidates → strict
+   candidates → exec-range strict hit`——与我们的 recipe 引擎同向（特征定位
+   免硬编码偏移）
+3. **welive（Rust 单文件工具）**：自带 libWCDB.dylib/libwcdb_api.dylib 直读
+   微信加密库；`monitor sse`（Server-Sent Events 流式监控 DB 变化）；
+   子命令面含 `anti-revoke install/uninstall/check --session-id`
+4. **anti-revoke 是 DB 级方案**：per-session 的「监控撤回 sysmsg 落库 →
+   `update-message`（--local-id/--create-time/--content）回写恢复原内容」——
+   事后补救而非事前拦截（与 update-message 子命令并存互证）
+5. 运行时策略校验（直接运行 welive 报 `runtime policy validation failed`，
+   仅 WeFlow 宿主带合法环境可拉起）
+
+### 吸收判定：**不吸收，记录为对照路线**
+
+- DB 级防撤回（welive 式）需要：密钥提取（Frida 注入微信进程）+ 常驻监控 +
+   对微信**打开中的** WCDB 并发写——三面都与本项目「无注入、字节级、
+   一次性写」的安全模型冲突；收益（可恢复历史撤回）不抵风险（库锁竞争/
+   密钥驻留）
+- `ccpbkdf2_hmac` 深层断点情报已归档（未来若做离线取证工具可用）
+- **法律背书事实**：WeFlow 仓库 2026-08 被 Tencent 法务函清空（README 只剩
+  合规声明），同 chatlog（2025-10）——微信数据解密工具链的法律风险实证，
+  本项目坚持「只补丁、不解密、不读数据」路线的又一依据
+
+## 2026-09-19 全网复查（独立代理调研 + 本机验证）
+
+- **4.1.15 仍是最新**：官网 mac.weixin.qq.com 当前 4.1.15；`WeChatMac_4.1.16.dmg`
+  CDN 404；GitHub 全站无 4.1.16 issue 痕迹；270100（热修通道）之上无任何构建号
+- sunnyyoung/WeChatTweak：停更状态不变（最后 config 34371，2026-02）；社区
+  PR #1042（269602 支持，2026-09-13）仍未合并
+- zengtianli/WeChatTweak PR #2（vvanglro，已合并）：269602 arm64 keeptip——
+  与本仓 v1 同款 newmsgid 置零，**群聊提示不显示为作者实机确认的已知限制**
+  （与我们 ㉔ 的根因模型互相印证：清零 newmsgid 必连群提示一起消失）
+- WeChatTool v0.1.3（2026-09-18）：修「自己撤回崩溃」——其 v0.1.2 补丁误伤
+  微信自用的全局消息分类器；对本项目的启示与 rewrite_self 默认门同向
+  （自发撤回路径必须显式区分）
+- 新增 Mac 密钥提取仓库一批（fanrongrongrong/wechat-mac-auto-export、
+  3351666087/wechat-mac-os 等，2026-09-16/17）：全部 Frida
+  `CCKeyDerivationPBKDF` 路线，无新机制
+- SovietExtension 1.4.1（2026-09-17）：仍锁 269079；「撤回内容转发到文件
+  传输助手」路线不变
+- **结论**：防撤回技术面本仓仍处生态前沿（universal keeptip 跨构建 + 双架构 +
+  行为验证 + 运行时文案自定义）；无新可吸收机制，唯一开放课题仍是
+  群聊灰条提示（需区分「删除查找」与「提示合成」两次 newmsgid 查询的深 RE）
+- **CDN 归档直链细节修正**（本机实测）：4.1.15 家族的构建号直链用**点分
+  WeChatBundleVersion**——`xWeChatMac_universal_4.1.15.20_270100.dmg` ✓ 而
+  `…_4.1.15_270100.dmg` 404；热修通道装机的 270100 与 CDN 4.1.15.20 切片
+  LC_UUID 相同、补丁位点逐字节一致，但整文件非逐字节相同（高位段/大小差
+  1.7MB，expected 门按位点比对不受影响）
+
+## 2026-09-19 第三轮生态对比（独立代理全网调研 + 本机验证）
+
+**方法**：GitHub API + raw 一手抓取（WebFetch 对 github.com 超时，改 API 路径）。
+
+### 竞品格局（关键事实）
+
+| 仓库 | 状态 | 最新支持 | 机制 |
+|---|---|---|---|
+| sunnyyoung/WeChatTweak（改名自 -macOS） | 存活但停更（2026-02-08，config 止于 3.x 34371） | 3.x only | v2.0 重写为 Swift 字节补丁 CLI，**盲写**（无 expected 门/无备份）；PR #1039（zengtianli 4.x+expected）/#1042（EchoXml 269602）挂着未合并 |
+| zengtianli/WeChatTweak | 活跃（09-17） | 269631（4.1.13.63） | expected 门 + 三代签名 Locator + Resigner；keeptip=newmsgid str→xzr 同构；269631 arm64 update 8 点；GUI（WeChatUnrevoke） |
+| tanranv5/WeChatTweak | 活跃（09-17，v270098） | 270098 x64 | **盲写**；270098 x64 silent=parse 入口 `mov eax,1;ret`@0x537DAD0（与我们 parse 入口 0x537dad0 **逐字节同址**）；**WCDYWrapper 完整性绕过**（见下）；x64 全系 multiInstance 6×NOP |
+| fzlzjerry/wechat-antirecall | 活跃（09-13） | 270090 arm64 | 四件套同族 + runtime-tip 注入（inline-hook 蹦床）；**抢红包**（269624/628/270090 实证）+ {content} 第二 hook；270090 dyld 时序坑文档 |
+| X1a0He/X1a0HeWeChatPlugin | 闭源，**2.10.0 今日发布** | 270091-270100 arm64 | dylib 注入；自定义撤回提示/撤回通知/退群提示前缀 + 实时预览（文案定制面比我们宽） |
+| zsbai/wechat-versions | 活跃（每日归档） | **4.1.15.20 = 270100 顶格，无 4.1.16** | 归档源 |
+
+**wxkeep 定位**：唯一双架构 + 4.1.15 全家族（270090-270100 缺 270092）
+仓库；行为级 verify（出进程调用补丁函数）与 expected 多变体字节门仍是
+独有安全面。
+
+### 技术情报（新）
+
+1. **WCDYWrapper 完整性校验（4.1.15 新防线）**：tanranv5 在 270098 x64
+   需打 `Contents/Frameworks/ld/WCDYWrapper.framework` @0x8E03B
+   （`jmp +0x32` 绕过）才能活。**对本项目不适用**：⑬ 轮 270100 x64 真机
+   全链（patch→resign→launch→verify）无此补丁照常运行——定性为其盲写 +
+   重签流程差异（我们 entitlements 快照保留重签，库校验链未破坏）。登记
+   为「若未来真机出现 WCDYWrapper 相关杀机」的备选情报。
+2. **tanranv5 位点互证**：其 269629/631 x64 revoke 位（512BE50/512C720）
+   = 我们派生链的 parse 入口；270098（0x537DAD0）与我们 catalog 270098
+   hook 行（0x537dad0）同址——独立逆向同源。
+3. **zengtianli 群聊提示路线互证**：docs 论证「保真 newmsgid + NOP 下游
+   虚派发删除调用（lldb 动态定位）」是群聊灰条正解，且断言 fzlzjerry 的
+   runtime 注入也解不了——与 ㉘ 第二轮路线图（0x3445e20/3421bb0 断点对
+   比「查库命中/失败」分叉）同向，生态内尚无人做成。
+4. **fzlzjerry 抢红包组件**（ReceiveRedEnvelope/OpenRedEnvelope 服务链，
+   269624/628/270090 地址表）：非防撤回核心，未立项；其 {content} 占位符
+   的第二 hook（通用 Message 绪结器）是实现参考。
+5. **新仓库**：WeChatIntercept（系统通知展示撤回原文，特征码自适配）、
+   WxNoRecall（离线防撤回主张）、wxRevoke（hook
+   UNUserNotificationCenter.removeDeliveredNotifications… 拦通知销毁——
+   独立第二防线思路）、hnan/heifenshen（沙盒多开不补丁）。

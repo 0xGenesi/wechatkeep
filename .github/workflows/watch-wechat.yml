@@ -40,28 +40,59 @@ jobs:
             echo "need_report=no" >> "$GITHUB_OUTPUT"
           fi
       - name: Download & locate each new build
+        id: locate
         if: steps.latest.outputs.need_report == 'yes'
         run: |
           set -euo pipefail
           swift build -c release
           : > /tmp/report.md
+          : > /tmp/processed_builds.txt
+          KNOWN=$(python3 -c "import json; d=json.load(open('config.json')); print(max(int(v['version']) for v in d))")
           # 单构建故障隔离：任何一个 asset 403/404/XZ 损坏只跳过该构建，
           # 不再让 set -e 杀死整轮（历史失败根因）。下载优先 zsbai asset，
           # 失败回落官方 CDN 构建归档直链（tag=营销版本）。
+          # 「?」行 = 4.x 时代点分 DestVersion（构建号只有 dmg 里的 Info.plist
+          # 知道）——挂载解析 CFBundleVersion 判新；解析结果 ≤ known 即 break
+          # （release 倒序，其后只会更旧），稳态每天恰好一次额外下载。
           while read -r BUILD DMG_URL TAG; do
             [ -n "$BUILD" ] || continue
-            echo "## 新微信构建 $BUILD — 自动定位结果" >> /tmp/report.md
-            if [ -z "$DMG_URL" ]; then
-              DMG_URL="https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${TAG}_${BUILD}.dmg"
-              echo "- zsbai 归档无 dmg asset，改用官方 CDN 构建归档直链" >> /tmp/report.md
+            ALREADY_MOUNTED=""
+            if [ "$BUILD" = "?" ]; then
+              echo "## 点分 release 判新（挂载读 Info.plist）" >> /tmp/report.md
+              rm -f /tmp/wx.dmg
+              curl -sfL --retry 2 -o /tmp/wx.dmg "$DMG_URL" || \
+                { echo "- ❌ 点分 release 的 dmg 下载失败——转人工" >> /tmp/report.md; continue; }
+              [ -s /tmp/wx.dmg ] || { echo "- ❌ dmg 下载为空——转人工" >> /tmp/report.md; continue; }
+              hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmount /tmp/wx.dmg || \
+                { echo "- ❌ 挂载失败" >> /tmp/report.md; rm -f /tmp/wx.dmg; continue; }
+              BUILD=$(plutil -extract CFBundleVersion raw -o - \
+                /tmp/wxmount/WeChat.app/Contents/Info.plist 2>/dev/null | tr -d '[:space:]')
+              if ! [[ "$BUILD" =~ ^[0-9]+$ ]]; then
+                echo "- ❌ Info.plist CFBundleVersion 不可解析（得到 \"$BUILD\"）——转人工" >> /tmp/report.md
+                hdiutil detach /tmp/wxmount >/dev/null || true; rm -f /tmp/wx.dmg; continue
+              fi
+              if [ "$BUILD" -le "$KNOWN" ]; then
+                echo "- 解析构建 $BUILD ≤ known=$KNOWN——其后 release 更旧，本轮结束" >> /tmp/report.md
+                hdiutil detach /tmp/wxmount >/dev/null || true; rm -f /tmp/wx.dmg
+                break
+              fi
+              echo "- 挂载解析构建号 = $BUILD（点分 release，高于 known=$KNOWN）" >> /tmp/report.md
+              ALREADY_MOUNTED=1
             fi
-            echo "构建 $BUILD — 下载归档 dmg 并提取 dylib"
-            rm -f /tmp/wx.dmg
-            curl -sfL --retry 2 -o /tmp/wx.dmg "$DMG_URL" || \
-              curl -sfL --retry 2 -o /tmp/wx.dmg "https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${TAG}_${BUILD}.dmg" || \
-              { echo "- ❌ 两个下载源均失败（asset 与 CDN 直链）——转人工" >> /tmp/report.md; continue; }
-            [ -s /tmp/wx.dmg ] || { echo "- ❌ dmg 下载为空——转人工" >> /tmp/report.md; continue; }
-            hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmount /tmp/wx.dmg || { echo "- ❌ 挂载失败" >> /tmp/report.md; rm -f /tmp/wx.dmg; continue; }
+            echo "## 新微信构建 $BUILD — 自动定位结果" >> /tmp/report.md
+            if [ -z "$ALREADY_MOUNTED" ]; then
+              if [ -z "$DMG_URL" ]; then
+                DMG_URL="https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${TAG}_${BUILD}.dmg"
+                echo "- zsbai 归档无 dmg asset，改用官方 CDN 构建归档直链" >> /tmp/report.md
+              fi
+              echo "构建 $BUILD — 下载归档 dmg 并提取 dylib"
+              rm -f /tmp/wx.dmg
+              curl -sfL --retry 2 -o /tmp/wx.dmg "$DMG_URL" || \
+                curl -sfL --retry 2 -o /tmp/wx.dmg "https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${TAG}_${BUILD}.dmg" || \
+                { echo "- ❌ 两个下载源均失败（asset 与 CDN 直链）——转人工" >> /tmp/report.md; continue; }
+              [ -s /tmp/wx.dmg ] || { echo "- ❌ dmg 下载为空——转人工" >> /tmp/report.md; continue; }
+              hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmount /tmp/wx.dmg || { echo "- ❌ 挂载失败" >> /tmp/report.md; rm -f /tmp/wx.dmg; continue; }
+            fi
             cp /tmp/wxmount/WeChat.app/Contents/Resources/wechat.dylib /tmp/wechat.dylib
             hdiutil detach /tmp/wxmount >/dev/null
             echo "slice sha256: $(shasum -a 256 /tmp/wechat.dylib | cut -d' ' -f1)" >> /tmp/report.md
@@ -80,10 +111,14 @@ jobs:
               echo "- 注意：行为验证（verify）需要 SIP-off 实机 → manual-verify-needed"
               echo "- expected 门兜底：即使本 PR 合入，写入前字节校验不过则拒绝打补丁"
             } >> /tmp/report.md
+            echo "$BUILD" >> /tmp/processed_builds.txt
           done < /tmp/new_builds.txt
+          echo "processed=$(grep -c . /tmp/processed_builds.txt || true)" >> "$GITHUB_OUTPUT"
           cat /tmp/report.md
       - name: Auto-PR with derived entries
-        if: steps.latest.outputs.need_report == 'yes'
+        # processed=0（点分行全部解析为 ≤ known 的旧构建）= 稳态无事发生：
+        # 不开 PR 也不开 issue，报告仅在日志里。
+        if: steps.latest.outputs.need_report == 'yes' && steps.locate.outputs.processed != '0'
         id: pr
         run: |
           set -euo pipefail
@@ -93,7 +128,8 @@ jobs:
             echo "opened=no" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          BUILDS=$(awk '{printf "%s ", $1}' /tmp/new_builds.txt | xargs)
+          # 用实际处理过的构建号（点分行解析后的真值），而非原始候选文件
+          BUILDS=$(xargs < /tmp/processed_builds.txt)
           git config user.name "wxkeep-bot"
           git config user.email "actions@github.com"
           branch="auto/builds-$(echo "$BUILDS" | tr ' ' '-')"
@@ -125,7 +161,7 @@ jobs:
               labels: ['auto-locate', 'manual-verify-needed']
             });
       - name: Fallback tracking issue (no entries / PR failed)
-        if: steps.latest.outputs.need_report == 'yes' && steps.pr.outputs.opened != 'yes'
+        if: steps.latest.outputs.need_report == 'yes' && steps.locate.outputs.processed != '0' && steps.pr.outputs.opened != 'yes'
         uses: actions/github-script@v7
         with:
           script: |

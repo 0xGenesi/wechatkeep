@@ -368,3 +368,8 @@ protobuf 同步批缓冲 / 会话预览记录（wxid+文本连写）/ DB 页缓�
 - `/tmp` 只放即弃垃圾（一次性验证程序等）；`var/uuid_matches_bug_proof.c`
   是 uuid 恒假 bug 的独立复现证明（结论已入 ROADMAP ⑨ + 回归测试，仅存档）
 - CI runner 上的 `/tmp` 不受此限（runner 本身即一次性）
+- **存档副本补丁实验后必须还原**（2026-09-19 教训）：`var/wxarm/` 的
+  dylib 存档跑过 patch/restore 实验后若不还原，就是「脏工件」——
+  verify_derivations/derive_runtime_hooks 在补丁态字节上会静默失败
+  （270100_fat 曾带全套补丁快档导致 2/5 FAIL 两个会话无人察觉）。
+  会话收尾清单：对实验过的存档跑 restore 或从 var/cdn 的 dmg 重提一份。

@@ -9,8 +9,8 @@ locate_update_x64.py — 在 x86_64 slice 中按 ObjC 方法名定位 XAppUpdate
   - relative 方法表（12B/项）: name/types/imp 均为相对偏移
   - 对每个 IMP 做 x64 指令形态校验:
       ret_methods  入口 = push rbp 序言 (55 48 89 E5 或 41 5x) → 补丁 C3
-      getter       = movzx eax, byte [rdi+disp]; ret → 补丁 31 C0 C3
-      setter       = mov [rdi+disp], sil → 补丁 C3
+    getter       = [554889E5] movsx/movzx eax, byte [rdi+disp]; …ret → 补丁 31 C0 C3
+    setter       = [554889E5] mov byte ptr [rdi+disp], dl/sil → 补丁 C3
     getter/setter 的 disp 必须一致（交叉验证）。
 
 只读分析。输出 config.json 风格的 update target JSON。
@@ -162,26 +162,45 @@ def classify_ret_method(img, va):
 
 
 def classify_accessor(img, va):
-    """getter: movzx eax, byte [rdi+disp]; ret / setter: mov [rdi+disp], sil。
-    返回 (kind, disp, expected_hex, ok)。"""
+    """getter/setter 访问器归类。实拍形态（270099/270100 家族）：
+      getter = [554889E5] 0FBE4718 5DC3   (prologue + movsx eax,[rdi+disp]; pop rbp; ret)
+      setter = [554889E5] 885718 5DC3     (prologue + mov [rdi+disp],dl; pop rbp; ret)
+    早期 movzx/无序言形态同样接受（disp 交叉验证不变）；expected 取序言
+    前缀（4B 溯源，与 ⑬ 真机验证的 270100 条目同口径）。返回
+    (kind, disp, expected_hex, ok)。"""
     md = Cs(CS_ARCH_X86, CS_MODE_64)
     md.detail = True
     o = img.off(va)
-    code = img.data[o:o + 16]
+    code = img.data[o:o + 20]
     insns = list(md.disasm(code, va))
     if not insns:
         return None, None, "", False
     first = insns[0]
-    if first.mnemonic == "movzx" and first.op_str.startswith("eax, byte ptr [rdi"):
-        # movzx eax, byte ptr [rdi + 0x18]  (0F B6 47 18 / 0F B6 87 xx xx xx xx)
-        disp = first.operands[1].mem.disp
-        return "getter", disp, first.bytes.hex().upper(), True
-    if first.mnemonic == "mov" and first.op_str.startswith("byte ptr [rdi") and first.op_str.endswith("sil"):
-        disp = first.operands[0].mem.disp
-        return "setter", disp, first.bytes.hex().upper(), True
+    # 已打补丁态：入口即 ret（setter）或 xor eax,eax; ret（getter）
     if first.mnemonic == "ret":
-        return "ret", None, "C3", True  # already patched
-    return None, None, first.bytes.hex().upper(), False
+        return "ret", None, "C3", True
+    if (first.mnemonic == "xor" and first.op_str == "eax, eax"
+            and len(insns) > 1 and insns[1].mnemonic == "ret"):
+        return "ret", None, "31C0C3", True
+    # 可选标准序言 55 48 89 E5（push rbp; mov rbp,rsp——实拍家族形态）：
+    # 跳过后归类，expected 取 4B 序言前缀（asm 31C0C3/C3 均在其跨度内）
+    rest = insns
+    expected = first.bytes.hex().upper()
+    if code[:4] == b"\x55\x48\x89\xe5":
+        expected = "554889E5"
+        rest = list(md.disasm(code[4:], va + 4))
+    if not rest:
+        return None, None, expected, False
+    acc = rest[0]
+    if acc.mnemonic in ("movzx", "movsx") and acc.op_str.startswith("eax, byte ptr [rdi"):
+        # movzx/movsx eax, byte ptr [rdi + 0x18]  (0F B6/B6 47 18 / 0F B6/B6 87 xx…)
+        disp = acc.operands[1].mem.disp
+        return "getter", disp, expected, True
+    if (acc.mnemonic == "mov" and acc.op_str.startswith("byte ptr [rdi")
+            and (acc.op_str.endswith("sil") or acc.op_str.endswith("dl"))):
+        disp = acc.operands[0].mem.disp
+        return "setter", disp, expected, True
+    return None, None, expected, False
 
 
 def main():

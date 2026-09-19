@@ -4,10 +4,14 @@
 输入：zsbai/wechat-versions 最近若干个 release 的 JSON（已由调用方下载到
 /tmp/zsbai_releases.json）+ 本仓 config.json 的最大已知构建号。
 
-输出（stdout）：每行 `<build> <dmg_asset_url> <tag>`（无 asset 则 URL 为空），
-按 release 时间倒序去重，只保留高于 known 的构建。归档源不可达时输出为空
-（干净跳过，不算失败）——构建号↔dmg 用 release asset 精确对应，修复旧流水线
-「只看 latest release 漏掉同日多发子构建」与「官网首页直链只对应当前版」两处。
+输出（stdout，按 release 时间倒序）：
+- `<build> <dmg_asset_url> <tag>`：DestVersion 为数字且高于 known 的构建。
+- `? <dmg_asset_url> <tag>`：DestVersion 为点分格式（4.x 时代）拿不到构建号
+  的 release——由流水线下载 dmg、挂载读 Info.plist 的 CFBundleVersion 判新
+  （解析结果 ≤ known 即停：release 倒序，其后只会更旧；稳态每天恰好一次
+  下载）。归档源不可达时输出为空（干净跳过，不算失败）——构建号↔dmg 用
+  release asset 精确对应，修复旧流水线「只看 latest release 漏掉同日多发
+  子构建」与「官网首页直链只对应当前版」两处。
 
 本地实测：python3 tools/watch_new_builds.py <(curl -sf \
   "https://api.github.com/repos/zsbai/wechat-versions/releases?per_page=15") config.json
@@ -50,17 +54,25 @@ def main() -> int:
     seen, out = set(), []
     for rel in releases:
         build = dest_version(rel.get("body") or "")
-        if build is None or build <= known or build in seen:
-            continue
         dmg = next(
             (a["browser_download_url"] for a in rel.get("assets", [])
              if a["name"].lower().endswith((".dmg", ".img"))),
             "",
         )
+        tag = rel.get("tag_name", "")
+        if build is None:
+            # 4.x 时代 DestVersion 为点分格式（如 4.1.15.19）——构建号只有
+            # dmg 内的 Info.plist 知道。有 asset 才值得让流水线挂载解析；
+            # 无 asset 的点分 release 无法判新，跳过（与数字路径同保守）。
+            if dmg:
+                out.append(f"? {dmg} {tag}")
+            continue
+        if build <= known or build in seen:
+            continue
         seen.add(build)
         # 第三字段 = release tag（营销版本号）——供流水线在 asset 失败时
         # 构造官方 CDN 构建归档直链（xWeChatMac_universal_<tag>_<build>.dmg）
-        out.append(f"{build} {dmg} {rel.get('tag_name', '')}")
+        out.append(f"{build} {dmg} {tag}")
     if out:
         print("\n".join(out))
     return 0

@@ -66,8 +66,9 @@ enum UpdateData {
         case .invalid(let r): throw UpdateError.notVerified(r)
         }
 
-        // 3. 信息对比（新旧 catalog 规模）
-        let oldCount = (try? Config.load(explicit: nil))?.versions.count
+        // 3. 信息对比（新旧 catalog 规模——只数本次会被替换/安装的**签名目录**
+        //    本体，不含 config.local.json 合并条目；否则旧值虚高、增量失真）
+        let oldCount = installedCatalogBuildCount()
         let newCount = (try? Config(data: Data(contentsOf: workDir.appendingPathComponent("config.json")),
                                     origin: "remote"))?.versions.count
 
@@ -90,5 +91,22 @@ enum UpdateData {
         }
         print("  下一步：wxkeep versions / wxkeep doctor 查看新构建支持")
         return dest
+    }
+
+    /// update-data 安装目标位上现存目录的构建数（仅签名 config.json 本体，
+    /// 不合并 config.local.json——与远端 newCount 同口径）。无目录 = nil。
+    static func installedCatalogBuildCount(candidates: [URL]? = nil) -> Int? {
+        let urls = candidates ?? [
+            Config.userDataURL.appendingPathComponent("config.json"),
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath + "/config.json"),
+        ]
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            if let data = try? Data(contentsOf: url),
+               let config = try? Config(data: data, origin: url.path) {
+                return config.versions.count
+            }
+            return nil   // 存在但不可解析：如实报「读不出」而非跳到下一个
+        }
+        return nil
     }
 }

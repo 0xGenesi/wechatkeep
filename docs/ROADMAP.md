@@ -730,6 +730,138 @@ runtime.m 加 fires/hits 双计数（needle 命中含自发跳过/放弃；实�
 tip_text 匹配 `"<X>" 撤回了一条消息` 骨架（X 可为 ⚠️/emoji/短标记，
 或含 {from}——受长度约束），总长 ≤ 原提示内文。
 
+### ㉘ 群聊灰条深 RE 第一轮（2026-09-19 午后：完整 XML 模型 + 状态机修正 + 三个假说排除）
+
+**实验设计**：惰性 hook 态（keep_message=false 无 tip_text，runtime 透传）+ lldb
+四断点（parse 0x537dcd0 / revoke_manager 二次分派 0x394be13 / 旧状态写
+0x355abf0 / async-body 0x3951040，基址探针按 hook 桩签名 48b8…ffe0 验证——
+SBModule 对手动映射的 wechat.dylib 报异常基址，UUID 解析也失败，字节探针
+是唯一可靠法）。两次真实群聊撤回 + 用户界面观察。
+
+**四大发现（其中三个推翻既有认知）**：
+
+1. **群聊撤回 sysmsg XML 完整携带全部字段**（d27_parse_1/12.xml 实拍）：
+   `<session>45845756908@chatroom</session><msgid>912805043</msgid>
+   <newmsgid>462001335750234475</newmsgid><replacemsg><![CDATA["Jennifer"
+   撤回了一条消息]]></replacemsg>` ——与私聊同构（私聊仅少 session 字段）。
+   **灰条文案是服务端预生成并随 XML 下发的**（replacemsg 字段），不是客户端
+   合成的。㉔「客户端按 newmsgid 查到原消息才合成提示」的**客户端合成假说
+   被证伪**——文案根本不需要查原消息就能拿到。
+2. **未防护对照组灰条正常显示**（用户截图实证）——完整流程：删除原消息 +
+   显示灰条，两者同时发生。
+3. **旧「状态写」0x355abf0 两次真实撤回零触发**——该函数是
+   UpdateCancelUploadMessageStatus（上传取消状态机，写 +0x118=9），与撤回
+   **无关**。⑥⑧ 轮把它标记为「M-R4 状态写唯一位点」是误判（drive26 在
+   keeptip 态观察到零命中的真正原因：它本来就不在撤回路径上，不是
+   「newmsgid=0 → 查找失败 → 不触发」）。M-R4 的对象布局结论（+0xC=type、
+   +0x118=状态常态 0x3）仍有效，但 0x118=9 语义归属上传取消。
+4. **撤回状态机真宿主 = share_card_message_handler 0x3444b40**（符号解密
+   实证）：`cmp [msg+0x118],2` → ==2 走 3421bb0(…,1,1) 回调；≠2 写
+   `[msg+0x118]=5`。消息 +0x118 状态枚举修正：0x3=常态、2=撤回已收到、
+   5=待撤回。唯一的写 2 点在 0x33b1407（emoticon handler 家族的
+   0x33ae670 函数内，vtable 派发无直接调用者）。文本消息的撤回状态迁移
+   推测走同构的 text_message_handler（0x3453860+），待下轮实弹。
+
+**群聊灰条缺失的机理修正**：既然文案是服务端给的、对照组能显示——清零
+newmsgid 后灰条消失的原因必然在**消息链定位**环节：灰条需要插入到被撤
+消息的位置（或与被撤消息行合并显示），newmsgid=0 → 定位失败 → 插入/改写
+不发生。这与 zengtianli 的「newmsgid 锚定删除与群提示插入」表述一致，
+但插入的内容（文案）来自 XML 而非本地合成。**推论：只保 newmsgid 的
+「定位」用途而废其「删除」用途的干预点，在 parse 之后、按 newmsgid 查
+库的函数上**——查库命中后把「删除」分支废掉、保「改状态/插提示」分支。
+这正是 kanxue Windows 管线（GetMessageBySvrId → DeleteMessage →
+AddMessageToDBbyWxID）的 Mac 对应物，干预点候选=查库函数返回后的第一个
+条件分支（caller A 0x351c8b0 的 343e0d0/343c330 调用簇）。
+
+**撤回状态机调用链（270100 全景，全部 vtable 派发无 E8 调用者）**：
+```
+sysmsg 到达 → parse 0x537dcd0（XML SSO 完整字段）
+  → revoke_manager [0x394be13 二次分派]（d27 未捕获——vtable 内联或时机）
+  → share_card_handler 0x3444b40: cmp [msg+0x118],2 分支
+      ==2 → 3421bb0(…,1,1)（完成回调，内部 5311b30=查库/DB 层）
+      ≠2 → [msg+0x118]=5（标记待撤回）
+  → caller A [0x351c8b0..0x351db10)（message_manager 核心）:
+      343e0d0 → 343c330（memset 0x118B + 序列化调用簇）
+      → 0x355abf0（UpdateCancelUpload，撤回不走）
+      → 0x351db10 递归 → 355bbf0/355b680 后处理
+```
+
+**工件**：var/wxarm/d27.log（全捕获日志）、d27_parse_1.xml / d27_parse_12.xml
+（两次撤回的完整 XML）、runtime.json.pre-d27.bak（实验前配置备份，已恢复）。
+工具沉淀：tools/dyntrace/drive27.py（四断点观察轮，hook 桩签名基址探针）。
+decrypt_strings.py 修 struct 缺失 import（NameError 崩溃）。
+
+**下一轮（第二轮）路线图**：断 0x3444b40 的 cmp [msg+0x118],2 处
+（0x3445e20）+ 3421bb0 入口，防护态（keep_message=true）与惰性态各撤一次，
+对比「查库命中/失败」在 0x118 状态机上的分叉——命中废删除的具体指令位置
+就是 runtime 第二 hook 点（工程上与 parse hook 同款地址表+序言门）。
+
+### ㉗ 优化完善轮二（2026-09-19 午：WeFlow 对照 + 证据闭环 + watch 4.x 判新）
+
+**输入**：WeFlow 6.3.1 双架构 DMG 静态解剖 + 独立代理全网复查（详见
+related-tools-analysis.md 2026-09-19 两节）。要点结论：无 4.1.16；WeFlow 是
+聊天导出工具（Frida ccpbkdf2_hmac 深层断点提密钥 + welive 直读 WCDB +
+DB 级 anti-revoke 事后回写），与本项目安全模型冲突——不吸收，归档为对照
+路线；其仓库已被 Tencent 法务函清空（同 chatlog）。
+
+**六项交付**（115 测全绿，release 构建通过）：
+1. **marker 周期回写（证据闭环缺口）**：㉑ 的计数器设计意图「读 marker 即
+   得证据」实际未闭环——marker 只在启动路径写，fires/hits/zero 永远停在
+   启动快照 ≈0，会话内增长只有 lldb 读存活进程一条路。修复：30s 周期
+   证据回写（QOS_UTILITY 定时器，write_marker 拆 loud/quiet——周期路径
+   无 NSLog 防日志刷屏）；last/inner 采样改 sanitize-copy（本地副本强制
+   尾 NUL，消除 hook 写/读窗口的理论越界读）。
+2. **`wxkeep runtime tip` 命令（文案配置的 #1 脚枪）**：手改 plist 长路径
+   → 写坏骨架 → 界面 Unsupported 是 ㉒ 发现的实测坑。新命令带校验：
+   官方骨架 `"…" 撤回了一条消息` 强制（含空昵称/缺后缀/多尾巴全拒）、
+   长度门按**展开后等效**评估（{from} 占位符 6B 会被昵称替换，静态等效
+   >31B 或纯静态 >31B 拒）、`<>&` 剥除与 dylib 同语义（移除非替换）、
+   纯 `"{from}"` 形态识别为恒等长最优解、`--rewrite-self on|off`、`--clear`；
+   读路径展示当前值 + 校验状态。原子写保留 hooks 段。
+3. **`runtime status` 证据面**：解析 marker 的 fires/hits/zero 显示
+   （含 30s 粒度回写说明），改写效果不再依赖 lldb。
+4. **update-data 新旧条目数口径**：旧值只数签名目录本体（不合并
+   config.local.json），与远端 newCount 同口径——旧值虚高的展示失真修正。
+5. **配方名→identifier 映射**：locate/autoLocate 硬编码 "revoke" 在
+   signatures.json 未来并入 update* 配方时会静默错标（silent 才应用、
+   keeptip 漏打）。按名字前缀归类（update*/multiInstance*），未知前缀
+   保守归 revoke（现状行为）；mergeLocated 按 identifier+binary 双键分组。
+6. **watch CI 4.x 判新（设计落地）**：④ 记录的「挂载读 Info.plist 判新」
+   实施——collector 对点分 DestVersion 的 release 输出 `? <url> <tag>`
+   候选行（实测最近 15 个 release 全是点分=旧收集器全漏的实证）；workflow
+   下载→挂载→`plutil -extract CFBundleVersion` 判新，解析 ≤ known 即 break
+   （release 倒序其后更旧，稳态每天恰好一次额外下载）；processed 计数
+   输出防「无事发生还开 issue」的日频噪音。本地验证：collector 对真实
+   API 实跑（15 行候选）+ bash -n + YAML 解析。
+   注：zsbai 已归档 4.1.15.20（=270100）——热修构建进归档源证实。
+
+**复查过不改**：Config.load 的 cwd 优先搜索序（随机目录的陌生 config.json
+可被 manifest=legacy 载入——收紧会破源码树工作流，维持现状+已有 note）；
+zero_newmsgid_digits 只处理首个 <newmsgid>（sysmsg 单消息单标签，实测形态）；
+verify 仅 x64 spec（arm64 行为验证待 RE，已知限制文档化）。
+
+**意外收获：270100 脏工件定位与修复**：verify_derivations 270100 起手 2/5
+（revoke/guard 配方 FAIL）——排除代码回归（stash 前后同结果）后三方对照
+（CDN 原版 / var/wxarm 存档 / 装机）定性：`var/wxarm/270100_fat.dylib` 是
+⑪⑫ 轮端到端补丁实验的**全量补丁快照**（silent+guard+update 全在场，从未
+还原），配方确认在补丁态字节上失败——工具与数据无回归，工件脏。已用 CDN
+原版替换（`xWeChatMac_universal_4.1.15.20_270100.dmg` 入 var/cdn 缓存），
+270100 verify_derivations **7/7 PASS**（含 keeptip store 与 hook 双架构行，
+此前 5 项里 2 项一直被脏工件掩盖）。三条新情报：
+1. **CDN 归档直链用点分 WeChatBundleVersion**：270100 的直链是
+   `…_4.1.15.20_270100.dmg`（非 `…_4.1.15_270100`）——watch workflow 的
+   CDN 回落 URL 用 zsbai tag（点分）构造，本就正确；裸营销版本形式会 404。
+2. **装机状态解码**（非缺陷）：本机微信当前 = revoke 字节已还原 +
+   update 字节在位 + runtime hook armed——正是 README「进阶配置」的
+   runtime 承担防撤回形态（㉒ 轮用户实配）。
+3. **热修 vs CDN 同构建号非逐字节相同**：装机（热修通道）与 CDN
+   4.1.15.20 的 270100 切片 LC_UUID 相同、补丁相关位点逐字节一致
+   （7/7 派生互证），但文件大小差 1.7MB（高位段布局不同）——
+   expected 门按位点比对不受影响，登记为已知现象。
+   工件卫生教训：**var/wxarm 的存档副本跑过补丁实验后必须还原**
+   （BackfillRoundtripTests 对 fixture 有终态断言，手工会话没有）——
+   本轮已把该规则写入 MAINTAINING「工件目录惯例」。
+
 ### ㉔ 补遗（2026-09-19：群聊消息保留实机验证 ✅）
 
 用户实测群聊撤回：消息保留 ✓。计数器 zero=2（私聊 1 + 群聊 1）证明群聊
@@ -739,3 +871,67 @@ tip_text 匹配 `"<X>" 撤回了一条消息` 骨架（X 可为 ⚠️/emoji/短
 注意：进程重启会使运行时计数器归零（marker 为启动时快照）——lldb 读
 存活进程全局变量时必须按当前 dylib 的 nm 符号表重取偏移（布局随编译
 变化，⑰ 轮 33M 假计数教训的完整版）。
+
+### ㉙ 全版本一致性大回归 + 家族补齐（2026-09-19 午后：CDN 补缺口构建 ×3 + 4.1.13 对照 ×2 + 生态对比）
+
+**任务**：用最新派生脚本（verify_derivations 全位点回归链）对「所有 4 以上版本」
+逐一复核功能点/补丁点一致性；补齐未完成条目；与 GitHub 生态对比。
+
+**1. 全家族回归（7/7 × 7 构建）**：270091/93/95/96/98/99/100 每构建 7 项
+（revoke x64/arm64 配方、parse guard、keeptip store、update imps、hook 行
+双架构）全部 PASS——catalog 数据与「从 CDN 原版重新派生」逐点一致。
+
+**2. 缺口构建 CDN 回捞（关键解锁）**：270090/270094/270097 的
+`xWeChatMac_universal_4.1.15.{10,14,17}_<build>.dmg` 归档直链存在（此前
+④ 轮 94/97 走 zsbai gh-proxy 后未保留 dylib，270090 从未适配 x64）。
+下载→提取→同款派生链，三构建全部家族一致命中：
+- 守卫字节恒 `84C00F84A6000000`（je disp32=A6 家族不变）
+- keeptip store 字节恒 `E83E4BE9FF488983C8010000`（call disp 家族不变）
+- revoke/arm64 序言、update imp 形态全同构
+
+**3. 条目补齐（36 条）**：270090 补整个 x64 面（revoke 配方 + guard +
+keeptip×2 + update×4）；270094/97 补 keeptip×2 + update×4（guard/revoke
+④ 轮已有）。**knownHooks 14→20 行**（270090/94/97 × 双架构；kMaxExtHooks
+16→32 留 update-data 余量）——地址表达「4.1.15 全家族（除未发布 270092）
+× 双架构」完整覆盖。x64 行按 ㉒ parse 直挂口径（270090:5374b80 /
+270094:5378bc0 / 270097:537d2b0，12B 序言门全过）。
+
+**4. 4.1.13 时代对照（269629/269631，配方跨时代命中）**：全部派生器在
+4.1.13.61/63 上同样命中——revoke_x64（isRevokemsg 0x4c42480/0x4c42d50）、
+guard（512c139/512ca09，disp32 仍 A6）、keeptip store（parse+0x85d 偏移
+**跨时代不变**；call disp 为 E81E66E9FF 时代变体，expected 按实际字节）、
+update×4（XAppUpdateManager 在 4.1.13.6x 即在场——修正「Sparkle 4.1.15
+回归」的时间线：269631 arm64 的 zengtianli 8 点与此互证）。**三方位点互证**：
+tanranv5 269629/631 的 x64 revoke 位（512BE50/512C720）恰为我们派生链的
+parse 入口；zengtianli 269631 arm64 revoke 49afa14 与 gen3 配方命中一致。
+269629/631 各补 8 条（revoke isRevokemsg 新路径 + guard + keeptip×2 +
+update×4）；不加 hook 行（runtime 组件维持 4.1.15 家族口径）。
+
+**5. 生态对比（详见 related-tools-analysis.md 2026-09-19 第三轮）**：
+wxkeep 是唯一双架构 + 4.1.15 全家族仓库（X1a0He 2.10.0 同顶 270100 但
+arm-only 闭源；zengtianli 止于 269631；tanranv5 止于 270098 x64）。
+新情报：tanranv5 的 WCDYWrapper 完整性绕过（270098 x64 打了才活）对本
+项目重签管线不适用（270100 x64 真机 ⑬ 轮全链通过）——定性为流程差异
+（盲写 vs expected 门 + entitlements 保留重签）。zengtianli docs 论证群聊
+提示正解 = 保真 newmsgid + NOP 下游虚派发删除调用，与 ㉘ 第二轮路线互证。
+
+**守卫位点漂移链（全量）**：269602:50a5639 → 269629:512c139 →
+269631:512ca09 → 270090:5374e69 → 270091:5376609 → 270093:5378cf9 →
+270094:5378ea9 → 270095:537d5a9 → 270096:537d589 → 270097:537d599 →
+270098:537ddb9 → 270099:537de29 → 270100:537dfb9（4.1.13→4.1.15 换页
++0x24B30，家族内单调爬升）。**keeptip parse+0x85d 偏移跨全部 12 构建不变**。
+
+**补充（同日访问器对家族化）**：locate_update_x64 的访问器形态校验过严
+（只认无序言 movzx/sil 形态；实拍家族形态 = `554889E5` 序言 + movsx
+`0FBE47`/`mov [rdi+disp],dl` + `5DC3` 尾）——270099 上「形态不符跳过」的
+真实原因是这个。修正为序言感知 + movsx/movzx、sil/dl 双形态 + 已补丁态
+（ret / xor+ret）识别后，**8 点全集（四方法 + 访问器对）横跨全部 12 个
+测试构建（4.1.13.61 → 4.1.15.20）全部派生成功**。访问器条目 ×44 入库
+（270100 的 4 条与 ⑬ 真机验证条目同址去重），12 构建 update 组往返验证。
+这是「功能点跨版本一致性」的直接成果：update 域从「270100 独享访问器
+加固」升级为全家族 8 点同构。
+
+**收尾**：269629 的 arm64 revoke 条目（gen3 命中 49af294，expected 40100034
+与 269631 同字节）补入——12 个测试构建全位点验证收口：家族 7 构建 7/7、
+缺口 3 构建 7/7、4.1.13 时代 2 构建 5/5（无 hook 行故 5 项）。116 测全绿，
+manifest 重签验证，COMPATIBILITY 重生（64 构建）。
