@@ -26,10 +26,9 @@
 //  - wrapper [0x537d910..0x537db40)@270099 是 A 到达解析 / B 二次解析 /
 //    D 历史批扫三条路径的唯一公共汇点（每个 parse 命中的调用者都是
 //    wrapper 内 0x537dad3 的 call）。
-//  - wrapper(rdi=信息对象, rsi=消息结构)：撤回 sysmsg XML 的 SSO 嵌在
-//    rsi+0x130（tag@+0x130 / size@+0x138 / ptr@+0x140）。wrapper 先把它
-//    拷入 rdi+0x1d0（SSO copy），再调 parse(rdi, rsi+0x130, &ok)——入口处
-//    改写 XML 即让全链一致（连 DB 持久化都是自定义文本）。
+//  - 0.2.0 实机撤回验证：wrapper+0x130 静态推定未命中（fires=0），按预案
+//    全家族切 parse 入口直挂——parse(rdi, rsi=XML SSO, &ok) 为 drive25
+//    调试器实拍地面真值；wrapper 仅是 parse 的唯一调用者，覆盖面不变。
 //  - 早期候选 0x538d700（排水函数，rsi=replacemsg 裸 SSO）只覆盖 async
 //    路径，被 wrapper 方案取代。
 //
@@ -61,13 +60,13 @@ typedef struct {
     char build[16];             // 诊断标注
 } hook_target_t;
 
-// 270099 x86_64 — 撤回解析汇点 wrapper（0x537d910，与 parse 0x537db40 同簇）。
-// 序言 12B = push rbp; mov rbp,rsp; push r15/r14/r13/r12 —— 无 rip 相对，
-// 蹦床换址执行安全（pristine 与已打补丁的安装二进制实测一致）。
+// 270099 x86_64 — hook 点 = parse 入口（drive25 地面真值：rsi 直挂 sysmsg
+// XML SSO）。早期 wrapper+0x130 形态为静态推定，0.2.0 实机真实撤回
+// fires=0 证伪后全家族切 parse 直挂（ROADMAP ㉑）。序言 12B 纯栈操作。
 static const hook_target_t kTarget270099 = {
-    .hook_off = 0x537d910,
+    .hook_off = 0x537db40,
     .msg_arg = 1,
-    .xml_sso_off = 0x130,
+    .xml_sso_off = 0,
     .expected = {0x55, 0x48, 0x89, 0xE5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54},
     .expected_len = 12,
     .is_arm64 = 0,
@@ -91,6 +90,8 @@ static size_t g_tip_len;
 static int g_rewrite_self;         // 自发撤回提示是否也改写（默认 0=不改）
 static int g_rewrite_hits;         // 撤回 needle 命中计数（含自发跳过/超长放弃）
 static int g_rewrite_fires;        // 实际完成改写的计数（验证肉眼化的证据面）
+static char g_last_fired[96];      // 最后一次改写后的内文前 95B（渲染问题取证）
+static char g_last_inner[96];      // 最后一次 needle 命中时的原始内文前 95B
 static int g_hook_installed;
 // 诊断（marker 回写）：0=未尝试 1=UUID 不匹配 2=序言不匹配
 // 3=mmap/mprotect 失败 4=已武装；bit8=回调已触发
@@ -391,6 +392,9 @@ static size_t expand_tip(const char *tip, size_t tip_len,
 }
 
 /// 提示内文等长改写（M-R2 核心，drive25 实弹定案语义）：
+///  ⚠️ 渲染约束（0.2.0 实机发现）：持久化后的提示由渲染层按官方骨架
+///  （`"…" 撤回了一条消息`）匹配显示——tip_text 必须保持该骨架，
+///  非规范内容渲染为 "Unsupported message" 占位（内容字节本身无损）。
 ///  - 只动 SSO 指向的数据缓冲内部，SSO 结构/分配器零接触；
 ///  - 内文须含「撤回」needle（类型门：非撤回消息绝不动）；
 ///  - 自发撤回（内文以「你撤回」起头）默认跳过——自己的撤回保持诚实
@@ -425,6 +429,11 @@ static int rewrite_inner_with(uint8_t *ptr, uint64_t size,
     if (inner_len < kNeedleLen) return 0;
     if (!find_bytes(inner, inner_len, kRevokeNeedle, kNeedleLen)) return 0;
     g_rewrite_hits++;   // needle 命中（含自发跳过/超长放弃——marker 可观测）
+    {
+        size_t snap = inner_len < sizeof(g_last_inner) - 1 ? (size_t)inner_len : sizeof(g_last_inner) - 1;
+        memcpy(g_last_inner, inner, snap);
+        g_last_inner[snap] = 0;
+    }
     // 自发撤回门（“你” = E4BDA0，“撤回” needle 前缀）
     if (!g_rewrite_self && inner_len >= 9
         && memcmp(inner, "\xe4\xbd\xa0\xe6\x92\xa4\xe5\x9b\x9e", 9) == 0) return 0;
@@ -444,6 +453,9 @@ static int rewrite_inner_with(uint8_t *ptr, uint64_t size,
     memcpy(inner, eff, eff_len);
     memset(inner + eff_len, ' ', inner_len - eff_len);
     g_rewrite_fires++;
+    size_t snap = inner_len < sizeof(g_last_fired) - 1 ? (size_t)inner_len : sizeof(g_last_fired) - 1;
+    memcpy(g_last_fired, inner, snap);
+    g_last_fired[snap] = 0;
     return 1;
 }
 
@@ -693,10 +705,12 @@ void write_marker(void) {
                                   withIntermediateDirectories:YES attributes:nil error:nil];
         NSString *marker = [dir stringByAppendingPathComponent:@"runtime.marker"];
         NSString *now = [NSString stringWithFormat:
-            @"loaded ts=%f mr2=%@ status=%d fires=%d hits=%d probe=%@\n",
+            @"loaded ts=%f mr2=%@ status=%d fires=%d hits=%d last=%@ inner=%@ probe=%@\n",
             [NSDate date].timeIntervalSince1970,
             g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
             g_rewrite_fires, g_rewrite_hits,
+            g_last_fired[0] ? @(g_last_fired) : @"<none>",
+            g_last_inner[0] ? @(g_last_inner) : @"<none>",
             [NSString stringWithFormat:@"cb=%d last=%@ scanmiss=%d probe=%@",
                 g_cb_count,
                 g_last_uuid[0] ? @(g_last_uuid) : @"<none>",

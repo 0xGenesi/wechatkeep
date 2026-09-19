@@ -696,3 +696,36 @@ runtime.m 加 fires/hits 双计数（needle 命中含自发跳过/放弃；实�
 随 marker 每次启动回写——打开含旧撤回提示的聊天（重解析路径）或收到新
 撤回，计数即增长。本机实测：armed 起步 fires=0 hits=0（新会话无撤回
 流量，符合预期），后续任意时刻读 marker 即得证据。
+
+### ㉒ 真实撤回闭环（2026-09-19：M-R2 文案自定义实机验证完成，附关键新知识）
+
+真实撤回事件驱动的三轮剥离（计数器 instrumentation 价值实证）：
+
+1. **wrapper+0x130 被实机证伪**：真实他人撤回 fires=0 → 按 ⑧ 预案切
+   parse 入口直挂（drive25 地面真值 rsi=XML SSO）。全家族 14 行地址表
+   切换（x64 parse 序言 554889E54157415641554154、arm64
+   F85FBCA9F65701A9F44F02A9FD7B03A9 各自七构建逐字节相同）→ hits=30+
+   拦截成功。
+2. **等长约束显形**：hits 增 fires=0 → tip_text 34B > 内文 ~31B 被拒。
+   短文案解决。
+3. **自发门显形**：用户自撤测试 hits 增 fires=0 → rewrite_self=false
+   默认门（按设计）。开启后 **fires=14/14 全成功**。
+4. **渲染层模式匹配（关键新知识）**：改写成功但界面显示英文
+   "Unsupported message. View it on your phone." → 依次排除文案长度/
+   自发门后，g_last_inner/g_last_fired 双样本对照证明改写字节完美 →
+   渲染层按官方骨架（`"…" 撤回了一条消息`）匹配显示，非规范内容回退
+   Unsupported 占位（英文 = 英文 UI 的内部串）。drive25 的「任意文本
+   可显示」是当次 parse 内存路径；持久化渲染走模式匹配。
+5. **最终方案与验证**：tip_text = `"⚠️" 撤回了一条消息`（官方骨架 +
+   ⚠️ 替换昵称位，30B ≤ 31B）→ 用户实测界面显示该文本 ✓。三大能力
+   同时成立：消息保留（silent/keeptip）+ 提示可渲染（keeptip 变体，
+   silent 的 isRevokemsg 中性化会使提示渲染为 Unsupported——固有行为
+   非改写破坏）+ 文案自定义（parse 直挂）。
+6. **发现过程工程**：fires/hits/last/inner 四元计数器与采样随 marker
+   回写 + lldb 只读附加读存活进程全局变量（静态符号 nm 偏移 + 模块基
+   址）——「等肉眼」升级为「读证据」。注意 dylib 布局变更会使旧偏移
+   失效（本轮 33M 假计数教训：加 g_last_fired 后偏移移动，nm 重取）。
+
+**M-R2 文案自定义功能状态：✅ 实机验证完成**。有效配置契约：
+tip_text 匹配 `"<X>" 撤回了一条消息` 骨架（X 可为 ⚠️/emoji/短标记，
+或含 {from}——受长度约束），总长 ≤ 原提示内文。
