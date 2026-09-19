@@ -5271,6 +5271,15 @@
               "554889E553504889FB"
             ],
             "source": "recipe:revoke_x64"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "537de29",
+            "expected": [
+              "84C00F84????????"
+            ],
+            "asm": "30C0",
+            "source": "wxkeep:parse-guard test→xor 翻转（270099 冗余 silent，ROADMAP ⑨ 记录位点的落库补齐）"
           }
         ],
         "identifier": "revoke"
@@ -5457,6 +5466,48 @@
         "identifier": "revoke"
       },
       {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2b8420",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startUpdater@270091（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2baab0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:checkForUpdates:@270091（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2badd0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startBackgroundUpdatesCheck:@270091（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb230",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:enableAutoUpdate:@270091（XAppUpdateManager，locate_update_x64 派生）"
+          }
+        ]
+      },
+      {
         "identifier": "revoke-keeptip",
         "binary": "Contents/Resources/wechat.dylib",
         "entries": [
@@ -5518,6 +5569,48 @@
           }
         ],
         "identifier": "revoke"
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2b8420",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startUpdater@270093（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2baab0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:checkForUpdates:@270093（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2badd0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startBackgroundUpdatesCheck:@270093（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb230",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:enableAutoUpdate:@270093（XAppUpdateManager，locate_update_x64 派生）"
+          }
+        ]
       },
       {
         "identifier": "revoke-keeptip",
@@ -5583,6 +5676,48 @@
         "identifier": "revoke"
       },
       {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2b8440",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startUpdater@270095（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2baad0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:checkForUpdates:@270095（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2badf0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startBackgroundUpdatesCheck:@270095（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb250",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:enableAutoUpdate:@270095（XAppUpdateManager，locate_update_x64 派生）"
+          }
+        ]
+      },
+      {
         "identifier": "revoke-keeptip",
         "binary": "Contents/Resources/wechat.dylib",
         "entries": [
@@ -5646,6 +5781,48 @@
         "identifier": "revoke"
       },
       {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2b8420",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startUpdater@270096（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2baab0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:checkForUpdates:@270096（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2badd0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startBackgroundUpdatesCheck:@270096（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb230",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:enableAutoUpdate:@270096（XAppUpdateManager，locate_update_x64 派生）"
+          }
+        ]
+      },
+      {
         "identifier": "revoke-keeptip",
         "binary": "Contents/Resources/wechat.dylib",
         "entries": [
@@ -5707,6 +5884,48 @@
           }
         ],
         "identifier": "revoke"
+      },
+      {
+        "identifier": "update",
+        "binary": "Contents/Resources/wechat.dylib",
+        "entries": [
+          {
+            "arch": "x86_64",
+            "addr": "2b8bb0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startUpdater@270098（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb240",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:checkForUpdates:@270098（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb560",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:startBackgroundUpdatesCheck:@270098（XAppUpdateManager，locate_update_x64 派生）"
+          },
+          {
+            "arch": "x86_64",
+            "addr": "2bb9c0",
+            "expected": [
+              "554889E5"
+            ],
+            "asm": "C3",
+            "source": "wxkeep:objc:enableAutoUpdate:@270098（XAppUpdateManager，locate_update_x64 派生）"
+          }
+        ]
       },
       {
         "identifier": "revoke-keeptip",
