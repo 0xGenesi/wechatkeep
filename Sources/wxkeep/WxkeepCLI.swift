@@ -560,6 +560,7 @@ extension Wxkeep {
                         + "brew lib/ → 可执行文件同目录 → .build/release/。"
                         + "brew 用户升级到 ≥0.2.0 后自带；源码用户先 swift build -c release")
                 }
+                print("dylib 来源: \(dylib)")
                 let main = RuntimeCommand.mainExecURL(options.app)
                 let backup = try Backup.make(binary: main)
                 print("backup: \(backup.lastPathComponent)")

@@ -18,6 +18,14 @@
    - 新构建的 PLT stub VA / magic-static 区可能变化 → 重新反解 verify spec 的 stubs/zero_regions。
 6. **真机实测**：撤回一条消息（dry-run/编译/测试都不能替代最后这一步）。
 7. **登记**：config.json 条目带 `source`；新签名代在本文末尾登记代际特征。
+8. **runtime hooks 地址行（可选，供自定义文案功能）**：
+   `python3 tools/derive_runtime_hooks.py <thin-x64.dylib> <parse-guard-site-hex> <build>`
+   ——守卫位点→LC_FUNCTION_STARTS→parse 唯一调用者→wrapper 入口，序言门
+   `554889E54157415641554154` 全过才产出。行加入 Sources/wxkeep/
+   RuntimeConfig.swift 的 `knownHooks`（跨边界测试会锁 schema），并同步
+   arm64（BL 拓扑同构，序言门 `FF0302D1FC6F02A9FA6703A9F85F04A9`，见
+   ⑲/⑳ 轮记录）。arm64 行加好后跑 `wxkeep runtime hooks` 刷新即可，
+   无需重装 dylib。
 
 ## 已知签名代（arm64 revoke，几何特征）
 

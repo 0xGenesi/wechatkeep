@@ -17,8 +17,14 @@ build:
 	swift build
 	swift test
 
+# 真 dylib 全链路测试：备份路径存在才启用（本地机器各自指定；CI/无备份
+# 机器自动跳过该组测试）。可用 make test REAL_DYLIB=/path/to/dylib 覆盖。
 test:
-	WXKEEP_REAL_DYLIB=$(HOME)/wechattweak-intel/wechat.dylib.orig.backup swift test
+	@if [ -n "$(REAL_DYLIB)" ]; then \
+	  WXKEEP_REAL_DYLIB="$(REAL_DYLIB)" swift test; \
+	else \
+	  WXKEEP_REAL_DYLIB="$(wildcard $(HOME)/wechattweak-intel/wechat.dylib.orig.backup)" swift test; \
+	fi
 
 # 单文件分发：universal 双架构 → 剥符号 → ad-hoc 重签（无签名的二进制在
 # 别人机器上会被 Gatekeeper 直接拒）。swift release 交叉编译两种架构。

@@ -39,6 +39,26 @@ wxkeep privacy-guard --action status  # 隐私：查看遥测/上报状态
 wxkeep update-guard --action status   # 更新防护状态
 ```
 
+## 运行时组件（可选）
+
+在字节补丁之上注入支持 dylib，提供**自定义撤回提示文案**（字节补丁给不了的运行时能力）：
+
+```bash
+wxkeep runtime install   # 注入（要求微信退出；brew 安装自带 dylib，源码用户先 swift build -c release）
+wxkeep runtime status    # 状态：注入/dylib/地址表/文案/hook 武装（区分「已启用」与「已武装」）
+wxkeep runtime hooks     # 只刷新地址表（免退出免重签；微信下次启动生效）
+wxkeep runtime remove    # 完整移除（幂等）
+```
+
+文案配置在微信 App Group 容器内（`~/Library/Group Containers/5A4RE8SF68.com.tencent.xinWeChat/wxkeep/runtime.json`，XML plist）：
+
+| 键 | 说明 |
+|---|---|
+| `tip_text` | 自定义文案；`{from}` 占位符展开为撤回者昵称；留空 = 只武装不改写 |
+| `rewrite_self` | `true` 时自发撤回（「你撤回了一条消息」）也改写；默认 false 保持诚实反馈 |
+
+示例：`tip_text = "⚠️ {from} 想撤回，已被拦截"`。改写是**等长原位替换**（多余长度空格填充），文案长于原提示时放弃保原文；hook 按构建 UUID + 入口字节双门匹配，未知构建零作用。地址表随 `install` 写入（14 行 = 4.1.15 全家族 × 双架构），新构建由 `tools/derive_runtime_hooks.py` 产出数据行即生效。
+
 ## 安全模型
 
 1. **expected 多变体字节门**：写入前逐点校验原始字节（接受 pristine/已打补丁两态），错版/未知修改零写入
