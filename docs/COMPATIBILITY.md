@@ -15,20 +15,27 @@
 | 270093 | 4.1.15.13 | x86_64/arm64 | x86_64 | — | x86_64 | — |  |
 | 270091 | 4.1.15.11 | x86_64/arm64 | x86_64 | — | x86_64 | — |  |
 | 270090 | 4.1.15.10 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — | merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded) |
-| 269631 | 4.1.13.63 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | x86_64 | 2 entries lack expected bytes (quarantined) |
-| 269629 | 4.1.13 | x86_64/arm64 | x86_64 | — | x86_64 | x86_64 | 2 entries lack expected bytes (quarantined) |
-| 269628 | ? | arm64 | arm64 | — | arm64 | — | merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded) |
-| 269627 | 4.1.13 | arm64 | arm64 | — | arm64 | — |  |
-| 269626 | 4.1.13 | arm64 | arm64 | — | — | — |  |
-| 269624 | 4.1.13 | arm64 | arm64 | — | arm64 | — |  |
-| 269619 | 4.1.13 | arm64 | arm64 | — | arm64 | — |  |
+| 269631 | 4.1.13.63 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | x86_64 |  |
+| 269630 | 4.1.13.62 | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — |  |
+| 269629 | 4.1.13.61 | x86_64/arm64 | x86_64 | — | x86_64 | x86_64 |  |
+| 269628 | 4.1.13.60 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — | merged from fzlzjerry/wechat-antirecall (runtime-tip trampolines excluded) |
+| 269627 | 4.1.13.59 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 269626 | 4.1.13.58 | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — |  |
+| 269625 | 4.1.13.57 | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — |  |
+| 269624 | 4.1.13.56 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 269622 | 4.1.13.54 | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — |  |
+| 269621 | 4.1.13.53 | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — |  |
+| 269620 | 4.1.13.52 | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — |  |
+| 269619 | 4.1.13.51 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 269618 | 4.1.13.50 | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — |  |
 | 269602 | 4.1.13 | x86_64/arm64 | x86_64/arm64 | x86_64 | x86_64/arm64 | arm64 |  |
-| 269579 | 4.1.13 | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
-| 269578 | 4.1.13 | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
-| 269577 | ? | arm64 | arm64 | — | arm64 | — |  |
-| 269576 | ? | arm64 | arm64 | — | arm64 | — |  |
-| 269575 | ? | arm64 | arm64 | — | arm64 | — |  |
-| 269574 | ? | arm64 | arm64 | — | arm64 | — |  |
+| 269579 | 4.1.13.11 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | x86_64 |  |
+| 269578 | 4.1.13.10 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | x86_64 |  |
+| 269577 | 4.1.13.9 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 269576 | 4.1.13.8 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 269575 | 4.1.13.7 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 269574 | 4.1.13.6 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 269573 | 4.1.13.5 | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — |  |
 | 269365 | ? | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269341 | ? | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269340 | ? | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
@@ -70,4 +77,4 @@
 | 31960 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 31927 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 
-共 64 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
+共 71 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。

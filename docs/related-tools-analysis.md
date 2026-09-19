@@ -326,3 +326,20 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
    WxNoRecall（离线防撤回主张）、wxRevoke（hook
    UNUserNotificationCenter.removeDeliveredNotifications… 拦通知销毁——
    独立第二防线思路）、hnan/heifenshen（沙盒多开不补丁）。
+
+## 2026-09-19 深夜复查（CDN 4.1.13 归档发现 + 竞品动向）
+
+- **CDN 构建归档直链全线探明**（本仓关键情报更新）：4.1.13 的 .5-.11 与
+  .50-.63 段全部有 `xWeChatMac_universal_4.1.13.N_<269568+N>.dmg` 归档
+  （N=1..63 逐一直播 HEAD 实证）——「4.1.13 线历史构建无可靠回填源」的
+  旧结论作废；.12-.49 段与 4.1.12 及更老线仍 404。基于此完成 18 构建
+  派生入库（ROADMAP ㉚），wxkeep 成为唯一覆盖 4.1.13 全线双架构的仓库
+  （zengtianli 止于 269631 arm64、tanranv5 止于零星 x64、X1a0He 2.10.0
+  闭源 arm-only 270090+）
+- **无 4.1.16**：CDN/官网/zsbai（顶格 4.1.15.20=270100）/GitHub 全站
+  复查均无新版本痕迹
+- **tanranv5**（09-19 09:43Z）：新增一键还原 + `--block-update`——功能面
+  追赶本仓既有能力（restore 幂等 + update-guard 偏好层/二进制 8 点），
+  无新机制可吸收；其 WCDYWrapper 绕过结论维持（流程差异，非普适）
+- **zengtianli / fzlzjerry / sunnyyoung**：09-13/09-17 后无新提交；
+  sunnyyoung PR #1042（269602）仍挂着

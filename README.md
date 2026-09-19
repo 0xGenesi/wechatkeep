@@ -15,9 +15,9 @@ wxkeep update-data   # 拉取最新补丁数据（brew 安装的 catalog 随发�
 
 ## 功能
 
-- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 269602 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）
+- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）。覆盖 4.1.13 全线（269573-269631 已知构建）+ 4.1.15 全家族双架构
 - **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效
-- **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示。**270099 x64 已有二进制级 update 目标**（XAppUpdateManager 四方法 → ret，待真机行为验证，见 docs/findings-269602-updater.md）；269602 双架构为周期工人 → ret
+- **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示。**二进制级 update 目标**（XAppUpdateManager 四方法+访问器对全套 8 点，270100 真机行为验证；269573-269631/269602 x64 为同构派生+字节级往返验证；269602/269631 等另带 arm64 zengtianli 8 点；269602 双架构为周期工人→ret）
 - **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）
 - **多开（克隆式）**——独立数据目录的第二/第 N 个微信，与构建号无关（`clone create`）
 - **体检**——`doctor` 含 AMFI 观察级提示与精确修复指引
@@ -76,7 +76,7 @@ wxkeep runtime remove    # 完整移除（幂等）
 
 ## 版本兼容
 
-见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，52 个构建号起步）。
+见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，71 个构建号）。
 catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（配方代不变时 day-0 可用），或显式 `wxkeep locate [--append]`。
 
 ## 从源码构建
@@ -102,12 +102,12 @@ docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现 / 工具
 
 ## 诚实的限制
 
-- **keeptip 覆盖**：arm64 269574+ 全系 + x64 4.1.15 全家族（270090-270100，私聊提示保留；群聊提示为字节路线已知限制）+ x64 269629/269631/269602；silent 双架构全可用
-- **二进制级屏蔽更新**：4.1.15 全家族 x64 + 269629/269631 x64（270090-270100 与 4.1.13.6x，XAppUpdateManager 四方法 + 访问器对全套 8 点；270100 真机行为验证过，其余为同构派生 + 字节级往返验证）+ 269602/269631 等的 arm64（zengtianli 8 点）；其余老构建待逐轮补齐（工具链就位：`tools/locate_update_x64.py`）。偏好层三开关（`wxkeep update-guard`，patch 时自动附带）在无二进制目标的构建上兜底
+- **keeptip 覆盖**：arm64 269573+ 全系（4.1.13 全线 + 4.1.15 全家族）+ x64 同线（269602/269629/269631 + 4.1.15 全家族 270090-270100，私聊提示保留；群聊提示为字节路线已知限制）；silent 双架构全可用
+- **二进制级屏蔽更新**：4.1.13 全线 x64（269573-269631 已知构建，XAppUpdateManager 四方法+访问器对 8 点，字节级往返验证）+ 4.1.15 全家族 x64（270100 真机行为验证，其余同构派生）+ 269602/269631 等的 arm64（zengtianli 8 点）；其余老构建待逐轮补齐（工具链就位：`tools/locate_update_x64.py`）。偏好层三开关（`wxkeep update-guard`，patch 时自动附带）在无二进制目标的构建上兜底
 - verify 的行为验证在 SIP 开启的机器上不可用（RWX 映射被禁）；CI 上自动跳过
-- tanranv5 来源的 29 个构建条目缺 expected 字节，处于隔离区（补验后放行）
-- 运行时组件地址表 = 4.1.15 全家族（除未发布的 270092）× 双架构 20 行；M-R2 parse 直挂已实机验证（270100），270090/94/97 六行为同构派生（序言门全过，未单独实机验收）
-- 270092 一个构建号官方 CDN 无归档（疑似从未公开发布），目录永久缺口
+- 78 个隔离条目缺 expected 溯源字节（tanranv5 50 + zengtianli 28，全部为 4.1.12 及更老时代构建——官方 CDN 归档未覆盖，回填源永久缺口）
+- 运行时组件地址表 = 4.1.15 全家族（除未发布的 270092）× 双架构 20 行；M-R2 parse 直挂已实机验证（270100），其余家族行为同构派生（序言门全过，未单独实机验收）
+- 270092 与 4.1.13.12-.49 段（含 269602）官方 CDN 无归档（疑似从未公开发布）——269602 条目已由历史轮次覆盖，其余为目录永久缺口
 
 ## 贡献
 

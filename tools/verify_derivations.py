@@ -177,16 +177,25 @@ def main():
 
     x64thin = os.path.join(ROOT, 'var/wxarm', f'{build}_x64.dylib')
     fat = os.path.join(ROOT, 'var/wxarm', f'{build}_fat.dylib')
+    fat_synthesized = not os.path.exists(fat)
     if not os.path.exists(fat):
-        dmgs = [p for p in os.listdir(os.path.join(ROOT, 'var/cdn'))
-                if p.endswith(f'_{build}.dmg')] if os.path.isdir(os.path.join(ROOT, 'var/cdn')) else []
-        if not dmgs:
-            raise SystemExit(f'需要 {fat} 或 var/cdn 的 dmg')
-        sh(['hdiutil', 'attach', '-nobrowse', '-readonly',
-            os.path.join(ROOT, 'var/cdn', dmgs[0]), '-quiet'])
-        src = '/Volumes/微信 WeChat/WeChat.app/Contents/Resources/wechat.dylib'
-        shutil.copy(src, fat)
-        sh(['hdiutil', 'detach', '/Volumes/微信 WeChat'])
+        # thin-only 工件（derive_build_from_cdn 的省磁盘策略）→ lipo 合成；
+        # 无 thin 再回落 var/cdn dmg 自动挂载抽取
+        armthin = os.path.join(ROOT, 'var/wxarm', f'{build}_arm64.dylib')
+        if os.path.exists(x64thin) and os.path.exists(armthin):
+            r = sh(['lipo', '-create', x64thin, armthin, '-output', fat])
+            if r.returncode != 0:
+                raise SystemExit(f'lipo 合成 fat 失败: {r.stderr.strip()[:120]}')
+        else:
+            dmgs = [p for p in os.listdir(os.path.join(ROOT, 'var/cdn'))
+                    if p.endswith(f'_{build}.dmg')] if os.path.isdir(os.path.join(ROOT, 'var/cdn')) else []
+            if not dmgs:
+                raise SystemExit(f'需要 {fat}/双 thin 或 var/cdn 的 dmg')
+            sh(['hdiutil', 'attach', '-nobrowse', '-readonly',
+                os.path.join(ROOT, 'var/cdn', dmgs[0]), '-quiet'])
+            src = '/Volumes/微信 WeChat/WeChat.app/Contents/Resources/wechat.dylib'
+            shutil.copy(src, fat)
+            sh(['hdiutil', 'detach', '/Volumes/微信 WeChat'])
 
     results = []
 
@@ -258,6 +267,10 @@ def main():
             pe = max((f for f in funcs if f <= g), default=None) if g else None
             check(f"hook parse arm64", format(pe, 'x') if pe else None,
                   format(int(h['hook_off'], 16), 'x'))
+
+    # thin-only 工件策略：合成的临时 fat 用完即删（18 构建全留会 +6GB）
+    if fat_synthesized and os.path.exists(fat):
+        os.unlink(fat)
 
     print(f'\n===== {build} 回归验证 =====')
     fails = 0

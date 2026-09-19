@@ -935,3 +935,42 @@ arm-only 闭源；zengtianli 止于 269631；tanranv5 止于 270098 x64）。
 与 269631 同字节）补入——12 个测试构建全位点验证收口：家族 7 构建 7/7、
 缺口 3 构建 7/7、4.1.13 时代 2 构建 5/5（无 hook 行故 5 项）。116 测全绿，
 manifest 重签验证，COMPATIBILITY 重生（64 构建）。
+
+### ㉚ 4.1.13 全线回捞（2026-09-19 深夜：CDN 归档全探明 + 18 构建派生验证入库）
+
+**输入**：对官方 CDN 构建归档直链做 4.1.13 线 N=1..63 全量 HEAD 探测——
+归档覆盖 .5-.11（269573-579）与 .50-.63（269618-631），.1-.4 与 .12-.49
+（含 269602=.34）为永久缺口；4.1.12 及更老线全线 404。线性映射
+4.1.13.N ↔ 269568+N 由 20 个 200 应答逐一实证（此前 hints 表对 269578/579
+的 tag 映射是错的——4.1.13.59 实为 269627 的 tag）。
+
+**交付**：18 个构建（7 个目录外新构建 269573/618/620/621/622/625/630 +
+11 个补 x64 面 269574-579/619/624/626-628）全部派生 **revoke×2 + guard +
+keeptip 对 + update 8 点**（248 条），每构建六组引擎级往返验证（18×6 全
+PASS，含 zengtianli 存量 arm64 条目首次对 CDN 官方原版字节的机器校验）；
+269578/579 各 2 条 tanranv5 隔离条目回填放行（隔离 82→78，余量全部为
+无归档老构建）。269573 把 arm64 gen3 签名代实测下界从 269574 推到 269573。
+合并后目录 71 构建/854 条，抽查 verify_derivations 5/5，116 测全绿，
+manifest 重签验证。
+
+**工具沉淀**（本轮三个新脚本 + 四处改进，全部服务「其他版本补丁点」复产）：
+- `tools/derive_build_from_cdn.py`：dmg→thin 抽取（省磁盘不留 fat/dmg）→
+  locate 配方（fake bundle）→ guard → keeptip（expected 按实读字节）→
+  update 8 点 → arm64 keeptip 几何派生（新构建）→ 隔离回填，产出 staging
+- `tools/verify_staging.py`：按 target 分组的 BackfillRoundtrip 驱动
+- `tools/merge_staging.py`：staging → config.json（既有条目优先/去重/回填）
+- backfill_expected 的 BUILD_TO_TAG_HINTS 按实证修正；archive_index.json
+  刷新（111 条，补 4.1.15.15-20）；verify_derivations 支持 thin-only
+  工件（lipo 合成临时 fat，用后即删）
+
+**方法论教训（防重蹈）**：
+1. **BackfillRoundtrip harness 不可混组互斥变体**：silent 的 revoke 条目与
+   keeptip 的归一化恢复型条目同址（isRevokemsg 入口）互写——混在一个
+   entries 数组会在幂等步互相还原对方（真实引擎按变体二选一，不共存）。
+   正确用法=按 target identifier 分组各跑各的（verify_staging 固化）。
+2. **harness 环境变量用相对路径会静默跳过**：`WXKEEP_BACKFILL_DYLIB` 的
+   fileExists 检查在测试进程 cwd 与调用 shell 不一致时失败，disabled 分支
+   报「not set」且 suite 仍显示 passed——0.001s 的「通过」全是跳过。驱动
+   脚本必须绝对路径 + 把 "skipped:" 判为失败。
+3. swift-test 结果缓存不感知环境变量——同一 filter 反复跑会回放缓存结果，
+   换环境变量输入的 harness 必须核对真实执行时长/失败文本。

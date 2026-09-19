@@ -1,5 +1,17 @@
 [
  {
+  "tag": "4.1.15.20",
+  "url": "https://github.com/zsbai/wechat-versions/releases/download/4.1.15.20/WeChatMac-4.1.15.20.dmg"
+ },
+ {
+  "tag": "4.1.15.19",
+  "url": "https://github.com/zsbai/wechat-versions/releases/download/4.1.15.19/WeChatMac-4.1.15.19.dmg"
+ },
+ {
+  "tag": "4.1.15.17",
+  "url": "https://github.com/zsbai/wechat-versions/releases/download/4.1.15.17/WeChatMac-4.1.15.17.dmg"
+ },
+ {
   "tag": "4.1.15.14",
   "url": "https://github.com/zsbai/wechat-versions/releases/download/4.1.15.14/WeChatMac-4.1.15.14.dmg"
  },
