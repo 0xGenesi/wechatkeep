@@ -89,6 +89,8 @@ static int g_ext_hook_count;
 static char g_tip_text[128];       // 固定文案（NUL 结尾，UTF-8）
 static size_t g_tip_len;
 static int g_rewrite_self;         // 自发撤回提示是否也改写（默认 0=不改）
+static int g_rewrite_hits;         // 撤回 needle 命中计数（含自发跳过/超长放弃）
+static int g_rewrite_fires;        // 实际完成改写的计数（验证肉眼化的证据面）
 static int g_hook_installed;
 // 诊断（marker 回写）：0=未尝试 1=UUID 不匹配 2=序言不匹配
 // 3=mmap/mprotect 失败 4=已武装；bit8=回调已触发
@@ -422,6 +424,7 @@ static int rewrite_inner_with(uint8_t *ptr, uint64_t size,
     }
     if (inner_len < kNeedleLen) return 0;
     if (!find_bytes(inner, inner_len, kRevokeNeedle, kNeedleLen)) return 0;
+    g_rewrite_hits++;   // needle 命中（含自发跳过/超长放弃——marker 可观测）
     // 自发撤回门（“你” = E4BDA0，“撤回” needle 前缀）
     if (!g_rewrite_self && inner_len >= 9
         && memcmp(inner, "\xe4\xbd\xa0\xe6\x92\xa4\xe5\x9b\x9e", 9) == 0) return 0;
@@ -440,6 +443,7 @@ static int rewrite_inner_with(uint8_t *ptr, uint64_t size,
     if (eff_len == 0 || eff_len > inner_len) return 0;
     memcpy(inner, eff, eff_len);
     memset(inner + eff_len, ' ', inner_len - eff_len);
+    g_rewrite_fires++;
     return 1;
 }
 
@@ -689,9 +693,10 @@ void write_marker(void) {
                                   withIntermediateDirectories:YES attributes:nil error:nil];
         NSString *marker = [dir stringByAppendingPathComponent:@"runtime.marker"];
         NSString *now = [NSString stringWithFormat:
-            @"loaded ts=%f mr2=%@ status=%d probe=%@\n",
+            @"loaded ts=%f mr2=%@ status=%d fires=%d hits=%d probe=%@\n",
             [NSDate date].timeIntervalSince1970,
             g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
+            g_rewrite_fires, g_rewrite_hits,
             [NSString stringWithFormat:@"cb=%d last=%@ scanmiss=%d probe=%@",
                 g_cb_count,
                 g_last_uuid[0] ? @(g_last_uuid) : @"<none>",

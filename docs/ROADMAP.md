@@ -688,3 +688,11 @@ keeptip 语义边界不变：v1 行为模型（私聊提示保留 + 消息保留
 端到端验证：重打 v0.2.0 tag → CI 产出双资产 → tap 更新推送 →
 brew reinstall（7 files 含 Cellar lib dylib）→ 免参数
 `wxkeep runtime install` 自动解析 Cellar dylib → 重启微信 armed ✓。
+
+### ㉑ 补遗（2026-09-19：改写计数器——把「等肉眼」变成「读 marker」）
+
+撤销文案效果验证的最后盲区是「hook 武装了，但改写到底有没有发生过」。
+runtime.m 加 fires/hits 双计数（needle 命中含自发跳过/放弃；实际完成改写）
+随 marker 每次启动回写——打开含旧撤回提示的聊天（重解析路径）或收到新
+撤回，计数即增长。本机实测：armed 起步 fires=0 hits=0（新会话无撤回
+流量，符合预期），后续任意时刻读 marker 即得证据。
