@@ -7,16 +7,22 @@ import Testing
 /// The worker host is the built wxkeep binary (the test runner has no
 /// __verify-worker dispatch). Skipped where SIP would block RWX mapping.
 struct VerifierTests {
-    /// RWX-mapping gate keyed on AMFI, not SIP — GitHub runners report SIP
-    /// disabled yet AMFI still refuses unsigned executable memory (the exact
-    /// SIP≠AMFI independence this project's doctor documents; the gate itself
-    /// fell into that trap when it checked csrutil). The boot-arg is the
-    /// real switch for executing mapped code.
+    /// Behavioral-mapping gate keyed on a REAL worker probe, not boot-arg
+    /// archaeology: spawn `__verify-worker` once on a ret-only blob — exit 0
+    /// means this environment can mmap RWX and execute (AMFI-relaxed boot, or
+    /// the binary carries an unsigned-executable-memory entitlement — the CI
+    /// acceptance job signs exactly that). Exit 126 = AMFI refused → skip.
+    /// Static-let: the probe spawns one process; memoize for the whole run.
+    private static let workerProbeBlocked: Bool = {
+        guard let bin = wxkeepBinary else { return true }
+        return !Verifier.workerCanExecute(binary: bin)
+    }()
+
     private static var environmentUnsuitable: Bool {
-        if VerifierTests.wxkeepBinary == nil { return true }
-        let nvram = Shell.run("/usr/sbin/nvram", ["boot-args"])
-        return !(nvram.status == 0 && nvram.stdout.contains("amfi_get_out_of_my_way"))
+        VerifierTests.wxkeepBinary == nil || VerifierTests.workerProbeBlocked
     }
+
+    private static let hostIsNotARM64: Bool = Verifier.ImageArch.host != .arm64
 
     private static var wxkeepBinary: URL? {
         // Tests/wxkeepTests/VerifierTests.swift → repo root → .build/debug/wxkeep
@@ -162,5 +168,132 @@ struct VerifierTests {
         #expect(Verifier.verdictPredicate(results: good, spec: spec2) == nil)
         let bad = [Verifier.ProbeResult(text: "revokemsg", returned: false)]
         #expect(Verifier.verdictPredicate(results: bad, spec: spec2) != nil)
+    }
+
+    // MARK: - predicateVA on real-world fat images (any host arch)
+
+    /// 装机 wechat.dylib 是 fat 双架构：arm64 切片起点 ≠ 0，原始文件字节
+    /// 按 VA 直索引会读错位置。CLI verify 的 arm64 分支必须走 MachImage
+    /// 切片路径——本测试锁死该行为（首次实机验收前静态拦下的缺陷）。
+    @Test func arm64PredicateVAOnFatImageUsesSliceBytes() throws {
+        // BL +0x40 @0x100，cbz site @0x104 → 谓词 VA 0x140
+        let bl: UInt32 = 0x9400_0000 | 0x10
+        let code: [(offset: Int, bytes: [UInt8])] =
+            [(0x100, withUnsafeBytes(of: bl.littleEndian) { Array($0) })]
+        let armThin = MachOFixture.thin(cputype: MachOFixture.arm64CPU, code: code)
+        let x64Thin = MachOFixture.thin(cputype: MachOFixture.x64CPU)
+        let fat = MachOFixture.fat(arm64: armThin, x64: x64Thin)
+
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-pred-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let thinURL = work.appendingPathComponent("thin.dylib")
+        let fatURL = work.appendingPathComponent("fat.dylib")
+        try armThin.write(to: thinURL)
+        try fat.image.write(to: fatURL)
+
+        let viaThin = try MachImage(file: thinURL, arch: .arm64)
+        let viaFat = try MachImage(file: fatURL, arch: .arm64)
+        #expect(Verifier.ARM64.predicateVA(image: viaThin, site: 0x104) == 0x140)
+        #expect(Verifier.ARM64.predicateVA(image: viaFat, site: 0x104) == 0x140)
+        // 病理证明：fat 里 0x100 处是 0xCC 填充（arm64 切片在 0x400 起），
+        // 旧路径（原始字节直读）在这里必反解失败。
+        #expect(fat.image[0x100...0x103] == Data(repeating: 0xCC, count: 4))
+        #expect(Verifier.ARM64.predicateVA(fileData: fat.image, site: 0x104) == nil)
+    }
+
+    // MARK: - arm64 synthetic mini image (worker-path acceptance harness)
+
+    /// isRevokemsg-shaped arm64 predicate, mirror of the x64 mini image:
+    ///   fn(arg): strlen(GLOBAL) == arg.lenByte@0x17 && memcmp(arg.data@0, GLOBAL, len) == 0
+    /// Real Mach-O arm64 thin (via MachOFixture) so the worker takes the
+    /// segment-faithful mapping + arm64 SSO layout path; imports go through
+    /// adrp x16/ldr x16,[x16,#imm]/br x16 stubs at 0x180/0x190 into junk GOT
+    /// slots 0x1C0/0x1C8 (redirection is load-bearing); GLOBAL "revokems" @0x200.
+    private func arm64MiniImage() -> Data {
+        func le32(_ v: UInt32) -> [UInt8] {
+            withUnsafeBytes(of: v.littleEndian) { Array($0) }
+        }
+        var code: [(offset: Int, bytes: [UInt8])] = [
+            (0x100, le32(0xA9BF_7BFD)),  // stp x29,x30,[sp,#-16]!
+            (0x104, le32(0xAA00_03E8)),  // mov x8, x0            (save arg)
+            (0x108, le32(0x9000_0000)),  // adrp x0, #0
+            (0x10C, le32(0x9108_0000)),  // add x0, x0, #0x200    (GLOBAL)
+            (0x110, le32(0x9400_001C)),  // bl strlen-stub (0x180)
+            (0x114, le32(0x3900_5D09)),  // ldrb w9, [x8, #0x17]  (arm64 SSO len)
+            (0x118, le32(0x6B09_001F)),  // cmp w0, w9
+            (0x11C, le32(0x5400_0141)),  // b.ne ret0 (0x144)
+            (0x120, le32(0xAA08_03E0)),  // mov x0, x8            (arg.data @0)
+            (0x124, le32(0x9000_0001)),  // adrp x1, #0
+            (0x128, le32(0x9108_0021)),  // add x1, x1, #0x200    (GLOBAL)
+            (0x12C, le32(0x2A09_03E2)),  // mov w2, w9            (len)
+            (0x130, le32(0x9400_0018)),  // bl memcmp-stub (0x190)
+            (0x134, le32(0x7100_001F)),  // cmp w0, #0
+            (0x138, le32(0x1A9F_17E0)),  // cset w0, eq
+            (0x13C, le32(0xA8C1_7BFD)),  // ldp x29,x30,[sp],#16
+            (0x140, le32(0xD65F_03C0)),  // ret
+            (0x144, le32(0x5280_0000)),  // ret0: mov w0, #0
+            (0x148, le32(0x17FF_FFFD)),  // b 0x13C (shared epilogue)
+            // strlen stub → GOT 0x1C0
+            (0x180, le32(0x9000_0010)),  // adrp x16, #0
+            (0x184, le32(0xF940_E210)),  // ldr x16, [x16, #0x1C0]
+            (0x188, le32(0xD61F_0200)),  // br x16
+            // memcmp stub → GOT 0x1C8
+            (0x190, le32(0x9000_0010)),  // adrp x16, #0
+            (0x194, le32(0xF940_E610)),  // ldr x16, [x16, #0x1C8]
+            (0x198, le32(0xD61F_0200)),  // br x16
+            // junk GOT slots (worker redirection replaces them)
+            (0x1C0, [0x0D, 0xF0, 0xAD, 0x0B, 0xEF, 0xBE, 0xAD, 0xDE]),
+            (0x1C8, [0xDE, 0xAD, 0xBE, 0xEF, 0x0E, 0xAA, 0x0F, 0xD0]),
+            (0x200, Array("revokems\0".utf8)),
+        ]
+        return MachOFixture.thin(cputype: MachOFixture.arm64CPU, code: code)
+    }
+
+    private var arm64Spec: Verifier.VerifySpec {
+        .init(stubs: ["180": "strlen", "190": "memcmp"],
+              zeroRegions: [],
+              probes: [["revokems", "1"], ["other", "0"], ["", "0"]])
+    }
+
+    /// Stub encodings decode against the same decoder the worker uses —
+    /// runs on ANY host (this is the local verification of the hand-assembled
+    /// arm64 image; execution itself needs an arm64 host).
+    @Test func arm64MiniImageStubEncodingsDecode() throws {
+        let image = arm64MiniImage()
+        func word(_ off: Int) -> UInt32 {
+            image.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: off, as: UInt32.self) }
+        }
+        // stub 形态门：adrp x16 / ldr x16 / br x16 三件套 + 槽位 = 0x1C0 / 0x1C8
+        #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0x180, w0: word(0x180), w1: word(0x184), w2: word(0x188)) == 0x1C0)
+        #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0x190, w0: word(0x190), w1: word(0x194), w2: word(0x198)) == 0x1C8)
+        // 桽内的 BL 目标与 MachImage 反解一致（谓词路径同款解码器）
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-armmini-\(UUID().uuidString).dylib")
+        try image.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let mach = try MachImage(file: url, arch: .arm64)
+        #expect(mach.word32(va: 0x110) == 0x9400_001C)
+        #expect(Verifier.ARM64.blTargetVA(word: 0x9400_001C, blVA: 0x110) == 0x180)
+    }
+
+    /// Full worker round-trip on the arm64 mini image — the arm64 execution
+    /// path acceptance harness. Runs only on arm64 hosts whose environment
+    /// passes the RWX probe (ARM dev machine, or the entitled CI runner).
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable || VerifierTests.hostIsNotARM64,
+                   "arm64 host + RWX-capable environment required — worker executes mapped code natively"))
+    func arm64MiniPredicateClassifiesCorrectly() throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-verifier-arm-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let dylib = work.appendingPathComponent("arm-mini.dylib")
+        try arm64MiniImage().write(to: dylib)
+
+        let results = try Verifier.run(binary: dylib, targetVA: 0x100, spec: arm64Spec,
+                                       executable: Self.wxkeepBinary)
+        #expect(results.map(\.returned) == [true, false, false])
+        #expect(Verifier.verdictPredicate(results: results, spec: arm64Spec) == nil)
     }
 }

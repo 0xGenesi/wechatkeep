@@ -125,6 +125,14 @@ struct MachImage {
         return data.subdata(in: o..<o + count)
     }
 
+    /// VA 处 4 字节按小端组装（段表换算；越界返回 nil）。arm64 指令反解用。
+    func word32(va: UInt64) -> UInt32? {
+        guard let b = bytes(va: va, count: 4) else { return nil }
+        var v: UInt32 = 0
+        for (i, byte) in b.enumerated() { v |= UInt32(byte) << (8 * i) }
+        return v
+    }
+
     /// All offsets (slice-relative) where `pattern` occurs inside `section`.
     func offsets(of pattern: Data, in sectionName: String) throws -> [Int] {
         let s = try section(sectionName)

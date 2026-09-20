@@ -134,15 +134,55 @@ enum Verifier {
             let word = fileData.withUnsafeBytes {
                 $0.loadUnaligned(fromByteOffset: Int(site - 4), as: UInt32.self)
             }
+            return blTargetVA(word: word, blVA: site - 4)
+        }
+
+        /// MachImage 形态（fat 装机件必须走这里）：VA 经段表换算到切片内
+        /// 偏移。fat 容器里 arm64 切片起点 ≠ 0，直接拿原始文件字节按
+        /// VA 索引会读错位置（首次实机验收前拦下的缺陷）。
+        static func predicateVA(image: MachImage, site: UInt64) -> UInt64? {
+            guard site >= 4, let word = image.word32(va: site - 4) else { return nil }
+            return blTargetVA(word: word, blVA: site - 4)
+        }
+
+        /// BL word（小端已组装）→ 目标 VA；非 BL 返回 nil。
+        static func blTargetVA(word: UInt32, blVA: UInt64) -> UInt64? {
             guard (word >> 26) == 0x25 else { return nil }   // BL: 100101
             var imm26 = Int32(bitPattern: word) & 0x3FF_FFFF
             if imm26 & (1 << 25) != 0 { imm26 -= (1 << 26) }
-            let target = Int64(site) - 4 + Int64(imm26) * 4
+            let target = Int64(blVA) + Int64(imm26) * 4
             return target >= 0 ? UInt64(target) : nil
         }
     }
 
     // MARK: - Parent side
+
+    /// 环境能力探针：以最小 blob（host 架构的一条 ret，va=0）真起一次
+    /// worker。exit 0 = RWX 映射+执行可用（AMFI relaxed 引导，或二进制带
+    /// unsigned-executable-memory entitlement——CI 验收 job 用后者）；126 =
+    /// 被 AMFI 拒绝。比读 nvram boot-args 诚实：测的是 worker 的实际能力，
+    /// 而非引导参数长什么样。
+    static func workerCanExecute(binary: URL) -> Bool {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-rwxprobe-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+            // 裸 blob（无 Mach-O 头）→ worker 走恒等映射路径。
+            var data = Data(count: 0x100)
+            if ImageArch.host == .arm64 {
+                data.replaceSubrange(0..<4, with: [0xC0, 0x03, 0x5F, 0xD6])   // ret
+            } else {
+                data[0] = 0xC3                                                // ret
+            }
+            try data.write(to: work.appendingPathComponent("probe.bin"))
+        } catch { return false }
+        defer { try? FileManager.default.removeItem(at: work) }
+        let result = Shell.run(binary.path, [
+            "__verify-worker", work.appendingPathComponent("probe.bin").path,
+            "0", "{}", "[]", "[[\"x\",\"1\"]]",
+        ])
+        return result.status == 0
+    }
 
     /// Runs behavioral probes against `dylib` (thin or fat; fat slices are
     /// extracted via lipo). Returns one result per probe, in spec order.

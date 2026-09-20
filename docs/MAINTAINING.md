@@ -166,6 +166,14 @@ revoke.py，Weixin.dll 4.0.6+，仅两条通配规则、无注入）：
 - **漂移比对的目标态**：重签后比对「原始+注入键」而非「原始」，否则自家注入被误判永久漂移（M3-1 实证）。
 - **codesign 拒绝合成 Mach-O**（"main executable failed strict validation"）：集成测试用 clang 现场编译真二进制（M3-1 实证）。
 - **JSON 数字 vs 字符串**：signatures.json 的 spec 数组元素必须全字符串（Codable 严格类型，M4 实证）。
+- **fat 装机件上 VA ≠ fat 文件偏移**（2026-09-20 ㉞ 实证）：arm64 切片在
+  fat 容器 0xae0c000 起，任何「按 VA 读指令/字节」的反解必须经 MachImage
+  切片（段表换算）——CLI verify 的 arm64 谓词反解曾直接拿 fat 原始字节
+  按 VA 索引，装机形态必反解失败（真 270100 fat：旧路径读 0x834802c1 非
+  BL；切片路径读 0x97ee4997 = BL → 0x47575FC 与 ㉝ 地面真值吻合）。
+  规则：**新代码涉及 VA 定位一律 `MachImage(file:arch:)` 入，禁止裸
+  `Data(contentsOf:)` + 整数当偏移**（thin 工件上两者同值，掩盖了装机
+  fat 上的病——thin 测过不等于 fat 测过，与「thin 与 fat 都要查」同源）。
 
 ## 269602 更新器（开放项）
 

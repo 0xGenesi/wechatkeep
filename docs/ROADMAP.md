@@ -1,5 +1,69 @@
 # 路线图（待办归档）
 
+## ㉞ 遗留项收口续轮（2026-09-20 深夜：arm64 verify 装机 fat 缺陷拦截 + 验收 harness 全链落地 + sweep 尾巴清欠）
+
+任务口径同 ㉝（能做掉的做掉）。本轮把「ARM 实机验收」从**等机器**变成
+**harness 就绪 + 一次 CI 触发即完成**，并在过程中拦截一个会在首次真机
+验收时爆炸的真缺陷。
+
+1. **arm64 verify 的 fat 装机件缺陷（P0，静态拦截）**：㉝ 落地的 CLI
+   arm64 分支用 `Data(contentsOf:)` 原始字节按 VA 直接反解谓词 BL——
+   thin 工件上 VA==文件偏移成立，但**装机 wechat.dylib 是 fat 双架构**
+   （arm64 切片 0xae0c000 起），VA 直索引落在别的切片/填充上。
+   真 270100 fat 实证：旧路径读 0x834802c1（非 BL → 必报
+   "no bl predicate … recipe shape mismatch"）；MachImage 切片路径读
+   0x97ee4997 = BL → **0x47575FC 与 ㉝ 静态反解的地面真值逐一吻合**。
+   修复：`Verifier.ARM64.predicateVA(image:)`（MachImage 段表换算 +
+   `word32(va:)`）+ CLI 改走切片路径；回归测试
+   `arm64PredicateVAOnFatImageUsesSliceBytes` 用合成 fat 锁死
+   （thin==fat 同值 + 旧路径病理证明 nil）。教训入 MAINTAINING
+   「误改与踩坑」：**VA 定位禁止裸 Data+整数当偏移；thin 测过 ≠ fat
+   测过**（与 ㉛ 「thin 与 fat 都要查」同源，这是它在代码侧的镜像）。
+2. **worker 能力探针（诚实门）**：`Verifier.workerCanExecute(binary:)`
+   ——真起一次 worker（host 架构单条 ret 的最小 blob，va=0），exit 0 =
+   RWX 映射+执行可用（AMFI relaxed **或二进制带 unsigned-executable-
+   memory entitlement**）；126 = AMFI 拒绝。替代两处 nvram boot-args
+   猜测：CLI verify 预检（探针过 = 不打误导提示）与 VerifierTests 门
+   （静态 memoize，一次 spawn 定全集）。x64 行为测试在本机（AMFI
+   relaxed）新门下照常运行 = 探针阳性路径实证。
+3. **arm64 合成镜像验收 harness**：手汇编 arm64 谓词镜像（x64 mini 的
+   同语义孪生：strlen(GLOBAL)==len@[x8,#0x17] && memcmp==0；真 Mach-O
+   arm64 thin 走 worker 的段映射+arm64 SSO 路径；adrp x16/ldr x16/br x16
+   桩 → GOT 0x1C0/0x1C8）。两层测试：编码层
+   （`arm64MiniImageStubEncodingsDecode`——桩解码器对镜像内真实字节，
+   host 无关，x86 本机已过）+ 执行层
+   （`arm64MiniPredicateClassifiesCorrectly`——host==arm64 ∧ 探针过
+   才跑，ARM 机器/runner 上自动放行）。
+4. **CI 验收 job（`.github/workflows/arm64-verify.yml`，workflow_dispatch）**：
+   macos-15（arm64）→ 构建 → **ad-hoc 重签 wxkeep 带
+   `allow-unsigned-executable-memory`**（runner SIP 关闭，entitlement
+   路线让 RWX mmap 合法——与用户真机的 boot-arg 路线等效）→ 探针
+   显式留痕（OK/blocked 均可见，非 0/126 判 worker bug 红）→
+   `swift test --filter VerifierTests`（门后自动放行，拒则优雅 skip）→
+   **CDN 真件端到端**（270100 dmg → fake app → `wxkeep verify`：fat
+   lipo→catalog 定位→MachImage 谓词反解→worker→verdictPredicate 全链，
+   即修复项 1 的装机形态实战）。~400MB/轮，不挂 push，push 后手动
+   触发一次即完成 ㉝ 遗留 1 的验收里程碑；blocked 时降级记录不红。
+5. **sweep 尾巴清欠**：09-20 11:04 sweep 里 269630 的 FileNotFoundError
+   （当时缺 `_fat.dylib` 工件）——thin 双件俱在，verify_derivations
+   自动 lipo 合成路径复跑 **5/5 PASS**（revoke x64 4c42b40 / arm64
+   49af7f4 / guard 512c7f9 / keeptip 512cd6d / update 子集全对）。
+   sweep 记录就此闭合，非数据回归。
+6. **发布链对齐**：主仓 Formula 副本 0.2.0 → **0.2.1**（tap 已是 0.2.1；
+   v0.2.1 config.json sha256 909efdf7… 与 tap 声明逐字节互证）。
+   manifest 验签 ✓、目录 77 构建/1156 条 ✓、隔离 78（永久缺口口径
+   不变）✓、COMPATIBILITY 由 gen_matrix 复核新鲜 ✓。
+
+**回归**：123 测全绿（+3：fat 反解回归 / arm64 编码层 / arm64 执行层
+——最后一项在 x86 主机按 host 门正确 skip）；release 重建 + 真机 x64
+verify 冒烟（patched 全归零）✓；workflow YAML/shell 语法 + CDN 200
+直链复核 ✓。
+
+**遗留（与 ㉝ 相同口径）**：drive28 群聊实弹轮（需用户一次真实群聊
+撤回，自主不可达）；M-R4（依赖 drive28 数据）；AMFI 原生 SIP 实证
+（硬件动作）。arm64 验收：harness/CI 全就绪，等一次 workflow 触发或
+一台 AMFI-relaxed ARM 真机。
+
 ## ㉝ 遗留项收口轮（2026-09-20：arm64 verify 落地 + 群聊静态图谱 + SIP 透明化）
 
 对五项遗留逐一处置（用户指令：能做掉的做掉）：
@@ -209,6 +273,14 @@ fzlzjerry 的研究脚本在导出函数时记录 12 字节入口指纹（供跨
 落地：`contribute_expected.py --hashes` / archive_index.json 增加
 `entry_fingerprints` 字段（addr + 前 12 字节），配合 watch-wechat 的自动定位
 做"新构建 = 旧构建 + 指纹漂移比对"的快速预检。
+
+**⛔ 关闭（2026-09-20 复核：被更强机制取代）**：`git log -S` 全历史零落地
+实证。设计目的（新构建快速预检）已由 signatures.json 签名配方（imm64 锚点
++ arm64 几何，锚点即带字节门）+ watch 流水线的配方自动定位承担——直接产出
+全量 expected 条目而非相关性提示；verify_derivations 另有引擎级字节校验，
+强度高于 12B 指纹比对。`--hashes` 的切片哈希登记（known_dylib_hashes.json）
+是独立机制，保持不变。落地一套无消费者的数据通道违背「复查过不改」同款
+原则，按取代关闭。
 
 ## 新功能设计草案：自定义撤回提示（可选，默认关）
 
