@@ -356,8 +356,9 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 - **六新构建号（269632/270084-86/88/89）**：GitHub 全站搜索无任何仓库覆盖
   ——wxkeep 首个适配（CDN 家族前段补探发现，生态全部漏探）
 - **fzlzjerry patches.json**（29 构建，全 arm64，全带 expected）：作为
-  zsbai 官方归档审计之外的第三方互证源入手（/tmp 快照）；其 270090
-  arm64 update 8 点与我们 locate_update_arm64 派生 EXACT-MATCH
+  zsbai 官方归档审计之外的第三方互证源入手（快照存
+  `var/thirdparty/fzlzjerry_patches.json`，tanranv5 config 同目录）；
+  其 270090 arm64 update 8 点与我们 locate_update_arm64 派生 EXACT-MATCH
 - **zengtianli / sunnyyoung / X1a0He / zsbai**：较 ㉙ 复查无新动向
   （zengtianli 止 269631；zsbai 顶格 4.1.15.20；X1a0He 2.10.0 闭源）
 - **zsbai 归档资产质量**：4.1.9.26 源头损坏（digest 验证过仍 XZ 99.9%
