@@ -783,38 +783,106 @@ extension Wxkeep {
             let signatures = try Signatures.load(explicit: self.signatures)
             let build = try WeChatApp.buildNumber(app: options.app)
 
-            // Find the x86_64 revoke site: catalog first, recipes otherwise.
-            guard let spec = signatures.recipes["revoke_x64"]?.verify else {
-                throw ValidationError("no verify spec for revoke_x64 in signatures.json")
-            }
+            // Find the revoke site: catalog first, recipes otherwise. The host
+            // arch decides which slice gets verified — the worker executes
+            // mapped code natively and cannot cross architectures. x64 probes
+            // the patched isRevokemsg itself; arm64's patch is a branch flip
+            // inside parse (no callable function), so the arm64 probe targets
+            // the standalone predicate feeding that cbz (family integrity +
+            // harness self-test — the patch effect itself is byte-proven).
+            let hostArch = Verifier.ImageArch.host
+            var spec: Verifier.VerifySpec
             var entries: [Config.PatchEntry]
-            var target = config.entry(build: build)?.targets.first { $0.identifier == "revoke" }
-            if target == nil {
-                guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures),
-                      let t = synthesized.targets.first(where: { $0.identifier == "revoke" })
-                else { throw ValidationError("no revoke site for build \(build)") }
-                target = t
+            var targetVA: UInt64
+            var binaryRelative: String?
+            if hostArch == .arm64 {
+                guard let armSpec = signatures.recipes["revoke_arm64_gen3"]?.verify else {
+                    throw ValidationError("no verify spec for revoke_arm64_gen3 in signatures.json")
+                }
+                spec = armSpec
+                var target = config.entry(build: build)?.targets.first { $0.identifier == "revoke" }
+                if target == nil {
+                    guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures),
+                          let t = synthesized.targets.first(where: { $0.identifier == "revoke" })
+                    else { throw ValidationError("no revoke site for build \(build)") }
+                    target = t
+                }
+                guard let armEntry = target?.entries.first(where: { $0.arch == .arm64 }),
+                      let cbzHex = armEntry.addr, let cbzVA = UInt64(cbzHex, radix: 16)
+                else { throw ValidationError("no arm64 revoke entry for build \(build)") }
+                entries = [armEntry]
+                binaryRelative = target?.binary
+                // 谓词 = cbz 位点 -4 处 BL 的目标（gen3 形态）
+                let armBinary = WeChatApp.binaryURL(app: options.app, relative: target?.binary)
+                let data = try Data(contentsOf: armBinary)
+                guard let pred = Verifier.ARM64.predicateVA(fileData: data, site: cbzVA) else {
+                    throw ValidationError("no bl predicate before arm64 cbz site 0x\(cbzHex) — "
+                                          + "recipe shape mismatch, refusing to guess")
+                }
+                targetVA = pred
+            } else {
+                guard let x64Spec = signatures.recipes["revoke_x64"]?.verify else {
+                    throw ValidationError("no verify spec for revoke_x64 in signatures.json")
+                }
+                spec = x64Spec
+                var target = config.entry(build: build)?.targets.first { $0.identifier == "revoke" }
+                if target == nil {
+                    guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures),
+                          let t = synthesized.targets.first(where: { $0.identifier == "revoke" })
+                    else { throw ValidationError("no revoke site for build \(build)") }
+                    target = t
+                }
+                guard let x64Entry = target?.entries.first(where: { $0.arch == .x86_64 }),
+                      let addrHex = x64Entry.addr, let va = UInt64(addrHex, radix: 16)
+                else { throw ValidationError("no x86_64 revoke entry for build \(build)") }
+                entries = [x64Entry]
+                targetVA = va
+                binaryRelative = target?.binary
             }
-            guard let x64Entry = target?.entries.first(where: { $0.arch == .x86_64 }),
-                  let addrHex = x64Entry.addr, let va = UInt64(addrHex, radix: 16)
-            else { throw ValidationError("no x86_64 revoke entry for build \(build)") }
-            entries = [x64Entry]
 
-            let binary = WeChatApp.binaryURL(app: options.app, relative: target?.binary)
+            let binary = WeChatApp.binaryURL(app: options.app, relative: binaryRelative)
             let states = try Patcher.inspect(binary: binary, entries: entries, identifier: "revoke")
             let state = states.first?.state ?? .unknown
-            print("site 0x\(String(va, radix: 16, uppercase: true)) — on-disk state: \(state)")
+            print("site 0x\(String(targetVA, radix: 16, uppercase: true)) — on-disk state: \(state)")
 
-            let results = try Verifier.run(binary: binary, targetVA: va, spec: spec)
-            for r in results {
-                print("  isRevokemsg(\"\(r.text)\") = \(r.returned ? 1 : 0)")
+            // Environment transparency: behavioral verification maps the image
+            // RWX and executes it — AMFI-active boots refuse that (independent
+            // of the SIP toggle; doctor documents the distinction). Say so
+            // BEFORE running instead of surfacing a bare crash afterwards.
+            let nvram = Shell.run("/usr/sbin/nvram", ["boot-args"])
+            let amfiRelaxed = nvram.status == 0
+                && nvram.stdout.contains("amfi_get_out_of_my_way")
+            if !amfiRelaxed {
+                print("ℹ︎ behavioral verification needs an AMFI-relaxed boot "
+                      + "(amfi_get_out_of_my_way=0x1 boot-arg; `wxkeep doctor` has the how-to). "
+                      + "On this machine it will likely be blocked — the byte-level strict verify "
+                      + "remains the proof of the on-disk patch either way.")
             }
-            if let failure = Verifier.verdict(results: results, spec: spec, state: state) {
-                throw ValidationError(String(describing: failure))
+
+            let results = try Verifier.run(binary: binary, targetVA: targetVA, spec: spec)
+            if hostArch == .arm64 {
+                for r in results {
+                    print("  revokemsg-predicate(\"\(r.text)\") = \(r.returned ? 1 : 0)")
+                }
+                if let failure = Verifier.verdictPredicate(results: results, spec: spec) {
+                    throw ValidationError(String(describing: failure))
+                }
+                print(state == .pristine
+                      ? "✓ predicate matches the family ground truth (harness + input path verified; "
+                        + "the cbz flip itself is byte-proven by strict verify)"
+                      : "✓ predicate intact and family ground truth holds (the cbz flip is byte-proven "
+                        + "by strict verify — branch unconditional ⇒ revoke path unreachable)")
+            } else {
+                for r in results {
+                    print("  isRevokemsg(\"\(r.text)\") = \(r.returned ? 1 : 0)")
+                }
+                if let failure = Verifier.verdict(results: results, spec: spec, state: state) {
+                    throw ValidationError(String(describing: failure))
+                }
+                print(state == .pristine
+                      ? "✓ behavior matches the PRISTINE expectation (function classifies correctly)"
+                      : "✓ behavior matches the PATCHED expectation (classification neutralized)")
             }
-            print(state == .pristine
-                  ? "✓ behavior matches the PRISTINE expectation (function classifies correctly)"
-                  : "✓ behavior matches the PATCHED expectation (classification neutralized)")
         }
     }
 

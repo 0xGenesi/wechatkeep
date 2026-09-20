@@ -1,5 +1,83 @@
 # 路线图（待办归档）
 
+## ㉝ 遗留项收口轮（2026-09-20：arm64 verify 落地 + 群聊静态图谱 + SIP 透明化）
+
+对五项遗留逐一处置（用户指令：能做掉的做掉）：
+
+1. **verify 的 arm64 版 ✅（机器就位，ARM 实机验收待一次）**：静态反解发现
+   arm64 存在**独立谓词函数**（parse 内 cbz 前一条 `bl` 的目标，
+   270100=0x47575FC / 270099=0x47574E8，"revokemsg" SSO 比较器，w0 返回）——
+   行为验证在 arm64 由此成立。交付：
+   - `tools/gen_verify_spec_arm64.py`：cbz 位点反解谓词 + 桩（adrp/ldr/br
+     三件套）+ 懒初始化槽 → spec（270100/270099 双构建交叉验证，桩/槽
+     跨构建稳定、谓词漂移 +0x114）
+   - Verifier.swift：ImageArch 抽象（fat 按 host 架构 lipo、thin 校验、
+     跨架构干净报错）；worker 双架构分支（x64 ff25 PLT / arm64 adrp+ldr
+     桩解码）；**arm64 SSO 布局差异落地**（数据@0、直接长度@+0x17——与
+     x64 的 size<<1@0+数据@+1 不同源！谓词反汇编实证）；gen3 配方挂
+     270100 派生 spec（_verify_note 含重反解指引）
+   - 语义诚实：谓词非补丁位点（补丁=cbz 翻转），arm64 probe = 家族完整性
+     + harness 自检（verdictPredicate 两态同判据）；补丁效果仍由 strict
+     verify 字节级证明承担（分支无条件直达 ⇒ 撤回路径不可达，等价强度）
+   - 4 项纯逻辑单测（桩解码对 270100 地面真值、SSO 布局、BL 反解、
+     谓词 verdict）——host 无关，跨架构可跑；worker 执行路径待 ARM 实机
+     一轮验收（macos-14/15 CI runner 即可：WXKEEP_REAL_DYLIB + arm64 切片）
+2. **群聊灰条 ⏩（静态收口完成，见 ㉜）**：3421BB0 三候选分类 + 毒值红线
+   + drive28 就绪——剩余 = 一次真实群聊撤回的实弹轮（自主会话不可达）。
+3. **verify SIP 透明化 ✅**：verify 命令预检 AMFI 状态（nvram boot-args），
+   非 relaxed 引导先打说明（要什么/去哪看/strict verify 兜底），不再让
+   用户面对裸崩溃或 126 退出码瞎猜。
+4. **M-R4 ⛔（维持搁置）**：三方案评估不变；真正的解锁在 ㉜/㉝ 的群聊
+   实弹轮（3421BB0 链路与插入漏斗 3415A30 的动态数据）。注意 ㉘ 的
+   「tip_text 写标记语义」替代与 ㉒ 渲染层骨架约束相抵——tip_text 必须
+   匹配 `"…" 撤回了一条消息` 骨架，自由度仅在引号内标记。
+5. **AMFI 原生 SIP 实证 ⛔（维持）**：硬件动作（Recovery 引导），probe
+   协议就绪（tools/amfi_sip_probe.sh）。
+
+**回归**：120 测全绿（+4 arm64 解码器）；本机真机 verify（x64 patched
+全归零）复验通过；arm64-only 切片在 Intel 宿主上干净报错（inspect 层
+"no patch entry matched" 先行拦截，archMismatch 为防御纵深）。
+
+## ㉜ 群聊灰条第二轮静态收口（2026-09-20：3421BB0 完成回调三候选分类 + drive28 就绪）
+
+**自主静态轮（drive28 前置，全部 270100 x64 pristine 切片实测）**：
+
+1. **解密串家族图谱（270100 全量 120 串）**：message_revoke_manager.cc ×15
+   （0x392fa10..0x3963210）、mac_message_storate_impl.cc ×7（0x3a02350..），
+   share_card/system/text_message_handler、base_msg_data_producer 全家族定位。
+2. **3421BB0 完成回调全函数通读（0x920B，33 个直接调用）**：
+   - `LOOKUP 0x3421BE0 → 0x5311B30`（0xE0，**全镜像唯一调用者=本回调**，
+     rdi=[rsi]=svrid——撤回专用查库/删库入口）
+   - `DBOP 0x3421C4D → 0x3680980`（0x840 大函数；rdi=&opstruct(16B)、
+     rsi=[r14+0x360]、rdx=svrid、ecx=模式参。**被 UpdateCancelUpload
+     (status9, ecx=2) 复用** → 通用消息 DB 操作派发器，非删除专属；
+     3421BB0 内 ecx=edx 回调参数（==2 分支传 1））
+   - `INSERT 0x342238E → 0x3415A30`（rsi=0x800000000 旗标；反查全镜像
+     调用者 = 全消息 handler 家族的入库漏斗（text_message_handler/
+     share_card/33D3100/33ED890/34766E0 等十余函数）——
+     **AddMessageToDBbyWxID 同构体定性**）
+   - 插入条件 `INS-COND 0x3422375`：`cmp byte [rbp-0x184],0`（= 回调
+     ecx 参数低字节；≠0 → 插入）
+   - 日志设施识别：6593A2D/4E5F190、659307C/53105A0 成对 + 0xCCCC…CD
+     十进制格式化 = 日志对，不参与业务
+3. **⚠ 毒值约束（补丁设计红线）**：DBOP 的 opstruct 由 movaps 写
+   `0xAA×16` 预初始化，返回槽 [rbp-0x198] 在调用后被
+   `test rax; lock inc [rax+8]` retain——**NOP 掉 DBOP call 必崩**。
+   未来「保消息」补丁只能：改 svrid 入参（查无此行=良性失败，BetterWX
+   SrvID+=1 同思路）/ 改模式参数 / 蹦床内让被调方照常写回结构。
+4. **3680980 再定性（修正 ㉘ 假设）**：0x3421C4D 处 rdx=svrid、ecx=1；
+   UpdateCancelUpload 处 ecx=2 且先写 [rdx+0x118]=9——模式参数分派，
+   ecx=1 是否等于「按 svrid 删行」待 drive28 实弹回答。
+5. **drive28.py 就绪**（tools/dyntrace/）：六断点
+   （handlercmp/cb/lookup/dbop/inscond/insert）× 实验矩阵
+   A 惰性透传（预期全链命中 + INSERT 的 rdi 应见服务端 replacemsg）
+   × B 防护态（预期链路不达 = 现状群聊静默的对照组）。
+   一次真实群聊撤回即可定案三分类 + 插入数据源 + 干预点。
+
+**下一轮（实弹，需用户配合一次群聊撤回）**：drive28 惰性态跑 A →
+按结果落 v2 runtime hook（保 newmsgid + DBOP 去武器化）或字节 keeptip3
+变体 → P2 矩阵验证（群聊/私聊 × 他人/自己）。
+
 ## ㉛ 全版本一致性大二轮（2026-09-19 深夜：CDN 家族前段发现 ×6 + arm64 补齐 + zsbai 回填路线打通）
 
 **任务**：以最新派生脚本对「所有 4 以上版本」复核功能点/补丁点一致性；

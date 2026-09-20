@@ -107,4 +107,60 @@ struct VerifierTests {
         let failure = Verifier.verdict(results: bad, spec: spec2, state: .patched)
         #expect(failure != nil)
     }
+
+    // MARK: - arm64 decoders (pure logic — runs on any host arch)
+
+    @Test func arm64StubSlotDecodeMatchesGroundTruth() {
+        // 270100 strlen 桩 @0x6FD28EC 的真实 12 字节（adrp x16,0x998c000;
+        // ldr x16,[x16,#0x1e0]; br x16）→ GOT 槽 0x998C1E0。
+        let bytes: [UInt8] = [0xD0, 0x4D, 0x01, 0xD0, 0x10, 0xF2, 0x40, 0xF9, 0x00, 0x02, 0x1F, 0xD6]
+        #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0x6FD2_8EC, bytes: bytes) == 0x998C_1E0)
+        // memcmp 桩 @0x6FD1D70 → 0x998B000 + 0x9B0
+        let m: [UInt8] = [0xD0, 0x4D, 0x01, 0xD0, 0x10, 0xDA, 0x44, 0xF9, 0x00, 0x02, 0x1F, 0xD6]
+        #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0x6FD1_D70, bytes: m) == 0x998B_9B0)
+        // 形态守卫：垃圾字节必须拒绝（坏 spec 静默跳过 = 槽位留原始值必崩）
+        #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0, bytes: [UInt8](repeating: 0, count: 12)) == nil)
+        #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0, bytes: [0xFF, 0x25]) == nil)
+    }
+
+    @Test func arm64SSOProbeLayout() {
+        // arm64 短串：数据 @0、直接长度 @0x17（270100 谓词 ldrsb [x19,#0x17] 实证）
+        guard let sso = Verifier.ARM64.ssoProbe("revokemsg") else {
+            Issue.record("probe rejected"); return
+        }
+        #expect(sso.count == 24)
+        #expect(Array(sso[0..<9].prefix(9)) == Array("revokemsg".utf8))
+        #expect(sso[0x17] == 9)
+        #expect(sso[0] == UInt8(ascii: "r"))   // 数据在偏移 0（非 x64 的 +1）
+        // 长串拒绝（谓词只做短串路径的验证；长串构造未建模）
+        #expect(Verifier.ARM64.ssoProbe(String(repeating: "a", count: 0x40)) == nil)
+    }
+
+    @Test func arm64PredicateVADecode() {
+        // gen3 形态：cbz 位点 -4 处 BL。构造 BL +0x10（imm26=4）@site-4。
+        // BL 编码 = 0x94000000 | imm26
+        var blob = Data(count: 0x100)
+        let site: UInt64 = 0x80
+        let word: UInt32 = 0x9400_0000 | 4   // bl +0x10 → 谓词 = site-4+0x10
+        blob.withUnsafeMutableBytes { $0.loadUnaligned(as: UInt32.self) }
+        blob.replaceSubrange(Int(site - 4)..<Int(site), with: withUnsafeBytes(of: word.littleEndian) { Data($0) })
+        #expect(Verifier.ARM64.predicateVA(fileData: blob, site: site) == site - 4 + 0x10)
+        // 负位移：bl -0x10（imm26 = 2^26 - 4）
+        let back: UInt32 = 0x9400_0000 | (UInt32(1) << 26 - 4)
+        blob.replaceSubrange(Int(site - 4)..<Int(site), with: withUnsafeBytes(of: back.littleEndian) { Data($0) })
+        #expect(Verifier.ARM64.predicateVA(fileData: blob, site: site) == site - 4 - 0x10)
+        // 非 BL 拒绝
+        blob.replaceSubrange(Int(site - 4)..<Int(site), with: Data([0x00, 0x00, 0x00, 0x14]))  // b (非 bl)
+        #expect(Verifier.ARM64.predicateVA(fileData: blob, site: site) == nil)
+    }
+
+    @Test func verdictPredicateSemantics() {
+        // arm64 语义：谓词在两态下行为相同（补丁在下游 cbz）——
+        // spec 预期恒为判据，patched 态不要求"归零"。
+        let spec2 = Verifier.VerifySpec(stubs: [:], zeroRegions: [], probes: [["revokemsg", "1"]])
+        let good = [Verifier.ProbeResult(text: "revokemsg", returned: true)]
+        #expect(Verifier.verdictPredicate(results: good, spec: spec2) == nil)
+        let bad = [Verifier.ProbeResult(text: "revokemsg", returned: false)]
+        #expect(Verifier.verdictPredicate(results: bad, spec: spec2) != nil)
+    }
 }

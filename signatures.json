@@ -69,7 +69,38 @@
       "expected": "40100034",
       "asm": "82000014",
       "binary": "Contents/Resources/wechat.dylib",
-      "_comment": "4.1.13 (269574+) 代：field 0x1C8。269626 实测。"
+      "_comment": "4.1.13 (269574+) 代：field 0x1C8。269626 实测。",
+      "verify": {
+        "stubs": {
+          "6FD28EC": "strlen",
+          "6FD1D70": "memcmp"
+        },
+        "zero_regions": [
+          [
+            "A2B1AC8",
+            "16"
+          ]
+        ],
+        "probes": [
+          [
+            "revokemsg",
+            "1"
+          ],
+          [
+            "sysmsg",
+            "0"
+          ],
+          [
+            "NewMsg",
+            "0"
+          ],
+          [
+            "",
+            "0"
+          ]
+        ],
+        "_verify_note": "arm64 谓词规格（270100 实测反解：predicate 0x47575FC = parse cbz 0x4BC4FA4 前 BL；strlen 桩 0x6FD28EC / memcmp 桩 0x6FD1D70（adrp/ldr/br 三件套）；懒初始化槽 0xA2B1AC8 含 guard 位 0xA2B1AD2，16B 内）。arm64 SSO 布局：数据@0、长度@+0x17。谓词非补丁位点（补丁=cbz 翻转）→ probe 为家族完整性/harness 自检语义，两态预期相同。270099 谓词 0x47574E8（漂移 +0x114）、桩/槽跨构建稳定。新构建用 tools/gen_verify_spec_arm64.py 重反解。"
+      }
     },
     "revoke_arm64_gen0": {
       "arch": "arm64",
