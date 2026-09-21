@@ -3,10 +3,11 @@ name: arm64-verify-acceptance
 # ROADMAP ㉝ 遗留 1 的实机验收：arm64 verify worker 执行路径
 # （RWX 映射 + 执行 + arm64 SSO/桩解码全链）。
 #
-# GitHub macos-15 runner = arm64。AMFI 默认拒绝 unsigned executable
-# memory，但 runner SIP 关闭 → 可对 wxkeep 临时 ad-hoc 重签
-# allow-unsigned-executable-memory entitlement，让 worker 的 RWX mmap
-# 合法（用户的真机则是 amfi_get_out_of_my_way 引导，两条路同一验收）。
+# GitHub macos-15 runner = arm64。2026-09-21 实证：ad-hoc 重签
+# allow-unsigned-executable-memory 也不被认（受限 entitlement，无
+# provisioning 即被 AMFI 忽略——probe exit 126）。worker 现走 MAP_JIT
+# （非 hardened 进程免 entitlement 的官方 JIT 通道），stock runner 直接过；
+# entitlement 重签保留为纵深（含 allow-jit，覆盖未来 hardened 场景）。
 #
 # 两级验收：
 #   1) 合成镜像行为测试（swift test --filter VerifierTests）——探针门后
@@ -50,6 +51,8 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+            <true/>
+            <key>com.apple.security.cs.allow-jit</key>
             <true/>
           </dict>
           </plist>

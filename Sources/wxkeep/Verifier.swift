@@ -32,8 +32,8 @@ enum Verifier {
             case .workerCrashed(let sig):
                 "verification worker crashed (signal \(sig)) — the function touched state we didn't model"
             case .environmentBlocked:
-                "environment blocked executing mapped code (AMFI on / SIP on). "
-                + "Behavioral verification needs a relaxed machine (this project's docs explain the trade-off)"
+                "environment blocked executing mapped code (mmap of executable memory was refused — "
+                + "on arm64 this binary would need the JIT entitlement; strict verify remains available)"
             case .archMismatch(let image, let host):
                 "dylib slice is \(image) but this machine runs \(host) — behavioral verification "
                 + "executes mapped code natively and cannot cross architectures"
@@ -158,10 +158,10 @@ enum Verifier {
     // MARK: - Parent side
 
     /// 环境能力探针：以最小 blob（host 架构的一条 ret，va=0）真起一次
-    /// worker。exit 0 = RWX 映射+执行可用（AMFI relaxed 引导，或二进制带
-    /// unsigned-executable-memory entitlement——CI 验收 job 用后者）；126 =
-    /// 被 AMFI 拒绝。比读 nvram boot-args 诚实：测的是 worker 的实际能力，
-    /// 而非引导参数长什么样。
+    /// worker。exit 0 = 可执行动态代码——arm64 走 MAP_JIT（非 hardened 进程
+    /// 免 entitlement），x64 直接 RWX；失败即环境拒绝（hardened runtime 无
+    /// JIT entitlement 等）。比读 nvram boot-args 诚实：测的是 worker 的实际
+    /// 能力，而非引导参数长什么样。
     static func workerCanExecute(binary: URL) -> Bool {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-rwxprobe-\(UUID().uuidString)")
@@ -288,6 +288,18 @@ enum Verifier {
         // fileoff != vmaddr - base for later segments; copy each segment to
         // its vmaddr slot so every spec VA indexes uniformly. anon memory is
         // zero-filled, covering __bss tails beyond filesize.
+        //
+        // arm64: plain RWX mmap is refused by AMFI on stock machines (exit
+        // 126), and the unsigned-executable-memory entitlement is restricted
+        // — ad-hoc signatures don't earn it (CI-verified 2026-09-21). MAP_JIT
+        // is the entitlement-free official route for non-hardened processes;
+        // writes are bracketed by the per-thread W^X toggle.
+        #if arch(arm64)
+        let mapFlags = MAP_PRIVATE | MAP_ANON | MAP_JIT
+        pthread_jit_write_protect_np(0)   // writable while we set the image up
+        #else
+        let mapFlags = MAP_PRIVATE | MAP_ANON
+        #endif
         var mappedSize = 0
         let mapped = data.withUnsafeBytes { raw -> UnsafeMutableRawPointer in
             var segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64)] = []
@@ -310,7 +322,7 @@ enum Verifier {
             }
             if segs.isEmpty {   // bare blob: identity copy, base 0
                 let mem = mmap(nil, raw.count, PROT_READ | PROT_WRITE | PROT_EXEC,
-                               MAP_PRIVATE | MAP_ANON, -1, 0)
+                               mapFlags, -1, 0)
                 guard let mem = mem, mem != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
                 memcpy(mem, raw.baseAddress, raw.count)
                 mappedSize = raw.count
@@ -320,7 +332,7 @@ enum Verifier {
             let total = Int(top - base)
             mappedSize = total
             let mem = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC,
-                           MAP_PRIVATE | MAP_ANON, -1, 0)
+                           mapFlags, -1, 0)
             guard let mem = mem, mem != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
             for seg in segs where seg.vmaddr >= base {
                 let dst = Int(seg.vmaddr - base)
@@ -379,6 +391,12 @@ enum Verifier {
                 (mapped + slotOffset).assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee = fn
             }
         }
+
+        // arm64: all writes into the JIT mapping are done (segment copies,
+        // magic-static zeros, GOT redirects) — lock writes, unlock execution.
+        #if arch(arm64)
+        pthread_jit_write_protect_np(1)
+        #endif
 
         // WeChat SSO string ABI: pass 24 CONTIGUOUS bytes. Array's own
         // withUnsafeMutableBytes yields the element buffer — never &array

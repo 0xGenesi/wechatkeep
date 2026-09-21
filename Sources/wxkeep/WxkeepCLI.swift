@@ -848,15 +848,17 @@ extension Wxkeep {
             print("site 0x\(String(targetVA, radix: 16, uppercase: true)) — on-disk state: \(state)")
 
             // Environment transparency: behavioral verification maps the image
-            // RWX and executes it — AMFI-active boots refuse that (independent
-            // of the SIP toggle; doctor documents the distinction). Probe the
-            // real capability (one worker spawn on a ret-only blob) instead of
-            // inferring from boot-args, and say so BEFORE running.
+            // executable and runs it. arm64 workers take the MAP_JIT route
+            // (entitlement-free for non-hardened processes), so a refusal now
+            // means this binary runs under hardened runtime without the JIT
+            // entitlement. Probe the real capability (one worker spawn on a
+            // ret-only blob) instead of inferring from boot-args, and say so
+            // BEFORE running.
             if !Verifier.workerCanExecute(binary: URL(fileURLWithPath: CommandLine.arguments[0])) {
-                print("ℹ︎ behavioral verification needs an AMFI-relaxed boot "
-                      + "(amfi_get_out_of_my_way=0x1 boot-arg, or an unsigned-executable-memory "
-                      + "entitlement on this binary; `wxkeep doctor` has the how-to). "
-                      + "On this machine it will be blocked — the byte-level strict verify "
+                print("ℹ︎ behavioral verification could not map executable memory on this machine "
+                      + "(arm64 uses MAP_JIT; hardened runtime would need the JIT entitlement — "
+                      + "`wxkeep doctor` has background). "
+                      + "The byte-level strict verify "
                       + "remains the proof of the on-disk patch either way.")
             }
 

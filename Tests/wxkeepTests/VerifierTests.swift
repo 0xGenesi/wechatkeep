@@ -5,13 +5,15 @@ import Testing
 /// Behavioral-verifier tests against a synthetic mini image (no Mach-O
 /// structure needed — the worker maps the whole file with VA == file offset).
 /// The worker host is the built wxkeep binary (the test runner has no
-/// __verify-worker dispatch). Skipped where SIP would block RWX mapping.
+/// __verify-worker dispatch). Skipped only where the real worker probe says
+/// executable memory is unavailable (arm64 uses MAP_JIT, so stock machines
+/// qualify; hardened runtime without the JIT entitlement does not).
 struct VerifierTests {
     /// Behavioral-mapping gate keyed on a REAL worker probe, not boot-arg
     /// archaeology: spawn `__verify-worker` once on a ret-only blob — exit 0
-    /// means this environment can mmap RWX and execute (AMFI-relaxed boot, or
-    /// the binary carries an unsigned-executable-memory entitlement — the CI
-    /// acceptance job signs exactly that). Exit 126 = AMFI refused → skip.
+    /// means this environment can map executable memory (arm64 takes the
+    /// MAP_JIT route — entitlement-free for non-hardened processes; x64 maps
+    /// RWX directly). Exit 126 = environment refused → skip.
     /// Static-let: the probe spawns one process; memoize for the whole run.
     private static let workerProbeBlocked: Bool = {
         guard let bin = wxkeepBinary else { return true }
@@ -74,7 +76,7 @@ struct VerifierTests {
     }
 
     @Test(.disabled(if: VerifierTests.environmentUnsuitable,
-                   "SIP/AMFI on or no built binary — behavioral mapping needs the dev machine"))
+                   "no built binary or executable-memory probe refused — behavioral mapping unavailable here"))
     func pristineImageClassifiesCorrectly() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-verifier-\(UUID().uuidString)")
@@ -90,7 +92,7 @@ struct VerifierTests {
     }
 
     @Test(.disabled(if: VerifierTests.environmentUnsuitable,
-                   "SIP/AMFI on or no built binary — behavioral mapping needs the dev machine"))
+                   "no built binary or executable-memory probe refused — behavioral mapping unavailable here"))
     func patchedImageNeutralized() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-verifier-\(UUID().uuidString)")
@@ -280,9 +282,9 @@ struct VerifierTests {
 
     /// Full worker round-trip on the arm64 mini image — the arm64 execution
     /// path acceptance harness. Runs only on arm64 hosts whose environment
-    /// passes the RWX probe (ARM dev machine, or the entitled CI runner).
+    /// passes the executable-memory probe (ARM dev machine, CI runner, or any stock arm64 Mac via MAP_JIT).
     @Test(.disabled(if: VerifierTests.environmentUnsuitable || VerifierTests.hostIsNotARM64,
-                   "arm64 host + RWX-capable environment required — worker executes mapped code natively"))
+                   "arm64 host + executable-memory-capable environment required — worker executes mapped code natively"))
     func arm64MiniPredicateClassifiesCorrectly() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-verifier-arm-\(UUID().uuidString)")
