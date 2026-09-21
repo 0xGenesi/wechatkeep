@@ -24,7 +24,9 @@ struct VerifierTests {
         VerifierTests.wxkeepBinary == nil || VerifierTests.workerProbeBlocked
     }
 
-    private static let hostIsNotARM64: Bool = Verifier.ImageArch.host != .arm64
+    private static let hostIsARM64: Bool = Verifier.ImageArch.host == .arm64
+
+    private static let hostIsNotARM64: Bool = !hostIsARM64
 
     private static var wxkeepBinary: URL? {
         // Tests/wxkeepTests/VerifierTests.swift → repo root → .build/debug/wxkeep
@@ -75,8 +77,8 @@ struct VerifierTests {
               probes: [["revokems", "1"], ["other", "0"], ["", "0"]])
     }
 
-    @Test(.disabled(if: VerifierTests.environmentUnsuitable,
-                   "no built binary or executable-memory probe refused — behavioral mapping unavailable here"))
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable || VerifierTests.hostIsARM64,
+                   "x86_64 host required — this fixture is raw x64 code; the worker executes it natively"))
     func pristineImageClassifiesCorrectly() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-verifier-\(UUID().uuidString)")
@@ -91,8 +93,8 @@ struct VerifierTests {
         #expect(Verifier.verdict(results: results, spec: spec, state: .pristine) == nil)
     }
 
-    @Test(.disabled(if: VerifierTests.environmentUnsuitable,
-                   "no built binary or executable-memory probe refused — behavioral mapping unavailable here"))
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable || VerifierTests.hostIsARM64,
+                   "x86_64 host required — this fixture is raw x64 code; the worker executes it natively"))
     func patchedImageNeutralized() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-verifier-\(UUID().uuidString)")
@@ -213,30 +215,37 @@ struct VerifierTests {
     /// segment-faithful mapping + arm64 SSO layout path; imports go through
     /// adrp x16/ldr x16,[x16,#imm]/br x16 stubs at 0x180/0x190 into junk GOT
     /// slots 0x1C0/0x1C8 (redirection is load-bearing); GLOBAL "revokems" @0x200.
+    /// The argument must live in a CALLEE-SAVED register across the strlen
+    /// call (x19, spilled in the prologue — mirror of the x64 twin's rbx):
+    /// the first cut kept it in x8, which the PCS makes caller-saved, and
+    /// the first arm64 execution (CI 2026-09-21) came back all-false when
+    /// libc's strlen left a different value there.
     private func arm64MiniImage() -> Data {
         func le32(_ v: UInt32) -> [UInt8] {
             withUnsafeBytes(of: v.littleEndian) { Array($0) }
         }
-        var code: [(offset: Int, bytes: [UInt8])] = [
+        let code: [(offset: Int, bytes: [UInt8])] = [
             (0x100, le32(0xA9BF_7BFD)),  // stp x29,x30,[sp,#-16]!
-            (0x104, le32(0xAA00_03E8)),  // mov x8, x0            (save arg)
-            (0x108, le32(0x9000_0000)),  // adrp x0, #0
-            (0x10C, le32(0x9108_0000)),  // add x0, x0, #0x200    (GLOBAL)
-            (0x110, le32(0x9400_001C)),  // bl strlen-stub (0x180)
-            (0x114, le32(0x3900_5D09)),  // ldrb w9, [x8, #0x17]  (arm64 SSO len)
-            (0x118, le32(0x6B09_001F)),  // cmp w0, w9
-            (0x11C, le32(0x5400_0141)),  // b.ne ret0 (0x144)
-            (0x120, le32(0xAA08_03E0)),  // mov x0, x8            (arg.data @0)
-            (0x124, le32(0x9000_0001)),  // adrp x1, #0
-            (0x128, le32(0x9108_0021)),  // add x1, x1, #0x200    (GLOBAL)
-            (0x12C, le32(0x2A09_03E2)),  // mov w2, w9            (len)
-            (0x130, le32(0x9400_0018)),  // bl memcmp-stub (0x190)
-            (0x134, le32(0x7100_001F)),  // cmp w0, #0
-            (0x138, le32(0x1A9F_17E0)),  // cset w0, eq
-            (0x13C, le32(0xA8C1_7BFD)),  // ldp x29,x30,[sp],#16
-            (0x140, le32(0xD65F_03C0)),  // ret
-            (0x144, le32(0x5280_0000)),  // ret0: mov w0, #0
-            (0x148, le32(0x17FF_FFFD)),  // b 0x13C (shared epilogue)
+            (0x104, le32(0xA9BF_53F3)),  // stp x19,x20,[sp,#-16]!  (save arg reg)
+            (0x108, le32(0xAA00_03F3)),  // mov x19, x0            (save arg, callee-saved)
+            (0x10C, le32(0x9000_0000)),  // adrp x0, #0
+            (0x110, le32(0x9108_0000)),  // add x0, x0, #0x200    (GLOBAL)
+            (0x114, le32(0x9400_001B)),  // bl strlen-stub (0x180)
+            (0x118, le32(0x3940_5E69)),  // ldrb w9, [x19, #0x17] (arm64 SSO len)
+            (0x11C, le32(0x6B09_001F)),  // cmp w0, w9
+            (0x120, le32(0x5400_0161)),  // b.ne ret0 (0x14C)
+            (0x124, le32(0xAA13_03E0)),  // mov x0, x19           (arg.data @0)
+            (0x128, le32(0x9000_0001)),  // adrp x1, #0
+            (0x12C, le32(0x9108_0021)),  // add x1, x1, #0x200    (GLOBAL)
+            (0x130, le32(0x2A09_03E2)),  // mov w2, w9            (len)
+            (0x134, le32(0x9400_0017)),  // bl memcmp-stub (0x190)
+            (0x138, le32(0x7100_001F)),  // cmp w0, #0
+            (0x13C, le32(0x1A9F_17E0)),  // cset w0, eq
+            (0x140, le32(0xA8C1_53F3)),  // ldp x19,x20,[sp],#16
+            (0x144, le32(0xA8C1_7BFD)),  // ldp x29,x30,[sp],#16
+            (0x148, le32(0xD65F_03C0)),  // ret
+            (0x14C, le32(0x5280_0000)),  // ret0: mov w0, #0
+            (0x150, le32(0x17FF_FFFC)),  // b 0x140 (shared epilogue)
             // strlen stub → GOT 0x1C0
             (0x180, le32(0x9000_0010)),  // adrp x16, #0
             (0x184, le32(0xF940_E210)),  // ldr x16, [x16, #0x1C0]
@@ -276,8 +285,8 @@ struct VerifierTests {
         try image.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
         let mach = try MachImage(file: url, arch: .arm64)
-        #expect(mach.word32(va: 0x110) == 0x9400_001C)
-        #expect(Verifier.ARM64.blTargetVA(word: 0x9400_001C, blVA: 0x110) == 0x180)
+        #expect(mach.word32(va: 0x114) == 0x9400_001B)
+        #expect(Verifier.ARM64.blTargetVA(word: 0x9400_001B, blVA: 0x114) == 0x180)
     }
 
     /// Full worker round-trip on the arm64 mini image — the arm64 execution
