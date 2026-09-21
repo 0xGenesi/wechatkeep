@@ -50,12 +50,19 @@ tools/amfi_sip_probe.sh）。排练（--allow-sip-off）当即复现昨晚中断
    patch/restore/probe 判定（均不走 patch_states），如需显示正确
    待结合同 target 其他条目聚合。
 
-**遗留（待用户硬件动作，与 ㊱ 同口径）**：正式实证三步——
-`sudo nvram -d boot-args` → 重启 Cmd+R 进 Recovery `csrutil enable`
-→ 重启后 `sudo tools/amfi_sip_probe.sh`（可选第四步恢复研究环境：
-Recovery `csrutil disabled` + `sudo nvram
-boot-args="amfi_get_out_of_my_way=0x1"`）。SIP on 期间 verify worker
-（RWX）不可用属预期。另：drive28 群聊实弹轮、M-R4 维持。
+**✅ 正式实证收口（2026-09-21 22:48，本节遗留项已清）**：用户完成
+Recovery 引导（csrutil enable、boot-args 已清）后正跑
+`tools/amfi_sip_probe.sh`，判定 **RUNS**——原生 SIP（enabled、无
+boot-arg、AMFI 活跃）下补丁态微信存活满 24s 观察窗、零 .ips，
+pristine 恢复后签名 OK。verdict.json 存 var/amfi_probe/。**ROADMAP
+决策 #1（2026-09-17）就此闭合：维持 doctor 的 watch 级判定**——
+「字节补丁 + ad-hoc 重签（保留 restricted entitlements + 注入
+disable-library-validation / allow-unsigned-executable-memory）」
+在原生 SIP 下可正常运行，历史 CODESIGNING 杀机（Sep 15，配置无记录
+的裸重签）不适用于现行 Resigner 管线。事后日常 keeptip 态已恢复。
+研究环境提示：SIP 保持 on 时 verify worker（RWX）不可用；如需恢复
+离线逆向环境按 probe 头部 runbook 第 4 步（Recovery csrutil
+disabled + boot-args）。另：drive28 群聊实弹轮、M-R4 维持。
 
 ## ㊱ 遗留项收口轮（2026-09-21：fzlzjerry 270100 互证 + 健康回归 + v0.2.3 发版收口）
 
