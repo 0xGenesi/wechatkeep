@@ -241,7 +241,10 @@ enum Engine {
                 summary.lines.append("binary: \(relative) (\(targets.map(\.identifier).joined(separator: ", ")))")
                 let willWrite: (Config.PatchEntry, String) -> Bool = { entry, identifier in
                     let inspections = (try? Patcher.inspect(binary: binary, entries: [entry], identifier: identifier)) ?? []
-                    return inspections.first?.state != .patched
+                    // .patched 与 .ambiguous（归一化条目，asm∈expected）都表示
+                    // asm 字节已在盘上——Patcher.patch 判 alreadyPatched，不写。
+                    if let s = inspections.first?.state { return s != .patched && s != .ambiguous }
+                    return true
                 }
                 // Decide whether a backup is needed before mutating anything.
                 var needsBackup = false

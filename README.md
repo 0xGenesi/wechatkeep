@@ -84,7 +84,7 @@ catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（
 
 ```bash
 swift build -c release          # 产出 .build/release/wxkeep
-swift test                      # 123 项测试（合成 fixture + 真 codesign 集成；arm64 行为项在非 arm64 主机自动 skip）
+swift test                      # 126 项测试（合成 fixture + 真 codesign 集成；arm64 行为项在非 arm64 主机自动 skip）
 WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路（开发机）
 ```
 

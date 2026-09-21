@@ -33,7 +33,7 @@ struct DoctorTests {
                                       osMajor: 14, bootArgs: nil) == nil)
     }
 
-    // MARK: 判定聚合
+    // MARK: 判定聚合（直接回归真实实现——.ambiguous 语义见 aggregate 注释）
 
     @Test func aggregateStates() {
         let allPatched = [Patcher.Inspection.State](repeating: .patched, count: 3)
@@ -41,21 +41,27 @@ struct DoctorTests {
         let mixedBag: [Patcher.Inspection.State] = [.pristine, .patched]
         let withUnknown: [Patcher.Inspection.State] = [.patched, .unknown]
         let empty: [Patcher.Inspection.State] = []
-        #expect(DoctorAggregate(allPatched) == "patched")
-        #expect(DoctorAggregate(allPristine) == "pristine")
-        #expect(DoctorAggregate(mixedBag) == "mixed")
-        #expect(DoctorAggregate(withUnknown) == "unknown")
-        #expect(DoctorAggregate(empty) == "unknown")
+        #expect(Doctor.aggregate(allPatched) == "patched")
+        #expect(Doctor.aggregate(allPristine) == "pristine")
+        #expect(Doctor.aggregate(mixedBag) == "mixed")
+        #expect(Doctor.aggregate(withUnknown) == "unknown")
+        #expect(Doctor.aggregate(empty) == "unknown")
     }
 
-    // aggregate 是 private——通过 patch_states 输出验证（JSON 契约测试覆盖）。
-    private func DoctorAggregate(_ states: [Patcher.Inspection.State]) -> String {
-        // mirror of the private logic via the same inputs the engine produces;
-        // kept adjacent so a change to either fails review
-        guard !states.isEmpty else { return "unknown" }
-        if states.allSatisfy({ $0 == .patched }) { return "patched" }
-        if states.allSatisfy({ $0 == .pristine }) { return "pristine" }
-        return states.contains(.unknown) ? "unknown" : "mixed"
+    /// 归一化恢复型条目（asm ∈ expected）的 .ambiguous 态由同 target 的
+    /// 可判定条目代判——pristine 二进制上 doctor 曾因此误报 keeptip=mixed
+    /// （ROADMAP ㊲ 附带发现 6）。
+    @Test func aggregateResolvesAmbiguousFromSiblings() {
+        // keeptip x64 实形：普通条目 + 归一化条目（270100 的 537e52d + 4e8d5d0）
+        #expect(Doctor.aggregate([.pristine, .ambiguous]) == "pristine")   // 修复前：mixed
+        #expect(Doctor.aggregate([.patched, .ambiguous]) == "patched")
+        // arm64 实形（270100 的 4bc4fa4 + 4bc5744）
+        #expect(Doctor.aggregate([.ambiguous, .pristine]) == "pristine")
+        #expect(Doctor.aggregate([.ambiguous, .patched]) == "patched")
+        // 全二义 → 无法判定；二义不掩盖可判定条目的分歧/未知
+        #expect(Doctor.aggregate([.ambiguous, .ambiguous]) == "unknown")
+        #expect(Doctor.aggregate([.patched, .pristine, .ambiguous]) == "mixed")
+        #expect(Doctor.aggregate([.unknown, .ambiguous]) == "unknown")
     }
 
     // MARK: JSON 契约（未来 GUI 的命脉——键集快照）

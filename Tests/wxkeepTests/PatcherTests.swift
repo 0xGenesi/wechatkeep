@@ -186,6 +186,68 @@ final class PatcherTests {
         let states: [Patcher.Inspection.State] = inspections.map(\.state)
         #expect(states == [.patched, .pristine, .unknown])
     }
+
+    /// 归一化恢复型条目（asm ∈ expected）：打与不打字节同形 → .ambiguous
+    /// （先判 asm 会把 pristine 读成 patched，doctor 曾误报 keeptip=mixed）。
+    /// 270100 keeptip x64 实形：4e8d5d0 asm=554889E553504889FB
+    /// expected=[31C0C3909090909090, 554889E553504889FB]。
+    @Test func inspectFlagsNormalizedEntryAsAmbiguous() throws {
+        let binary = try writeBinary(
+            MachOFixture.thin(cputype: MachOFixture.x64CPU, code: [
+                // 共形态（pristine 或 keeptip-patched 同形）
+                (0x100, [0x55, 0x48, 0x89, 0xE5, 0x53, 0x50, 0x48, 0x89, 0xFB, 0x90]),
+                // 另一 expected 变体（silent 态）
+                (0x120, [0x31, 0xC0, 0xC3, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90]),
+            ]),
+            name: "normalized.dylib")
+        let normalized = MachOFixture.entry(
+            .x86_64, addr: "100", asm: "554889E553504889FB",
+            expected: ["31C0C3909090909090", "554889E553504889FB"])
+        let inspections = try Patcher.inspect(
+            binary: binary, entries: [normalized, normalized.copy(addr: "120")],
+            identifier: "revoke-keeptip")
+        #expect(inspections.map(\.state) == [.ambiguous, .pristine])
+    }
+
+    /// 端到端（270100 keeptip x64 结构复刻）：普通条目 + 归一化条目同 target，
+    /// pristine 二进制聚合应判 pristine（修复前误报 mixed）。
+    @Test func keeptipShapedTargetAggregatesCleanly() throws {
+        let makeBinary: (Bool) throws -> URL = { patched in
+            // 普通条目位点（537e52d 形）：pristine=E8.. call / patched=xor rax,rax
+            let site1: [UInt8] = patched
+                ? [0x48, 0x31, 0xC0, 0x66, 0x90, 0x48, 0x89, 0x83, 0xC8, 0x01, 0x00, 0x00]
+                : [0xE8, 0x3E, 0x4B, 0xE9, 0xFF, 0x48, 0x89, 0x83, 0xC8, 0x01, 0x00, 0x00]
+            // 归一化条目位点（4e8d5d0 形）：两态字节恒同
+            let site2: [UInt8] = [0x55, 0x48, 0x89, 0xE5, 0x53, 0x50, 0x48, 0x89, 0xFB]
+            return try self.writeBinary(
+                MachOFixture.thin(cputype: MachOFixture.x64CPU, code: [
+                    (0x100, site1), (0x120, site2),
+                ]),
+                name: patched ? "keeptip-on.dylib" : "keeptip-off.dylib")
+        }
+        let entries = [
+            MachOFixture.entry(
+                .x86_64, addr: "100", asm: "4831C06690488983C8010000",
+                expected: ["E83E4BE9FF488983C8010000"]),
+            MachOFixture.entry(
+                .x86_64, addr: "120", asm: "554889E553504889FB",
+                expected: ["31C0C3909090909090", "554889E553504889FB"]),
+        ]
+        for (patched, want) in [(false, "pristine"), (true, "patched")] {
+            let states = try Patcher.inspect(
+                binary: makeBinary(patched), entries: entries, identifier: "revoke-keeptip")
+                .map(\.state)
+            #expect(Doctor.aggregate(states) == want)
+        }
+    }
+}
+
+private extension Config.PatchEntry {
+    func copy(addr: String) -> Config.PatchEntry {
+        var out = self
+        out.addr = addr
+        return out
+    }
 }
 
 struct ConfigTests {

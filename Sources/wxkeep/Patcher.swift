@@ -53,11 +53,14 @@ struct Patcher {
     struct Inspection: Equatable {
         let arch: Config.Arch
         let va: UInt64
-        /// patched (bytes == asm) / pristine (matches an expected variant) / unknown
+        /// patched (bytes == asm) / pristine (matches an expected variant) /
+        /// ambiguous (normalized entry: bytes match BOTH — patched and pristine
+        /// are byte-identical, so the state must be resolved by the target's
+        /// other entries) / unknown
         let state: State
         let current: String
 
-        enum State: Equatable { case patched, pristine, unknown }
+        enum State: Equatable { case patched, pristine, ambiguous, unknown }
     }
 
     // MARK: - Entry points
@@ -129,9 +132,16 @@ struct Patcher {
         return try plans.map { plan in
             let siteLen = max(plan.asm.count, plan.expected?.map(\.byteCount).max() ?? 0)
             let current = try readBytes(handle: handle, offset: plan.fileOffset, count: siteLen)
+            let asmMatch = current.prefix(plan.asm.count) == plan.asm
+            let expectedMatch = plan.expected?.contains(where: { $0.matches(current) }) == true
             let state: Inspection.State
-            if current.prefix(plan.asm.count) == plan.asm { state = .patched }
-            else if plan.expected?.contains(where: { $0.matches(current) }) == true { state = .pristine }
+            // Checking asm first used to misread normalized entries (asm ∈
+            // expected, e.g. keeptip's prologue-restore at the isRevokemsg
+            // entry) as patched even on a pristine binary — reporting the
+            // ambiguity lets callers resolve it from sibling entries.
+            if asmMatch && expectedMatch { state = .ambiguous }
+            else if asmMatch { state = .patched }
+            else if expectedMatch { state = .pristine }
             else { state = .unknown }
             return Inspection(arch: plan.entry.arch, va: plan.va, state: state, current: current.hexUppercase)
         }

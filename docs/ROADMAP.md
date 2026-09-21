@@ -1,5 +1,49 @@
 # 路线图（待办归档）
 
+## ㊳ 自主收口轮（2026-09-21 深夜：doctor keeptip=mixed 二义 bug 修复——㊲ 附带发现 6 闭案）
+
+任务口径同 ㉝-㊱（能做掉的做掉）。遗留三项（drive28/M-R4）维持——均需
+用户物理动作；自主可做面 = ㊲ 附带发现 6（doctor 判 keeptip=mixed，
+明确标记「未修，记录」），本轮把它修掉，连带语义适配与例行巡检。
+
+1. **根因与修复（Patcher.inspect 二义态）**：归一化恢复型条目
+   （asm ∈ expected——keeptip 在 isRevokemsg 入口写恢复型条目：x64
+   4e8d5d0 asm=554889E5… 双 expected 含自身、arm64 4bc4fa4
+   asm=expected=40100034）打与不打**字节同形**，inspect 先判 asm 把
+   pristine 态读成 patched → doctor 聚合误报 mixed。修复：字节同时
+   匹配 asm 前缀与某 expected 变体时报告新态 `.ambiguous`（单条目
+   无法判定是诚实语义）。
+2. **聚合代判（Doctor.aggregate）**：按 ㊲ 建议「结合同 target 其他
+   条目聚合」——.ambiguous 由同 target 可判定条目代判
+   （[pristine, ambiguous]→pristine；[patched, ambiguous]→patched），
+   全二义→unknown，可判定分歧维持 mixed/unknown。aggregate 改
+   internal，DoctorTests 直接回归真实实现（删镜像副本——漂移隐患）。
+3. **消费方语义适配**：① Engine.willWrite：.ambiguous=asm 已在盘
+   （Patcher.patch 判 alreadyPatched）→ 不触发多余备份；②
+   Verifier.verdict：.ambiguous 与 .patched 同判据（盘上就是 asm
+   字节，行为=补丁态）；③ deprecatedLeftovers 维持只认 .patched：
+   50a5bad 位点的 keeptip2 残留从「必报」变「不报」，但另 9 个
+   非归一化 NOP 位点仍拦截全部现实场景，且该位点 expected 门接受
+   keeptip2 字节、patch 即自愈；反向收益——**修掉一个既有假阳性**：
+   269602 上 `patch --variant silent`（keeptip 态机器）原会把 keeptip
+   写入的 32a0d9d 误判 keeptip2 残留拒绝执行（.patched 首判 +
+   silent 选择集不含 keeptip 覆盖位点），现 .ambiguous 正确放行 →
+   变体切换还原路径畅通。
+4. **验证**：126 测全绿（+3：inspect 二义态 / 聚合代判矩阵 /
+   270100 keeptip x64 实形端到端 pristine→pristine、patched→patched）；
+   真机 doctor（keeptip 态）revoke=pristine/keeptip=patched/overall
+   protected ✓；**真 pristine 备份件交叉验证**（python 复刻比较逻辑
+   跑 bak-20260921-223343）：537e52d→pristine + 4e8d5d0→ambiguous
+   →聚合 pristine（修复前 mixed）；release 构建 + 真机 verify 冒烟
+   （pristine 判定正确、四探针符合 pristine 预期）。
+5. **例行巡检（阴性）**：CDN 新构建探测 270101-270106 全 404、滚动件
+   last-modified 仍 09-18（无变化信号）——目录无需增量；第三方无新
+   提交（fzlzjerry 停 168e3e8 09-20、tanranv5 停 8f3fb95 09-19），
+   var/thirdparty 快照仍新鲜；ROADMAP ④ 三个「已知小项」复核确认均
+   已在前轮修掉（update-data 同口径计数、bak 只留 3 份）；
+   Verifier.swift 一处 vmsize 未用编译警告顺手清除。
+6. **顺带**：README 测试数 123→126。
+
 ## ㊲ AMFI 实证前置轮（2026-09-21 夜：270100 重签管线可验证性两处破坏修复 → probe 排练全绿，待 Recovery 正跑）
 
 任务：用户发起 AMFI 原生 SIP 实证（Recovery 引导后跑
@@ -43,7 +87,7 @@ tools/amfi_sip_probe.sh）。排练（--allow-sip-off）当即复现昨晚中断
    var/amfi_probe/verdict_rehearsal_20260921.json（防与正式结论混淆）。
    官方基线 dmg 存档 var/cdn/WeChatMac_270100_candidate.dmg（506MB，
    滚动件，CFBundleVersion 实测 270100）。
-6. **附带发现（未修，记录）**：doctor 判 keeptip=mixed 系
+6. **附带发现（✅ 已修，见 ㊳）**：doctor 判 keeptip=mixed 系
    Patcher.inspect 对归一化恢复型条目（asm∈expected，如 keeptip 的
    isRevokemsg 入口）先判 asm 的语义二义——该条目打与不打字节同形
    （asm 即 pristine 序言），pristine 态被读作 patched。不影响字节、

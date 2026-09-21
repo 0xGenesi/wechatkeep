@@ -272,7 +272,6 @@ enum Verifier {
                 guard cmdsize > 0 else { break }
                 if cmd == 0x19 {
                     let vmaddr = raw.loadUnaligned(fromByteOffset: p + 24, as: UInt64.self)
-                    let vmsize = raw.loadUnaligned(fromByteOffset: p + 32, as: UInt64.self)
                     let fileoff = raw.loadUnaligned(fromByteOffset: p + 40, as: UInt64.self)
                     // __TEXT is the fileoff==0 CONTENT segment (PAGEZERO also
                     // sits at fileoff 0 with filesize 0 — exclude by content);
@@ -465,7 +464,7 @@ enum Verifier {
                     return .mismatch(detail: "pristine image: isRevokemsg(\"\(result.text)\") = \(result.returned ? 1 : 0), expected \(expected ? 1 : 0)")
                 }
             }
-        case .patched:
+        case .patched, .ambiguous:   // ambiguous: bytes hold asm (normalized entry) → patched behavior
             for (result, expected) in zip(results, expecteds) {
                 if expected == true && result.returned {
                     return .mismatch(detail: "patched image still classifies \"\(result.text)\" as revokemsg — patch ineffective")

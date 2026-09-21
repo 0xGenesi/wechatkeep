@@ -307,11 +307,22 @@ struct Doctor {
             runtimeHookArmed: runtimeDylibExists ? runtimeHookArmed : nil)
     }
 
-    private static func aggregate(_ states: [Patcher.Inspection.State]) -> String {
+    /// 归一化恢复型条目（asm ∈ expected，如 keeptip 在 isRevokemsg 入口的
+    /// 序言恢复条目）打与不打字节同形（.ambiguous）——由同 target 的可判定
+    /// 条目代判：全二义则无法判定，可判定条目意见不一维持 mixed/unknown。
+    /// internal：DoctorTests 直接回归真实实现（不再维护镜像副本）。
+    static func aggregate(_ states: [Patcher.Inspection.State]) -> String {
         guard !states.isEmpty else { return "unknown" }
-        if states.allSatisfy({ $0 == .patched }) { return "patched" }
-        if states.allSatisfy({ $0 == .pristine }) { return "pristine" }
-        return states.contains(.unknown) ? "unknown" : "mixed"
+        let resolvable = states.filter { $0 != .ambiguous }
+        guard let anchor = resolvable.first else { return "unknown" }
+        guard resolvable.allSatisfy({ $0 == anchor }) else {
+            return resolvable.contains(.unknown) ? "unknown" : "mixed"
+        }
+        switch anchor {
+        case .patched: return "patched"
+        case .pristine: return "pristine"
+        case .ambiguous, .unknown: return "unknown"
+        }
     }
 
     // MARK: - Rendering
