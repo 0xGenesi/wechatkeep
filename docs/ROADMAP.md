@@ -1,5 +1,51 @@
 # 路线图（待办归档）
 
+## ㉟ 遗留项收口轮（2026-09-21：arm64 验收假绿揭穿 → MAP_JIT 路线 → 真件端到端收章）
+
+任务口径同 ㉝/㉞（能做掉的做掉）。㉞ 遗留四项中唯一可自主项 = arm64
+验收（「剩一次 workflow 触发」）。本轮把它做完，过程中揭穿一个**假绿**。
+
+1. **假绿揭穿（关键发现）**：触发 `arm64-verify.yml` 后核查步骤级结果，
+   发现 09-20/09-21 两轮 "success" run 的 **Real-dylib 端到端步骤都被
+   skip**——probe exit 126（RWX 被 AMFI 拒），行为测试全 skip。根因：
+   `allow-unsigned-executable-memory` 在 macOS 15 是**受限 entitlement**，
+   ad-hoc 重签带不上（runner SIP 关闭也无效，日志实证）。㉞ 的
+   「entitlement 路线 + 一次触发即收章」假设失效，验收实际从未闭合。
+   教训：**workflow 的 success 要看到步骤级执行证据才算数**。
+2. **MAP_JIT 路线落地（正确的解法）**：worker 的两处 RWX mmap 在 arm64
+   改 `MAP_JIT` + `pthread_jit_write_protect_np` 包夹（映射后放开写、
+   GOT 重定向完成后锁写放执行；x64 路径不动）。非 hardened 进程免
+   entitlement——这是 LLVM/JSC 同款的官方 JIT 通道。**意外收获强于原
+   验收目标**：stock arm64 真机（无 AMFI boot-arg）verify 行为验证直接
+   可用，用户不再需要 relaxed 引导。附带：CLI verify 预检/envBlocked
+   文案改口、workflow entitlement 段补 allow-jit 作纵深。
+3. **解锁暴露两个夹具缺陷（worker 无错，首跑即现形）**：
+   - x64 mini 镜像测试在 arm64 主机执行裸 x86_64 代码 → SIGILL；此前
+     探针必败全 skip，从未真正运行过（ci.yml 矩阵 macos-14/15 全 arm64，
+     f06518d 首推即红）。加 hostIsARM64 门（x64 主机照常跑）。
+   - arm64 mini 夹具把参数存 **x8（caller-saved）**跨 strlen 调存活，
+     libc 改写后谓词全 false（CI 实测 [false,false,false]）。改 x19 +
+     序言 stp 保存（x64 孪生的 rbx 同构）；编码经 clang -target arm64
+     汇编逐条核验。教训入 MAINTAINING「误改与踩坑」。
+4. **验收收章（run 35595719253，f193e51，全绿）**：probe exit 0 →
+   合成 arm64 行为测试 PASS → **CDN 真件端到端**：270100 fat dmg →
+   lipo → catalog 定位 → MachImage 谓词反解 `site 0x47575FC`（与 ㉝
+   静态地面真值逐一吻合）→ MAP_JIT worker 执行 →
+   `revokemsg-predicate("revokemsg")=1 / 其余 0` 四探针全对 →
+   verdictPredicate 通过。主 CI 双 matrix（macos-14/15）同步绿。
+   ㉝ 遗留 1「arm64 verify 验收」正式闭合。
+5. **drive28 编排脚本入库**：㉜ 交付的 `tools/dyntrace/d28_live.sh`
+   （一键编排：restore→runtime 惰性安装→启动→lldb 观察窗→trap 自愈）
+   漏提交，补上（5d0b299）。实弹轮万事俱备。
+
+**回归**：本地 123 测全绿（x64 主机：arm64 行为项按 host 门 skip，
+x64 行为项照常执行）+ arm64 目标交叉 typecheck 零 error + CI 全绿。
+
+**遗留（维持 ㉞ 口径）**：drive28 群聊实弹轮（需用户一次真实群聊撤回，
+`bash tools/dyntrace/d28_live.sh` 即进入观察窗）；M-R4（依赖 drive28
+数据）；AMFI 原生 SIP 实证（硬件动作：Recovery 引导跑
+tools/amfi_sip_probe.sh）。
+
 ## ㉞ 遗留项收口续轮（2026-09-20 深夜：arm64 verify 装机 fat 缺陷拦截 + 验收 harness 全链落地 + sweep 尾巴清欠）
 
 任务口径同 ㉝（能做掉的做掉）。本轮把「ARM 实机验收」从**等机器**变成

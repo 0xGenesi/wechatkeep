@@ -174,6 +174,25 @@ revoke.py，Weixin.dll 4.0.6+，仅两条通配规则、无注入）：
   规则：**新代码涉及 VA 定位一律 `MachImage(file:arch:)` 入，禁止裸
   `Data(contentsOf:)` + 整数当偏移**（thin 工件上两者同值，掩盖了装机
   fat 上的病——thin 测过不等于 fat 测过，与「thin 与 fat 都要查」同源）。
+- **受限 entitlement 对 ad-hoc 重签无效**（2026-09-21 ㉟ 实证）：
+  `com.apple.security.cs.allow-unsigned-executable-memory` 等在 macOS 15
+  是 restricted entitlement——无 provisioning 的 ad-hoc 签名带不上
+  （CI runner 上 SIP 关闭 + entitlement 重签后 worker probe 仍 exit 126，
+  两个镜像日各一轮）。执行动态代码的正路 = **MAP_JIT +
+  `pthread_jit_write_protect_np` 包夹**（映射后放开写、执行前锁写；
+  非 hardened 进程免任何 entitlement）。推论：worker 报「映射被拒」
+  ≠ 需要整机 AMFI relaxed——先看本进程走的是哪条通道。
+- **手汇编夹具也要守 PCS**（2026-09-21 ㉟ arm64 首跑实证）：arm64 mini
+  夹具把参数存 x8（caller-saved）跨 `strlen` 调存活——libc 改写 x8 后
+  谓词四探针全 false（无崩溃，纯静默走错分支）。x64 孪生用 rbx
+  （callee-saved）所以从未暴露。规则：**夹具里跨 call 的活值必须放
+  callee-saved 寄存器（x19-x28，序言 stp 保存）**；「编码层解码测试
+  过了」≠「执行对了」——ABI 层缺陷只有真执行才暴露。
+- **执行门解锁的首次运行是新缺陷高发点**（2026-09-21）：x64 镜像
+  测试在 arm64 host 上的 SIGILL、x8 caller-saved 问题，都是 MAP_JIT
+  让探针转阳后立刻现形——此前「skip 掩盖从未跑过」。教训：**skip 门
+  转换（环境变化/门逻辑修改）后，被门挡住的测试要当作新代码对待**，
+  首轮全绿之前不宣布收口。
 
 ## 269602 更新器（开放项）
 

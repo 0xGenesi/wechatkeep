@@ -103,7 +103,7 @@ docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现 / 工具
 
 - **keeptip 覆盖**：4.1.13 全线 + 4.1.15 全家族双架构对称（revoke-keeptip 每构建 x64+arm64 各 2 点；私聊提示保留，群聊提示为字节路线已知限制——全生态皆然）；silent 双架构全可用
 - **二进制级屏蔽更新**：4.1.13 全线 + 4.1.15 全家族双架构同构 8 点（XAppUpdateManager 四方法+访问器对；270100 真机行为验证，其余同构派生+字节级往返）；269602 为纯 C++ 更新器时代（周期工人→ret 双架构单点）；4.1.12 及更老构建的 arm64 8/9 点来自 zengtianli/fzlzjerry 导入。偏好层三开关（`wxkeep update-guard`，patch 时自动附带）在无二进制目标的构建上兜底
-- verify 的行为验证在 AMFI 活跃的机器上不可用（RWX 映射被禁，与 SIP 开关独立）；`verify` 先起一次 worker 探针实测能力，被拒时打环境提示（`doctor` 有精确解法），CI 上自动跳过。arm64 worker 执行路径的验收 harness 已全链就绪（合成 arm64 镜像测试 host 门控自动放行 + `.github/workflows/arm64-verify.yml`：CI runner 上以 unsigned-executable-memory entitlement 重签后跑 CDN 真件端到端），剩一次 workflow 触发或一台 AMFI-relaxed ARM 真机即可收章；解码/布局逻辑已有跨架构单测锁死
+- verify 的行为验证双架构可用：worker 在 arm64 走 **MAP_JIT**（非 hardened 进程免 entitlement——`allow-unsigned-executable-memory` 属受限 entitlement，ad-hoc 重签带不上，CI 两轮实证），x64 直接 RWX 映射；`verify` 先起一次 worker 探针实测能力，被拒时打环境提示。arm64 执行路径已 CI 真件端到端验收（`.github/workflows/arm64-verify.yml`：macos-15 runner 上 CDN 270100 fat → lipo → 谓词反解 → MAP_JIT worker 执行 → 四探针全对，与静态地面真值一致）；stock arm64 真机无需 AMFI boot-arg
 - 78 个隔离条目缺 expected 溯源字节（tanranv5 x64 + zengtianli arm64，全部为 4.1.12 及更老时代构建）——官方 CDN 无归档；zsbai 社区归档虽有其 dmg 但老线资产**系统性源头损坏**（digest 与 GitHub 一致仍 XZ corrupt，2026-09-19 抽样实证），回填源确认为永久缺口
 - 运行时组件地址表 = 4.1.15 全家族（除未发布的 270087/270092）× 双架构 30 行；M-R2 parse 直挂已实机验证（270100），其余家族行为同构派生（序言门全过，未单独实机验收）
 - 270087/270092 与 4.1.13.1-.4、.12-.49 段（含 269602）官方 CDN 无归档（疑似从未公开发布）——269602 条目已由历史轮次覆盖，其余为目录永久缺口
