@@ -1,9 +1,10 @@
 # 路线图（待办归档）
 
-## ㊱ 遗留项收口轮（2026-09-21：生态互证增量 + 健康回归 + 发布链缺口发现）
+## ㊱ 遗留项收口轮（2026-09-21：fzlzjerry 270100 互证 + 健康回归 + v0.2.3 发版收口）
 
 任务口径同 ㉝/㉞/㉟（能做掉的做掉）。三项遗留（drive28 实弹轮 / M-R4 /
-AMFI SIP 实证）确认均需用户物理动作，自主可做面如下：
+AMFI SIP 实证）确认均需用户物理动作；自主可做面如下，过程中发现并收口
+发布链缺口（主交付）：
 
 1. **新构建探测（阴性）**：官方 CDN 归档对 4.1.15.21-.25（270101-270105）
    与 4.1.16 线全量 HEAD 探测 404——㉟ 收口后三天无热修新构建；
@@ -18,19 +19,25 @@ AMFI SIP 实证）确认均需用户物理动作，自主可做面如下：
 3. **健康回归（全绿）**：本地 123 测全绿；CI run 110（双 matrix）+
    arm64-verify run 4 全绿；verify_derivations 270100 抽查 7/7 PASS；
    manifest 哈希复验 VERIFIED-CLEAN；工作树干净。
-4. **发布链缺口发现（待用户决策，未擅动）**：v0.2.2/v0.2.3 两轮以版本号
-   命名提交（d5ec8c0/a6012dd），但 CLI 版本常量、git tag、GitHub release
-   均停在 0.2.1——v0.2.1 release 目录 64 构建/617 条 vs master
-   77/1156（+13 构建 +539 条），且 ㉟ 的二进制能力（arm64 verify
-   MAP_JIT 免 relaxed 引导、fat 装机件谓词反解修复）不在任何 release，
-   brew 用户不可得。`update-data` 直连 master 故目录数据不受影响，
-   缺口纯在二进制与随包数据。切版本涉公开发布与 tap 推送，留待用户
-   拍板（建议 0.2.3，随 ㉟ 二进制一并出）。
+4. **发布链缺口收口（v0.2.3 已发，本轮主交付）**：发现 v0.2.2/v0.2.3
+   两轮以版本号命名提交（d5ec8c0/a6012dd）但 CLI 版本常量、git tag、
+   GitHub release 均停在 0.2.1——v0.2.1 目录 64 构建/617 条 vs master
+   77/1156（+13 构建 +539 条），㉟ 二进制能力（arm64 verify MAP_JIT 免
+   relaxed 引导、fat 装机件谓词反解修复）不在任何 release。按 ⑳ 自主
+   全链惯例切版：版本常量 0.2.1→0.2.3（b058d9b）→ tag v0.2.3 →
+   release run 12 出双资产（wxkeep a94b5bc3… / libwxkeep_runtime.dylib
+   407c94f7…——与 v0.2.1 逐字节同哈希，runtime 源未动的必然结果，
+   git diff v0.2.1..v0.2.3 -- WxkeepRuntime 空集实证）→ 主仓 Formula
+   副本 + tap 同步 0.2.3（2b81ff5，config/signatures 哈希按 tag 处
+   raw 复核）→ brew reinstall 端到端：Cellar 0.2.3 七文件、--version
+   0.2.3、hooks 表 20 行、真机 x64 verify 冒烟 pristine 判定正确。
+   CI run 112 + release run 12 全绿。brew 用户自 0.2.3 起获得
+   arm64 verify 与全量目录。
 
 **遗留（维持 ㉟ 口径）**：drive28 群聊实弹轮（需用户一次真实群聊撤回，
 `bash tools/dyntrace/d28_live.sh` 即进入观察窗）；M-R4（依赖 drive28
 数据）；AMFI 原生 SIP 实证（硬件动作：Recovery 引导跑
-tools/amfi_sip_probe.sh）；**新增：v0.2.3 release 切版决策**。
+tools/amfi_sip_probe.sh）。
 
 ## ㉟ 遗留项收口轮（2026-09-21：arm64 验收假绿揭穿 → MAP_JIT 路线 → 真件端到端收章）
 
