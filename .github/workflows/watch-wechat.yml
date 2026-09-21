@@ -72,11 +72,13 @@ jobs:
                 hdiutil detach /tmp/wxmount >/dev/null || true; rm -f /tmp/wx.dmg; continue
               fi
               if [ "$BUILD" -le "$KNOWN" ]; then
-                echo "- 解析构建 $BUILD ≤ known=$KNOWN——其后 release 更旧，本轮结束" >> /tmp/report.md
+                # bash 变量后紧跟多字节字符时，其首字节在 runner locale 下会被
+                # 当作变量名字符（KNOWN\ufffd unbound）——内插一律加花括号
+                echo "- 解析构建 ${BUILD} ≤ known=${KNOWN}，其后 release 更旧，本轮结束" >> /tmp/report.md
                 hdiutil detach /tmp/wxmount >/dev/null || true; rm -f /tmp/wx.dmg
                 break
               fi
-              echo "- 挂载解析构建号 = $BUILD（点分 release，高于 known=$KNOWN）" >> /tmp/report.md
+              echo "- 挂载解析构建号 = ${BUILD}（点分 release，高于 known=${KNOWN}）" >> /tmp/report.md
               ALREADY_MOUNTED=1
             fi
             echo "## 新微信构建 $BUILD — 自动定位结果" >> /tmp/report.md
