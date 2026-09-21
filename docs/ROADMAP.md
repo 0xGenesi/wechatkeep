@@ -1,5 +1,37 @@
 # 路线图（待办归档）
 
+## ㊱ 遗留项收口轮（2026-09-21：生态互证增量 + 健康回归 + 发布链缺口发现）
+
+任务口径同 ㉝/㉞/㉟（能做掉的做掉）。三项遗留（drive28 实弹轮 / M-R4 /
+AMFI SIP 实证）确认均需用户物理动作，自主可做面如下：
+
+1. **新构建探测（阴性）**：官方 CDN 归档对 4.1.15.21-.25（270101-270105）
+   与 4.1.16 线全量 HEAD 探测 404——㉟ 收口后三天无热修新构建；
+   `WeChatMac.dmg` 滚动件在档但无变化信号。目录无需增量。
+2. **fzlzjerry 270100 互证（11/11 逐字节 MATCH）**：其 09-20 提交
+   新增 270100 arm64 全套（patches.json 29→30）——revoke cbz 翻转、
+   keeptip 对（= 其 revoke-tip）、update 8 点（含访问器对）与我们目录
+   全部地址/expected/asm 一致；其 runtime-tip 钩点 @4bc4d34 的 expected
+   恰为我们 arm64 parse 序言，hooks 行间接互证。快照刷新
+   （var/thirdparty，30 构建）。tanranv5 无新提交。详见
+   related-tools-analysis.md 2026-09-21 节。
+3. **健康回归（全绿）**：本地 123 测全绿；CI run 110（双 matrix）+
+   arm64-verify run 4 全绿；verify_derivations 270100 抽查 7/7 PASS；
+   manifest 哈希复验 VERIFIED-CLEAN；工作树干净。
+4. **发布链缺口发现（待用户决策，未擅动）**：v0.2.2/v0.2.3 两轮以版本号
+   命名提交（d5ec8c0/a6012dd），但 CLI 版本常量、git tag、GitHub release
+   均停在 0.2.1——v0.2.1 release 目录 64 构建/617 条 vs master
+   77/1156（+13 构建 +539 条），且 ㉟ 的二进制能力（arm64 verify
+   MAP_JIT 免 relaxed 引导、fat 装机件谓词反解修复）不在任何 release，
+   brew 用户不可得。`update-data` 直连 master 故目录数据不受影响，
+   缺口纯在二进制与随包数据。切版本涉公开发布与 tap 推送，留待用户
+   拍板（建议 0.2.3，随 ㉟ 二进制一并出）。
+
+**遗留（维持 ㉟ 口径）**：drive28 群聊实弹轮（需用户一次真实群聊撤回，
+`bash tools/dyntrace/d28_live.sh` 即进入观察窗）；M-R4（依赖 drive28
+数据）；AMFI 原生 SIP 实证（硬件动作：Recovery 引导跑
+tools/amfi_sip_probe.sh）；**新增：v0.2.3 release 切版决策**。
+
 ## ㉟ 遗留项收口轮（2026-09-21：arm64 验收假绿揭穿 → MAP_JIT 路线 → 真件端到端收章）
 
 任务口径同 ㉝/㉞（能做掉的做掉）。㉞ 遗留四项中唯一可自主项 = arm64

@@ -364,3 +364,20 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 - **zsbai 归档资产质量**：4.1.9.26 源头损坏（digest 验证过仍 XZ 99.9%
   corrupt）；镜像（gh-proxy）content-length 不可信且大文件偶发损坏——
   回填必须 GitHub API digest 校验（derive_from_zsbai 已内置）
+
+## 2026-09-21 生态复查（fzlzjerry 270100 互证 + 新构建探测）
+
+- **fzlzjerry**（09-20 12:56Z，`Add WeChat 4.1.15.20 build 270100 support`）：
+  patches.json 29→30 构建，新增 270100 arm64 全套。**11 条可比条目与我们
+  目录逐字节 MATCH**——revoke@4bc4fa4（cbz 翻转 40100034→82000014）、
+  revoke-tip@4bc4fa4+4bc5744（= 我们的 revoke-keeptip 对，store
+  60E600F9→7FE600F9）、update 8 点（四方法 ret + 访问器对，含
+  2820a0/a8 与 2820b0/b8 两对 getter/setter，地址/expected/asm 全同）。
+  独立逆向对 270100 arm64 面的完全互证。其 runtime-tip 跳板两条按惯例
+  不比（指向其自家 dylib）；注意其钩点 @4bc4d34 的 expected
+  `F85FBCA9F65701A9F44F02A9` 恰为我们 arm64 parse 序言前缀——
+  我们 hooks 行（parse 直挂口径）的间接互证。快照已刷新（30 构建）。
+- **tanranv5**：09-19 后无新提交（blockUpdate 已在 09-19 深夜第四轮分析）。
+- **无新构建**：CDN 归档 4.1.15.21-.25（270101-105）与 4.1.16 线全 404
+  （09-18 ㉟ 收口后三天无热修）；`WeChatMac.dmg` 滚动件在档（200），
+  无构建号变化信号。
