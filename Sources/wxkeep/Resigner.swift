@@ -8,8 +8,8 @@ import Foundation
 /// 2. Patched nested binaries get signed first (with their own profile +
 ///    library-validation/unsigned-memory keys injected) so the outer --deep
 ///    pass wraps a validly-signed dylib.
-/// 3. Root gets a --deep pass WITHOUT --entitlements (stamping the root profile
-///    onto nested code that never had one breaks them).
+/// 3. Root gets a shallow pass (no --deep — see resign() step 2; nested code
+///    that was never touched keeps its original signature).
 /// 4. Drift check: every snapshotted profile must survive, semantically equal;
 ///    drifted objects are re-signed explicitly, deepest-first.
 /// 5. `codesign --verify --deep --strict` must pass before we report success.
@@ -162,18 +162,46 @@ enum Resigner {
             try sign(binary: binary, entitlements: snapshot.resignPlist(for: binary))
         }
 
-        // 2. Root deep pass WITHOUT --entitlements (would stamp the root profile
-        //    onto nested code that never had one).
-        try sign(binary: app, entitlements: nil, deep: true)
+        // 2. Root shallow pass with the MAIN EXECUTABLE's profile (original +
+        //    injected keys) — signing the bundle == signing its main binary.
+        //    No --deep: it retired 2026-09-21 (270100 rehearsal finding).
+        //    --deep re-signs UNTOUCHED nested code (XPlayer.app …) ad-hoc, and
+        //    codesign then seals XPlayer's non-Mach-O
+        //    Frameworks/vk_swiftshader_icd.json as a cdhash-only nested entry
+        //    that fails `--verify --deep --strict` with "code object is not
+        //    signed at all" (official 270100 ships a designated-requirement
+        //    seal that verifies; our --deep rewrite doesn't). Byte-modified
+        //    binaries are already explicitly signed in step 1, so the root
+        //    never needs to recurse. (The old nil-entitlements root pass
+        //    STRIPPED the main executable's entitlements on purpose and let
+        //    step 3's drift loop put them back — under --deep that also
+        //    stamped the profile onto nested code; shallow + explicit profile
+        //    does it in one pass.)
+        try sign(binary: app, entitlements: snapshot.resignPlist(for: app))
 
         // 3. Drift detection & explicit re-sign of survivors, deepest-first.
-        var drifted = mismatches(snapshot, app: app)
+        //    End-state is per-object: re-signed objects (patched binaries +
+        //    root) must carry original+injected; UNTOUCHED objects must still
+        //    match their ORIGINAL profile — expecting injected keys there
+        //    would flag every object the shallow pass correctly left alone.
+        var resigned = Set(
+            patchedBinaries.filter { !$0.isEmpty }
+                .map { URL(fileURLWithPath: app.path).appendingPathComponent($0).standardizedFileURL.path }
+            + [app.standardizedFileURL.path])
+        // The bundle root and its main executable are ONE signing object —
+        // `codesign <app>` stamps the main binary itself. When the root is
+        // re-signed the main executable changes too, so it must be checked
+        // against the re-signed end state, not its original profile.
+        if let main = mainExecutable(app: app) {
+            resigned.insert(main.standardizedFileURL.path)
+        }
+        var drifted = mismatches(snapshot, app: app, resigned: resigned)
         if !drifted.isEmpty {
-            print("[resign] \(drifted.count) profile(s) drifted after --deep; restoring explicitly")
+            print("[resign] \(drifted.count) profile(s) drifted after signing; restoring explicitly")
             for url in drifted.sorted(by: depthFirst) {
                 try sign(binary: url, entitlements: snapshot.resignPlist(for: url))
             }
-            drifted = mismatches(snapshot, app: app)
+            drifted = mismatches(snapshot, app: app, resigned: resigned)
             guard drifted.isEmpty else {
                 throw ResignError.entitlementsDrift(drifted.map(\.lastPathComponent))
             }
@@ -188,8 +216,29 @@ enum Resigner {
         print("[resign] codesign --verify --deep --strict: OK")
 
         // 5. Provenance xattrs (macOS 15) — best effort, read-only files make
-        //    this fail on otherwise-valid bundles.
-        _ = Shell.run("/usr/bin/xattr", ["-cr", app.path])
+        //    this fail on otherwise-valid bundles. Scoped to
+        //    com.apple.provenance ONLY: a blanket `xattr -cr` also wipes the
+        //    com.apple.cs.* xattrs where 270100's
+        //    XPlayer/.../Frameworks/vk_swiftshader_icd.json carries its
+        //    DETACHED code signature (the file is a signed code object
+        //    despite being plain JSON). Wiping those turns the bundle
+        //    unverifiable ("code object is not signed at all") only AFTER
+        //    the step-4 gate has already passed — the breakage ships
+        //    silently. find's per-file `xattr -d` errors on files lacking
+        //    the attribute; that noise is expected and harmless.
+        _ = Shell.run("/usr/bin/find",
+                      [app.path, "-exec", "/usr/bin/xattr",
+                       "-d", "com.apple.provenance", "{}", "+"])
+    }
+
+    /// Main executable URL from Info.plist's CFBundleExecutable, or nil when
+    /// unreadable (then nothing extra joins the re-signed set).
+    static func mainExecutable(app: URL) -> URL? {
+        guard let data = try? Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+              let exe = plist["CFBundleExecutable"] as? String, !exe.isEmpty
+        else { return nil }
+        return app.appendingPathComponent("Contents/MacOS/\(exe)")
     }
 
     private static func depthFirst(_ a: URL, _ b: URL) -> Bool {
@@ -197,13 +246,18 @@ enum Resigner {
         return da == db ? a.path > b.path : da > db
     }
 
-    /// Snapshot entries whose current profile no longer equals the INTENDED
-    /// end state (original + injected runtime keys). Comparing against the
-    /// raw original would flag our own injections as drift forever.
-    static func mismatches(_ snapshot: Snapshot, app: URL) -> [URL] {
+    /// Snapshot entries whose current profile no longer matches the INTENDED
+    /// end state. Per-object: entries in `resigned` (patched binaries + root)
+    /// must carry original + injected runtime keys — comparing those against
+    /// the raw original would flag our own injections as drift forever.
+    /// Untouched entries must still match their ORIGINAL profile: under the
+    /// shallow root pass they keep their vendor signature, which never
+    /// carries our injected keys.
+    static func mismatches(_ snapshot: Snapshot, app: URL, resigned: Set<String>) -> [URL] {
         snapshot.entries.compactMap { entry in
-            let current = inspectEntitlements(entry.url)
-            if plistsEqual(current, entry.resignPlist) { return nil }
+            let intended = resigned.contains(entry.url.standardizedFileURL.path)
+                ? entry.resignPlist : entry.plist
+            if plistsEqual(inspectEntitlements(entry.url), intended) { return nil }
             return entry.url
         }
     }

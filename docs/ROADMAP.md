@@ -1,5 +1,62 @@
 # 路线图（待办归档）
 
+## ㊲ AMFI 实证前置轮（2026-09-21 夜：270100 重签管线可验证性两处破坏修复 → probe 排练全绿，待 Recovery 正跑）
+
+任务：用户发起 AMFI 原生 SIP 实证（Recovery 引导后跑
+tools/amfi_sip_probe.sh）。排练（--allow-sip-off）当即复现昨晚中断点，
+顺藤揭出 270100 新引入的**重签管线两处破坏**并修复——排练已全绿，
+正式实证只欠用户 Recovery 动作。
+
+1. **新知识：vk_swiftshader_icd.json 是 detached 签名的代码对象**。
+   270100（4.1.15，2026-09-18 随版）XPlayer.app/Contents/Frameworks/
+   vk_swiftshader_icd.json 虽是 110 字节纯 JSON，官方却用 com.apple.cs.*
+   xattr 携带其 detached 代码签名（seal requirement 里的
+   `identifier "vk_swiftshader_icd"` 即此来）。官方原件 verify
+   --deep --strict 全绿的前提 = 这组 xattr 完好。官方 270100 全家
+   （主程序/wechat.dylib/XPlayer）均为 Tencent 证书签名（5A4RE8SF68），
+   ad-hoc 只是我们重签后的形态。
+2. **破坏点 A（root --deep）**：Resigner 根签名带 --deep 递归重签
+   未触碰嵌套（XPlayer），codesign 对非 Mach-O 的 Frameworks 文件
+   生成 cdhash-only seal，--deep --strict 直接 "code object is not
+   signed at all"。修复：root 改**浅签**——字节改动过的对象在 step 1
+   已显式签，根无需递归；未触碰嵌套保持官方签名（实证：官方 dmg
+   副本上「dylib adhoc + root 浅签」verify 全绿）。
+3. **破坏点 B（xattr -cr 静默带病出厂）**：Resigner step 5 的
+   `xattr -cr` 把 json 的 com.apple.cs.* detached 签名一并抹掉——
+   它跑在 step 4 硬验证**之后**，管线自检绿、bundle 实坏（昨晚以来
+   /Applications 的状态即此）。修复：清理收窄为 find 逐文件
+   `xattr -d com.apple.provenance`，cs.* 永不触碰。
+4. **连带语义修复**：① root 浅签改带主程序 resignPlist（旧设计
+   root 不带 entitlements 故意剥掉、靠 drift 循环兜底回填——在浅签
+   下是多一次往返且某轮失败剥空后 snapshot 把空 profile 当原始，
+   entitlements 永久丢失、自我延续）；② drift 判定按对象终态
+   （重签对象=原始+注入，未触碰对象=原始；root 与主可执行文件是
+   同一签名对象，root 被签则主程序计入重签集）——旧语义要求全体
+   =原始+注入，浅签下会把保持官方的 XPlayer 误判 drift、显式重签
+   又撞回破坏点 A。/Applications 已按「官方 dmg 恢复 XPlayer（ditto
+   保留 xattr）+ 官方 entitlements 提取注入重签」修复，doctor 恢复
+   protected/19 键/restricted_entitlements=true。123 测全绿（含
+   Resigner 端到端重构夹具）。
+5. **probe 排练全绿（机制实证）**：restore→patch(keeptip)→Resigner
+   verify OK→codesign 自检 OK→launch 存活 24s+(RUNS·排练语义)→
+   restore→**pristine verify OK**（修复前此处 FAILED）。排练工件存
+   var/amfi_probe/verdict_rehearsal_20260921.json（防与正式结论混淆）。
+   官方基线 dmg 存档 var/cdn/WeChatMac_270100_candidate.dmg（506MB，
+   滚动件，CFBundleVersion 实测 270100）。
+6. **附带发现（未修，记录）**：doctor 判 keeptip=mixed 系
+   Patcher.inspect 对归一化恢复型条目（asm∈expected，如 keeptip 的
+   isRevokemsg 入口）先判 asm 的语义二义——该条目打与不打字节同形
+   （asm 即 pristine 序言），pristine 态被读作 patched。不影响字节、
+   patch/restore/probe 判定（均不走 patch_states），如需显示正确
+   待结合同 target 其他条目聚合。
+
+**遗留（待用户硬件动作，与 ㊱ 同口径）**：正式实证三步——
+`sudo nvram -d boot-args` → 重启 Cmd+R 进 Recovery `csrutil enable`
+→ 重启后 `sudo tools/amfi_sip_probe.sh`（可选第四步恢复研究环境：
+Recovery `csrutil disabled` + `sudo nvram
+boot-args="amfi_get_out_of_my_way=0x1"`）。SIP on 期间 verify worker
+（RWX）不可用属预期。另：drive28 群聊实弹轮、M-R4 维持。
+
 ## ㊱ 遗留项收口轮（2026-09-21：fzlzjerry 270100 互证 + 健康回归 + v0.2.3 发版收口）
 
 任务口径同 ㉝/㉞/㉟（能做掉的做掉）。三项遗留（drive28 实弹轮 / M-R4 /
