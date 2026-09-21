@@ -64,6 +64,32 @@ disable-library-validation / allow-unsigned-executable-memory）」
 离线逆向环境按 probe 头部 runbook 第 4 步（Recovery csrutil
 disabled + boot-args）。另：drive28 群聊实弹轮、M-R4 维持。
 
+### ㊲ 补遗（2026-09-21 深夜：实证后两项环境观察）
+
+1. **无 boot-arg 全功能态（新研究环境基线）**：正式实证收口后，
+   用户将系统切至 **SIP disabled + 无 boot-args**（AMFI 保持默认
+   活跃）。实测三件套全可用：补丁态微信正常运行（probe 已证
+   AMFI 活跃 + adhoc 重签兼容）；`wxkeep verify` x64 worker 正常
+   （22:52 实测，行为判定正确——"verify 不可用"仅限 SIP **enabled**
+   时的非 hardened worker；SIP off 即可行，与 boot-arg 无关）；
+   lldb attach 仅看 SIP 开关。结论：**amfi_get_out_of_my_way
+   boot-arg 自本轮起不再需要**——其历史使命（让补丁态微信在
+   AMFI 面前存活）已被正确的 Resigner 管线取代。研究环境定义
+   简化为仅 csrutil disabled（上文收口段"第 4 步 + boot-args"
+   中 boot-args 部分作废）。
+2. **风控首例观察：微信「检测到连接异常」提示（偶发，验证后
+   放行）**：23:29 用户自启微信（270100，keeptip 补丁态）弹
+   「连接异常」，下一步数次验证通过。时间线：距 probe 反复
+   launch/kill 轮约 40 分钟、距重启重登约 30 分钟——最可能为
+   **行为风控**（频繁重登/进程生命周期异常画像）而非补丁态
+   完整性检测（probe 刚实证该配置 AMFI 兼容；社区同款配置亦
+   普遍偶发此提示）。判据约定：偶发一次 = 正常扰动，通过验证
+   即无影响（撤回保留为本地逻辑，与账号风控无关）；**每次启动
+   必弹** = 补丁态触发完整性风控的信号，届时以 pristine 态
+   A/B 对照定位。管理动作：短期内避免反复重启微信/重登（累积
+   风险评分）。仓库此前无风控现象记录，此为首例，后续复现
+   在本条目下追加时间线。
+
 ## ㊱ 遗留项收口轮（2026-09-21：fzlzjerry 270100 互证 + 健康回归 + v0.2.3 发版收口）
 
 任务口径同 ㉝/㉞/㉟（能做掉的做掉）。三项遗留（drive28 实弹轮 / M-R4 /
