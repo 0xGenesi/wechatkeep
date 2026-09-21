@@ -1,5 +1,46 @@
 # 路线图（待办归档）
 
+## ㊴ backfill-expected 每日失败收口（2026-09-22 深夜：用户报「经常收到 fail 邮件」→ API 取证 + 本地复现 → 三重根因修复）
+
+任务：排查 `backfill-expected` 流水线反复失败邮件。公开 API 取证（runs/jobs/
+check-runs 注解/事件流）+ 本地完整复现，链条闭合：
+
+1. **失败史还原**：09-16/17/18 红（Backfill 步骤 ~30s exit 1）；09-19/20 绿
+   （Backfill 11-13 min「无变化」）；09-21 红（13.5 min exit 1）。origin
+   master 从无 `backfill:` bot 提交；绿色轮 checkout 实为 1a2f97a（事件流
+   证明 d5ec8c0/a6012dd 09-20 15:13Z 才推上 origin——commit author date
+   误导，blob_href 才是 checkout 真值）。
+2. **根因 A（主犯，脚本）**：`backfill_expected.py` 末尾**无条件**
+   `json.dump(indent=2)` 重写 config——零回填也写。仓库 SSOT 自 d5ec8c0 起
+   为 indent=1（merge_staging/derive_build_from_cdn 惯例），于是 no-op 轮
+   也产生 254KB→318KB 整文件格式 diff → commit+push 舞步天天上演。本地
+   复现实锤：`--limit 1` 跑完 `git status` 必现 `M config.json`。
+3. **根因 B（绿红分界）**：09-19/20 的绿纯系侥幸——当时 HEAD（1a2f97a）
+   的 config 恰好是 indent=2（与脚本一致）→ 重写恒等 → `git diff --quiet`
+   真 → 「无变化」。d5ec8c0 切 indent=1 后，diff 恒在。09-21 exit 1 落在
+   commit/push 尾部哪一条命令无法定论（日志 admin-only），但 push 链此前
+   从未成功过（origin 无痕），`git pull --rebase` + bak 文件 add 舞步皆属
+   可疑冗余。
+4. **根因 C（存在意义）**：剩余 78 条隔离全部为 4.1.12 及更老构建——CDN
+   无归档（全线 404）+ zsbai 老线源头损坏（㉛ digest 级实证）= **永久缺口**。
+   每日排程 = 每天下载已知损坏文件数 GB 后空跑，纯浪费。
+5. **修复**：① 脚本零回填**不写盘**（no-op 轮 git 干净 → 「无变化」→ 绿）；
+   写盘时 indent=1 对齐 SSOT 写手（真回填 diff 只含增量，实测 4 行）；
+   `--dylib` 模式补无隔离条目防御（原 KeyError 裸崩）。② workflow 去掉
+   每日 cron，改**仅手动 dispatch**（头部注释写明永久缺口口径与新源出现
+   时的用法）；推送尾部换成 ci.yml manifest-sign 同款验证过的极简模式
+   （porcelain 探测 → 定向 add → commit → push，去掉 pull --rebase 与
+   bak add 舞步）。
+6. **验证**：no-op 路径 `--limit 1` 后 `git status` 干净（修复前必现
+   `M config.json`）；回填路径端到端——临时 config 剥 270100 revoke x64
+   4e8d5d0 的 expected → `--dylib` 真 pristine 备份件回填 → 字节与仓库
+   真值逐字节 MATCH + indent=1 落盘 + 整文件 diff 仅该条目 4 行；
+   workflow YAML 语法过、触发器仅 workflow_dispatch。
+
+**邮件自此停发**：无排程即无自动运行；手动 dispatch 在无新归档源时
+（必然）绿色空跑。未来若现第三方存档，`tools/derive_from_zsbai.py`
+框架与本 workflow 即续用（㉛ 口径）。
+
 ## ㊳ 自主收口轮（2026-09-21 深夜：doctor keeptip=mixed 二义 bug 修复——㊲ 附带发现 6 闭案）
 
 任务口径同 ㉝-㊱（能做掉的做掉）。遗留三项（drive28/M-R4）维持——均需

@@ -1,11 +1,13 @@
 name: backfill-expected
 
-# 每日自动为隔离区条目（缺 expected 溯源字节）回填官方归档字节。
-# 跑在 GitHub runner（网络快），每天最多 --limit 个构建号，改 config.json
-# 直接 push（expected 门兜底：回填的字节本身就是从官方包读的原始字节）。
+# 为隔离区条目（缺 expected 溯源字节）回填官方归档字节。**仅手动触发**：
+# 剩余 78 条隔离全部为 4.1.12 及更老时代构建——官方 CDN 无归档（全线 404），
+# zsbai 老线资产系统性源头损坏（digest 级实证，docs/ROADMAP ㉛）——回填源为
+# 永久缺口。曾挂每日排程：只会反复下载已知损坏文件空跑，且因 no-op 轮也
+# 无条件重写 config（indent 与仓库不一致 → 整文件 diff → commit+push）而
+# 天天红（2026-09-22 收口，见 ROADMAP ㊴）。新第三方存档出现时手动
+# dispatch；4.1.13+ 新构建走 watch-wechat / CDN 派生，不依赖本流水线。
 on:
-  schedule:
-    - cron: "30 8 * * *"   # 08:30 UTC，在 watch-wechat 之后
   workflow_dispatch:
     inputs:
       limit:
@@ -32,22 +34,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           LIMIT="${{ github.event.inputs.limit || '5' }}"
-          git config user.name "wxkeep-bot"
-          git config user.email "actions@users.noreply.github.com"
           python3 tools/backfill_expected.py --config config.json --limit "$LIMIT"
           # 重新生成矩阵（隔离标记随之更新）
           python3 tools/gen_matrix.py || true
-          if git diff --quiet; then
-            echo "无变化（下载源缺失或已全部回填）"
-          else
-            git add config.json docs/COMPATIBILITY.md config.json.bak.* 2>/dev/null || git add config.json docs/COMPATIBILITY.md
+          if [ -n "$(git status --porcelain config.json docs/COMPATIBILITY.md)" ]; then
+            git config user.name "wxkeep-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add config.json docs/COMPATIBILITY.md
             rm -f config.json.bak.*
-            git add -A
             git commit -m "backfill: expected bytes from official archives (auto)"
-            git pull --rebase origin master || true
             git push
+          else
+            echo "无变化（下载源缺失或已全部回填）"
           fi
       - name: Remaining
         if: steps.count.outputs.quarantined != '0'
         run: |
-          echo "剩余隔离: $(python3 tools/count_quarantined.py)（后续每日继续）"
+          echo "剩余隔离: $(python3 tools/count_quarantined.py)（有新归档源时再次 dispatch）"

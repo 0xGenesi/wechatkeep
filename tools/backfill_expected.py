@@ -285,7 +285,10 @@ def main():
 
     filled = missed = 0
     for version, dylib in todo.items():
-        entries = quarantined[version]
+        entries = quarantined.get(version)
+        if not entries:
+            os.unlink(dylib)   # --dylib 指定的构建无隔离条目：无物可回填
+            continue
         slices = machutil.load_slices(dylib)   # 每 dylib 只解析一次，双 arch 共享
         for vi, ti, ei, e in entries:
             count = len(bytes.fromhex(e["asm"]))
@@ -300,9 +303,16 @@ def main():
         os.unlink(dylib)
         print(f"  [{version}] 回填完成")
 
+    # 零回填不写盘：写了就会在 git 里产生 diff，no-op 轮也会被 CI 当成
+    # 「有变化」走 commit+push（2026-09 起的每日失败邮件根源）。
+    if filled == 0:
+        print(f"回填 0 条, 失败 {missed} 条; config 未改动")
+        return
     bak = args.config + ".bak." + time.strftime("%Y%m%d%H%M%S")
     shutil.copy(args.config, bak)
-    json.dump(cfg, open(args.config, "w"), indent=2, ensure_ascii=False)
+    # indent 与仓库 SSOT 写手一致（merge_staging.py / derive_build_from_cdn.py
+    # 均为 indent=1）——不一致时一次回填会以纯格式差异重排整个文件
+    json.dump(cfg, open(args.config, "w"), indent=1, ensure_ascii=False)
     print(f"回填 {filled} 条, 失败 {missed} 条; 备份 {bak}")
 
 
