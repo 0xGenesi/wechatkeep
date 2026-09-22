@@ -118,6 +118,35 @@ struct VerifierTests {
         #expect(failure != nil)
     }
 
+    /// 越界 stub VA 的诚实拒绝：旧构建的 verify spec 用在新（更小）镜像上时
+    /// stub VA 落在映射外——修复前 worker 越界读 → SIGSEGV → 被判读成
+    /// workerCrashed「函数摸了未建模状态」（排障方向被带偏）；修复后边界门
+    /// exit(3) = specRejected（spec 与镜像不符，语义与 zero 区越界一致）。
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable || VerifierTests.hostIsARM64,
+                   "x86_64 host required — this fixture is raw x64 code; the worker executes it natively"))
+    func outOfBoundsStubVAIsSpecRejectedNotCrash() throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-verifier-oob-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let dylib = work.appendingPathComponent("mini-oob.bin")
+        try miniImage().write(to: dylib)   // 0x400 字节
+
+        let badSpec = Verifier.VerifySpec(
+            stubs: ["3FFFF0": "strlen"],   // stub VA 超出映射（0x400）
+            zeroRegions: [], probes: [["revokems", "1"]])
+        do {
+            _ = try Verifier.run(binary: dylib, targetVA: 0x100, spec: badSpec,
+                                 executable: Self.wxkeepBinary)
+            Issue.record("expected specRejected for out-of-bounds stub VA")
+        } catch let e as Verifier.VerifyError {
+            guard case .specRejected = e else {
+                Issue.record("wrong error: \(e) — must be specRejected, not a crash")
+                return
+            }
+        }
+    }
+
     // MARK: - arm64 decoders (pure logic — runs on any host arch)
 
     @Test func arm64StubSlotDecodeMatchesGroundTruth() {

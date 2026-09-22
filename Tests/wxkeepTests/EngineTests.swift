@@ -154,4 +154,25 @@ extension EngineTests {
         #expect(Engine.parseOnlyList("revoke, update") == ["revoke", "update"])
         #expect(Engine.parseOnlyList(" update , revoke ") == ["update", "revoke"])
     }
+
+    /// `--only` 的「revoke」= 当前变体的防撤回域：keeptip 用户照抄帮助示例
+    /// `--only revoke,update` 时纯精确匹配会把 revoke-keeptip 静默滤掉
+    /// （只剩 update 在打，防撤回没生效）。显式全名与 update-only 等
+    /// 既有拼写行为不变；silent 下无行为变化。
+    @Test func onlyListRevokeMeansVariantDomain() {
+        #expect(Engine.effectiveOnlySet(nil, variant: "silent") == nil)
+        #expect(Engine.effectiveOnlySet([], variant: "keeptip") == nil)
+        // silent：revoke 本就是变体目标，无变化
+        #expect(Engine.effectiveOnlySet(["revoke", "update"], variant: "silent")
+                == ["revoke", "update"])
+        // keeptip：revoke 别名展开到 revoke-keeptip
+        #expect(Engine.effectiveOnlySet(["revoke", "update"], variant: "keeptip")
+                == ["revoke", "update", "revoke-keeptip"])
+        #expect(Engine.effectiveOnlySet(["revoke"], variant: "keeptip")
+                == ["revoke", "revoke-keeptip"])
+        // update-only（README 进阶工作流）不受影响；显式全名仍精确生效
+        #expect(Engine.effectiveOnlySet(["update"], variant: "keeptip") == ["update"])
+        #expect(Engine.effectiveOnlySet(["revoke-keeptip", "update"], variant: "keeptip")
+                == ["revoke-keeptip", "update"])
+    }
 }

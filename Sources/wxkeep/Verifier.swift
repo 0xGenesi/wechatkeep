@@ -409,10 +409,15 @@ enum Verifier {
         let isARM64 = cpuWord == 0xFEED_FACF && cpuType == 0x0100_000C
         for (stubHex, kind) in stubs {
             guard let stubVA = UInt64(stubHex, radix: 16) else { continue }
+            // 越界 spec（如旧构建的 verify spec 用于新镜像）必须 exit(3) 拒绝，
+            // 不能落到越界读：映射外读是 SIGSEGV、stubVA < base 的 UInt64 减法
+            // 下溢是 Int 转换 trap（SIGILL）——两者都会被退出码判读误报成
+            // 「函数摸了未建模状态」，把 spec 数据问题甩锅给镜像（㊶ 同类）。
+            guard stubVA >= base else { exit(3) }
             let stub = UnsafeRawPointer(mapped + Int(stubVA - base))
             let slotOffset: Int
             if isARM64 {
-                guard Int(stubVA - base) + 12 <= mappedSize else { continue }
+                guard Int(stubVA - base) + 12 <= mappedSize else { exit(3) }
                 guard let s = ARM64.stubSlotOffset(
                     pcOffset: stubVA - base,
                     w0: stub.load(as: UInt32.self),
@@ -420,6 +425,8 @@ enum Verifier {
                     w2: stub.load(fromByteOffset: 8, as: UInt32.self)) else { continue }
                 slotOffset = s
             } else {
+                // ff25 + rel32 共 6B——形态检查前先判界，防越界读
+                guard Int(stubVA - base) + 6 <= mappedSize else { exit(3) }
                 guard stub.load(as: UInt8.self) == 0xFF,
                       stub.load(fromByteOffset: 1, as: UInt8.self) == 0x25 else { continue }
                 // swift load() enforces alignment — assemble the unaligned rel32 byte-wise

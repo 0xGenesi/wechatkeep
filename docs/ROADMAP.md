@@ -1,5 +1,75 @@
 # 路线图（待办归档）
 
+## ㊸ 例行巡检 + 全源码复审轮（2026-09-23：CDN 无新构建 → 逐文件复审揭出三缺陷 + --only 域别名，140 测全绿）
+
+任务：㊷ 收口后的例行轮（用户指令三段式：继续待办 + 逻辑复审 + 最新
+微信版本实测）。待办侧无可自主项（drive28/M-R4 维持阻塞在用户侧）。
+
+1. **CDN 例行探测（阴性）**：270101-270110（4.1.15.21-.30）与 4.1.16 线
+   全量 HEAD 404；滚动件 `WeChatMac.dmg` last-modified 仍 09-18、大小与
+   本地 `var/cdn/WeChatMac_270100_candidate.dmg`（530712167B）一致，条件
+   GET 返回 **304**——本地缓存即当前官方字节，270100（4.1.15.20）仍是最
+   新构建。目录无需增量。生态三方（zsbai 顶 4.1.15.20 09-18 / fzlzjerry
+   停 168e3e8 09-20 / tanranv5 停 8f3fb95 09-19）无新信号，快照仍新鲜。
+2. **[缺陷 A] Signatures.load 缺 update-data 安装位（数据通道断链，已修）**：
+   - 事实链：`UpdateData.payload` 把 signatures.json 装到 userDataURL；
+     `Config.load` 搜索序含该目录（OTA config 生效）；`Signatures.load`
+     不搜——patch 自动定位 / locate / verify 三处消费的配方与 **verify
+     规格**（stubs/zero 区按构建漂移）永远用 brew 随包冻结版，「新
+     catalog + 旧配方」混代数据，README 的 day-0 OTA 承诺对 signatures
+     半失效。
+   - 修复：搜索序补 userDataURL（与 Config.load 同构，`searchOrder` 纯
+     函数）；隐式发现过清单门（legacy 提示 / invalid 拒载 / verified
+     放行——与 Config.load 同语义，manifest 本就同时守护两文件）；显式
+     `--signatures` 不做门。测试/CI 全走显式路径不受影响；brew Cellar
+     无 manifest → legacy 提示不阻塞。回归：
+     signaturesLoadSearchesUserDataDirAndHonorsManifest（含并发竞态修复
+     ——UpdateDataTests `.serialized`，`_userDataURLOverride` 全局此前有
+     同款潜在窗口）。
+   - 连带（本机卫生）：装机用户数据目录是 09-17 的 55 构建旧数据，修复
+     后从非 repo cwd 跑会消费旧配方（与 config 既有行为一致）——已用仓
+     库已签四件套刷新（77 构建，manifest verified）。
+3. **[缺陷 B] verify worker 桩读取越界（诊断面，已修）**：x64 侧读桩字节
+   前无上界检查（arm64 有上界无下界）——旧构建 verify spec 用在新镜像上
+   时 stub VA 落在映射外 → SIGSEGV / UInt64 减法下溢 Int 转换 trap，都被
+   `interpretWorkerExit` 误报成「函数摸了未建模状态」，真语义是 spec 与
+   镜像不符。修复：两架构边界门 exit(3)（specRejected，与 zero 区越界
+   同语义）。回归：outOfBoundsStubVAIsSpecRejectedNotCrash（真 worker
+   子进程实证）。
+4. **[缺陷 C] keeptip arm64 跨变体 expected 缺口 ×23（数据级，已修）**：
+   - 事实：silent 与 keeptip 共享位点（同构建同 arch 同 addr）上，keeptip
+     的 x64 normalize 条目 expected 本就是双态 `[silent asm, pristine]`、
+     fzlzjerry 导入的 270090/269628 arm64 也是 `['40100034','82000014']`
+     ——自派的 23 构建 arm64 cbz 条目全是单 expected `['40100034']`。
+     后果（270100 官方件实测复现）：silent 态机器 `patch --variant
+     keeptip --dry-run` 抛 expectedMismatch 误报「wrong WeChat build」
+     （真跑会先 switch-restore 再应用、完全可行）；`--only` 路径下无法
+     直接过渡。
+   - 修复：目录数据 23 条补双态（diff 纯净：23 hunk 全为 expected 行
+     +1）+ manifest 重签；生成器 `derive_build_from_cdn.py` 的
+     ARM64_GEN_KEEPTIP 补第 5 元（silent 翻转 asm，gen1=7F000014 /
+     gen2-3=82000014，与 signatures.json 配方 asm 同源）防未来派生轮回退；
+     回归锁 catalogCrossVariantExpectedIsComplete（目录级不变量）+
+     keeptipDryRunPreviewsOverSilentState（引擎级预览）。
+5. **[缺陷 D] `--only` 的 revoke 域别名（使用逻辑，已修）**：精确匹配语义
+   下 keeptip 用户照抄帮助示例 `--only revoke,update` 会把 revoke-keeptip
+   静默滤掉——只剩 update 在打，防撤回没生效（㊷ 空白修剪同族的「意图
+   静默落空」）。修复：`Engine.effectiveOnlySet` 把「revoke」定义为当前
+   变体的防撤回域；显式全名与 update-only 等既有拼写行为不变，silent 无
+   变化，keeptip+`--only revoke` 从报错变直观语义。回归：
+   onlyListRevokeMeansVariantDomain。
+6. **最新官方件全链实测（270100，/tmp 副本不碰装机）**：versions →
+   patch silent（3+8 写入 + 重签 strict verify OK）→ verify（四探针全
+   归零）→ doctor（protected/19 键）→ restore（幂等还原）→ verify
+   （pristine 判定正确）→ patch keeptip → 变体切换（switch 还原行可见）
+   → dry-run `--only "revoke, update"`（域别名生效、预览不再误报）→
+   doctor（keeptip patched）。装机件冒烟（新 release 二进制）：77 构建
+   目录 / verify pristine / doctor protected / runtime status 历史快照
+   降格显示与 ㊷ 修复一致。verify_derivations 270100 复验 7/7。
+7. **回归**：140 测全绿（+5）；release 重建通过。brew 侧重启价值：缺陷
+   A/B/D 需下一切版（v0.2.4）到达 brew 用户——待发版决策；缺陷 C 经
+   update-data 即刻可达（数据 OTA）。
+
 ## ㊷ 收口 + 全功能使用逻辑实机巡检轮（2026-09-23：㊶ 收口提交 → 逐功能真机跑 → runtime status 过期 marker 误导展示修复，135 测全绿）
 
 任务：㊶ 轮未提交改动收口（验证完整后提交 630bc86），然后逐文件 review

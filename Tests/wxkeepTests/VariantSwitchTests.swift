@@ -65,6 +65,30 @@ struct VariantSwitchTests {
         #expect(try data().range(of: Data([0x31, 0xC0, 0xC3])) != nil)
         #expect(try data().range(of: Data([0x7F, 0xE6, 0x00, 0xF9])) == nil, "keeptip x64 点被还原")
     }
+
+    /// 变体切换的 dry-run 预览：silent 补丁态上预览 keeptip 必须给出预览
+    /// 结果而不是 expectedMismatch 误报（「wrong WeChat build」）——前提是
+    /// 目录数据在共享位点带跨变体 expected（pristine + silent 补丁态双态，
+    /// 见 catalogCrossVariantExpectedIsComplete）。2026-09-23 实测：23 构建
+    /// 的 arm64 cbz 条目缺该双态，silent 态机器 `patch --variant keeptip
+    /// --dry-run` 直接报错。
+    @Test func keeptipDryRunPreviewsOverSilentState() throws {
+        let (app, config) = try makeAppAndCatalog()
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "silent",
+                             dryRun: false, allowUnverified: false, only: nil)
+        // 预览不得抛错（旧数据形态下这里抛 expectedMismatch）
+        let summary = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
+                                       dryRun: true, allowUnverified: false, only: nil)
+        #expect(summary.lines.contains { $0.contains("revoke-keeptip") },
+                "预览必须包含 revoke-keeptip 目标的结果行")
+        // dry-run 不写盘：silent 字节原样
+        let dylib = app.appendingPathComponent("Contents/Resources/wechat.dylib")
+        let data = try Data(contentsOf: dylib)
+        #expect(data.range(of: Data([0x00, 0x00, 0x80, 0x52, 0xC0, 0x03, 0x5F, 0xD6])) != nil,
+                "dry-run 不得改盘（silent 字节原样）")
+        #expect(data.range(of: Data([0x7F, 0xE6, 0x00, 0xF9])) == nil,
+                "dry-run 不得预写 keeptip 字节")
+    }
 }
 
 /// `--only` 作用域语义：限定目标时不得触碰任何 revoke 变体——

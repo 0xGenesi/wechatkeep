@@ -124,6 +124,21 @@ enum Engine {
         raw?.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
+    /// `--only` 的生效集合：「revoke」指代**当前变体**的防撤回域（silent→
+    /// revoke、keeptip→revoke-keeptip）。纯精确匹配下 keeptip 用户照抄帮助
+    /// 示例 `--only revoke,update` 会把 revoke-keeptip 静默滤掉——只剩 update
+    /// 在打，用户以为有防撤回实际没有（㊷ 空白修剪同族的「意图静默落空」）。
+    /// 显式全名（revoke-keeptip）与既有可用拼写行为不变；keeptip 下
+    /// `--only revoke` 从 variantUnavailable 报错变为直观语义。
+    static func effectiveOnlySet(_ only: [String]?, variant: String) -> Set<String>? {
+        guard let only, !only.isEmpty else { return nil }
+        var set = Set(only)
+        if set.contains("revoke") {
+            set.insert(variant == "keeptip" ? "revoke-keeptip" : "revoke")
+        }
+        return set
+    }
+
     /// Selects targets for a variant: `revoke` for silent, `revoke-keeptip` for
     /// keeptip; every non-variant identifier (update, multiInstance, …) always applies.
     /// (`revoke-keeptip2` is deprecated and can no longer be selected — it is kept
@@ -213,10 +228,10 @@ enum Engine {
 
         // --only 先行过滤：`--only update` 不得触碰任何 revoke 变体的字节——
         // 否则下面的「变体切换还原」会把另一个变体默默撤防（过滤前跑就会如此）。
-        if let only, !only.isEmpty {
-            selected = selected.filter { only.contains($0.identifier) }
+        if let effective = effectiveOnlySet(only, variant: variant) {
+            selected = selected.filter { effective.contains($0.identifier) }
             guard !selected.isEmpty else {
-                throw EngineError.variantUnavailable("no matching targets for --only \(only.joined(separator: ","))")
+                throw EngineError.variantUnavailable("no matching targets for --only \(only?.joined(separator: ",") ?? "")")
             }
         }
 

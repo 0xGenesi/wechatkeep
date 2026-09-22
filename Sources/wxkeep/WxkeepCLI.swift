@@ -67,7 +67,7 @@ extension Wxkeep {
         @Flag(help: "Allow entries without `expected` provenance bytes (quarantined by default).")
         var allowUnverified: Bool = false
 
-        @Option(name: [.customShort("o"), .long], help: "Comma-separated subset of targets (e.g. revoke,update)")
+        @Option(name: [.customShort("o"), .long], help: "Comma-separated subset of targets (e.g. revoke,update; `revoke` = the variant's anti-revoke target)")
         var only: String?
 
         @Flag(help: "Skip re-signing after patching (debug only — the bundle will be killed on launch).")
@@ -201,7 +201,7 @@ extension Wxkeep {
 
         @OptionGroup var options: Options
 
-        @Option(name: .shortAndLong, help: "Path to signatures.json (default: ./signatures.json or next to the executable)")
+        @Option(name: .shortAndLong, help: "Path to signatures.json (default: ./, user data dir, or next to the executable)")
         var signatures: String?
 
         @Flag(help: "Append derived entries to config.json (backed up first)")

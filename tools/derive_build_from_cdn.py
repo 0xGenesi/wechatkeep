@@ -44,11 +44,14 @@ CDN_URL_FMT = ("https://dldir1v6.qq.com/weixin/Universal/Mac/"
                "xWeChatMac_universal_{dotted}_{build}.dmg")
 
 # arm64 各代 keeptip 几何（与 signatures.json 配方 confirm 同源）：
-#   代 → (anchor 后存储偏移, 原始存储字节, 清零 asm, cbz 原始字节)
+#   代 → (anchor 后存储偏移, 原始存储字节, 清零 asm, cbz 原始字节, silent 翻转 asm)
+#   cbz 条目 expected 必须双态 [pristine, silent 翻转]——单 expected 会让
+#   keeptip 在 silent 补丁态上过不了 expected 门（变体切换 dry-run 预览
+#   误报 wrong build；--only 路径无法直接过渡），x64 normalize 条目同款。
 ARM64_GEN_KEEPTIP = {
-    "revoke_arm64_gen1": (0x794, "60B600F9", "7FB600F9", "E00F0034"),
-    "revoke_arm64_gen2": (0x7A0, "60CE00F9", "7FCE00F9", "40100034"),
-    "revoke_arm64_gen3": (0x7A0, "60E600F9", "7FE600F9", "40100034"),
+    "revoke_arm64_gen1": (0x794, "60B600F9", "7FB600F9", "E00F0034", "7F000014"),
+    "revoke_arm64_gen2": (0x7A0, "60CE00F9", "7FCE00F9", "40100034", "82000014"),
+    "revoke_arm64_gen3": (0x7A0, "60E600F9", "7FE600F9", "40100034", "82000014"),
 }
 
 REV_X64_EXPECTED = "554889E553504889FB"      # isRevokemsg 序言（家族恒定）
@@ -214,7 +217,7 @@ def derive_arm64_keeptip(armthin, recipe_name, site):
     geo = ARM64_GEN_KEEPTIP.get(recipe_name)
     if geo is None:
         return None, f"配方 {recipe_name} 无 keeptip 几何"
-    off, store_bytes, zero_asm, cbz = geo
+    off, store_bytes, zero_asm, cbz, flip = geo
     d = machutil.load_slice(armthin, ARM64)
     so = machutil.va2off(d, site + off)
     actual = d[so:so + 4].hex().upper()
@@ -222,7 +225,7 @@ def derive_arm64_keeptip(armthin, recipe_name, site):
         return None, f"arm64 store 字节 {actual} ≠ 家族 {store_bytes}"
     return [
         {"arch": "arm64", "addr": format(site, "x"), "asm": cbz,
-         "expected": [cbz]},
+         "expected": [cbz, flip]},
         {"arch": "arm64", "addr": format(site + off, "x"), "asm": zero_asm,
          "expected": [store_bytes]},
     ], None
