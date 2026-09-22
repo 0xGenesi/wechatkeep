@@ -72,6 +72,10 @@ enum Shell {
         let status: Int32
         let stdout: String
         let stderr: String
+        /// 子进程死于信号时为真（terminationReason == .uncaughtSignal）。
+        /// 此时 Darwin Foundation 的 status 是**裸信号号**（SIGKILL→9，实测），
+        /// 不是 shell 约定的 128+n——退出码语义必须结合本字段判读。
+        let signalled: Bool
     }
 
     @discardableResult
@@ -97,7 +101,7 @@ enum Shell {
         do {
             try process.run()
         } catch {
-            return Result(status: 127, stdout: "", stderr: error.localizedDescription)
+            return Result(status: 127, stdout: "", stderr: error.localizedDescription, signalled: false)
         }
         let stdoutData = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
@@ -105,6 +109,7 @@ enum Shell {
         return Result(
             status: process.terminationStatus,
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-            stderr: String(data: stderrData, encoding: .utf8) ?? "")
+            stderr: String(data: stderrData, encoding: .utf8) ?? "",
+            signalled: process.terminationReason == .uncaughtSignal)
     }
 }

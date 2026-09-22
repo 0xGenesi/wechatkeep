@@ -20,12 +20,13 @@
 7. **登记**：config.json 条目带 `source`；新签名代在本文末尾登记代际特征。
 8. **runtime hooks 地址行（可选，供自定义文案功能）**：
    `python3 tools/derive_runtime_hooks.py <thin-x64.dylib> <parse-guard-site-hex> <build>`
-   ——守卫位点→LC_FUNCTION_STARTS→parse 唯一调用者→wrapper 入口，序言门
-   `554889E54157415641554154` 全过才产出。行加入 Sources/wxkeep/
-   RuntimeConfig.swift 的 `knownHooks`（跨边界测试会锁 schema），并同步
-   arm64（BL 拓扑同构，序言门 `FF0302D1FC6F02A9FA6703A9F85F04A9`，见
-   ⑲/⑳ 轮记录）。arm64 行加好后跑 `wxkeep runtime hooks` 刷新即可，
-   无需重装 dylib。
+   ——守卫位点→LC_FUNCTION_STARTS→**parse 入口直挂**（㉒ 实弹定案口径：
+   rsi = sysmsg XML 裸 SSO；wrapper+0x130 旧口径已被真实撤回证伪，wrapper
+   拓扑仅保留为交叉诊断），序言门 `554889E54157415641554154` 全过才产出。
+   行加入 Sources/wxkeep/RuntimeConfig.swift 的 `knownHooks`（跨边界测试
+   会锁 schema），并同步 arm64（arm64 行 = catalog arm64 revoke 位点所在
+   函数起点，序言门 `F85FBCA9F65701A9F44F02A9FD7B03A9`，见 ㉒ 轮记录）。
+   arm64 行加好后跑 `wxkeep runtime hooks` 刷新即可，无需重装 dylib。
 
 ## 已知签名代（arm64 revoke，几何特征）
 
@@ -211,7 +212,14 @@ revoke.py，Weixin.dll 4.0.6+，仅两条通配规则、无注入）：
   不再处方 boot-arg（见上方 macOS 15 AMFI 条目）；next_command 只给 patch 命令。
 
 观察未修（低风险/有实测依据，改动需权衡）：
-- **Shell.run 未读 terminationReason**：信号死亡判定依赖 `status == 128+signal` 约定（本机 SIGILL=132 实测成立）。若 Foundation 行为变化，应改用 `terminationReason == .uncaughtSignal`。
+- ~~**Shell.run 未读 terminationReason**~~ **已修（2026-09-22 ㊶ 轮）**：四信号
+  实测（SIGKILL/SIGILL/SIGSEGV/SIGBUS）当前 Foundation 全部返回**裸信号号**
+  （9/4/11/7 + uncaughtSignal）——早年「SIGILL=132」的 128+n 观测已不成立，
+  Verifier 旧的 `status > 128` / `status == 137` 分支在直 exec 拓扑下不可达，
+  AMFI/taskgated 的 SIGKILL 被误报成「函数摸了未建模状态」。现 Result 携带
+  `signalled`（terminationReason 判读），`Verifier.interpretWorkerExit` 按矩阵
+  判读（SIGKILL=环境击杀 / 126=mmap 拒绝 / 2/3=spec 越界 / SIGSEGV 族=真
+  crash），退出语义有实测回归锁（shellSignalDeath + 矩阵单测）。
 - **callerCount 每候选全扫 __text**：O(N×170MB)，实测秒级可接受；多候选场景可优化为单遍调用计数表。
 - **silent 请求但 catalog 只有 keeptip 条目**：抛 variantUnavailable，不自动降级为「恢复 cbz」（zengtianli 语义支持降级；当前无此形态数据，暂不做）。
 - **verify worker 长字符串 probe（≥23 字节）被跳过**：SSO 长串构造未实现，当前 spec 全短串。
@@ -337,6 +345,9 @@ isType10000 0x4E8D430（cmp [rdi+8],0x2710; sete al; ret——紧贴 isRevokemsg
 wrapper [0x537D910..0x537DB40)：解析函数唯一调用者（vtable 派发，拓扑同 269602 0x50A5120）
 状态写 [0x355AA90..0x355AF60)：mov [rdx+0x118],9 @0x355AB00 —— 全镜像唯一
   （269602 0x32E73A0 双子；调用方 0x351CC8F / 0x355B42D）
+  （㉘ 实弹更正：该函数实为 UpdateCancelUploadMessageStatus，与撤回无关——
+  本图时代把它标成「M-R4 状态写」系误判，撤回状态机见 ㉘：share_card
+  handler 0x3444b40 的 cmp [msg+0x118],2 分派）
 storage 解析器 [0x3952D50..0x3952DE0)："_b13e0758" 串@0x91AE9FC（__TEXT,__const）
   ← 异步撤回任务体 [0x3951040..0x3951EA0)
 消息管道（decrypt_strings 270099 全量 120 串）：
@@ -388,9 +399,12 @@ protobuf 同步批缓冲 / 会话预览记录（wxid+文本连写）/ DB 页缓�
 [0x3664510..) → 同一 0x530e0f0 漏斗）、异步任务体 [0x3951040..0x3951ea0)
 （→ [0x5037ef0..] → tiny [0x538e690..] → isRevokemsg）。
 - isRevokemsg 40+ 活体调用全部收到 "revokemsg" 字面类型串——**不是内容谓词**
-- keeptip v1 活体：post-store newmsgid=0 ✓；status-write 零命中（查找落空→
-  标记路径不达，v1 行为模型闭环证实）
-- M-R4 活体捕获需在无 keeptip 态跑（status-write 才会命中）
+- keeptip v1 活体：post-store newmsgid=0 ✓；status-write 零命中
+  （㉘ 更正：0x355AB00 本就不在撤回路径上——「查找落空→不达」的旧解释
+  不成立，零命中的真因是函数与撤回无关；v1 行为模型仍由消息保留实证支撑）
+- M-R4 活体捕获目标已随 ㉘ 更正为撤回状态机真宿主（share_card handler
+  0x3444b40 @270100 的 cmp [msg+0x118],2 分派与 3421bb0 完成回调）——
+  「无 keeptip 态重跑 drive22 即可命中 status-write」的旧建议作废
 - 教训补充：带时限的驱动循环里 Continue() 在安静期永久阻塞——时限判断必须
   在 Continue 之前或用事件超时驱动（drive22 第二次踩坑，d22_run2_full.log
   会话即如此结束）

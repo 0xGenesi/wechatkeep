@@ -823,7 +823,8 @@ extension Wxkeep {
                 }
                 targetVA = pred
             } else {
-                guard let x64Spec = signatures.recipes["revoke_x64"]?.verify else {
+                guard let x64Recipe = signatures.recipes["revoke_x64"],
+                      let x64Spec = x64Recipe.verify else {
                     throw ValidationError("no verify spec for revoke_x64 in signatures.json")
                 }
                 spec = x64Spec
@@ -834,7 +835,11 @@ extension Wxkeep {
                     else { throw ValidationError("no revoke site for build \(build)") }
                     target = t
                 }
-                guard let x64Entry = target?.entries.first(where: { $0.arch == .x86_64 }),
+                // 探针 VA 必须是 spec 描述的 isRevokemsg 位点：部分构建的
+                // revoke 目标首个 x64 条目是 parse 入口 silent，按配方 asm
+                // 选条目而非 entries.first。
+                guard let x64Entry = Verifier.selectX64ProbeEntry(
+                          in: target?.entries ?? [], recipeAsm: x64Recipe.asm),
                       let addrHex = x64Entry.addr, let va = UInt64(addrHex, radix: 16)
                 else { throw ValidationError("no x86_64 revoke entry for build \(build)") }
                 entries = [x64Entry]

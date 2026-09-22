@@ -22,6 +22,7 @@ enum Verifier {
         case noVerifySpec(arch: String)
         case workerCrashed(signal: Int32)
         case environmentBlocked
+        case specRejected(String)
         case archMismatch(image: String, host: String)
         case mismatch(detail: String)
 
@@ -32,8 +33,12 @@ enum Verifier {
             case .workerCrashed(let sig):
                 "verification worker crashed (signal \(sig)) — the function touched state we didn't model"
             case .environmentBlocked:
-                "environment blocked executing mapped code (mmap of executable memory was refused — "
-                + "on arm64 this binary would need the JIT entitlement; strict verify remains available)"
+                "environment blocked executing mapped code (mmap of executable memory was refused, "
+                + "or the system killed the worker — AMFI/taskgated; on arm64 the JIT entitlement "
+                + "would be required; strict verify remains available)"
+            case .specRejected(let detail):
+                "verify spec rejected by the worker: \(detail) — the spec encodes the "
+                + "270099-family ground truth and does not fit this image"
             case .archMismatch(let image, let host):
                 "dylib slice is \(image) but this machine runs \(host) — behavioral verification "
                 + "executes mapped code natively and cannot cross architectures"
@@ -155,6 +160,50 @@ enum Verifier {
         }
     }
 
+    // MARK: - Worker exit interpretation
+
+    /// Worker 退出码 → 语义判定（纯函数，便于回归）。判定事实基础：
+    /// - worker 由 Shell 直 exec（无 shell 包装），Darwin Foundation 对信号
+    ///   死亡给的是**裸信号号**（SIGKILL→9/SIGSEGV→11，非 128+n；2026-09
+    ///   实测四信号一致）——旧实现按 128+n 约定判读，`status > 128` 与
+    ///   `status == 137` 两分支在直 exec 拓扑下均不可达，SIGKILL（AMFI/
+    ///   taskgated 击杀，本仓两代先例）被误报成「函数摸了未建模状态」。
+    /// - worker 自身只 exit 0/2/3/126：126 = mmap 拒绝（环境门）；2/3 =
+    ///   参数/边界拒绝（spec 数据与镜像不符）。
+    /// - 映射的目标函数不可能自杀 SIGKILL（导入调用已被重定向到原生桩）——
+    ///   SIGKILL 只能来自环境；SIGSEGV/SIGBUS/SIGILL 才是真 crash。
+    static func interpretWorkerExit(_ status: Int32, signalled: Bool) -> VerifyError? {
+        if signalled {
+            return status == SIGKILL ? .environmentBlocked : .workerCrashed(signal: status)
+        }
+        switch status {
+        case 0: return nil
+        case 126: return .environmentBlocked
+        case 137: return .environmentBlocked   // shell 包装拓扑防御位（128+SIGKILL）
+        case 2: return .specRejected("malformed worker arguments")
+        case 3: return .specRejected("stub/zero-region VA out of the mapped image's bounds")
+        default: return .workerCrashed(signal: status)
+        }
+    }
+
+    // MARK: - Probe-entry selection
+
+    /// x64 行为验证的探针条目：verify spec（stubs/zero/probe 语义）与
+    /// revoke_x64 配方描述的是同一个函数（isRevokemsg 中性化——两者 asm
+    /// 相同）。部分构建的 revoke 目标首个 x64 条目是 parse 入口 silent
+    /// （`B801000000C3`，如 269629/269631/269578/579 及 3.x 旧代），按
+    /// 配方 asm 匹配才能取到 spec 实际描述的位点；无匹配回落首个（兼容
+    /// asm 演进前的旧代数据，维持现状行为）。
+    static func selectX64ProbeEntry(
+        in entries: [Config.PatchEntry], recipeAsm: String?
+    ) -> Config.PatchEntry? {
+        let x64 = entries.filter { $0.arch == .x86_64 }
+        if let recipeAsm, let match = x64.first(where: { $0.asm == recipeAsm }) {
+            return match
+        }
+        return x64.first
+    }
+
     // MARK: - Parent side
 
     /// 环境能力探针：以最小 blob（host 架构的一条 ret，va=0）真起一次
@@ -224,10 +273,8 @@ enum Verifier {
             "__verify-worker", thin.path, String(targetVA, radix: 16),
             stubsJSON, zerosJSON, probesJSON,
         ])
-        if result.status != 0 {
-            if result.status > 128 { throw VerifyError.workerCrashed(signal: result.status - 128) }
-            if result.status == 126 || result.status == 137 { throw VerifyError.environmentBlocked }
-            throw VerifyError.workerCrashed(signal: result.status)
+        if let failure = interpretWorkerExit(result.status, signalled: result.signalled) {
+            throw failure
         }
         return result.stdout.split(separator: "\n").compactMap { line in
             // probe|<text>|<0|1>

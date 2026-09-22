@@ -285,28 +285,54 @@ import Foundation
     }
 
     /// 坏行整表拒绝（宁可不挂也不挂错）：坏 hex / expected 长度不符 /
-    /// arm64 序言含 ADRP（PC 相对，换址即崩）
+    /// arm64 序言含 ADRP（PC 相对，换址即崩）。每行都带合法 xml_sso_off——
+    /// 缺字段门（见 hooksRejectRowMissingXmlSsoOff）不得掩盖各自被测的门。
     @Test func hooksRejectBadRows() {
         #expect(parseHooks("""
         {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
-        "expected":"ZZGG"}]}
+        "xml_sso_off":0,"expected":"ZZGG"}]}
         """) == 0)
         #expect(parseHooks("""
         {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
-        "arch":"x86_64","expected":"554889E5"}]}
+        "arch":"x86_64","xml_sso_off":0,"expected":"554889E5"}]}
         """) == 0)   // x64 必须 12B
         // ADRP x0, #0（字 0x90000000，LE 字节 00 00 00 90）+ 合法栈序言凑 16B → 必须被拒
         #expect(parseHooks("""
         {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
-        "arch":"arm64","expected":"00000090A9BF7BFDFD7BBFA9FD6F01A9"}]}
+        "arch":"arm64","xml_sso_off":0,"expected":"00000090A9BF7BFDFD7BBFA9FD6F01A9"}]}
         """) == 0)
         // 非法 UUID 形制
         #expect(parseHooks("""
-        {"hooks":[{"uuid":"not-a-uuid","hook_off":"0x1","expected":"554889E54157415641554154"}]}
+        {"hooks":[{"uuid":"not-a-uuid","hook_off":"0x1","xml_sso_off":0,
+        "expected":"554889E54157415641554154"}]}
         """) == 0)
         // 非 JSON / hooks 缺失 → -1 / 0
         #expect(parseHooks("not-json") == -1)
         #expect(parseHooks("{\"tip_text\":\"x\"}") == 0)
+    }
+
+    /// 缺 xml_sso_off 的行整行拒绝：该字段决定 hook 从哪个地址读 SSO 头，
+    /// 旧缺省 0x130 是被 ㉒ 证伪的 wrapper 模型残值（parse 直挂语义下是
+    /// 错误偏移）——静默读错位置不如不挂。
+    @Test func hooksRejectRowMissingXmlSsoOff() {
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","arch":"x86_64",
+        "hook_off":"0x537d910","msg_arg":1,"expected":"554889E54157415641554154"}]}
+        """) == 0)
+    }
+
+    /// 容量回归锁：外部表必须全收 128 行合法数据。knownHooks 现量 30 行
+    /// 且随 update-data 分发新构建行单调增长；旧上限 32 时越限行（追加在
+    /// 尾部的新构建行——恰是未来最需要武装的）被 parse 循环静默丢弃。
+    @Test func hooksTableAccepts128Rows() {
+        var rows = ""
+        for i in 0..<128 {
+            if !rows.isEmpty { rows += "," }
+            let uuid = String(format: "%08d-0000-0000-0000-000000000000", i)
+            rows += "{\"uuid\":\"\(uuid)\",\"arch\":\"x86_64\",\"hook_off\":\"0x537d910\","
+                + "\"msg_arg\":1,\"xml_sso_off\":0,\"expected\":\"554889E54157415641554154\"}"
+        }
+        #expect(parseHooks("{\"hooks\":[\(rows)]}") == 128)
     }
 
     /// 好坏混合：只收好行

@@ -199,7 +199,12 @@ enum Resigner {
         if !drifted.isEmpty {
             print("[resign] \(drifted.count) profile(s) drifted after signing; restoring explicitly")
             for url in drifted.sorted(by: depthFirst) {
-                try sign(binary: url, entitlements: snapshot.resignPlist(for: url))
+                // 按对象终态选恢复 profile（与 mismatches 同规则）：重签集成员
+                // 恢复 original+injected；未触碰对象恢复其**原始** profile——
+                // 若一律用 resignPlist，未触碰对象会被盖上注入键，复查按原始
+                // 比对必然再判 drift，该分支永不收敛。
+                try sign(binary: url, entitlements: driftRepairProfile(
+                    snapshot, resigned: resigned, url: url))
             }
             drifted = mismatches(snapshot, app: app, resigned: resigned)
             guard drifted.isEmpty else {
@@ -260,6 +265,16 @@ enum Resigner {
             if plistsEqual(inspectEntitlements(entry.url), intended) { return nil }
             return entry.url
         }
+    }
+
+    /// Drift 恢复时给一个对象用的 profile：重签集成员（patched 二进制 /
+    /// root / 主程序）恢复 original+injected；未触碰对象恢复原始 profile
+    /// （与 mismatches 的终态判定同一规则，恢复后复查才能收敛）。
+    static func driftRepairProfile(
+        _ snapshot: Snapshot, resigned: Set<String>, url: URL
+    ) -> [String: Any]? {
+        resigned.contains(url.standardizedFileURL.path)
+            ? snapshot.resignPlist(for: url) : snapshot.plist(for: url)
     }
 
     private static func sign(binary: URL, entitlements: [String: Any]?, deep: Bool = false) throws {

@@ -325,6 +325,19 @@ struct Doctor {
         }
     }
 
+    /// update-guard 一行标签。判定顺序即语义：rewrittenByApp（写过 0、
+    /// 现在读 1）蕴含 guardOn=false——先判 on/off 会让「失守」分支永不
+    /// 显示（被笼统的 off 遮蔽），失守信息只能从 verdict 行看到。
+    static func updateGuardTag(guardOn: Bool, rewrittenByApp: Bool) -> String {
+        if rewrittenByApp {
+            return "失守（微信已把更新开关改回——见判定行）"
+        }
+        if !guardOn {
+            return "off（有升级弹窗风险，跑 wxkeep update-guard）"
+        }
+        return "on（不检查更新；4.1.13+ 前两键可能被微信改回）"
+    }
+
     // MARK: - Rendering
 
     static func render(_ report: Report) -> String {
@@ -345,15 +358,9 @@ struct Doctor {
         lines.append("writable:    \(report.writable ? "yes" : "no — patch with sudo")")
         lines.append("signature:   \(report.signature)")
         let guardStatuses = UpdateGuard.read()
-        let guardOn = guardStatuses.allSatisfy(\.guarded)
-        let guardTag: String
-        if !guardOn {
-            guardTag = "off（有升级弹窗风险，跑 wxkeep update-guard）"
-        } else if UpdateGuard.rewrittenByApp {
-            guardTag = "失守（微信已把更新开关改回——见判定行）"
-        } else {
-            guardTag = "on（不检查更新；4.1.13+ 前两键可能被微信改回）"
-        }
+        let guardTag = Doctor.updateGuardTag(
+            guardOn: guardStatuses.allSatisfy(\.guarded),
+            rewrittenByApp: UpdateGuard.rewrittenByApp)
         lines.append("update-guard: \(guardTag)")
         let privacy = PrivacyGuard.read()
         lines.append("privacy-guard: \(privacy.allSatisfy(\.guarded) ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）")")

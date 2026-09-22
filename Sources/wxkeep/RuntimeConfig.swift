@@ -26,8 +26,9 @@ enum RuntimeConfig {
     }
 
     /// 编译期已知行（与 runtime.m 内置表同源——改任一侧必须同步另一侧）。
-    /// 4.1.15 全家族 x86_64：撤回解析汇点 wrapper（270099 行 = drive22 实弹
-    /// 定案；其余行由 tools/derive_runtime_hooks.py 从官方 DMG 派生（守卫
+    /// 4.1.15 全家族 x86_64：hook 点 = **parse 入口直挂**（㉒ 实弹定案：
+    /// rsi = sysmsg XML 裸 SSO；wrapper+0x130 静态推定已被真实撤回证伪）。
+    /// 行由 tools/derive_runtime_hooks.py 从官方 DMG 派生（守卫
     /// 位点→FUNCTION_STARTS→parse 入口；arm64 行 = catalog arm64 revoke 位点
     /// 所在函数起点），x64 序言门 554889E54157415641554154、arm64 序言门
     /// F85FBCA9F65701A9F44F02A9FD7B03A9 全过。270090/94/97 六行为 2026-09-19

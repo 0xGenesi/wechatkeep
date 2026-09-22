@@ -120,4 +120,13 @@ struct DoctorTests {
         #expect(object["fix_command"] is String)
         #expect(object["level"] as? String == "kill_predicted")
     }
+
+    /// rewrittenByApp（写过 0、现在读 1）蕴含 guardOn=false——失守判定必须
+    /// 优先于 off，否则「失守」标签被笼统的 off 遮蔽、永不显示（旧实现的
+    /// 分支顺序使然）。
+    @Test func updateGuardTagOrder() {
+        #expect(Doctor.updateGuardTag(guardOn: false, rewrittenByApp: true).hasPrefix("失守"))
+        #expect(Doctor.updateGuardTag(guardOn: false, rewrittenByApp: false).hasPrefix("off"))
+        #expect(Doctor.updateGuardTag(guardOn: true, rewrittenByApp: false).hasPrefix("on"))
+    }
 }

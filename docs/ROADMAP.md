@@ -1,5 +1,134 @@
 # 路线图（待办归档）
 
+## ㊶ 逐文件逻辑复审轮（2026-09-22：㊵ 成果复核属实 → 待办全阻塞盘点 → 三处新缺陷修复，133 测全绿）
+
+任务：㊵ 未提交改动先行事实复核，继而对全部核心源码逐文件精读找逻辑
+缺陷（用户指令：逻辑严谨、有事实、修复不许产生新风险）。
+
+1. **㊵ 复核属实**：129 测全绿实证；「28 构建首条目 = parse silent」对
+   config.json 全量复算（77 个 revoke 目标，28 个首条目 B801000000C3，
+   其中仅 4 个构建因配方 asm 匹配而改变探针选择——其余 24 个 3.x 旧代
+   按设计回落首个，与 ㊵ 记录一致）；knownHooks 30 行（15 构建 × 双架构）
+   全部 xml_sso_off=0 ✓。
+2. **待办盘点（无可推进项）**：M-R4 / drive28 群聊实弹（需用户配合一次
+   真实群聊撤回）、AMFI 原生 SIP 实证（硬件）、arm64 worker 实机验收
+   （需 ARM 机）全部阻塞在用户/硬件侧；ROADMAP 旧记「watch workflow 4.x
+   Info.plist 判新未实施」已被 50b2462 落地（yml 60-83 行在位）——非待办。
+3. **[缺陷 A] verify worker 退出码判读失真（诊断面缺陷，已修）**：
+   - 事实：四信号实测（SIGKILL/SIGILL/SIGSEGV/SIGBUS × Process 直 exec）
+     当前 Foundation 的 terminationStatus 全为**裸信号号**（9/4/11/7 +
+     uncaughtSignal）——MAINTAINING 旧记「SIGILL=132」的 128+n 观测已不
+     成立。Verifier 旧判读 `status > 128 → crashed(signal-128)` 与
+     `status == 137 → environmentBlocked` 两分支在直 exec 拓扑下**均不可达**
+     （worker 只 exit 0/2/3/126），真实信号死走兜底分支报「函数摸了未
+     建模状态」——AMFI/taskgated 的 SIGKILL（本仓两代先例的杀机形态）
+     被错误归因为我们的建模问题。
+   - 修复：Shell.Result 携带 `signalled`（terminationReason 判读，其余
+     消费者只比 ==0 不受影响）；`Verifier.interpretWorkerExit` 纯函数矩阵
+     判读——SIGKILL=environmentBlocked（映射函数导入已被重定向到原生桩，
+     不可能自杀 SIGKILL）、SIGSEGV/SIGBUS/SIGILL=真 crash、126=mmap 拒绝、
+     2/3=新增 specRejected（spec 与镜像不符：越界/坏参——旧文案把它混报
+     成 crash）。回归：矩阵单测 + Shell 信号死实测锁
+     （shellSignalDeathReportsRawSignalAndFlag）。
+4. **[缺陷 B] runtime 外部地址表容量临界（前向缺陷，已修）**：
+   kMaxExtHooks=32 vs knownHooks 现量 30 行，且 runtime.json 行集随
+   update-data 分发新构建行**单调增长**（mergeKnownHooks 按 uuid 去重
+   替换、未知行保留）——下一个家族（4.1.16 ≈ +30 行）越限，parse 循环
+   `n >= 上限 break` **静默丢弃追加在尾部的新构建行**（恰是未来最需要
+   武装的）。修复：上限 128 + 128 行全收容量回归锁
+   （hooksTableAccepts128Rows）；注释更正（旧注「20 行」系 270090 补齐
+   前的过期计数）。
+5. **[缺陷 C] hook_row_parse 的 xml_sso_off 缺省 0x130 残值（一致性缺陷，已修）**：
+   缺省值来自被 ㉒ 证伪的 wrapper+0x130 模型——parse 直挂语义下该字段
+   应为 0（工具链侧 HookRow 全字段必填、恒显式，live 路径不受影响；仅
+   手写行缺字段时静默读错位置）。按「宁可不挂也不挂错」整行拒绝缺字段
+   行；顺带把 hooksRejectBadRows 四行补上合法 xml_sso_off——缺字段门
+   不得掩盖长度门/ADRP 门各自被测的意图。跨边界测试
+   knownHooksRowsAllPassCParser 不受影响（Codable 恒输出全字段）。
+6. **排查为无缺陷（存档防翻烧饼）**：MachOInjector 对 fat 文件的插入是
+   等长原地覆写（写 load commands 与首节内容间 padding），不移位文件、
+   fat 头偏移有效；arm64 verify 无「首条目」类风险（全 catalog 每构建
+   ≤1 条 arm64 条目实证）；Resigner 浅签 + 终态 drift 复检闭环自洽；
+   Backup/Manifest/UpdateData/PrivacyGuard/Clone 无实质缺陷（Clone magic
+   集合中 0xCEFAEDFE 误标 MH_CIGAM_64——实为 32 位 MH_CIGAM，影响面零，留观）。
+7. **文档漂移第四处（㊵ 修了三处、漏了这处）**：RUNTIME-DESIGN M-R2 节
+   仍把已证伪的「wrapper 0x537d910 + rsi+0x130」写成已交付形态，只留
+   「若未生效则切 parse」的对冲——该条件 0.2.0 实机 fires=0 已定案
+   （全家族 parse 直挂，30 行数据全 xml_sso_off=0）。改为定案口径
+   （parse 入口直挂 = 交付形态，wrapper/排水候选降为研究中间态）。
+8. **回归**：133 测全绿（+4：退出码矩阵 / Shell 信号死实测 / 缺字段
+   拒绝 / 128 行容量）；README 测试数 129→133；MAINTAINING「Shell.run 未
+   读 terminationReason」观察项闭案（本条即其处方）；release 重建 +
+   真机 doctor/verify/runtime status 三冒烟通过（doctor 顺带实证 ㊵
+   「失守」标签在改回态真机可见；verify 位点 0x4E8D5D0 与 ㊵ 记录一致）。
+
+## ㊵ 被否认观点整体复测轮（2026-09-22：上轮误报复盘 → 18 项否认结论全量复测无新误报 + 三处代码逻辑缺陷修复）
+
+任务：㊳（doctor 误报 mixed）与 ㊴（绿轮实为侥幸）连续两轮各揭出一个
+误报后，用户指令「整体复测所有被否认的观点找新误报；需确认的跳过；
+细读文件与代码找逻辑缺陷，修复不许引入新问题」。
+
+1. **被否认观点全量复测（18 项编目，静态可测 12 项逐一重验，零新误报）**：
+   - ⑰「私钥入库」误报更正：`git ls-files` 仅 release.pub、check-ignore
+     命中 .gitignore:9、CI「无私钥材料入库」守卫步在位 ✓
+   - W1 watch 字典序比较已修：`if:` 只消费 shell 预计算 yes/no，数值比较
+     在 `[ "$BUILD" -le "$KNOWN" ]` / python `max(int(...))` ✓
+   - ⑬「protection 可读门」证伪后的 mach_vm_read_overwrite 探针在位、
+     protection 降级为启发式预筛、直解引用全路径禁止（runtime.m 复读）✓
+   - ㉒ wrapper+0x130 证伪 → knownHooks 30 行全为 parse 直挂
+     （xml_sso_off=0，x64 序言 5548…4154 / arm64 F85F…03A9 与 ㉒ 一致）✓
+   - ⑨ uuid_matches 修复 + ⑯ `p+8<=end` 收紧在位，回归测试覆盖 ✓
+   - ⑩/㉚「270091-98 永久缺口」作废（CDN 归档在）复测：270100/269573
+     HEAD 200，缺口边界 269602/270092/4.1.16 线仍 404 ✓
+   - ②「入口指纹」按取代关闭复核：entry_fingerprints 全仓零落地 ✓
+   - ⑪「269602 纯 C++ 更新器」对 4.1.15 失效的时间线修正：findings 文件
+     2026-09-18 节在位，UpdateGuard 头注释口径一致 ✓
+   - ㊳ doctor mixed 误报修复持久性：真机 doctor（270100 keeptip 态）
+     revoke=pristine / revoke-keeptip=patched / overall=protected ✓
+   - AMFI kill_predicted 推翻后的 watch 级判定在位（doctor 输出复核，
+     无 boot-arg 处方）✓
+   - ㉟ 假绿教训防线：arm64-verify.yml 步骤级 probe 留痕 + 真件步骤显式
+     rwx 门 ✓（run 级证据 = ㊱ run 4 全绿，未重跑）
+   - ㊴ backfill 修复复核：78 条隔离条目全带 addr（`--dylib` 路径无
+     KeyError 面）、零回填不写盘 / indent=1 / 仅手动 dispatch 三项在位 ✓
+   需用户确认而跳过（6 项，均动态结论，代码/文档侧已确认不依赖）：
+   isRevokemsg 类型谓词（⑦ drive22）与 drain 0x538d700（⑧ drive24）、
+   ㉘ 状态机修正与群聊 XML 服务端预生成（d27 实弹）、dlopen 判死
+   （M2-3 spike）、风控首例 A/B（㊲ 补遗）、zsbai 损坏重验（digest 已
+   实证，重下 GB 级无增量价值）。
+2. **三处代码逻辑缺陷（新发现，全部修复 + 回归锁定，129 测全绿）**：
+   - **verify x64 探针条目选择错位**：CLI 取 `revoke` 目标首个 x64 条目当
+     探针 VA/判态——28 个构建（269578/579/629/631 及 3.x 旧代）的首条目
+     是 parse 入口 silent（`B801000000C3`）而非 isRevokemsg，与 verify
+     spec（stubs/zero/probe 均按 isRevokemsg 反解）错位。此前被「spec
+     本身 270099 专属」掩盖（错构建上反正崩）。修复：
+     `Verifier.selectX64ProbeEntry` 按配方 asm 匹配（无匹配回落首个——
+     旧代数据行为不变）。270100 真机冒烟：同位点 0x4E8D5D0、pristine
+     四探针 1/0/0/0 判定正确。
+   - **Resigner drift 恢复不可收敛**：drift 分支对全部对象一律用
+     resignPlist（原+注入键）重签，而复查对未触碰对象按**原始** profile
+     比对——该类对象恢复后必然再判 drift、抛 entitlementsDrift（响亮失败
+     而非静默，但恢复尝试注定无效）。修复：`driftRepairProfile` 按对象
+     终态选 profile（与 mismatches 同规则：重签集→原+注入，未触碰→原始）。
+   - **doctor「失守」标签不可达**：`rewrittenByApp`（写过 0 现在读 1）蕴含
+     `!allGuarded`，render 先判 on/off 使「失守」分支永不显示（被笼统
+     off 遮蔽，信息只剩 verdict 行）。修复：`updateGuardTag` 失守优先；
+     真机复核显示「失守（微信已把更新开关改回）」✓。
+3. **文档漂移四处修正**（活文档与 ㉒/㉘ 已定案口径对齐——本轮无新误报，
+   但发现四处在教已被推翻的东西）：
+   - MAINTAINING SOP 第 8 步仍教 wrapper 派生 + 旧 arm64 序言门
+     `FF0302D1…`——改为 parse 直挂 + `F85FBCA9…`（与
+     derive_runtime_hooks.py 现行为及 knownHooks 数据一致）；
+   - RUNTIME-DESIGN M-R4 节仍写「状态写 0x355ab00 + keeptip 态阻塞 +
+     无 keeptip 重跑可捕获」旧模型——换 ㉘ 修正后的撤回状态机
+     （share_card handler 0x3444b40 分派；+0x118 枚举 2=撤回已收到、
+     5=待撤回；旧重跑建议作废）；
+   - MAINTAINING 270099 地图与 drive22 活体链两处的同一误判加更正注记；
+   - RuntimeConfig.knownHooks 注释「撤回解析汇点 wrapper」→ parse 直挂。
+4. **回归**：129 测全绿（+3：探针条目选择矩阵 / drift profile 终态 /
+   失守标签顺序）；release 重建 + 真机 doctor / verify 双冒烟通过；
+   README 测试数 126→129。
+
 ## ㊴ backfill-expected 每日失败收口（2026-09-22 深夜：用户报「经常收到 fail 邮件」→ API 取证 + 本地复现 → 三重根因修复）
 
 任务：排查 `backfill-expected` 流水线反复失败邮件。公开 API 取证（runs/jobs/

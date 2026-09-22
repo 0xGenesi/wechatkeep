@@ -195,6 +195,39 @@ final class ResignerTests {
         #expect(patched.range(of: Data([0x31, 0xC0, 0xC3])) != nil)
         #expect(patched.range(of: Data(marker)) == nil)
     }
+
+    /// Drift 恢复的 profile 按对象终态选择：重签集成员恢复 original+injected，
+    /// 未触碰对象恢复原始 profile。旧实现一律用 resignPlist——未触碰对象被盖上
+    /// 注入键后，复查按原始 profile 比对必然再判 drift，恢复分支不可收敛。
+    @Test func driftRepairProfilePerObjectEndState() {
+        let patched = workDir.appendingPathComponent("patched.dylib")
+        let untouched = workDir.appendingPathComponent("untouched.dylib")
+        let original: [String: Any] = ["com.apple.security.app-sandbox": true]
+        var withInjection = original
+        for (k, v) in Resigner.injectedKeys where withInjection[k] == nil { withInjection[k] = v }
+        let snapshot = Resigner.Snapshot(entries: [
+            Resigner.Entry(url: patched, plist: original, resignPlist: withInjection),
+            Resigner.Entry(url: untouched, plist: original, resignPlist: withInjection),
+        ])
+        let resigned: Set<String> = [patched.standardizedFileURL.path]
+
+        let repairPatched = Resigner.driftRepairProfile(snapshot, resigned: resigned, url: patched)
+        let repairUntouched = Resigner.driftRepairProfile(snapshot, resigned: resigned, url: untouched)
+        #expect(repairPatched?.count == withInjection.count,
+                "resigned-set members restore original+injected")
+        #expect(repairUntouched?.count == original.count,
+                "untouched objects restore their ORIGINAL profile (old behavior re-stamped injected keys and could never converge)")
+        #expect(repairUntouched?["com.apple.security.cs.disable-library-validation"] == nil)
+
+        // 无 entitlements 的对象 → nil（重签不带 entitlements）
+        let bare = workDir.appendingPathComponent("bare.dylib")
+        let bareSnapshot = Resigner.Snapshot(
+            entries: [Resigner.Entry(url: bare, plist: nil, resignPlist: nil)])
+        #expect(Resigner.driftRepairProfile(bareSnapshot, resigned: [], url: bare) == nil)
+        #expect(Resigner.driftRepairProfile(bareSnapshot,
+                                            resigned: [bare.standardizedFileURL.path],
+                                            url: bare) == nil)
+    }
 }
 
 struct DummyError2: Error { let message: String; init(_ m: String) { message = m } }

@@ -77,9 +77,11 @@ static const hook_target_t kTarget270099 = {
 static const hook_target_t *const kBuiltins[] = { &kTarget270099 };
 static const size_t kBuiltinCount = sizeof(kBuiltins) / sizeof(kBuiltins[0]);
 
-// 20 = 4.1.15 全家族（除未发布的 270092）× 双架构；32 留 update-data
-// 下发新构建行的余量（越限行被静默丢弃——parse 循环的 n >= 上限 break）。
-enum { kMaxExtHooks = 32 };
+// 30 = 4.1.15 全家族（除未发布的 270087/270092）× 双架构；128 留 update-data
+// 分发新构建行的余量（越限行被静默丢弃——parse 循环的 n >= 上限 break，
+// 丢的是追加在尾部的最新构建行：容量必须显著大于 knownHooks 现量，
+// RuntimeHookTests 有 128 行全收的容量回归锁）。
+enum { kMaxExtHooks = 128 };
 static hook_target_t g_ext_hooks[kMaxExtHooks];
 static int g_ext_hook_count;
 
@@ -256,7 +258,11 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
     out->hook_off = strtoull(off.UTF8String, NULL, 16);   // 接受 0x 前缀
     if (out->hook_off == 0 || out->hook_off >= (1ULL << 32)) return 0;
     out->msg_arg = marg ? marg.unsignedLongValue : 1;
-    out->xml_sso_off = soff ? soff.unsignedLongValue : 0x130;
+    // xml_sso_off 必须显式给出：它决定 hook 从哪个地址读 SSO 头，缺省值
+    // （旧 wrapper 模型的 0x130）在 parse 直挂语义下是错误偏移——缺字段
+    // 的行按「宁可不挂也不挂错」整行拒绝，而不是静默读错位置。
+    if (!soff) return 0;
+    out->xml_sso_off = soff.unsignedLongValue;
     if (out->msg_arg > 5 || out->xml_sso_off > 0x1000) return 0;
     out->is_arm64 = [arch isEqualToString:@"arm64"];
     out->expected_len = out->is_arm64 ? 16 : 12;

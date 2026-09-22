@@ -25,22 +25,22 @@ Contents/Frameworks/wxkeep_runtime.dylib                                    ← 
 - **M-R1 ✅（已交付）**：注入机制 + 最小 dylib（marker 构造器）+
   `wxkeep runtime status/install/remove`
 - **M-R2 ✅（工程已落地，待实弹验收）**：提示文本替换。hook 点 =
-  **撤回解析汇点 wrapper 0x537d910@270099**（drive22 终验定案：A 到达
-  解析 / B 二次解析 / D 历史批扫三路径的唯一公共汇点；isRevokemsg 只收
-  类型串的前提已证伪，早期候选 0x538d700 只覆盖 async 路径，均被取代）。
-  wrapper(rdi=信息对象, rsi=消息结构)，撤回 sysmsg XML 的 SSO 嵌在
-  rsi+0x130——hook 入口处把 `<replacemsg>` 内文**等长改写**为
-  runtime.json 文案（含「撤回」needle 门、超长放弃、差额空格填充、
-  `<>&` 配置期剥除），SSO 结构与分配器零接触；下游解析/入库/会话预览/
-  渲染/历史重扫全链一致（连 DB 持久化都是自定义文本）。引擎：UUID 门 +
-  序言 12B 门 + RWX 蹦床 + `_dyld_register_func_for_add_image` 同步回调
+  **parse 入口直挂**（270099 = 0x537db40，drive25 地面真值：parse(rdi,
+  rsi=XML 裸 SSO)，0.2.0 实机真实撤回 fires=0 证伪 wrapper+0x130 静态
+  推定后全家族切换，ROADMAP ㉑/㉒；早期「撤回解析汇点 wrapper
+  0x537d910」三路径汇点分析与 isRevokemsg 类型串证伪、排水函数 0x538d700
+  候选均为研究中间态，已被取代）。hook 入口处把 `<content>`（线上实测
+  承载元素）内文**等长改写**为 runtime.json 文案（含「撤回」needle 门、
+  超长放弃、差额空格填充、`<>&` 配置期剥除），SSO 结构与分配器零接触；
+  下游解析/入库/会话预览/渲染/历史重扫全链一致（连 DB 持久化都是自定义
+  文本）。引擎：UUID 门 + 序言门（x64 12B 纯栈 / arm64 16B + 可换址性
+  编码防线）+ RWX 蹦床 + `_dyld_register_func_for_add_image` 同步回调
   与既有镜像扫描双保险。
   **实弹定案补遗（2026-09-18 drive25）**：调试器同语义改写已肉眼验收 ✅
   ——线上撤回 XML 的提示文本承载元素实测为 **<content>**（非
   <replacemsg>，后者为 parse 内另一分支形态），改写已补充双标签 +
   CDATA `]]>` 闭合保护；且 sysmsg 会被多轮重解析，**已入库
-  的旧提示亦可追溯换文案**。注：wrapper+0x130 偏移为静态推定，若实机
-  hook 未生效则地址表切 parse 入口（rsi 直挂，drive25 实证）。
+  的旧提示亦可追溯换文案**。
   **2026-09-18 午后增补**：
   - **{from} 占位符（M-R3-lite）**：tip_text 里的 `{from}` 展开为原内文
     首对引号内的撤回者昵称；昵称 >64B 或展开超缓冲 → 放弃改写保原文
@@ -66,17 +66,22 @@ Contents/Frameworks/wxkeep_runtime.dylib                                    ← 
 - **M-R3 余项**：{content} 占位符（消息缓存，按 serverId 终结器缓存——
   fzlzjerry 同款思路，其 {from}/{time} 已由本轮 {from} + 服务端时间戳
   文案部分覆盖）+ 群聊适配实弹验证
-- **M-R4 ⛔（阻塞：活体数据缺）**：消息"已撤回"标记——状态写位点已定位
-  （`mov [rdx+0x118],9` @0x355ab00@270099，全镜像唯一，269602 0x32e73a0
-  双子）。阻塞点：keeptip 态下该路径不达（newmsgid=0 → 状态标记零命中，
-  drive22 实证），rdx 对象布局需 silent/无补丁态重跑 drive22 同轮捕获。
-  位点静态唯一性已足够支撑 hook 设计，活体数据到手即可开工。
-  **drive26 布局补遗（2026-09-18）**：Message 向量（async-body rsi，
-  步长 0x278）活体实证 +0xC=type(1文/3图/49表情)、+0x18=talker、
-  +0x30=self、+0x48=sender、+0x118=常态 0x3；async-body 为通用批处理器。
-  三方案判定（ROADMAP ⑧）：A 状态位注入（语义未观察，恐触发 UI 隐藏）/
-  B 存储层内容前缀打标（XML 含 <session>/<msgid> 可定位，可行性中）/
-  C UI 遮罩（工程量大）。近期实用替代：M-R2 文案即标记。
+- **M-R4 ⛔（阻塞：活体数据缺）**：消息"已撤回"标记。
+  **状态机修正（2026-09-19 ㉘ 实弹推翻 drive22/26 旧判）**：
+  `mov [rdx+0x118],9` @0x355ab00@270099 实为 UpdateCancelUploadMessageStatus
+  （上传取消状态机），与撤回**无关**——「keeptip 置零 newmsgid 导致零命中」
+  的旧解释不成立，该函数从来不在撤回路径上。撤回状态机真宿主 =
+  share_card_message_handler 0x3444b40@270100：`cmp [msg+0x118],2`
+  @0x3445e20 → ==2 走 3421bb0(…,1,1) 完成回调 / ≠2 写 `[msg+0x118]=5`；
+  唯一写 2 点 0x33b1407（emoticon handler 族内，vtable 派发）。消息
+  +0x118 枚举修正：0x3=常态、2=撤回已收到、5=待撤回（9=上传取消）。
+  文本消息推测走同构 text_message_handler（0x3453860+），待实弹。
+  **drive26 布局补遗（仍有效）**：Message 向量（async-body rsi，步长
+  0x278）活体实证 +0xC=type(1文/3图/49表情)、+0x18=talker、+0x30=self、
+  +0x48=sender；async-body 为通用批处理器。
+  三方案判定（ROADMAP ⑧）：A 状态位注入（写 2/5 语义已实证，恐触发
+  UI 隐藏）/ B 存储层内容前缀打标（XML 含 <session>/<msgid> 可定位，
+  可行性中）/ C UI 遮罩（工程量大）。近期实用替代：M-R2 文案即标记。
 
 ## 信任与安全
 

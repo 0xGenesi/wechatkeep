@@ -307,4 +307,82 @@ struct VerifierTests {
         #expect(results.map(\.returned) == [true, false, false])
         #expect(Verifier.verdictPredicate(results: results, spec: arm64Spec) == nil)
     }
+
+    // MARK: - x64 探针条目选择（纯逻辑，无需 worker）
+
+    /// 269629/269631/269578/579 及 3.x 旧代构建的 revoke 目标里，首个
+    /// x64 条目是 parse 入口 silent（B801000000C3）而非 isRevokemsg——
+    /// verify spec 的 stubs/probe 语义描述的是 isRevokemsg，按配方 asm
+    /// 选条目才能把探针 VA 放到 spec 描述的函数上。
+    @Test func x64ProbeEntryPrefersRecipeAsmMatch() {
+        func entry(_ addr: String, _ asm: String) -> Config.PatchEntry {
+            Config.PatchEntry(arch: .x86_64, addr: addr, recipe: nil,
+                              expected: Config.ExpectedVariants(["554889E54157"]),
+                              asm: asm, source: nil)
+        }
+        let parseSilent = entry("512be50", "B801000000C3")
+        let isRevoke = entry("4c42480", "31C0C3909090909090")
+        let guardFlip = entry("512c139", "30C0")
+
+        // 配方 asm 命中 → 取 isRevokemsg 条目（旧实现 entries.first 会取 parse）
+        let picked = Verifier.selectX64ProbeEntry(
+            in: [parseSilent, isRevoke, guardFlip], recipeAsm: "31C0C3909090909090")
+        #expect(picked?.addr == "4c42480")
+
+        // 旧代数据无 asm 匹配 → 回落首个 x64 条目（现状行为不变）
+        #expect(Verifier.selectX64ProbeEntry(
+            in: [parseSilent, guardFlip], recipeAsm: "31C0C3909090909090")?.addr == "512be50")
+
+        // 无 x64 条目（arm64-only 目标）→ nil
+        let arm = Config.PatchEntry(arch: .arm64, addr: "4bc4fa4", recipe: nil,
+                                    expected: nil, asm: "82000014", source: nil)
+        #expect(Verifier.selectX64ProbeEntry(in: [arm], recipeAsm: "31C0C3909090909090") == nil)
+        #expect(Verifier.selectX64ProbeEntry(in: [], recipeAsm: nil) == nil)
+    }
+
+    // MARK: - Worker 退出码判读（退出语义矩阵）
+
+    private func repr(_ e: Verifier.VerifyError?) -> String {
+        e.map { String(describing: $0) } ?? "nil"
+    }
+
+    /// 直 exec 拓扑下 Darwin Foundation 对信号死给**裸信号号**（非 shell
+    /// 约定的 128+n）——旧实现的 `status > 128` / `status == 137` 分支均
+    /// 不可达，AMFI/taskgated 的 SIGKILL 被误报成「函数摸了未建模状态」。
+    /// 矩阵锁死新判读：SIGKILL=环境击杀；SIGSEGV/SIGBUS=真 crash；
+    /// 126=mmap 拒绝；2/3=spec 与镜像不符；137=shell 包装拓扑防御位。
+    @Test func workerExitInterpretation() {
+        #expect(repr(Verifier.interpretWorkerExit(0, signalled: false)) == "nil")
+        #expect(repr(Verifier.interpretWorkerExit(9, signalled: true))
+                .hasPrefix("environment blocked"),
+                "SIGKILL 是环境击杀（AMFI/taskgated），映射函数不可能自杀 SIGKILL")
+        #expect(repr(Verifier.interpretWorkerExit(11, signalled: true))
+                .hasPrefix("verification worker crashed (signal 11)"),
+                "SIGSEGV 才是「摸了未建模状态」")
+        #expect(repr(Verifier.interpretWorkerExit(7, signalled: true))
+                .hasPrefix("verification worker crashed (signal 7)"))
+        #expect(repr(Verifier.interpretWorkerExit(126, signalled: false))
+                .hasPrefix("environment blocked"),
+                "126 = worker 自己 mmap 拒绝的 exit")
+        #expect(repr(Verifier.interpretWorkerExit(137, signalled: false))
+                .hasPrefix("environment blocked"),
+                "137 = shell 包装拓扑（128+SIGKILL）防御位")
+        #expect(repr(Verifier.interpretWorkerExit(3, signalled: false))
+                .hasPrefix("verify spec rejected"),
+                "exit 3 = stub/zero 区越界：spec 与镜像不符，不是函数崩溃")
+        #expect(repr(Verifier.interpretWorkerExit(2, signalled: false))
+                .hasPrefix("verify spec rejected"))
+    }
+
+    /// Shell 直 exec 的信号死亡语义实测锁：signalled=true 且 status=裸信号
+    /// 号（MAINTAINING 曾记录 SIGILL=132 的 128+n 观测——当前 Foundation
+    /// 行为已非如此，退出码判读不得依赖 128+n 约定，判读必须走 signalled）。
+    @Test func shellSignalDeathReportsRawSignalAndFlag() {
+        let killed = Shell.run("/bin/sh", ["-c", "kill -9 $$"])
+        #expect(killed.signalled)
+        #expect(killed.status == 9)
+        let exited = Shell.run("/bin/sh", ["-c", "exit 126"])
+        #expect(!exited.signalled)
+        #expect(exited.status == 126)
+    }
 }
