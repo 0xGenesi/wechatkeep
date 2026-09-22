@@ -130,3 +130,31 @@ struct DoctorTests {
         #expect(Doctor.updateGuardTag(guardOn: true, rewrittenByApp: false).hasPrefix("on"))
     }
 }
+
+extension DoctorTests {
+    /// 组件移除后 marker 残留（remove 不清 marker 的存量机器，2026-09-23
+    /// 本机实测踩中）：`runtime status` 必须把过期 marker 降格为历史快照，
+    /// 不能把「已武装（对已匹配构建生效）」当现状陈述——用户会以为 hook
+    /// 仍在生效。install/remove 现已清理 marker，本测试守护存量机器的展示面。
+    @Test func runtimeStatusStaleMarkerIsHistorical() {
+        // 组件在位：marker 照常陈述现状
+        #expect(Wxkeep.RuntimeCommand.runtimeMarkerLine(active: true, markerExists: true)
+                == "已加载（上次启动）")
+        #expect(Wxkeep.RuntimeCommand.runtimeHookStateText(active: true, markerExists: true, armed: true)
+                == "已武装（对已匹配构建生效）")
+        #expect(Wxkeep.RuntimeCommand.runtimeHookStateText(active: true, markerExists: true, armed: false)
+                == "未武装（当前构建无匹配地址行或序言不符）")
+        // 组件移除 + marker 残留：降格为历史快照，明示不再生效
+        #expect(Wxkeep.RuntimeCommand.runtimeMarkerLine(active: false, markerExists: true)
+                .contains("历史快照——组件已移除"))
+        #expect(Wxkeep.RuntimeCommand.runtimeHookStateText(active: false, markerExists: true, armed: true)
+                == "曾武装（历史快照——组件已移除，重启微信后不再生效）")
+        #expect(Wxkeep.RuntimeCommand.runtimeHookStateText(active: false, markerExists: true, armed: false)
+                == "未武装（历史快照——组件已移除）")
+        // 无 marker：未知/无记录（与 active 无关）
+        #expect(Wxkeep.RuntimeCommand.runtimeMarkerLine(active: true, markerExists: false) == "无记录")
+        #expect(Wxkeep.RuntimeCommand.runtimeMarkerLine(active: false, markerExists: false) == "无记录")
+        #expect(Wxkeep.RuntimeCommand.runtimeHookStateText(active: true, markerExists: false, armed: false)
+                == "未知（无启动记录）")
+    }
+}

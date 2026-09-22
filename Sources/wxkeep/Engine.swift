@@ -117,6 +117,13 @@ enum Engine {
         }
     }
 
+    /// `--only` 逗分子集解析：修剪元素空白（"--only revoke, update" 与
+    /// "--only revoke,update" 等价）——标识符按精确比对，不修剪的空白会让
+    /// 过滤静默落空成 variantUnavailable。
+    static func parseOnlyList(_ raw: String?) -> [String]? {
+        raw?.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
     /// Selects targets for a variant: `revoke` for silent, `revoke-keeptip` for
     /// keeptip; every non-variant identifier (update, multiInstance, …) always applies.
     /// (`revoke-keeptip2` is deprecated and can no longer be selected — it is kept

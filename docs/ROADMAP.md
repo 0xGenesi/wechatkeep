@@ -1,5 +1,51 @@
 # 路线图（待办归档）
 
+## ㊷ 收口 + 全功能使用逻辑实机巡检轮（2026-09-23：㊶ 收口提交 → 逐功能真机跑 → runtime status 过期 marker 误导展示修复，135 测全绿）
+
+任务：㊶ 轮未提交改动收口（验证完整后提交 630bc86），然后逐文件 review
+全部源码 + 逐功能实机巡检使用逻辑，发现问题即修（用户指令三段式）。
+
+1. **㊶ 收口**：133 测全绿 + release 构建通过 + 文档四同步核实（README
+   测试数 / MAINTAINING / RUNTIME-DESIGN / ROADMAP 本体）→ 按 ㊵/㊶
+   记录无未落地代码项（M-R4 群聊实弹 / AMFI 原生 SIP / arm64 实机验收
+   均阻塞在用户/硬件侧）。
+2. **逐功能实机巡检（x64 主机，270100 keeptip 在装态）**：doctor
+   （protected / 「失守」标签实机可见=㊶ 修复实证）/ versions（77 构建）/
+   manifest（verified）/ update-guard status（失守检出）/ privacy-guard
+   status（on）/ clone list / runtime tip（骨架校验 ✓）/ verify
+   （位点 0x4E8D5D0 与 ㊶ 记录一致，pristine 四探针判定正确）/ patch
+   --dry-run 双变体（keeptip 4 已打、silent 会写 3——变体语义正确）/
+   restore --dry-run（revoke 3 pristine / keeptip 2 restore / update 16
+   restore，幂等预检自洽）/ locate（revoke_x64 命中 0x4E8D5D0；arm64
+   gen1-3 配方在 270100 不命中属数据代际，该构建有 catalog 精编条目，
+   非代码缺陷）。
+3. **[缺陷] runtime status 过期 marker 误导展示（使用逻辑缺陷，已修）**：
+   - 事实：runtime remove 不清 marker——本机（曾装后卸）实测 status 同屏
+     输出「LC 未注入 / dylib 缺失 / 整体未启用」与「已加载」「hook 武装：
+     已武装（对已匹配构建生效）」+ fires/hits 证据行，后者是上次在装期
+     的冻结快照，照现状陈述会误导用户以为 hook 仍在生效（doctor 侧已按
+     dylib 在位性置 nil 规避，status 侧未对齐）。
+   - 修复（三件套）：a) `RuntimeCommand.runtimeMarkerLine /
+     runtimeHookStateText` 纯函数——组件不在位（未注入或无 dylib）时
+     降格为「历史快照——组件已移除（，重启微信后不再生效）」，fires/hits
+     证据行仅在组件在位时展示；b) `runtime remove` 成功后清 marker（源头
+     消除，新机器不再产生存量）；c) `runtime install` 成功后清上一安装期
+     marker（新装周期从「无记录」起算，不展示上一代 fires）。回归：
+     runtimeStatusStaleMarkerIsHistorical 展示矩阵单测。
+4. **[小修] `--only` 子集空白修剪**：`--only "revoke, update"` 旧实现按
+   精确比对静默落空成 variantUnavailable——`Engine.parseOnlyList` 修剪
+   元素空白（+单测）；实机 dry-run 验证带空格列表正常选中 revoke+update。
+5. **排查为无缺陷（存档防翻烧饼）**：verify x64 探针选择与 signatures
+   revoke_x64 asm（31C0C3…）实配吻合；restore 幂等语义（inverted 条目
+   expected 含 asm+原像，pristine 态判 already-patched）复读自洽；
+   Resigner drift 恢复-复查收敛闭环（㊶ 修复后）复读自洽；Clone
+   remove/replace 的 marker 门、MachOInjector 等长原地覆写、UpdateData
+   四件套硬门、PrivacyGuard unset 键跳过与 read 的 `<unset>` 判 guarded
+   一致——均无新问题。
+6. **回归**：135 测全绿（+2：marker 展示矩阵 / parseOnlyList）；release
+   重建 + 真机复测（runtime status 历史快照降格实机可见、带空格 --only
+   dry-run 选中正确）；README 测试数 133→135。
+
 ## ㊶ 逐文件逻辑复审轮（2026-09-22：㊵ 成果复核属实 → 待办全阻塞盘点 → 三处新缺陷修复，133 测全绿）
 
 任务：㊵ 未提交改动先行事实复核，继而对全部核心源码逐文件精读找逻辑

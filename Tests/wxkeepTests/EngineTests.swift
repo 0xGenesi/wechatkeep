@@ -143,3 +143,15 @@ final class EngineTests {
         #expect(restored.range(of: silent) == nil)
     }
 }
+
+extension EngineTests {
+    /// `--only` 子集解析：逗号后空白必须被修剪——标识符按精确比对，
+    /// "--only revoke, update" 不修剪会静默落空成 variantUnavailable。
+    @Test func parseOnlyListTrimsWhitespace() {
+        #expect(Engine.parseOnlyList(nil) == nil)
+        #expect(Engine.parseOnlyList("revoke") == ["revoke"])
+        #expect(Engine.parseOnlyList("revoke,update") == ["revoke", "update"])
+        #expect(Engine.parseOnlyList("revoke, update") == ["revoke", "update"])
+        #expect(Engine.parseOnlyList(" update , revoke ") == ["update", "revoke"])
+    }
+}

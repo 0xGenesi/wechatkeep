@@ -86,7 +86,7 @@ extension Wxkeep {
             let build = try WeChatApp.buildNumber(app: options.app)
             let version = WeChatApp.marketingVersion(app: options.app).map { " (v\($0))" } ?? ""
             print("build \(build)\(version) — variant \(variant.rawValue)\(dryRun ? " — dry run" : "")")
-            let onlyList = only?.split(separator: ",").map(String.init)
+            let onlyList = Engine.parseOnlyList(only)
             let summary: Engine.RunSummary
             do {
                 if config.entry(build: build) != nil {
@@ -431,6 +431,25 @@ extension Wxkeep {
         static func mainExecURL(_ app: URL) -> URL {
             WeChatApp.binaryURL(app: app, relative: "Contents/MacOS/WeChat")
         }
+
+        /// marker 是 dylib 启动时回写的历史证据。组件不在位（未注入或 dylib
+        /// 缺失，如 runtime remove 之后）时，marker 里的「已加载/已武装」只是
+        /// 上次在装期的快照——照现状陈述会让用户以为 hook 仍生效（remove 不
+        /// 清 marker 的存量机器实测踩中）。展示必须按组件在位与否降格。
+        static func runtimeMarkerLine(active: Bool, markerExists: Bool) -> String {
+            if !markerExists { return "无记录" }
+            return active ? "已加载（上次启动）" : "已加载（上次启动；历史快照——组件已移除）"
+        }
+
+        static func runtimeHookStateText(active: Bool, markerExists: Bool, armed: Bool) -> String {
+            if !markerExists { return "未知（无启动记录）" }
+            if !active {
+                return armed ? "曾武装（历史快照——组件已移除，重启微信后不再生效）"
+                             : "未武装（历史快照——组件已移除）"
+            }
+            return armed ? "已武装（对已匹配构建生效）"
+                         : "未武装（当前构建无匹配地址行或序言不符）"
+        }
         static func frameworkDylibURL(_ app: URL) -> URL {
             WeChatApp.binaryURL(app: app, relative: "Contents/Frameworks/wxkeep_runtime.dylib")
         }
@@ -527,9 +546,11 @@ extension Wxkeep {
                 let markerText = FileManager.default.fileExists(atPath: marker.path)
                     ? (try? String(contentsOf: marker, encoding: .utf8)) : nil
                 let markerExists = markerText != nil
+                let active = injected && dylibExists
                 print("LC_LOAD_DYLIB 注入: \(injected ? "是" : "否")")
                 print("runtime dylib:     \(dylibExists ? "存在" : "缺失") (\(dylib.path))")
-                print("加载标记:          \(markerExists ? "已加载（上次启动）" : "无记录")")
+                let markerLine = RuntimeCommand.runtimeMarkerLine(active: active, markerExists: markerExists)
+                print("加载标记:          \(markerLine)")
                 // runtime.json 在微信 App Group 容器（dylib 沙盒内读同一路径），
                 // plist 格式——与 RuntimeConfig.mergeKnownHooks 同源同格式。
                 let cfg = (try? PropertyListSerialization.propertyList(
@@ -557,16 +578,15 @@ extension Wxkeep {
                 // 回写）——「已启用」只代表注入在位；构建无匹配地址行/序言
                 // 不符时 dylib 加载但 hook 不武装，必须显式区分。
                 let armed = markerText?.contains("mr2=hook-armed") ?? false
-                let hookState = !markerExists
-                    ? "未知（无启动记录）"
-                    : (armed ? "已武装（对已匹配构建生效）"
-                             : "未武装（当前构建无匹配地址行或序言不符）")
+                let hookState = RuntimeCommand.runtimeHookStateText(
+                    active: active, markerExists: markerExists, armed: armed)
                 print("hook 武装:         \(hookState)")
                 // 改写证据计数（dylib 30s 周期回写 marker；微信重启归零——
-                // 读到的是当前会话的最近快照）。fires=完成改写次数、
-                // hits=「撤回」needle 命中（含自发跳过/超长放弃）、
-                // zero=newmsgid 清零次数（消息保留动作）。
-                if let markerText {
+                // 读到的是当前会话的最近快照）。组件不在位时是上次在装期的
+                // 冻结数据，不再展示（上方加载标记行已注明历史快照在档）。
+                // fires=完成改写次数、hits=「撤回」needle 命中（含自发跳过/
+                // 超长放弃）、zero=newmsgid 清零次数（消息保留动作）。
+                if active, let markerText {
                     func markerInt(_ key: String) -> String {
                         guard let r = markerText.range(of: "\(key)=") else { return "?" }
                         let digits = markerText[r.upperBound...].prefix(while: \.isNumber)
@@ -575,7 +595,7 @@ extension Wxkeep {
                     print("hook 证据:         fires=\(markerInt("fires")) hits=\(markerInt("hits")) "
                         + "zero=\(markerInt("zero"))（本次启动累计，30s 粒度回写）")
                 }
-                let state = injected && dylibExists ? (markerExists ? "已启用" : "已注入（启动微信后生效）") : "未启用"
+                let state = active ? (markerExists ? "已启用" : "已注入（启动微信后生效）") : "未启用"
                 print("整体:              \(state)")
             }
         }
@@ -670,6 +690,11 @@ extension Wxkeep {
                     throw error
                 }
                 print("✓ runtime 已注入（微信下次启动时加载）")
+                // 清掉上一次安装期的 marker：它是 dylib 启动回写的历史证据，
+                // 留着会让 `runtime status` 在本次安装尚未启动微信时展示上一
+                // 代的「已加载/已武装/fires」快照——新装周期从「无记录」起算。
+                try? FileManager.default.removeItem(
+                    at: RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker"))
                 // hooks 地址表随装写入 runtime.json（新构建 day-0 数据通道，
                 // 详见 RuntimeConfig 注释）；tip_text/rewrite_self 不在管理面，
                 // 用户手写的值原样保留。
@@ -731,6 +756,11 @@ extension Wxkeep {
                 }
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 try? FileManager.default.removeItem(at: dylib)
+                // marker 一并清掉：它声称「runtime 已加载」——组件移除后留着
+                // 是过期证据（doctor 侧已按 dylib 在位性忽略它，但 runtime
+                // status 与后续 install 前的观察都会被它污染）。
+                try? FileManager.default.removeItem(
+                    at: RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker"))
                 if lcWasPresent {
                     try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat"])
                 }
