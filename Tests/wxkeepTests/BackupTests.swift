@@ -62,4 +62,72 @@ struct BackupTests {
         // 本体未动
         #expect(FileManager.default.fileExists(atPath: bin.path))
     }
+
+    /// 主可执行备份必须落 bundle 外（2026-09-23 d28_live 实测双杀）：
+    /// MacOS/ 内的备份副本在场 → --deep --strict 子代码对象校验败 +
+    /// root 浅签封印它；prune 删掉 → sealed resource missing。dylib 备份
+    /// 维持同目录（实证无害）。userData 注入缝：不碰进程级全局（跨套件
+    /// 并发竞态）。
+    struct MainExecutableBackupTests {
+
+        private func makeFakeApp() throws -> (tmp: URL, main: URL, userDir: URL) {
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("wxkeep-bakmain-\(UUID().uuidString)", isDirectory: true)
+            let main = tmp.appendingPathComponent("MyApp.app/Contents/MacOS/WeChat")
+            try FileManager.default.createDirectory(
+                at: main.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(repeating: 0xCF, count: 64).write(to: main)
+            let plist = """
+            <?xml version="1.0"?><plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>WeChat</string>
+            </dict></plist>
+            """
+            try plist.data(using: .utf8)!.write(
+                to: tmp.appendingPathComponent("MyApp.app/Contents/Info.plist"))
+            let userDir = tmp.appendingPathComponent("user")
+            try FileManager.default.createDirectory(at: userDir, withIntermediateDirectories: true)
+            return (tmp, main, userDir)
+        }
+
+        @Test func mainExecutableBackupLandsOutsideBundle() throws {
+            let (tmp, main, userDir) = try makeFakeApp()
+            defer { try? FileManager.default.removeItem(at: tmp) }
+
+            #expect(Backup.isBundleMainExecutable(main), "Contents/MacOS/<CFBundleExecutable> 识别")
+            let backup = try Backup.make(binary: main, userData: userDir)
+            // 落点 = 用户数据目录 backups/<bundle 名>/，且内容完整
+            #expect(backup.path.hasPrefix(
+                userDir.appendingPathComponent("backups/MyApp.app").path + "/"))
+            #expect(FileManager.default.fileExists(atPath: backup.path))
+            #expect(try Data(contentsOf: backup).count == 64)
+            // MacOS/ 内不得留任何 wxkeep-bak（在场即被 --deep 扫描）
+            let macosFiles = try FileManager.default.contentsOfDirectory(
+                atPath: main.deletingLastPathComponent().path)
+            #expect(!macosFiles.contains { $0.contains(".wxkeep-bak-") },
+                    "bundle 内不得留主可执行备份")
+        }
+
+        @Test func dylibBackupStaysNextToBinary() throws {
+            let (tmp, _, _) = try makeFakeApp()
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            let dylib = tmp.appendingPathComponent("MyApp.app/Contents/Resources/wechat.dylib")
+            try FileManager.default.createDirectory(
+                at: dylib.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(repeating: 0xCF, count: 32).write(to: dylib)
+
+            #expect(!Backup.isBundleMainExecutable(dylib))
+            let backup = try Backup.make(binary: dylib)
+            #expect(backup.deletingLastPathComponent().path
+                    == dylib.deletingLastPathComponent().path, "dylib 备份维持同目录")
+        }
+
+        /// 非主可执行的 MacOS/ 内文件（CFBundleExecutable 不匹配）不算主程序，
+        /// 但也别误伤：仍按同目录处理（现状行为——真实场景不出现，防御语义）。
+        @Test func mismatchedExecutableNameIsNotMainExecutable() throws {
+            let (tmp, _, _) = try makeFakeApp()
+            let other = tmp.appendingPathComponent("MyApp.app/Contents/MacOS/helper")
+            try Data([0xCF]).write(to: other)
+            #expect(!Backup.isBundleMainExecutable(other))
+        }
+    }
 }

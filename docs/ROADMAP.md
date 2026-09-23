@@ -1,5 +1,62 @@
 # 路线图（待办归档）
 
+## ㊹ drive28 群聊实弹轮（2026-09-23 深夜：Backup 双杀缺陷炸出并修复 + 六断点强阴性——㉜ 静态推测链被实弹排除，143 测全绿）
+
+任务：用户发起 drive28 实弹（需一次真实群聊撤回的遗留项）。六轮编排
+（run1-6），过程炸出一个 P0 缺陷并完成一次有价值的阴性观察。
+
+1. **[缺陷 E·P0] 主程序备份在 bundle 内的双杀（已修）**：
+   - 症状：run1 的 `runtime install` 重签硬验证炸 `invalid Info.plist
+     (plist or signature have been modified) In subcomponent:
+     …/MacOS/WeChat.wxkeep-bak-<ts>`；手动删备份后变 `file missing:
+     sealed resource`——**双杀结构**：备份在场 → `--deep --strict` 把
+     MacOS/ 下可执行副本当子代码对象校验而败 + root 浅签把它封进
+     CodeResources；备份被删（prune 轮换后）→ 封印缺文件再败。
+   - 触发条件：㊲ 轮「root 浅签带主程序完整 entitlements」之后的首次
+     runtime install/remove（今晚是第一跑）。历史轮次幸存是旧式无
+     entitlements 签名（09-20 备份单验通过 vs 今晚两份单验即败的对照
+     实证；entitlements 假设被证伪——三份同为 19 键 restricted，差异
+     在签名的 bundle-seal 上下文，09-20 幸存机制未完全归因，不影响
+     修复决策）。
+   - 修复：`Backup.isBundleMainExecutable`（Contents/MacOS/
+     <CFBundleExecutable> 识别）+ `backupDirectory`——主程序备份落
+     **bundle 外** `userDataURL/backups/<bundle名>/`；dylib 备份维持
+     同目录（多轮 restore 后 verify OK 实证无害）。`userData` 注入缝
+     （测试不碰进程级全局）。回归 ×3（落点/同目录/非主程序识别）。
+     run2 实证：install 全链通过（resign verify OK + 备份在 bundle 外
+     `~/Library/Application Support/wxkeep/backups/WeChat.app/`）。
+   - 现场恢复：删 bundle 内 3 份历史备份 + 手动 root 重签（同 Resigner
+     参数）→ verify OK。
+2. **d28_live.sh 三处加固**：`$PID，` 全角逗号 unbound（50b2462 同类
+   漏网——sh 未扫，`${PID}`）；attach 瞬态失败重试 ×3（微信启动 8s 时
+   线程风暴停不下，稳定等待 8s→25s）；lazy 化后**读回断言**（实验前提
+   必须在启动前成立）+ osascript 系统通知（终端文本用户可能看不到）。
+3. **run4/5 教训：实验前提两次被窗口期配置改写污染**（RT 在启动前/后
+   被改回防护形态——marker zero>0 是指纹；120s 哈希侦探 + launchd/cron
+   排查确认无守护进程，为手动改写）。run6 以「lazy 读回断言 + marker
+   全零复核（fires=0 hits=0 zero=0 = hook 纯透传）+ doctor pristine
+   三重验证」达成干净前提。
+4. **[强阴性] 六断点 100% 零命中（run6）**：前提三重验证干净（字节
+   pristine / runtime lazy / marker 全零），用户触发撤回至少两次
+   （文本 + 按通知改撤链接/卡片类），handlercmp/cb/lookup/dbop/inscond/
+   insert 全零。**定性为强阴性信号而非定案**：(a) 撤回到达性未独立
+   确认（界面灰条现象的问询未获回复——若撤回未正常显示则实验无效）；
+   (b) 第二次撤回的消息类型未经机器验证。若成立则 ㉜ 静态推测的
+   「share_card handler 0x3444b40 状态机 + 3421bb0 完成回调」**不在
+   （文本/链接）群聊撤回的实时路径上**——与 d22 实弹链路（sysmsg 处理器
+   → parse/revoke_manager/async-body，无一跳进入 0x3444b40/0x3421bb0）
+   相互印证：㉜ 的静态 xref 推测链方向性存疑。
+5. **drive28.py 遗留缺陷（记录未修）**：`Continue()` 同步阻塞 + 时限
+   检查在其后——零命中时 900s 时限永不触发（本轮手动 kill lldb 收口）。
+6. **收口**：机器恢复用户日常态（keeptip+update patched / verify OK /
+   runtime remove 与今晚实验前一致 / RT '⚠️' 配置恢复——用户日常配置
+   存档 var/wxarm/user_daily_runtime_config.plist）。
+7. **下一轮（drive29）路线**：断点集换 **d22 实证路径**（parse
+   0x537dcd0 + revoke_manager 二次分派 0x394be13 + async-body
+   0x3951040）+ 保留六断点做交叉——parse 命中而六断点零命中同时成立
+   即铁证；在 parse 命中现场 bt 回溯真实链路定位 text handler 同构体。
+   前置：drive28.py 时限缺陷修复（异步 Continue / 独立看门狗线程）。
+
 ## ㊸ 例行巡检 + 全源码复审轮（2026-09-23：CDN 无新构建 → 逐文件复审揭出三缺陷 + --only 域别名，140 测全绿）
 
 任务：㊷ 收口后的例行轮（用户指令三段式：继续待办 + 逻辑复审 + 最新

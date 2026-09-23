@@ -61,7 +61,13 @@ with open(p,'rb') as f: d = plistlib.load(f)
 d['keep_message'] = False      # 惰性：不清零 newmsgid（默认缺省=开，须显式关）
 d.pop('tip_text', None)        # 无文案改写 → 全透传
 with open(p,'wb') as f: plistlib.dump(d, f)
-print('lazy config ok: keep_message=false, tip_text removed; keys:', sorted(d.keys()))
+# 读回验证：实验 A 的前提必须在微信启动前成立（2026-09-23 实弹教训：
+# 配置在写盘与启动之间被改回防护态 → 撤回被 hook 清零 → 六断点零命中，
+# 白跑一轮——marker zero>0 即该污染的指纹）
+with open(p,'rb') as f: chk = plistlib.load(f)
+assert chk.get('keep_message') is False, 'keep_message=false 未生效'
+assert 'tip_text' not in chk, 'tip_text 未移除'
+print('lazy config ok: keep_message=false, tip_text removed; keys:', sorted(chk.keys()))
 PY
 
 # ---------- 3. 启动微信（惰性态）----------
@@ -70,13 +76,20 @@ open -a /Applications/WeChat.app
 PID=""
 for i in $(seq 1 30); do PID=$(pgrep -x WeChat | head -1); [[ -n "$PID" ]] && break; sleep 1; done
 [[ -n "$PID" ]] || { log "微信 30s 内未起来"; exit 4; }
-log "WeChat pid=$PID，等 8s 稳定（自动登录）"
-sleep 8
+log "WeChat pid=${PID}，等 25s 稳定（自动登录 + 线程风暴平息——8s 实测会 attach 失败：attached but could not pause execution）"
+sleep 25
 
 # ---------- 4. lldb 只读观察窗（≤900s）----------
 log "phase 4: lldb attach + drive28 —— 观察窗已开（≤15 分钟），请去任意群聊触发一次撤回"
-lldb --batch -p "$PID" \
-  -o 'command script import tools/dyntrace/drive28.py' \
-  -o 'drive28' \
-  -o 'detach' 2>&1 | tee var/wxarm/d28_session.log
+osascript -e 'display notification "观察窗 15 分钟。请去任意群聊触发一次真实撤回（优先他人撤回）。期间请勿运行 wxkeep 命令或编辑 runtime.json——防护配置会污染实验。" with title "drive28 实弹观察窗已开" sound name "Glass"' >/dev/null 2>&1 || true
+for ATTEMPT in 1 2 3; do
+  lldb --batch -p "$PID" \
+    -o 'command script import tools/dyntrace/drive28.py' \
+    -o 'drive28' \
+    -o 'detach' 2>&1 | tee var/wxarm/d28_session.log
+  # attach 瞬态失败（could not pause execution）重试；drive28 正常跑完则退出
+  if ! grep -q "attach failed" var/wxarm/d28_session.log; then break; fi
+  log "attach 第 ${ATTEMPT} 次失败（瞬态）——10s 后重试"
+  sleep 10
+done
 log "drive28 轮结束——数据在 var/wxarm/d28.log（与 d28_insert_*.bin）"
