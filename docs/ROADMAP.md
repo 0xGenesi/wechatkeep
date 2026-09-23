@@ -91,16 +91,17 @@ drive29 脚本 + 编排参数化 + 端到端冒烟）。冒烟四轮炸出/修�
    排查确认无守护进程，为手动改写）。run6 以「lazy 读回断言 + marker
    全零复核（fires=0 hits=0 zero=0 = hook 纯透传）+ doctor pristine
    三重验证」达成干净前提。
-4. **[强阴性] 六断点 100% 零命中（run6）**：前提三重验证干净（字节
-   pristine / runtime lazy / marker 全零），用户触发撤回至少两次
-   （文本 + 按通知改撤链接/卡片类），handlercmp/cb/lookup/dbop/inscond/
-   insert 全零。**定性为强阴性信号而非定案**：(a) 撤回到达性未独立
-   确认（界面灰条现象的问询未获回复——若撤回未正常显示则实验无效）；
-   (b) 第二次撤回的消息类型未经机器验证。若成立则 ㉜ 静态推测的
-   「share_card handler 0x3444b40 状态机 + 3421bb0 完成回调」**不在
-   （文本/链接）群聊撤回的实时路径上**——与 d22 实弹链路（sysmsg 处理器
-   → parse/revoke_manager/async-body，无一跳进入 0x3444b40/0x3421bb0）
-   相互印证：㉜ 的静态 xref 推测链方向性存疑。
+4. **[定案阴性·已确认] 六断点 100% 零命中（run6）**：前提三重验证干净（字节
+   pristine / runtime lazy / marker 全零），用户触发撤回至少两次（文本 +
+   链接/卡片类），handlercmp/cb/lookup/dbop/inscond/insert 全零。
+   **2026-09-24 用户界面现象确认补齐**：卡片/链接撤回后「只见灰色提示条、
+   卡片未保留（原生删除）」= 撤回到达且走完整原生链路（灰条=服务端
+   replacemsg 正常渲染、删除=newmsgid 原样下原生状态机正常执行）——实验
+   有效性最后一个缺口闭合，㉜ 静态推测的「share_card handler 0x3444b40
+   状态机 + 3421bb0 完成回调」**定案不在文本/链接类群聊撤回的实时路径上**
+   （与 d22 实弹链路互证：sysmsg 处理器 → parse/revoke_manager/async-body
+   无一跳进入该链）。㉜ 的静态 xref 推测链方向性被实弹证伪——M-R4 若按
+   该链立项必属错误选址，drive29 的 parse 现场回溯是唯一可靠的定位路径。
 5. **drive28.py 遗留缺陷（记录未修）**：`Continue()` 同步阻塞 + 时限
    检查在其后——零命中时 900s 时限永不触发（本轮手动 kill lldb 收口）。
 6. **收口**：机器恢复用户日常态（keeptip+update patched / verify OK /
