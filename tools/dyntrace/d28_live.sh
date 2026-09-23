@@ -1,26 +1,42 @@
 #!/bin/bash
-# d28_live.sh — drive28 群聊实弹（实验 A：惰性态）的一键编排。
+# d28_live.sh — 群聊实弹（实验 A：惰性态）的一键编排。
 #
-# 前提（2026-09-20 已核）：装机 WeChat=270100；drive28 六偏移对 pristine
+# 用法：bash tools/dyntrace/d28_live.sh [drive28|drive29]（缺省 drive28）
+#   drive28：3421BB0 完成回调六断点（㉜ 静态推测链判定）
+#   drive29：d22 实证路径三点 + 六断点交叉（真实链路定位轮，㊹ 下一轮）
+#
+# 前提（2026-09-20 已核）：装机 WeChat=270100；六偏移对 pristine
 # 工件全部复核 PASS；本机 SIP off + amfi relaxed（lldb attach 可行）。
 #
 # 流程：微信退出 → 字节 restore（revoke 链 pristine，实验 A 口径=d27 对照组）
 #   → runtime install → 惰性配置（keep_message=false、去 tip_text；原配置备份）
-#   → 启动微信 → lldb attach + drive28（≤900s 只读观察窗）
+#   → 启动微信 → lldb attach + drive 脚本（≤900s 只读观察窗）
 #   → trap 自愈：恢复 runtime.json；未捕获→退场到日常防护态（runtime remove
 #   + patch silent）；已捕获→保留现场（微信运行+灰条可肉眼复核），分析轮收口。
 #
 # 用户动作：观察窗内【任意群聊】发生一次真实撤回（群友撤/手机上撤均可，
-# 优先他人撤回）。工件 → var/wxarm/d28.log、d28_insert_*.bin、d28_session.log。
+# 优先他人撤回）。工件 → var/wxarm/<drive>.log、d28_insert_*.bin、
+# d29_parse_*.xml、<drive>_session.log。
+# DRIVE_TIME_CAP_S=<秒> 可缩短观察窗（冒烟/ rehearsal 用；设了就不弹通知）。
 set -uo pipefail
 cd "$(dirname "$0")/../.."   # 仓库根（lldb 相对 import 与 tee 落点）
 WX="$(pwd)/.build/release/wxkeep"
+DRIVE="${1:-drive28}"
+case "$DRIVE" in drive28|drive29) ;; *) echo "未知 drive: ${DRIVE}（drive28|drive29）"; exit 2;; esac
+# python 侧数据日志名 = d<NN>.log（drive28.py/drive29.py 内硬编码 d28.log/d29.log）
+LOGP="d${DRIVE#drive}.log"
+SESSION="$(pwd)/var/wxarm/${DRIVE}_session.log"   # 绝对路径：tee/grep 不受 CWD 歧义影响
 RT="$HOME/Library/Application Support/wxkeep/runtime.json"
-BAK="var/wxarm/runtime.json.pre-d28.bak"
+BAK="var/wxarm/runtime.json.pre-${DRIVE}.bak"
 
 log(){ printf '\033[1;36m[d28live]\033[0m %s\n' "$(date +%H:%M:%S) $*"; }
 
-capture_p(){ ls var/wxarm/d28_insert_*.bin >/dev/null 2>&1 || grep -q '@@@ insert' var/wxarm/d28.log 2>/dev/null; }
+capture_p(){
+  case "$DRIVE" in
+    drive28) ls var/wxarm/d28_insert_*.bin >/dev/null 2>&1 || grep -q '@@@ insert' "var/wxarm/$LOGP" 2>/dev/null ;;
+    drive29) grep -q '^DRIVE29 VERDICT: HIT' "var/wxarm/$LOGP" 2>/dev/null ;;
+  esac
+}
 
 cleanup(){
   log "cleanup: 恢复 runtime.json 用户配置"
@@ -35,10 +51,10 @@ cleanup(){
     "$WX" patch --variant silent >/dev/null 2>&1 || log "⚠️ patch silent 非零——请手动 '$WX patch --variant silent'"
   fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 # ---------- 0. 前置 ----------
-[[ -x "$WX" ]] || { log "缺 $WX（先 swift build -c release）"; exit 2; }
+[[ -x "$WX" ]] || { log "缺 ${WX}（先 swift build -c release）"; exit 2; }
 "$WX" doctor 2>/dev/null | grep -q 'build: 270100' || { log "装机件不是 270100——drive28 偏移不适用，中止"; exit 2; }
 if pgrep -x WeChat >/dev/null 2>&1; then
   log "微信在运行——先退出"
@@ -79,17 +95,21 @@ for i in $(seq 1 30); do PID=$(pgrep -x WeChat | head -1); [[ -n "$PID" ]] && br
 log "WeChat pid=${PID}，等 25s 稳定（自动登录 + 线程风暴平息——8s 实测会 attach 失败：attached but could not pause execution）"
 sleep 25
 
-# ---------- 4. lldb 只读观察窗（≤900s）----------
-log "phase 4: lldb attach + drive28 —— 观察窗已开（≤15 分钟），请去任意群聊触发一次撤回"
-osascript -e 'display notification "观察窗 15 分钟。请去任意群聊触发一次真实撤回（优先他人撤回）。期间请勿运行 wxkeep 命令或编辑 runtime.json——防护配置会污染实验。" with title "drive28 实弹观察窗已开" sound name "Glass"' >/dev/null 2>&1 || true
+# ---------- 4. lldb 只读观察窗（≤900s；DRIVE_TIME_CAP_S 可缩短）----------
+log "phase 4: lldb attach + ${DRIVE} —— 观察窗已开（≤15 分钟），请去任意群聊触发一次撤回"
+if [[ -z "${DRIVE_TIME_CAP_S:-}" ]]; then
+  osascript -e 'display notification "观察窗 15 分钟。请去任意群聊触发一次真实撤回（优先他人撤回）。期间请勿运行 wxkeep 命令或编辑 runtime.json——防护配置会污染实验。" with title "'"${DRIVE}"' 实弹观察窗已开" sound name "Glass"' >/dev/null 2>&1 || true
+fi
 for ATTEMPT in 1 2 3; do
+  # 直写文件（不经 tee 管道——SIGPIPE 会连环杀 lldb/脚本，2026-09-24 冒烟实证；
+  # 实时查看: tail -f "$SESSION"）
   lldb --batch -p "$PID" \
-    -o 'command script import tools/dyntrace/drive28.py' \
-    -o 'drive28' \
-    -o 'detach' 2>&1 | tee var/wxarm/d28_session.log
-  # attach 瞬态失败（could not pause execution）重试；drive28 正常跑完则退出
-  if ! grep -q "attach failed" var/wxarm/d28_session.log; then break; fi
+    -o "command script import tools/dyntrace/${DRIVE}.py" \
+    -o "${DRIVE}" \
+    -o 'detach' > "$SESSION" 2>&1
+  # attach 瞬态失败（could not pause execution）重试；drive 正常跑完则退出
+  if ! grep -q "attach failed" "$SESSION"; then break; fi
   log "attach 第 ${ATTEMPT} 次失败（瞬态）——10s 后重试"
   sleep 10
 done
-log "drive28 轮结束——数据在 var/wxarm/d28.log（与 d28_insert_*.bin）"
+log "${DRIVE} 轮结束——数据在 var/wxarm/${LOGP}（与会话日志）"

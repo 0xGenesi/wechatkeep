@@ -1,5 +1,60 @@
 # 路线图（待办归档）
 
+## ㊺ drive29 备战轮（2026-09-24 凌晨：三类实弹工具缺陷修复 + 全链冒烟四轮收绿——实弹只欠一次群聊撤回）
+
+任务：㊹ drive29 路线的前置工程自主收口（drive28.py Continue 阻塞修复 +
+drive29 脚本 + 编排参数化 + 端到端冒烟）。冒烟四轮炸出/修复四缺陷，全部
+实证闭环。
+
+1. **[缺陷 F·P0·复发] bash 3.2 多字节邻接变量 ×4（本轮亲手再引入）**：
+   `d28_live.sh` 参数化时写入 `$LOGP（`、`$DRIVE（`、`$WX（`——macOS 自带
+   bash 3.2 + set -u 把 `$VAR` 后的非 ASCII 字节并入变量名 → 运行时
+   unbound 崩（最小复现实证：`bash -c 'set -u; LOGP=x; echo "$LOGP（"'`
+   必崩，`${LOGP}（` 正常）。50b2462 只修了 yml 且扫描模式只枚举了部分
+   标点（`（` 不在其中——漏网根因）。修复：全部加花括号；新扫描器
+   （`$VAR` 后跟任意 ≥0x80 字节，排除 `${` 形式）横扫 tools/**/*.sh +
+   workflows = 0。教训：该类 bug `bash -n` 测不出（运行时才炸）、报错
+   时才触发（错误路径最阴险）。
+2. **[缺陷 G] LLDB async 轮询崩溃（CLT lldb-1700 实证）**：drive28.py 的
+   async 修复（SetAsync(True)+GetState 轮询）在冒烟中高频 stop/resume 下
+   LLDB 自身 SIGSEGV（WillPublicStop 内 StructuredData 析构）——已落盘
+   数据不受影响但会话中断。处置：drive29 定型**同步模式**（drive22/25/27
+   实证基线）——parse 断点对全部消息流计数保证主循环必推进、TIME_CAP_S
+   必达，drive28 六死断点的「零命中永久阻塞」病理在本断点集不成立；
+   drive28.py 保留 async 修复（其六断点零命中场景下 async 轮询无事件
+   处理、不触发该崩溃路径）。
+3. **[缺陷 H] lldb 退出连带杀微信**：batch `-o detach` 在 python 已
+   detach/异常场景下报错退出时，lldb 结束会对停止态目标 SIGKILL
+   （冒烟实证微信被连带杀死）。修复：两个 drive 脚本在放弃路径与收工
+   路径**显式 proc.Detach()**（`Process NNN detached` 实证恢复运行），
+   batch 的 `-o detach` 降级为无害安全网。
+4. **[缺陷 I] tee 管道 SIGPIPE 暴露**：`lldb | tee` 在对端异常时连环杀。
+   处置：lldb 输出直写会话文件（`> "$SESSION"`），实时查看改
+   `tail -f`；EXIT/INT/TERM 三信号都触发 cleanup。
+5. **drive29.py 交付**（tools/dyntrace/，编排 `bash tools/dyntrace/
+   d28_live.sh drive29`）：断点 = d22 实证三点（parse 0x537dcd0 /
+   revmgr 0x394be13 / asyncbody 0x3951040）+ ㉜ 六点交叉；parse 现场
+   读 rsi XML SSO，revokemsg 命中录完整 bt(20 帧) + XML 落盘（≤6 份），
+   非 revokemsg 洪峰只计数；VERDICT 判读矩阵：parse_revokemsg>0 且
+   (revmgr|asyncbody)>0 → HIT（活链实捕）/ parse 单独 → HISTORY-ONLY
+   （登录历史批扫，需复核界面现象）/ 全零 → NEGATIVE。编排
+   capture_p 认 HIT；DRIVE_TIME_CAP_S 可缩窗（冒烟用，设了不弹通知）。
+6. **冒烟实证（smoke1-4）**：smoke1 虽崩但**捕获有效数据**——登录历史
+   批扫 4× parse/revokemsg，bt 与 d22 D 路径完全同构（0x5cda…→0x5d97…
+   →漏斗 0x530e2bb→wrapper 0x537dc63→parse），证明 revokemsg XML 判据
+   与 20 帧回溯可工作；smoke4 全链干净通过（75s 时限到达→VERDICT
+   NEGATIVE→显式 detach→cleanup 退场→exit 0），会话文件、RT 恢复、
+   防护态退场全部符合设计。附：三轮「session 文件失踪」假案实为自查
+   文件名错误（drive29_session.log vs d29_session.log）。
+7. **收口**：用户日常态恢复（keeptip patched / doctor protected /
+   verify OK / RT '⚠️' 配置 / WeChat 已退出）；143 测全绿（Swift 侧无
+   改动，回归确认）。
+8. **下一轮（实弹，只欠一次群聊撤回）**：`bash tools/dyntrace/d28_live.sh
+   drive29`（15 分钟窗口+系统通知）；观察期间勿动 wxkeep 配置（run4/5
+   教训）；微信间歇卡顿=parse 断点计数，正常现象。捕获后分析
+   d29_parse_*.xml + revokemsg bt → 定位 text handler 撤回状态机同构体
+   → M-R4 立项。
+
 ## ㊹ drive28 群聊实弹轮（2026-09-23 深夜：Backup 双杀缺陷炸出并修复 + 六断点强阴性——㉜ 静态推测链被实弹排除，143 测全绿）
 
 任务：用户发起 drive28 实弹（需一次真实群聊撤回的遗留项）。六轮编排

@@ -43,7 +43,8 @@ DBOP = 0x3421C4D
 INS_COND = 0x3422375
 INSERT = 0x342238E
 NEEDLE = "撤回".encode("utf-8")
-TIME_CAP_S = 900
+# 时限：DRIVE_TIME_CAP_S 环境变量可缩短（编排脚本冒烟/rehearsal 用）
+TIME_CAP_S = int(os.environ.get('DRIVE_TIME_CAP_S', '900'))
 LOG = open(os.path.join(OUT, 'd28.log'), 'a', buffering=1)
 
 
@@ -138,6 +139,7 @@ def drive28(debugger, command, result, internal_dict):
             break
     if base is None:
         log('DRIVE28: parse 位点地面真值未匹配 — 放弃')
+        proc.Detach()   # 显式分离：lldb 退出时停止态目标会被 kill（实证）
         return
 
     for off, nm in ((HANDLER_CMP, 'handlercmp'), (CB_ENTRY, 'cb'),
@@ -147,6 +149,10 @@ def drive28(debugger, command, result, internal_dict):
         bp = target.BreakpointCreateByAddress(base + off)
         log(f'  bp {nm}@{off:#x} #{bp.GetID()} resolved={bp.GetNumResolvedLocations()}')
 
+    # 异步模式：Continue() 立即返回、下方主循环轮询状态——同步 Continue 在
+    # 零命中时永久阻塞，900s 时限永不检查（2026-09-23 run6 实弹踩中：观察窗
+    # 到期后仍挂死，只能手动 kill lldb 收口）。
+    debugger.SetAsync(True)
     proc.Continue()
     log('DRIVE28: 已恢复——请触发【群聊】撤回一次（观察轮：只读）')
 
@@ -209,7 +215,13 @@ def drive28(debugger, command, result, internal_dict):
                     if rdi > 0x10000:
                         dump_insert_struct(proc, rdi, n)
         proc.Continue()
+    # 时限到：显式 detach 恢复目标运行——不能依赖 batch 的 -o detach，lldb
+    # 在 detach 失败/异常退出时会 SIGKILL 停止态目标（2026-09-24 冒烟实证）
     log('DRIVE28: 时限到，收工')
+    debugger.SetAsync(False)
+    if proc.GetState() != lldb.eStateStopped:
+        proc.Stop()
+    proc.Detach()
 
 
 def __lldb_init_module(debugger, internal_dict):
