@@ -1,5 +1,51 @@
 # 路线图（待办归档）
 
+## ㊻ drive29 实弹捕获轮（2026-09-24 深夜：群聊撤回真实链路 + 双 sysmsg 形态实捕——parse 侧拓扑定案）
+
+任务：drive29 实弹（用户一次群聊自撤）。25× parse/revokemsg 命中 + 完整
+bt + XML 落盘，parse 侧真实拓扑定案；RT 翻写者第三次现身（未捕获）。
+
+1. **真实链路（群聊自撤，t=+34s，base=0x1342b2000）**——两路进 parse，
+   外层与 d22 漏斗逐帧吻合：
+   - **A 路（到达解析）**：0x6f4c919 → 0x6f53512 → 0x4b5d42c → 0x4b8a1f8
+     → 0x4b56e85 → 0x4b2a987 → sysmsg 处理器 0x4b3b84f →
+     [0x35594b0..0x3559b00) 内 0x35595cc → 存储解析器 0x530d061 →
+     漏斗 0x530e2bb → wrapper 0x537dc63 → parse（dump1/3/5…奇数序）
+   - **B 路（revoke_manager 二次解析）**：同漏斗 → 0x35595d7 → 0x3559697
+     → revoke_manager [0x394ae30..0x394e4c0) 内 **call@~0x394bf6e**
+     （返回址 0x394bf73）→ wrapper → parse（dump2/4…偶数序）
+2. **双 sysmsg 形态（新知识，dump 实证）**：A 路吃**群组形态**
+   `<session>…@chatroom</session><msgid><newmsgid><replacemsg>`（dump1
+   newmsgid 完整=断点先于 hook，法证一致）；B 路吃**content 形态**
+   `<?xml…><content>你撤回了一条消息</content><revoketime>0</revoketime>`
+   （无私有字段）——两种形态各有来源与消费者，非同一 XML 重解析。
+3. **交叉断点判读（防护态，不作阴性证据）**：marker fires=20/zero=6 证实
+   微信内存为防护配置（RT 翻写者第三次作案，见 4）——本轮语义=实验 B
+   （防护态），六断点零命中与 run4 同因（newmsgid=0 下游定位失败）不
+   计数。但 revmgr bp（0x394be13）零命中而 B 路函数实际执行（帧实证）=
+   **群聊在 revoke_manager 内走 ~0x394bf6e 调用点，与私聊（d22 经
+   0x394be13）分叉**；asyncbody（0x3951040）零命中 = C 路未走/未至。
+   VERDICT 打出 HISTORY-ONLY 属判读矩阵缺陷（cluster 以 revmgr bp 为据
+   过严——函数在跑、调用点不同）；capture 判定不受影响（cleanup 退场
+   正确），矩阵待 drive30 修正（以 parse bt 帧段判 cluster）。
+4. **[悬案·三现] RT 翻写者**：lazy 读回断言通过（23:05:3x）→ 微信启动
+   （23:05:39）→ 23:07 已是日常配置（内存实证 fires/zero>0）。前晚两次、
+   本次第三次，总是翻回内容完全一致的 '⚠️' 日常版；上晚侦探（120s 哈希
+   监控+launchd/cron 排查）无收获且侦探脚本被 /tmp 清理未及再部署。已
+   排除：dylib（只写 marker）、legacy 路径（同为 lazy）、launchd/cron、
+   wxkeep 进程。疑点集中在其触发与微信启动强相关。下一步：常驻侦探
+   （var/ 下，防 /tmp 清理）+ `sudo fs_usage -w -f filesys` 按路径过滤
+   抓写者 pid（需用户授权 sudo）；或实验免疫化（launch 前亚秒级重写
+   lazy + 以 marker zero 判内存态——本轮已实证链路捕获与配置无关）。
+5. **本轮产出对 M-R4 的意义**：parse 侧拓扑定案后，剩余未知收缩到
+   「parse 之后的消费者」（原生删除/群提示插入的执行体）。㉜ 的
+   3421bb0 链已定案出局，INSERT 漏斗 0x3415A30 的真实调用者待
+   **干净 lazy 态**补bp（INSERT 0x3415A30 + LOOKUP 0x5311B30）实捕——
+   前置=翻写者悬案解决（或实验免疫化）。
+6. **收口**：防护态恢复（keeptip patched / doctor protected / verify
+   OK / RT 日常配置）；工件 var/wxarm/d29.log、d29_parse_1..6.xml、
+   d29_live.log、drive29_session.log。
+
 ## ㊺ drive29 备战轮（2026-09-24 凌晨：三类实弹工具缺陷修复 + 全链冒烟四轮收绿——实弹只欠一次群聊撤回）
 
 任务：㊹ drive29 路线的前置工程自主收口（drive28.py Continue 阻塞修复 +

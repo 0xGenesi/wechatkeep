@@ -24,6 +24,10 @@ import time
 #       只有登录历史批扫（d22 D 路径：历史重扫也过 parse）——活撤回未到达，
 #       需复核界面现象（灰条/消息是否正常删除）
 #   parse_revokemsg==0 → NEGATIVE（窗口无撤回流量）
+#   ⚠ 已知过严（2026-09-24 实弹）：cluster 以 0x394be13 bp 为据，但群聊撤回
+#   在 revoke_manager 内走 ~0x394bf6e 调用点（私聊/群聊分叉，实证）——
+#   活撤回会被误标 HISTORY-ONLY。修正方向（drive30）：cluster 改判 parse bt
+#   帧段（0x394*** 或 0x3559*** 在场即活链）。capture/数据不受影响。
 #
 # 洪峰降噪：parse 对全部消息流计数（d22「洪峰 20+ 源头」），非 revokemsg
 # 命中只计数不落盘。观察期间微信间歇卡顿 = 断点往返，正常现象。
