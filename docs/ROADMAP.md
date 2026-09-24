@@ -1,5 +1,48 @@
 # 路线图（待办归档）
 
+## ㊽ review + drive30 备战轮（2026-09-25 凌晨：全源码复读无新缺陷 + 翻写者相关性收敛 + VERDICT 帧段判落地）
+
+任务（用户指令）：阅读项目源码 → 继续未完成任务 → review → 优化升级。
+ARM 验证用户主动延后（v0.2.4 包已备好 ~/Downloads/wxkeep-v0.2.4/）。
+
+1. **源码 review（本会话未复读面全部收齐）**：runtime.m 全文（1-949，
+   hook 引擎/安装机器/兜底触发源/marker 周期回写）逐段复读——无新缺陷；
+   main.swift / PrivacyGuard.swift / tools/GUI（只读面板确认）——无缺陷
+   （GUI 的 AppleScript 命令插值属可信输入+本地工具，复查过不改）。
+   至此 Sources/ 全部 22 文件在本会话完成至少一轮精读。
+2. **[悬案推进] RT 翻写者相关性收敛（两阶段金丝雀实验）**：
+   - phase 1：RT 埋金丝雀（tip 换 '"RT"' 变体 + canary 键）但保持
+     keep_message=true + 微信启动 → **不翻写**（90s+ 静默）；
+   - phase 2：keep_message=false 诱饵 + 微信重启（但 runtime dylib 未装
+     ——上轮 cleanup 已移除）→ **不翻写**（100s+ 静默）；
+   - 判别面更新：三现翻写全部发生在「dylib 在装 + lldb 在场 + lazy」
+     条件下，两阶段阴性排除「无差别守护」假设；翻写者与 dylib 在装态
+     的相关性上升（但 dylib 源码两遍确认只有 marker 一个写点——若下次
+     实证 dylib 相关，嫌疑转向 dylib 之外的注入生态联动）。
+   - **金丝雀常驻**：RT 日常配置内埋 `canary=daily-0924`（隐藏键，
+     apply_config_dict 忽略、功能零影响），BAK 副本已归一化——下次翻写
+     的内容自动暴露来源（字节恢复/模板重写/哪份副本）。
+   - 工具沉淀：var/wxarm/rt_detective.py（0.05s 粒度 hash/inode 监控 +
+     变化瞬间 lsof/目录临时项/ps 快照），可复用。
+3. **drive30 备战（drive29.py 升级）**：
+   - **VERDICT 帧段判**：cluster 不再按 bp 地址（群聊错位教训），改在
+     parse/revokemsg 命中现场走 20 帧、按函数区间判活链（revoke_manager
+     [0x394ae30,0x394e4c0) / asyncbody [0x3951040,0x3951ea0)），逐命中
+     标注 path（arrival/revmgr/async）；对 ㊻ 实捕样本自检通过
+     （A 路=arrival / B 路=revmgr+arrival / 历史批扫=?）——当轮会被
+     误标 HISTORY-ONLY 的场景就此修正。
+   - **新增 dblookup（0x5311B30）/dbinsert（0x3415A30）断点**：parse 之后
+     的原生消费者执行体（查库/入库漏斗本体）。防护态零命中属预期
+     （newmsgid=0 分支不达）；干净 lazy 态命中 + bt（14 帧）= 真实调用者
+     现形——M-R4 选址的最后空白。
+   - 自检抓到并修复首版 bug（int(tok,16) 未剥 'wechat+' 前缀，会在首次
+     revokemsg 命中时 ValueError 崩掉 parse 处理——分类逻辑对真实样本
+     的 assert 全过）。
+4. **回归**：143 测全绿（Swift 侧无改动）；py_compile + bash -n 过。
+5. **下一步**：drive30 实弹 = 干净 lazy（先解翻写者或接受防护态语义）+
+   一次群聊撤回 → dblookup/dbinsert bt 定位原生执行体 → M-R4 立项；
+   ARM 真机验证（v0.2.4 包）待用户排期；tap 同步待 ARM 验证。
+
 ## ㊼ v0.2.4 发版（2026-09-24：master 7 提交推送 + tag 出 universal 双资产——随版交付 ㊸㊹ 全部缺陷修复与目录数据）
 
 1. **master 推送**：50b2462..42b2667（㊷㊸㊹㊺㊻ 全部 + 版本常量），CI 双
