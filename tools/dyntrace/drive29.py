@@ -1,6 +1,7 @@
 import lldb
 import os
 import time
+import threading
 
 # drive29：群聊撤回真实链路定位轮（270100 x64）——drive28 强阴性的交叉验证轮
 # （㊹ 下一轮；编排走 `bash tools/dyntrace/d28_live.sh drive29`）。
@@ -50,6 +51,12 @@ SIX = ((0x3445E20, 'handlercmp'), (0x3421BB0, 'cb'), (0x3421BE0, 'lookup'),
 # （原生流）才会命中——命中即抓 bt 揭示真实调用者。
 DBLOOKUP = 0x5311B30
 DBINSERT = 0x3415A30
+# 通用消息 DB 操作派发器本体（㉜：rdi=&opstruct, rsi=[r14+0x360], rdx=svrid,
+# ecx=模式参——UpdateCancelUpload(ecx=2) 复用同函数）。删除操作的必经点：
+# 原生流下撤回删除经它派发（ecx=?）——bp 于函数入口，hot（全部 DB 操作）
+# 但只计数 + 前几次 bt 即可揭示撤回删除的真实调用者（3421bb0 链死后的
+# 最大抓捕点）。
+DBOPFN = 0x3680980
 # ㊻ 实证的函数区间（bt 帧段判 cluster 用——bp 地址对群聊错位的教训：
 # revoke_manager 函数在跑但走的调用点不同，按函数区间判而非按 bp 判）
 REVMGR_RANGE = (0x394AE30, 0x394E4C0)
@@ -143,7 +150,8 @@ def drive29(debugger, command, result, internal_dict):
         return
 
     for off, nm in ([(PARSE, 'parse'), (REVMGR, 'revmgr'), (ASYNCBODY, 'asyncbody'),
-                     (DBLOOKUP, 'dblookup'), (DBINSERT, 'dbinsert')] + list(SIX)):
+                     (DBLOOKUP, 'dblookup'), (DBINSERT, 'dbinsert'),
+                     (DBOPFN, 'dbopfn')] + list(SIX)):
         NAMES[base + off] = nm
         bp = target.BreakpointCreateByAddress(base + off)
         log(f'  bp {nm}@{off:#x} #{bp.GetID()} resolved={bp.GetNumResolvedLocations()}')
@@ -158,6 +166,16 @@ def drive29(debugger, command, result, internal_dict):
     proc.Continue()
     log('DRIVE29: 已恢复——请触发【群聊】撤回（只读观察；微信间歇卡顿=parse '
         '断点对所有消息流计数，正常现象）')
+
+    # 看门狗：同步 Continue 在「账号安静、无新命中」时会无限阻塞（登录洪峰
+    # 过后撤回处理完毕即如此，2026-09-25 drive30 实证）——时限到期后强停
+    # 一次，主循环的时限检查得以到达并走 VERDICT/detach 收尾。
+    def _watchdog():
+        try:
+            proc.Stop()
+        except Exception:
+            pass
+    threading.Timer(TIME_CAP_S + 2, _watchdog).start()
 
     while time.monotonic() - t0 < TIME_CAP_S:
         state = proc.GetState()
@@ -226,6 +244,13 @@ def drive29(debugger, command, result, internal_dict):
                 n = bump('dbinsert')   # 全消息入库漏斗，极热——只计数
                 if n <= MAX_CB_LOG:
                     log(f'@@@ dbinsert #{n} rdi={rdi:#x} rsi(flags)={rsi:#x} bt: {bt(t, base, 14)}')
+            elif nm == 'dbopfn':
+                n = bump('dbopfn')     # 通用 DB 操作派发器，极热——只计数
+                if n <= MAX_CB_LOG:
+                    rcx = f0.FindRegister('rcx').GetValueAsUnsigned()
+                    blob = rd(proc, rdi, 16)
+                    log(f'@@@ dbopfn #{n} ecx(mode)={rcx:#x} rdx(svrid)={rdx:#x} '
+                        f'opstruct={blob.hex() if blob else "?"} bt: {bt(t, base, 14)}')
             elif nm == 'handlercmp':
                 n = bump(nm)
                 if n <= MAX_CB_LOG:
@@ -262,6 +287,10 @@ def drive29(debugger, command, result, internal_dict):
                 if n <= MAX_CB_LOG:
                     log(f'\n@@@ insert #{n} rdi={rdi:#x} rsi(flags)={rsi:#x}')
                     log('   bt: ' + bt(t, base))
+        # 时限检查前置于恢复运行：watchdog 停下的这一站若直接 Continue 会
+        # 再次无限阻塞（撤回处理完、账号安静后无新命中，2026-09-25 实证）
+        if time.monotonic() - t0 >= TIME_CAP_S:
+            break
         proc.Continue()
 
     # 判读矩阵收尾（含进程提前退出的路径）。cluster 按帧段判（cluster_live
@@ -269,7 +298,6 @@ def drive29(debugger, command, result, internal_dict):
     rv = counts.get('parse_revokemsg', 0)
     cluster = counts.get('cluster_live', 0)
     six = {nm: counts.get(nm, 0) for _, nm in SIX}
-    extra = {'dblookup': counts.get('dblookup', 0), 'dbinsert': counts.get('dbinsert', 0)}
     if rv and cluster:
         v = 'HIT'
     elif rv:
@@ -278,7 +306,9 @@ def drive29(debugger, command, result, internal_dict):
         v = 'NEGATIVE'
     log(f'DRIVE29 VERDICT: {v} parse_revokemsg={rv} cluster_live={cluster} '
         f'revmgr_bp={counts.get("revmgr", 0)} asyncbody_bp={counts.get("asyncbody", 0)} '
-        f'six={six} extra={extra} total_parse={counts.get("parse", 0)}')
+        f'six={six} extra={{dblookup: {counts.get("dblookup", 0)}, '
+        f'dbinsert: {counts.get("dbinsert", 0)}, dbopfn: {counts.get("dbopfn", 0)}}} '
+        f'total_parse={counts.get("parse", 0)}')
     if v == 'HIT':
         log('DRIVE29: 活撤回链路实捕——revokemsg parse bt 即真实调用链（M-R4 定位素材）')
     elif v == 'HISTORY-ONLY':

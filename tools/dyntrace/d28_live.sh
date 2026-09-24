@@ -66,7 +66,14 @@ fi
 log "phase 1: restore 字节补丁 → pristine（实验 A 需要 native 链路）"
 "$WX" restore || log "restore 返回非零（可能本就 pristine）——继续"
 
-# ---------- 2. runtime 惰性安装 ----------
+# ---------- 2. runtime 惰性安装（NATIVE=1 跳过——完全原生观察） ----------
+# NATIVE=1：不装 runtime dylib、不动 runtime.json——微信=官方字节+官方进程。
+# 用途：drive30 原生执行体观察（dblookup/dbinsert/dbopfn 只在原生流命中），
+# 同时绕开 RT 翻写者（三现作案均在 dylib 在装态；阶段 2 实验证实 dylib
+# 未装时 lazy 诱饵安然无恙）。
+if [[ "${NATIVE:-0}" == "1" ]]; then
+  log "phase 2: 跳过（NATIVE=1 完全原生——无 dylib、无配置干预）"
+else
 log "phase 2: runtime install"
 "$WX" runtime install || { log "runtime install 失败"; exit 3; }
 cp "$RT" "$BAK"
@@ -85,8 +92,9 @@ assert chk.get('keep_message') is False, 'keep_message=false 未生效'
 assert 'tip_text' not in chk, 'tip_text 未移除'
 print('lazy config ok: keep_message=false, tip_text removed; keys:', sorted(chk.keys()))
 PY
+fi
 
-# ---------- 3. 启动微信（惰性态）----------
+# ---------- 3. 启动微信（NATIVE=1 完全原生 / 缺省惰性态）----------
 log "phase 3: 启动微信"
 open -a /Applications/WeChat.app
 PID=""

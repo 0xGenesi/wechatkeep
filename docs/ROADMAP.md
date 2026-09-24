@@ -1,5 +1,41 @@
 # 路线图（待办归档）
 
+## ㊾ drive30 原生实弹轮（2026-09-25 凌晨：编排 NATIVE 模式交付 + ㉜ 静态簇与 DB 漏斗全排除——撤回执行体收缩到 parse 调用者邻域）
+
+任务：drive30 实弹（用户群聊自撤 + Jennifer 他人撤回各一次）。NATIVE 模式
+首秀（官方字节 + 无 dylib + 无配置干预，翻写者未作案），12 断点全员武装。
+
+1. **编排 NATIVE=1 模式（新）**：跳过 phase 2 runtime install/config 干预
+   ——完全原生观察条件；同时绕开 RT 翻写者（阶段 2 实证其只在 dylib 在装
+   态作案）。本轮 parse 位点字节探针 = 原始序言 554889e5…（非 hook 桩）
+   实证零干预。
+2. **实捕**：7× parse/revokemsg，path 标签全面工作——arrival（群组形态
+   len=221/297）/ revmgr+arrival（content 形态 len=147/155）/ 历史批扫
+   （path=?，新变体链 0x363ef83→0x3611824→0x3664538）。两次真实撤回
+   （self + Jennifer 他人撤回）双形态配对复现 ㊻ 拓扑。
+3. **新细节**：群聊撤回 XML 的 SSO 缓冲携带 `wxid_…:\n` 发送者前缀
+   （dump4 实证）——hook 的 needle 搜索/等长改写不受影响（find_bytes 定位
+   + 内文等长替换），记录备查。
+4. **[强排除·原生流实证] 撤回执行体不在全部 12 个武装点位**：
+   dbopfn（0x3680980 通用 DB 派发器）/dblookup（0x5311B30）/dbinsert
+   （0x3415A30）/六断点在两次完整原生撤回（灰条+删除均发生）全程零命中
+   ——㉜ 静态簇 + 查库/入库漏斗 + 通用派发器全部排除出群聊撤回流。
+   **剩余未知收缩到 parse 调用者邻域**：0x35594b0..0x3559b00（到达解析
+   区，0x35595cc/0x35595d7 所在函数）与 revoke_manager
+   [0x394ae30..0x394e4c0)（call@~0x394bf6e 的兄弟分支）——下一轮 RE 直接
+   反汇编这两处的 parse 返回后分支（删除/插入调用必在其一）。
+5. **[缺陷修复·drive29] 静默期时限阻塞**：同步 Continue 在「撤回处理完、
+   账号安静」后无限阻塞（与 drive28 的病理互为镜像：那边零命中阻塞、这边
+   洪峰后静默阻塞）——900s 时限不可达，本轮手动收窗。修复：watchdog 线程
+   （TIME_CAP_S+2s 强停一次）+ 时限检查前置于 Continue（watchdog 停下的
+   一站直接 break 走 VERDICT/detach）。
+6. **收口**：防护态恢复（keeptip patched / doctor protected / verify OK /
+   RT '⚠️' + canary 在位）；VERDICT 手算 HIT（parse_revokemsg=7,
+   cluster_live≥4）——脚本因阻塞未及打印，数据无损。
+7. **下一轮（drive31 = 纯静态）**：反汇编 0x35595cc/0x35595d7 所在函数 +
+   revoke_manager 0x394bf6e 邻域的 parse 返回后分支，定位删除与群提示
+   插入的真实调用——自主可达，无需用户配合；出数据即 M-R4 立项。
+
 ## ㊽ review + drive30 备战轮（2026-09-25 凌晨：全源码复读无新缺陷 + 翻写者相关性收敛 + VERDICT 帧段判落地）
 
 任务（用户指令）：阅读项目源码 → 继续未完成任务 → review → 优化升级。
