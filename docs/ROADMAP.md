@@ -1,5 +1,21 @@
 # 路线图（待办归档）
 
+## ㊼ v0.2.4 发版（2026-09-24：master 7 提交推送 + tag 出 universal 双资产——随版交付 ㊸㊹ 全部缺陷修复与目录数据）
+
+1. **master 推送**：50b2462..42b2667（㊷㊸㊹㊺㊻ 全部 + 版本常量），CI 双
+   runner run 36020108043 全绿。
+2. **v0.2.4 发版**：tag 出 universal 双资产（wxkeep 3.09MB /
+   libwxkeep_runtime.dylib 162KB，arm64+x86_64），release run 36020114103 ✓。
+   随版到达用户的修复：Backup 双杀 P0（runtime install/remove 必炸）、
+   signatures OTA 通道断链、verify worker 桩越界、--only 域别名、
+   keeptip arm64 跨变体 expected ×23（update-data 即时可达，无需升级本体）。
+3. **ARM 测试包**：`~/Downloads/wxkeep-v0.2.4/`（双资产 + v0.2.4 tag 签名
+   四件套，manifest ✓ verified / codesign OK / quarantine 已清）——用户携
+   往 ARM 真机验收（arm64 verify MAP_JIT 免引导 + doctor/patch/keeptip）。
+4. **tap 同步 deliberate 延后**：待 ARM 真机验证通过后再更新
+   0xGenesi/homebrew-tap（brew 用户当前 0.2.3，目录数据已经 update-data
+   OTA 到达，不受影响）。
+
 ## ㊻ drive29 实弹捕获轮（2026-09-24 深夜：群聊撤回真实链路 + 双 sysmsg 形态实捕——parse 侧拓扑定案）
 
 任务：drive29 实弹（用户一次群聊自撤）。25× parse/revokemsg 命中 + 完整
