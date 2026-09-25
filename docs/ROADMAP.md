@@ -1,5 +1,32 @@
 # 路线图（待办归档）
 
+## 55·drive35 证伪轮（2026-09-25 深夜：原生撤回绕过 revoke_manager 全链——双路径模型确立，M-R4 转务实路线）
+
+任务：drive35 实弹（用户群聊撤回，NATIVE 模式 8 断点：apply 入口 + 五个
+内部子调用返回位 + 查库/apply 关联点）。
+
+1. **[证伪] 原生撤回不经过 revoke_manager 的查库/apply 链**：撤回后
+   apply 入口/C1-C5 子调用/lookup_ret/apply_call_ret **全部零命中**
+   （仅 +39s 一次撤回前基线查库 miss）。结合 drive30（DBOP/LOOKUP/
+   INSERT/3421bb0 簇全零）与 drive34（dispatch 家族非撤回流量）——
+   六轮实弹排除清单：3421bb0 簇 / 0x3680980 / 0x5311b30 / 0x3415a30 /
+   dispatch 管线 / apply 链。
+2. **[双路径模型] 防护态与原生态的撤回处理走不同机制**：
+   - 防护态（hook 清零 newmsgid）：revoke_manager 查库+miss 路径实弹
+     实锤（drive32，11 轮全链一致）——该链是清零后的**重扫/再处理路径**；
+   - 原生态：删除+tip 由**另一条未定位机制**执行（绕过上述全部位点）。
+     静态追踪到的 revoke_manager hit 路径在原生流中的角色待定（可能是
+     特定消息类型/特定入口的处理器，非群聊文本主路径）。
+3. **M-R4 务实结论**：候选一（hook 查库返回置 0 / 等价于现行
+   keep_message）已由 drive32 实证可用——「消息保留」能力现状即达；
+   「群聊 tip 保留」依赖未定位的原生删除/tip 机制，继续追需新一轮
+   RE（候选手段：全库写断点/DB 层 hook/WCDB SQL 层观察），投入产出比
+   低于既有能力收敛。**处置：M-R4 群聊 tip 降为长期研究项**（记录在案，
+   不再作为近期目标）；既有「消息保留 + 私聊 tip + 自定义文案」能力
+   面完整（均实机验证）。
+4. **状态**：drive35 数据 var/wxarm/d35.log；日常态恢复（keeptip
+   patched / protected / verify OK）。origin 同步至本提交。
+
 ## 54·drive34 实弹定位轮（2026-09-25 深夜：apply 尾部投递分支被真实流证伪——删除/tip 在 apply 更早子调用，站点图修正）
 
 任务：drive34 实弹（用户群聊撤回，Jennifer 同群，NATIVE 模式 10 断点）。
