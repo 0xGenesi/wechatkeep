@@ -1,7 +1,6 @@
 import lldb
 import os
 import time
-import threading
 
 # drive29：群聊撤回真实链路定位轮（270100 x64）——drive28 强阴性的交叉验证轮
 # （㊹ 下一轮；编排走 `bash tools/dyntrace/d28_live.sh drive29`）。
@@ -167,15 +166,10 @@ def drive29(debugger, command, result, internal_dict):
     log('DRIVE29: 已恢复——请触发【群聊】撤回（只读观察；微信间歇卡顿=parse '
         '断点对所有消息流计数，正常现象）')
 
-    # 看门狗：同步 Continue 在「账号安静、无新命中」时会无限阻塞（登录洪峰
-    # 过后撤回处理完毕即如此，2026-09-25 drive30 实证）——时限到期后强停
-    # 一次，主循环的时限检查得以到达并走 VERDICT/detach 收尾。
-    def _watchdog():
-        try:
-            proc.Stop()
-        except Exception:
-            pass
-    threading.Timer(TIME_CAP_S + 2, _watchdog).start()
+    # 时限收口：脚本内线程不可用（Continue() 不释放 GIL，threading.Timer
+    # 被饿死——drive32 实测 Timer 到点从未执行；SIGINT 被 batch 忽略）。
+    # 可靠收口 = 编排层 shell watchdog 对 lldb 发 SIGTERM（debuggee 运行态
+    # 实测存活）；脚本死亡时 VERDICT 不落盘，编排层从日志计数判读。
 
     while time.monotonic() - t0 < TIME_CAP_S:
         state = proc.GetState()

@@ -22,7 +22,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."   # 仓库根（lldb 相对 import 与 tee 落点）
 WX="$(pwd)/.build/release/wxkeep"
 DRIVE="${1:-drive28}"
-case "$DRIVE" in drive28|drive29) ;; *) echo "未知 drive: ${DRIVE}（drive28|drive29）"; exit 2;; esac
+case "$DRIVE" in drive28|drive29|drive32) ;; *) echo "未知 drive: ${DRIVE}（drive28|drive29|drive32）"; exit 2;; esac
 # python 侧数据日志名 = d<NN>.log（drive28.py/drive29.py 内硬编码 d28.log/d29.log）
 LOGP="d${DRIVE#drive}.log"
 SESSION="$(pwd)/var/wxarm/${DRIVE}_session.log"   # 绝对路径：tee/grep 不受 CWD 歧义影响
@@ -35,6 +35,9 @@ capture_p(){
   case "$DRIVE" in
     drive28) ls var/wxarm/d28_insert_*.bin >/dev/null 2>&1 || grep -q '@@@ insert' "var/wxarm/$LOGP" 2>/dev/null ;;
     drive29) grep -q '^DRIVE29 VERDICT: HIT' "var/wxarm/$LOGP" 2>/dev/null ;;
+    # drive32 判读从日志计数来（SIGTERM 收口时 python VERDICT 不落盘）：
+    # miss 命中 && apply 零命中 = ㊿ 模型端到端成立
+    drive32) grep -q '@@@ miss' "var/wxarm/$LOGP" 2>/dev/null && ! grep -q '@@@ apply' "var/wxarm/$LOGP" 2>/dev/null ;;
   esac
 }
 
@@ -77,6 +80,11 @@ else
 log "phase 2: runtime install"
 "$WX" runtime install || { log "runtime install 失败"; exit 3; }
 cp "$RT" "$BAK"
+# CONFIG_MODE=keep：不动用户配置（hook 以日常配置跑——keep_message=true 的
+# 清零流本身即 drive32 的观察对象；翻写者翻回日常配置亦无碍）
+if [[ "${CONFIG_MODE:-lazy}" == "keep" ]]; then
+  log "phase 2b: 跳过惰性化（CONFIG_MODE=keep——hook 按用户日常配置武装）"
+else
 python3 - "$RT" <<'PY' || exit 5
 import sys, plistlib
 p = sys.argv[1]
@@ -92,6 +100,7 @@ assert chk.get('keep_message') is False, 'keep_message=false 未生效'
 assert 'tip_text' not in chk, 'tip_text 未移除'
 print('lazy config ok: keep_message=false, tip_text removed; keys:', sorted(chk.keys()))
 PY
+fi
 fi
 
 # ---------- 3. 启动微信（NATIVE=1 完全原生 / 缺省惰性态）----------
@@ -110,11 +119,22 @@ if [[ -z "${DRIVE_TIME_CAP_S:-}" ]]; then
 fi
 for ATTEMPT in 1 2 3; do
   # 直写文件（不经 tee 管道——SIGPIPE 会连环杀 lldb/脚本，2026-09-24 冒烟实证；
-  # 实时查看: tail -f "$SESSION"）
+  # 实时查看: tail -f "$SESSION"）。
+  # shell watchdog：同步 Continue 不释放 GIL，脚本内线程/SIGINT 均不可用
+  # （drive32 实证）——唯一可靠收口 = CAP+45s 后对 lldb 发 SIGTERM。
+  # debuggee 运行态下 SIGTERM 实测存活（run5/run6/drive30/drive32 四轮）；
+  # 代价 = python VERDICT 不落盘，判读走 capture_p 的日志计数。
+  CAP="${DRIVE_TIME_CAP_S:-900}"
   lldb --batch -p "$PID" \
     -o "command script import tools/dyntrace/${DRIVE}.py" \
     -o "${DRIVE}" \
-    -o 'detach' > "$SESSION" 2>&1
+    -o 'detach' > "$SESSION" 2>&1 &
+  LLDB_PID=$!
+  ( sleep "$((CAP + 45))"; kill -TERM "$LLDB_PID" 2>/dev/null; ) &
+  WATCHDOG_PID=$!
+  wait "$LLDB_PID"; RC=$?
+  kill "$WATCHDOG_PID" 2>/dev/null
+  wait "$WATCHDOG_PID" 2>/dev/null
   # attach 瞬态失败（could not pause execution）重试；drive 正常跑完则退出
   if ! grep -q "attach failed" "$SESSION"; then break; fi
   log "attach 第 ${ATTEMPT} 次失败（瞬态）——10s 后重试"

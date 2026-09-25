@@ -1,5 +1,38 @@
 # 路线图（待办归档）
 
+## 51·drive32 验证轮（2026-09-25 晚：㊿ 模型端到端实锤 + M-R4 关键转向——tip 插入在 hit 路径内）
+
+任务：drive32 实弹（用户一次群聊撤回，防护态=日常配置直接跑，11 断点）。
+编排新增 CONFIG_MODE=keep（不清配置——hook 清零流本身即观察对象，翻写者
+无碍）。
+
+1. **[MODEL-CONFIRMED] ㊿ 模型端到端成立（11 轮全链一致）**：
+   `parse(hook 桩在位) → lookup(0x3541fe0) rsi(newmsgid)=0x0 → rax=0x0 →
+   decision r13=0x0 flag=00 → miss(0x394c904) 命中 ×11；apply(0x35103d0)
+   **零命中**`。二进制级证明：清零 → 查库空 → 无删除分支 → 消息保留。
+   **M-R4 候选一（hook 查库返回置 0）安全性成立**——与现行 keep_message
+   完全等效且 XML 原文不动。
+2. **[M-R4 关键转向] tip 插入在 hit 路径内**：原生（hit）时灰条显示
+   （drive30 界面确认）、防护（miss）时不显示——tip 插入不在 miss 路径，
+   在 **0x35103d0（apply）内部或其被调**。5 个 miss 路径候选点零命中
+   （miss 分支实际走的路径比静态候选更短，提前汇出）。推论：候选一
+   （强制 miss）保消息但丢 tip（=今日防护态现状）；**「保消息+保 tip」
+   的真 M-R4 必须拆分 0x35103d0 内的删除与 tip 插入**——drive33 静态
+   目标：解剖 apply 的被调链（0x351f4e0 任务投递/0x2c900f0 等）分离两动作，
+   找到「仅废删除」的干预点（毒值约束：out 结构被下游消费，不能整体跳过）。
+3. **[工具] 时限收口机制定案**：脚本内线程不可用（Continue() 不释放 GIL，
+   threading.Timer 被饿死——22:33 实证 Timer 到点从未执行）；SIGINT 被
+   batch 模式忽略（活体实证）。可靠收口 = 编排层 shell watchdog 对 lldb
+   SIGTERM（debuggee 运行态存活，四轮连续实证）——d28_live.sh 已内置
+   （CAP+45s），drive32 判读改从日志计数（capture_p：miss 命中 && apply
+   零命中）。drive29/32 的脚本内 Timer 已移除（含错误注释）。
+4. **收口**：日常态恢复（keeptip patched / doctor protected / verify OK /
+   RT '⚠️'+canary 在位——CONFIG_MODE=keep 下翻写者未作案，runtime 在装
+   态+清配置不触发，相关性与 dylib 单独在场弱化的又一数据点）。
+5. **下一轮**：drive33 静态（自主）——apply 内部拆分删除/tip 插入 →
+   M-R4 实现设计（v2 hook 行：0x35103d0 内删除调用点改写或等价）；ARM
+   验证/tap 维持待用户。
+
 ## ㊿ drive31 静态解剖轮（2026-09-25：撤回查库/分支/执行三件套定位——M-R4 选址闭合，纯静态无用户依赖）
 
 任务：㊾ 收缩出的 parse 调用者邻域反汇编（用户指令：完成 drive31）。
