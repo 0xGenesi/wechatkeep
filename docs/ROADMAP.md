@@ -1,5 +1,25 @@
 # 路线图（待办归档）
 
+## 56·drive36 观察点轮（2026-09-25 深夜：原生查库也 miss——revoke_manager 链与真实删除彻底无关，研究线收档）
+
+任务：drive36 两段式观察点（查库原生命中截获消息对象→挂 8B 写观察点）。
+
+1. **[决定性] 原生模式查库同样 miss（rax=0，用户撤回实测）**：观察点从未
+   获得原生命中对象（无 arm 时机）。结合 55 轮——revoke_manager 的
+   查库→apply 链在防护态服务重扫/再处理，与原生删除**彻底无关**。
+2. **七轮排除清单终版**（原生删除机制不在以下任何位点）：3421bb0 簇 /
+   DBOP 0x3680980 / LOOKUP 0x5311b30 / INSERT 0x3415a30 / dispatch 管线
+   0x34f4440 / apply 0x35103d0 链 / revoke_manager 查库 0x3541fe0（原生
+   也 miss）。原生删除大概率走 WCDB/存储层直写（decrypt 全量扫仅 120 串，
+   DB 层另有加密）。
+3. **研究线收档**：继续追需 DB 层技术（WCDB trace / 存储层 hook），投入
+   产出比低——「消息保留」能力已由现行 keep_message 实证成立（drive32），
+   「群聊 tip」为唯一缺口，降为长期项。全部工件与排除线索在册
+   （var/wxarm/d3*.log + 本节），未来续作直接从 WCDB 层起步。
+4. **工具沉淀**：drive36.py 两段式观察点框架（查库截获→WatchAddress
+   双代 API 回退）——未来任何「谁动了这个对象」问题可直接复用。
+5. **状态**：日常态恢复（keeptip / protected / VERIFY-OK / '⚠️'+canary）。
+
 ## 55·drive35 证伪轮（2026-09-25 深夜：原生撤回绕过 revoke_manager 全链——双路径模型确立，M-R4 转务实路线）
 
 任务：drive35 实弹（用户群聊撤回，NATIVE 模式 8 断点：apply 入口 + 五个
