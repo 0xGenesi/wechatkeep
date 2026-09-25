@@ -1,602 +1,117 @@
 [
 {
-"func": "0x2dda00",
-"site": "0x2de079",
-"str": "~MacConnectUpdaterState"
-},
-{
-"func": "0xd523d0",
-"site": "0xd52439",
-"str": "FromAppMessageExtInfo"
-},
-{
-"func": "0xdfe000",
-"site": "0xdfe109",
-"str": "ProfileSettingFrameBaseView"
-},
-{
-"func": "0xe45920",
-"site": "0xe46419",
-"str": "InitOpenImAccountType"
-},
-{
-"func": "0x10d1a90",
-"site": "0x10d1c79",
-"str": "FavoritePhotoListView"
-},
-{
-"func": "0x1706cd0",
-"site": "0x1706db9",
-"str": "ReportSwitchStatusOnLogin"
-},
-{
-"func": "0x18d45e0",
-"site": "0x18d45e9",
-"str": "SFDetailListViewModel"
-},
-{
-"func": "0x1ce77d0",
-"site": "0x1ce7869",
-"str": "~WeishangViewController"
-},
-{
-"func": "0x1eb73e0",
-"site": "0x1eb7d99",
-"str": "VoiceInputMouseListener"
-},
-{
-"func": "0x1f2f550",
-"site": "0x1f2f619",
-"str": "SetToolbarButtonsEnabledExceptVoice"
-},
-{
-"func": "0x22bec20",
-"site": "0x22bef29",
-"str": "gpu_render_context.cc"
-},
-{
-"func": "0x22d8980",
-"site": "0x22d8999",
-"str": "SwithchToSoftRenderIfNeed"
-},
-{
-"func": "0x24a3520",
-"site": "0x24a70c9",
-"str": "SetCdnDownloaderProxy"
-},
-{
-"func": "0x2bfaad0",
-"site": "0x2bfad59",
-"str": "dynamic_config_manager.cc"
-},
-{
-"func": "0x2cc6c40",
-"site": "0x2cc6d09",
-"str": "OnRelatedStorageCleared"
-},
-{
-"func": "0x31119c0",
-"site": "0x3112169",
-"str": "favorite_upload_task.cc"
-},
-{
-"func": "0x3112530",
-"site": "0x3112799",
-"str": "favorite_upload_task.cc"
-},
-{
-"func": "0x3112530",
-"site": "0x3112e29",
-"str": "favorite_upload_task.cc"
-},
-{
-"func": "0x3112f10",
-"site": "0x3113169",
-"str": "favorite_upload_task.cc"
-},
-{
-"func": "0x3112f10",
-"site": "0x3113469",
-"str": "favorite_upload_task.cc"
-},
-{
-"func": "0x311b3f0",
-"site": "0x311b409",
-"str": "favorite_upload_task.cc"
-},
-{
-"func": "0x3121760",
-"site": "0x31220a9",
-"str": "FavoriteUploadTaskScheduler"
-},
-{
-"func": "0x313cef0",
-"site": "0x313d249",
-"str": "local_file_search_impl_mac.mm"
-},
-{
-"func": "0x3140880",
-"site": "0x3140929",
-"str": "local_file_search_impl_mac.mm"
-},
-{
-"func": "0x35bcdf0",
-"site": "0x35bced9",
-"str": "CreateMessageVoiceInfoTableIfNeeded"
-},
-{
-"func": "0x38ba990",
-"site": "0x38ba9a9",
-"str": "RecordItemImageUploadTask"
-},
-{
-"func": "0x38c25b0",
-"site": "0x38c25b9",
-"str": "RecordItemThumbUploadTask"
-},
-{
-"func": "0x39bef80",
-"site": "0x39bfef9",
-"str": "CanLoadAllPageToCache"
-},
-{
-"func": "0x3a01fb0",
-"site": "0x3a022c9",
-"str": "mac_message_storate_impl.cc"
-},
-{
-"func": "0x3a04310",
-"site": "0x3a043e9",
-"str": "mac_message_storate_impl.cc"
-},
-{
-"func": "0x3a076b0",
-"site": "0x3a07a49",
-"str": "mac_message_storate_impl.cc"
-},
-{
-"func": "0x3a0fb20",
-"site": "0x3a0fbb9",
-"str": "mac_message_storate_impl.cc"
-},
-{
-"func": "0x3a12550",
-"site": "0x3a12579",
-"str": "mac_message_storate_impl.cc"
-},
-{
-"func": "0x3a149f0",
-"site": "0x3a14ae9",
-"str": "mac_message_storate_impl.cc"
-},
-{
-"func": "0x3a155a0",
-"site": "0x3a163b9",
-"str": "mac_message_storate_impl.cc"
-},
-{
-"func": "0x3b16220",
-"site": "0x3b167f9",
-"str": "UnsupportMessageStorage"
-},
-{
-"func": "0x3ca7540",
-"site": "0x3ca7b79",
-"str": "richtext_edit_tag_task_handler.cc"
-},
-{
-"func": "0x3ce1b90",
-"site": "0x3ce1c19",
-"str": "richtext_save_task_handler.cc"
-},
-{
-"func": "0x3fc29a0",
-"site": "0x3fc2dc9",
-"str": "ConfigChunkSizeIfNeeded"
-},
-{
-"func": "0x41dd5e0",
-"site": "0x41de0a9",
-"str": "OnTransportChannelCmd"
-},
-{
-"func": "0x4b35a40",
-"site": "0x4b36219",
-"str": "ProcessContactCmdList"
-},
-{
-"func": "0x4b35a40",
-"site": "0x4b36759",
-"str": "ProcessContactCmdList"
-},
-{
-"func": "0x4d10610",
-"site": "0x4d11f49",
-"str": "ReportValueChangeIfNeeded"
-},
-{
-"func": "0x4d19a00",
-"site": "0x4d19c29",
-"str": "GetFavSourceIDByMessage"
-},
-{
-"func": "0x4efe2b0",
-"site": "0x4efe679",
-"str": "performance_util_mac.mm"
-},
-{
-"func": "0x50f4660",
-"site": "0x50f4a49",
-"str": "DoSubscriptionBizReport"
-},
-{
-"func": "0x540e120",
-"site": "0x540e449",
-"str": "IsFirstPageNoMoreData"
-},
-{
-"func": "0x30516b0",
-"site": "0x30516b9",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3051900",
-"site": "0x3051a09",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3054670",
-"site": "0x3054719",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3054e20",
-"site": "0x30551a9",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3054e20",
-"site": "0x30558f9",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3055ff0",
-"site": "0x3055ff9",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3056050",
-"site": "0x3056609",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3056cc0",
-"site": "0x3056cc9",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3057070",
-"site": "0x3057089",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3057400",
-"site": "0x3057609",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3057c40",
-"site": "0x3057c49",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3057df0",
-"site": "0x3057ef9",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3058190",
-"site": "0x3058198",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x30582c0",
-"site": "0x3058310",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3058530",
-"site": "0x3058685",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x3058530",
-"site": "0x3058c89",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x305b450",
-"site": "0x305b819",
-"str": "favorite_reupload_helper.cc"
-},
-{
-"func": "0x33a61c0",
-"site": "0x33a6479",
-"str": "emoticon_message_handler.cc"
-},
-{
-"func": "0x33aa7e0",
-"site": "0x33aac29",
-"str": "emoticon_message_handler.cc"
-},
-{
-"func": "0x33ad9f0",
-"site": "0x33adc49",
-"str": "emoticon_message_handler.cc"
-},
-{
-"func": "0x33adeb0",
-"site": "0x33adff9",
-"str": "emoticon_message_handler.cc"
-},
-{
-"func": "0x33b8a60",
-"site": "0x33b9c39",
-"str": "emoticon_message_handler.cc"
-},
-{
-"func": "0x3443e20",
-"site": "0x3443fa9",
-"str": "share_card_message_handler.cc"
-},
-{
-"func": "0x34443c0",
-"site": "0x3444499",
-"str": "share_card_message_handler.cc"
-},
-{
-"func": "0x3445a30",
-"site": "0x3445d59",
-"str": "share_card_message_handler.cc"
-},
-{
-"func": "0x3449100",
-"site": "0x3449259",
-"str": "system_message_handler.cc"
-},
-{
-"func": "0x3449100",
-"site": "0x3449639",
-"str": "system_message_handler.cc"
-},
-{
-"func": "0x3449f20",
-"site": "0x344a2c9",
-"str": "system_message_handler.cc"
-},
-{
-"func": "0x344baa0",
-"site": "0x344bcd9",
-"str": "system_message_handler.cc"
-},
-{
-"func": "0x344baa0",
-"site": "0x344c579",
-"str": "system_message_handler.cc"
-},
-{
-"func": "0x344baa0",
-"site": "0x344d3f9",
-"str": "system_message_handler.cc"
-},
-{
-"func": "0x3453900",
-"site": "0x3453999",
-"str": "text_message_handler.cc"
-},
-{
-"func": "0x3453e50",
-"site": "0x345544f",
-"str": "text_message_handler.cc"
-},
-{
-"func": "0x3459270",
-"site": "0x34595d9",
-"str": "text_message_handler.cc"
-},
-{
-"func": "0x391bd70",
-"site": "0x391cca9",
-"str": "msg_resource_upload_helper_private.cc"
-},
-{
-"func": "0x392f7c0",
-"site": "0x392f979",
+"func": "0x392fa10",
+"site": "0x392fad9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3930810",
-"site": "0x3930e79",
+"func": "0x3930c80",
+"site": "0x3930fd9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3936d00",
-"site": "0x3936d29",
+"func": "0x3936b80",
+"site": "0x3936e89",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3937c30",
-"site": "0x3937f19",
+"func": "0x3937250",
+"site": "0x3938079",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3937c30",
-"site": "0x39383d9",
+"func": "0x3937250",
+"site": "0x3938539",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3937c30",
-"site": "0x3938f79",
+"func": "0x3937250",
+"site": "0x39390d9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3937c30",
-"site": "0x3939409",
+"func": "0x3937250",
+"site": "0x3939569",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x393b510",
-"site": "0x393b559",
+"func": "0x393b270",
+"site": "0x393b6b9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x393d330",
-"site": "0x393d449",
+"func": "0x393c4d0",
+"site": "0x393d5a9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x393de40",
-"site": "0x393e129",
+"func": "0x393c4d0",
+"site": "0x393e289",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x393de40",
-"site": "0x393e399",
+"func": "0x393c4d0",
+"site": "0x393e4f9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x393e3c0",
-"site": "0x393e5b9",
+"func": "0x393c4d0",
+"site": "0x393e719",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3944c50",
-"site": "0x39451d9",
+"func": "0x3945240",
+"site": "0x3945339",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3945510",
-"site": "0x3945869",
+"func": "0x3945850",
+"site": "0x39459c9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3945b20",
-"site": "0x39462d9",
+"func": "0x39461e0",
+"site": "0x3946439",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3948f40",
-"site": "0x39491e9",
+"func": "0x39487d0",
+"site": "0x3949349",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3948f40",
-"site": "0x394a0a9",
+"func": "0x394a0d0",
+"site": "0x394a209",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3948f40",
-"site": "0x394a989",
+"func": "0x394a7d0",
+"site": "0x394aae9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3948f40",
-"site": "0x394b169",
+"func": "0x394af90",
+"site": "0x394b2c9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x394c0f0",
-"site": "0x394e729",
+"func": "0x394e7e0",
+"site": "0x394e889",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3950110",
-"site": "0x3950779",
+"func": "0x3950770",
+"site": "0x39508d9",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x3951370",
-"site": "0x39514e9",
+"func": "0x39511a0",
+"site": "0x3951649",
 "str": "message_revoke_manager.cc"
 },
 {
-"func": "0x395fe30",
-"site": "0x3963199",
+"func": "0x3963210",
+"site": "0x39632f9",
 "str": "message_revoke_manager.cc"
-},
-{
-"func": "0x3cd4060",
-"site": "0x3cd4d8f",
-"str": "richtext_player_task_handler.cc"
-},
-{
-"func": "0x3cd5c40",
-"site": "0x3cd5f49",
-"str": "richtext_player_task_handler.cc"
-},
-{
-"func": "0x3cd6300",
-"site": "0x3cd6319",
-"str": "richtext_player_task_handler.cc"
-},
-{
-"func": "0x3cd6580",
-"site": "0x3cd6c89",
-"str": "richtext_player_task_handler.cc"
-},
-{
-"func": "0x3cd6580",
-"site": "0x3cd72c9",
-"str": "richtext_player_task_handler.cc"
-},
-{
-"func": "0x3cd7370",
-"site": "0x3cd8359",
-"str": "richtext_player_task_handler.cc"
-},
-{
-"func": "0x47f1e20",
-"site": "0x47f27c9",
-"str": "AddSystemAppearanceObserver"
-},
-{
-"func": "0x4db8f20",
-"site": "0x4db9019",
-"str": "base_msg_data_producer.cc"
-},
-{
-"func": "0x4db9ff0",
-"site": "0x4dba029",
-"str": "base_msg_data_producer.cc"
-},
-{
-"func": "0x502da20",
-"site": "0x5030c19",
-"str": "message_helper_private.cc"
-},
-{
-"func": "0x502da20",
-"site": "0x5030fd9",
-"str": "message_helper_private.cc"
-},
-{
-"func": "0x502da20",
-"site": "0x5032cd9",
-"str": "message_helper_private.cc"
-},
-{
-"func": "0x5036b00",
-"site": "0x5037409",
-"str": "message_helper_private.cc"
-},
-{
-"func": "0x50393a0",
-"site": "0x503c269",
-"str": "message_helper_private.cc"
-},
-{
-"func": "0x5130c50",
-"site": "0x5131309",
-"str": "CreateXEditorAppConfigFromFavItem"
 }
 ]
