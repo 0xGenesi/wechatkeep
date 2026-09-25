@@ -22,7 +22,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."   # 仓库根（lldb 相对 import 与 tee 落点）
 WX="$(pwd)/.build/release/wxkeep"
 DRIVE="${1:-drive28}"
-case "$DRIVE" in drive28|drive29|drive32) ;; *) echo "未知 drive: ${DRIVE}（drive28|drive29|drive32）"; exit 2;; esac
+case "$DRIVE" in drive28|drive29|drive32|drive34) ;; *) echo "未知 drive: ${DRIVE}（drive28|drive29|drive32|drive34）"; exit 2;; esac
 # python 侧数据日志名 = d<NN>.log（drive28.py/drive29.py 内硬编码 d28.log/d29.log）
 LOGP="d${DRIVE#drive}.log"
 SESSION="$(pwd)/var/wxarm/${DRIVE}_session.log"   # 绝对路径：tee/grep 不受 CWD 歧义影响
@@ -38,6 +38,7 @@ capture_p(){
     # drive32 判读从日志计数来（SIGTERM 收口时 python VERDICT 不落盘）：
     # miss 命中 && apply 零命中 = ㊿ 模型端到端成立
     drive32) grep -q '@@@ miss' "var/wxarm/$LOGP" 2>/dev/null && ! grep -q '@@@ apply' "var/wxarm/$LOGP" 2>/dev/null ;;
+    drive34) grep -q '@@@ dispatch' "var/wxarm/$LOGP" 2>/dev/null ;;
   esac
 }
 
