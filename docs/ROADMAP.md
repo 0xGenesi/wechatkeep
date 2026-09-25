@@ -1,5 +1,49 @@
 # 路线图（待办归档）
 
+## ㊿ drive31 静态解剖轮（2026-09-25：撤回查库/分支/执行三件套定位——M-R4 选址闭合，纯静态无用户依赖）
+
+任务：㊾ 收缩出的 parse 调用者邻域反汇编（用户指令：完成 drive31）。
+工具 `tools/dyntrace/drive31_static.py`（FUNCTION_STARTS 锚定 + capstone +
+decrypt_strings 对照），工件 var/wxarm/d31_static.log、d31_full_disasm.log。
+
+1. **函数边界纠正（脚本首跑自纠）**：0x35595cc 属函数 0x3559590..0x3559610
+   （0x80B 小函数，非 ㊻ 估计的 0x35594b0 区）；revoke_manager 实际函数
+   = **0x394af90..0x394e620**（0x3690B，含 0x394bf73 位点）。F1 结构：
+   `call storage-parser(0x530ea60)@0x35595c7 → mov rdi,r14 → call
+   B-dispatch(0x3559610)@0x35595d2`——A/B 两路背靠背派发，与 ㊻ 双形态
+   XML 各吃一路完全互证。
+2. **撤回查库 = 0x3541fe0（revoke 专属，全镜像唯一调用者）**：
+   `0x394bfb6: call 0x3541fe0(rdi=会话对象, rsi=[r13+0x1C8]=newmsgid)` →
+   返回 r13 = 命中的原消息对象（或 0）。**0x5311b30（㉜ LOOKUP）并非
+   撤回路径查库**——30 原生流零命中的根因即此（真身不在武装点位）。
+3. **删除决策分支（keep_message 的二进制级语义闭合）**：
+   `0x394c058: test r13, r13; sete cl; or cl, [rbp-0x6e8]; jne 0x394c904`
+   ——查库 miss（r13=0，即 keep_message 清零 newmsgid 后的必然结果）→
+   **0x394c904 无删除分支**（做字段拷贝+对象调用，非纯放弃：私聊 keeptip
+   的「消息保留+提示显示」行为与此吻合）；hit → 0x394c066 起删除流程
+   （日志行号 message_revoke_manager.cc:1229/1204）。
+4. **撤回执行调用 = 0x35103d0（17 个消息 handler 共用原语）**：
+   `0x394c4e9: call 0x35103d0(rdi=out结构, rsi=ctx串, rdx=&msg[0x1E8]
+   （撤回者 wxid SSO——⑥ 布局互证）, rcx=r13=查库命中对象, r8=0)`。
+   内部：ctx[0xb78] 取依赖 → 0x369c620/0x6f59e00/0x336d5c0 串处理 →
+   found_msg[+0x278] 门 → 尾段 0x351f4e0（16 调用者的任务投递原语）+
+   0x2c900f0。返回后按双标志分支 0x2c92300（176 调用者的通用工具）。
+5. **M-R4 选址闭合（三案更新）**：
+   - **干预点首选（runtime hook）**：revoke_manager 的查库结果分支
+     （0x394c058 前后）——hook 0x3541fe0 返回后把 r13 置 0 即「保消息」，
+     与清零 newmsgid 等效但**不影响 XML 原文**（newmsgid 字段保持真实值
+     ——群聊灰条插入若依赖「定位原消息」的 newmsgid 读取发生在查库之后
+     的其他消费者，保留真实值可能解锁群聊提示保留，需 drive32 实测定）；
+   - **字节补丁候选**：0x394c060 的 `jne 0x394c904` 翻转 = 恒走 miss
+     （等价 keep_message 但按构建漂移需配方定位，无 runtime 时的静态线）；
+   - **drive32 验证轮（下次实弹）**：NATIVE 态 bp 0x3541fe0（看 r13 与
+     newmsgid 实参）+ 0x35103d0（看 rdx wxid/rcx 对象）+ miss 路径内——
+     回答「群聊灰条插入在哪条分支/依赖什么字段」这一 M-R4 最后未知。
+6. **回归**：drive31_static.py 复跑产出一致；Swift 侧无改动。
+7. **下一轮**：drive32 实弹（一次群聊撤回，验证 M-R4 双候选）→ 依数据
+   实现 v2 runtime hook（保消息+群提示保留）或字节配方；ARM 验证/tap
+   同步维持等用户。
+
 ## ㊾ drive30 原生实弹轮（2026-09-25 凌晨：编排 NATIVE 模式交付 + ㉜ 静态簇与 DB 漏斗全排除——撤回执行体收缩到 parse 调用者邻域）
 
 任务：drive30 实弹（用户群聊自撤 + Jennifer 他人撤回各一次）。NATIVE 模式
