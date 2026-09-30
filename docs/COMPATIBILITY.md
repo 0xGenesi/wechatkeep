@@ -5,6 +5,8 @@
 
 | 构建号 | 微信版本 | 防撤回(silent) | keeptip | keeptip2 | 屏蔽更新 | 多开 | 备注 |
 |---|---|---|---|---|---|---|---|
+| 270102 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — | CDN 归档派生（derive_build_from_cdn 全套：revoke/guard/keeptip 双架构/update 8 点） |
+| 270101 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64 | — | CDN 归档派生（derive_build_from_cdn 全套：revoke/guard/keeptip 双架构/update 8 点） |
 | 270100 | 4.1.15 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 270099 | 4.1.15.19 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 270098 | 4.1.15.18 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
@@ -83,4 +85,4 @@
 | 31960 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 31927 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 
-共 77 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
+共 79 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。

@@ -110,6 +110,10 @@ jobs:
               # --append 直接把命中的配方条目并进 config（内部自带备份与去重）
               .build/release/wxkeep locate -a /tmp/fake/WeChat.app --append \
                 --config config.json --signatures signatures.json || true
+              # 格式归一到仓库 SSOT（Swift JSONEncoder 是全文件重写格式——
+              # 不归一会让 PR diff 变成 1.2 万行的不可审噪声；python 重排后
+              # diff 只含新条目行。indent=1 与 merge_staging 写手同源）
+              python3 -c "import json; json.dump(json.load(open('config.json')), open('config.json','w'), indent=1, ensure_ascii=False)"
               echo "- 注意：行为验证（verify）需要 SIP-off 实机 → manual-verify-needed"
               echo "- expected 门兜底：即使本 PR 合入，写入前字节校验不过则拒绝打补丁"
             } >> /tmp/report.md
@@ -138,7 +142,15 @@ jobs:
           git checkout -b "$branch"
           git add config.json docs/COMPATIBILITY.md
           git commit -m "auto: locate entries for builds $BUILDS (recipe-derived, manual review needed)"
-          git push origin "$branch"
+          # 幂等：分支已存在（此前 run 推过/PR 未合）时强制刷新到本次的
+          # 新 master 基线+新条目（2026-09-29 三连红根因：rejected fetch first
+          # 且旧分支 base 落后 master 越来越远）
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "branch exists remotely — force-refreshing onto current base"
+            git push origin "+HEAD:$branch"
+          else
+            git push origin "$branch"
+          fi
           echo "opened=yes" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "builds=$BUILDS" >> "$GITHUB_OUTPUT"
@@ -149,11 +161,26 @@ jobs:
           script: |
             const fs = require('fs');
             const body = fs.readFileSync('/tmp/report.md', 'utf-8');
+            const head = '${{ steps.pr.outputs.branch }}';
+            // 幂等：同 head 的开放 PR 已存在（前次 run 推过分支但建 PR 失败/
+            // 或 force-refresh）→ 更新正文而非重复创建
+            const existing = await github.rest.pulls.list({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', head: context.repo.owner + ':' + head
+            });
+            if (existing.data.length > 0) {
+              await github.rest.pulls.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                pull_number: existing.data[0].number, body
+              });
+              core.notice('PR #' + existing.data[0].number + ' refreshed');
+              return;
+            }
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               base: context.ref.replace('refs/heads/', ''),
-              head: '${{ steps.pr.outputs.branch }}',
+              head: head,
               title: `适配新微信构建 ${{ steps.pr.outputs.builds }}（自动定位，待审核）`,
               body: body + '\n\n合并前请：核对 expected 字节与构建号；实机行为验证后移除 manual-verify-needed。'
             });
