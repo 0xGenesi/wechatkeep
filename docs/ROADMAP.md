@@ -1,5 +1,29 @@
 # 路线图（待办归档）
 
+## 57·新构建适配轮（2026-09-30：270101 + 270102 入目录（79 构建）+ watch-wechat 三连红治本）
+
+任务（用户报「又 run fail」）：watch-wechat 9/26-29 三连红。根因与处置。
+
+1. **根因链**：微信发布 270102（4.1.15.22，另探明 270101=4.1.15.21 同在
+   CDN）→ 流水线每日成功检出+定位，但 Auto-PR 环节三处缺陷叠加：
+   ①分支已存在时 push rejected（fetch first，无幂等）②locate 产物用
+   Swift JSONEncoder 写出=全文件重写格式（1.2 万行不可审 diff，与 SSOT
+   indent=1 惯例冲突）③旧分支 base 落后 master（9/25 起）越拖越远。
+2. **auto 分支废弃，走正式适配 SOP**：derive_build_from_cdn 对两构建
+   全套派生（revoke×3/guard + keeptip×4 + update×8 = 15 条 ×2；arm64
+   cbz 双态 expected 已带——52 轮生成器修复在新构建上生效）；x64 24
+   位点对官方 CDN 字节逐一校验 PASS（首版校验器曾误报——asm 短于
+   expected 时的前缀/通配语义 bug，修正后全绿）；merge 入目录
+   （79 构建）+ COMPATIBILITY 再生 + manifest 重签（84f3f387…）。
+   CI 双 runner 绿；过期 auto 分支已删除（staging 存档 var/staging/）。
+3. **watch-wechat 治本（三处）**：①分支存在 → force-refresh 到当前
+   master 基线 ②locate 后 python 重排格式归一 SSOT（diff 只含新条目）
+   ③Open PR 幂等（已存在开放 PR 则更新正文）。手动 dispatch 实测绿
+   （15s 空跑稳态）。
+4. **update-data 用户侧效果**：brew 0.2.3 用户跑 `wxkeep update-data`
+   即得 270101/270102 支持（recipe 全命中，day-0 语义；269602 时代
+   单点依赖已随 8 点 update 覆盖消解）。
+
 ## 56·drive36 观察点轮（2026-09-25 深夜：原生查库也 miss——revoke_manager 链与真实删除彻底无关，研究线收档）
 
 任务：drive36 两段式观察点（查库原生命中截获消息对象→挂 8B 写观察点）。
