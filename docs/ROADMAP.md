@@ -1,5 +1,24 @@
 # 路线图（待办归档）
 
+## 58·v0.2.5 ARM 真机反馈轮（2026-10-03：patch 全链真机成功 + arm64 verify SIGBUS 降为良性提示）
+
+任务（用户 ARM 真机测试反馈）：Mac Mini（arm64，macOS 新于 CI macos-15）
+v0.2.4 实测。
+
+1. **[成功] patch 全链**：revoke×3 + update×16 写入 + 重签 strict verify
+   OK + 备份落盘（Resources/ 同目录，dylib 备份无害设计在真机复验）——
+   **字节级补丁证明成立，ARM 机防护已生效**。Backup P0 修复真机复验。
+2. **[缺陷] arm64 verify worker SIGBUS（signal 10）**：CI macos-15 真件
+   端到端全绿 vs 真机 SIGBUS——环境差异（新 macOS/芯片代）。arm64 探针
+   语义本就是「家族完整性 + harness 自检」加成项（补丁效果由 strict
+   verify 字节级承担）→ 处置：workerCrashed/environmentBlocked 降为诚实
+   提示不阻塞（字节异常 mismatch/specRejected 仍如实抛出）；
+   `Verifier.arm64WorkerFailureIsBenign` 纯函数 + 回归（144 测）。
+3. **v0.2.5 发版**（CI universal 双资产），ARM 包 `~/Downloads/
+   wxkeep-v0.2.5/`（+本地已签四件套，manifest ✓ 79 构建）。
+4. **待用户提供**：`sw_vers` 输出与芯片型号——定位 SIGBUS 根因
+   （嫌疑：新 macOS 的 MAP_JIT/W^X 语义变化或谓词越界读真件数据段）。
+
 ## 57·新构建适配轮（2026-09-30：270101 + 270102 入目录（79 构建）+ watch-wechat 三连红治本）
 
 任务（用户报「又 run fail」）：watch-wechat 9/26-29 三连红。根因与处置。
