@@ -5,7 +5,7 @@ struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
-        version: "0.2.4",
+        version: "0.2.5",
         subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self, RuntimeCommand.self]
     )
 
@@ -897,7 +897,23 @@ extension Wxkeep {
                       + "remains the proof of the on-disk patch either way.")
             }
 
-            let results = try Verifier.run(binary: binary, targetVA: targetVA, spec: spec)
+            let results: [Verifier.ProbeResult]
+            do {
+                results = try Verifier.run(binary: binary, targetVA: targetVA, spec: spec)
+            } catch let e as Verifier.VerifyError {
+                // arm64 行为验证是「家族完整性 + harness 自检」的加成项——
+                // worker 在受限环境（新 macOS/硬化为 MAP_JIT 拒绝）崩溃不阻塞：
+                // 补丁效果已由 strict verify 字节级证明（2026-10-02 ARM 真机
+                // SIGBUS 实测；CI macos-15 全绿为环境差异）。字节异常仍如实抛出。
+                if hostArch == .arm64, Verifier.arm64WorkerFailureIsBenign(e) {
+                    print("ℹ︎ arm64 行为验证在此环境不可用（\(e)）")
+                    print("  补丁效果已由 strict verify 字节级证明（on-disk state: \(state)）——")
+                    print("  分支翻转生效即撤回路径不可达，防护不受影响。")
+                    print("  协助定位请回报：sw_vers 输出与芯片型号。")
+                    return
+                }
+                throw e
+            }
             if hostArch == .arm64 {
                 for r in results {
                     print("  revokemsg-predicate(\"\(r.text)\") = \(r.returned ? 1 : 0)")

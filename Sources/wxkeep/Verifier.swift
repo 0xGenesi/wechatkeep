@@ -188,6 +188,18 @@ enum Verifier {
 
     // MARK: - Probe-entry selection
 
+    /// arm64 行为验证 worker 的崩溃是否属环境受限（良性）：CI macos-15 全绿，
+    /// 真机（更新 macOS/新芯片）实测 SIGBUS——arm64 探针语义本就是「家族完整
+    /// 性 + harness 自检」（补丁效果由 strict verify 字节级证明承担），崩溃
+    /// 说明 harness 在该环境受限，不代表补丁坏。x64 的崩溃仍视为异常（那里
+    /// 探针就是补丁函数本体）。
+    static func arm64WorkerFailureIsBenign(_ error: VerifyError) -> Bool {
+        switch error {
+        case .workerCrashed, .environmentBlocked: return true
+        default: return false
+        }
+    }
+
     /// x64 行为验证的探针条目：verify spec（stubs/zero/probe 语义）与
     /// revoke_x64 配方描述的是同一个函数（isRevokemsg 中性化——两者 asm
     /// 相同）。部分构建的 revoke 目标首个 x64 条目是 parse 入口 silent

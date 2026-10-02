@@ -118,6 +118,17 @@ struct VerifierTests {
         #expect(failure != nil)
     }
 
+    /// arm64 worker 崩溃属环境受限（良性，不阻塞）：CI macos-15 全绿、真机
+    /// （更新 macOS）SIGBUS 实测——arm64 探针语义是加成项，字节级 strict
+    /// verify 才是补丁效果证明。数据类错误（mismatch/specRejected）仍异常。
+    @Test func arm64WorkerFailureBenignity() {
+        #expect(Verifier.arm64WorkerFailureIsBenign(.workerCrashed(signal: 10)))
+        #expect(Verifier.arm64WorkerFailureIsBenign(.environmentBlocked))
+        #expect(!Verifier.arm64WorkerFailureIsBenign(.mismatch(detail: "x")))
+        #expect(!Verifier.arm64WorkerFailureIsBenign(.specRejected("x")))
+        #expect(!Verifier.arm64WorkerFailureIsBenign(.archMismatch(image: "a", host: "b")))
+    }
+
     /// 越界 stub VA 的诚实拒绝：旧构建的 verify spec 用在新（更小）镜像上时
     /// stub VA 落在映射外——修复前 worker 越界读 → SIGSEGV → 被判读成
     /// workerCrashed「函数摸了未建模状态」（排障方向被带偏）；修复后边界门
