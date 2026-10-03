@@ -179,6 +179,7 @@ enum Verifier {
         switch status {
         case 0: return nil
         case 126: return .environmentBlocked
+        case 129: return .environmentBlocked   // SIGBUS/SIGSEGV 捕获后的干净退出（诊断信息走 stderr 透传）
         case 137: return .environmentBlocked   // shell 包装拓扑防御位（128+SIGKILL）
         case 2: return .specRejected("malformed worker arguments")
         case 3: return .specRejected("stub/zero-region VA out of the mapped image's bounds")
@@ -286,6 +287,11 @@ enum Verifier {
             stubsJSON, zerosJSON, probesJSON,
         ])
         if let failure = interpretWorkerExit(result.status, signalled: result.signalled) {
+            // worker 的 stderr 是诊断面（SIGBUS/SIGSEGV 捕获信息、环境细节）
+            // ——裸抛会把它们丢进虚空
+            if !result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("worker: \(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
             throw failure
         }
         return result.stdout.split(separator: "\n").compactMap { line in
@@ -306,6 +312,19 @@ enum Verifier {
     /// Entry for `wxkeep __verify-worker <dylib> <va> <stubs> <zeros> <probes>`.
     /// Prints `probe|<text>|<0|1>` lines and exits 0; crashes on bad state.
     static func workerMain(_ args: [String]) -> Never {
+        #if arch(arm64)
+        // 硬件异常捕获：macOS 27 真机实测 SIGBUS（CI macos-15 全绿）——头号
+        // 嫌疑是 MAP_JIT 写保护开关语义变化（开关失效时对 JIT 区首笔写即
+        // SIGBUS）。裸 crash 无法判读，捕获后以 exit 129 交出干净信息。
+        signal(SIGBUS, { _ in
+            _ = write(2, "wxkeep-verify: SIGBUS — MAP_JIT 写开关在此 macOS 版本失效（写 JIT 区即总线错误）；请回报 sw_vers 与芯片型号\n", 120)
+            _exit(129)
+        })
+        signal(SIGSEGV, { _ in
+            _ = write(2, "wxkeep-verify: SIGSEGV in worker — 请回报 sw_vers 与芯片型号\n", 76)
+            _exit(129)
+        })
+        #endif
         guard args.count >= 5,
               let data = try? Data(contentsOf: URL(fileURLWithPath: args[0])),
               let va = UInt64(args[1], radix: 16),
