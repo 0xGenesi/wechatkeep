@@ -503,8 +503,8 @@ enum Verifier {
             Unmanaged<SetupBox>.fromOpaque(ctx!).takeUnretainedValue().fn()
         }
         guard let sym = dlsym(dlopen(nil, RTLD_LAZY), "pthread_jit_write_with_callback_np"),
-              let fn = unsafeBitCast(sym, to: JITWriteWithCallbackFn?.self) else { exit(126) }
-        let rc = fn(callback, box)
+              let jitWriteFn = unsafeBitCast(sym, to: JITWriteWithCallbackFn?.self) else { exit(126) }
+        let rc = jitWriteFn(callback, box)
         Unmanaged<SetupBox>.fromOpaque(box).release()
         guard rc == 0 else { exit(126) }   // 回调式写不可用（< macOS 11 等）
         #else
