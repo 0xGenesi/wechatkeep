@@ -1,5 +1,21 @@
 # 路线图（待办归档）
 
+## 63·v0.2.8 回调式 JIT 写轮（2026-10-03：arm64 worker 切官方通道——macOS 27 SIGBUS 根治）
+
+1. **v0.2.7 时序修复仍 SIGBUS**（用户实测）→ np 开关在 macOS 27 worker
+   环境彻底失效（非时序问题）。
+2. **根治**：全部 JIT 区写入（段拷贝/清零/GOT 重定向）收进
+   **pthread_jit_write_with_callback_np**（macOS 11+ 官方通道，回调期间
+   写使能、返回即恢复执行态——不依赖 np 开关语义）。Phase A（段表解析
+   +mmap）只读化；回调式经 **dlsym 运行时取符号**调用（CI SDK 的 Swift
+   导入签名与本地 CLT 不同——回调返回 Int32 编译错误实证；C ABI 自带
+   类型声明跨 SDK 稳定；两轮 CI 编译错 + 撞名修正后 CI 全绿）。x64 无
+   MAP_JIT，直写路径不变。
+3. **v0.2.8 发版**（144 测全绿，数据四件套随版）。包
+   `~/Downloads/wxkeep-v0.2.8/`。用户重测预期：ARM 机 verify 四探针
+   完整走通；若仍 SIGBUS，stderr 诊断会给出精确 fault 信息
+   （v0.2.6 捕获器保留）。
+
 ## 62·v0.2.7 修复轮（2026-10-03：MAP_JIT 写开关时序修复——SIGBUS 根因定案）
 
 1. **根因定案**（v0.2.6 诊断实锤 + 代码时序）：SIGBUS 发生在写 JIT 区，
