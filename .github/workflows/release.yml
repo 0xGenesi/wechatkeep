@@ -38,5 +38,9 @@ jobs:
           gh release create "$tag" --generate-notes --verify-tag || true
           gh release upload "$tag" "$DIR/wxkeep#wxkeep" --clobber
           gh release upload "$tag" "$DIR/libwxkeep_runtime.dylib#libwxkeep_runtime.dylib" --clobber
+          # 数据四件套同挂 release（formula 资源走 release asset——raw.github
+          # 对弱网用户不可靠，2026-10 brew 验证实测 connection reset）
+          gh release upload "$tag" config.json#config.json signatures.json#signatures.json \
+            manifest.json#manifest.json manifest.sig#manifest.sig --clobber
           echo "产物已挂到 https://github.com/${GITHUB_REPOSITORY}/releases/tag/$tag"
 
