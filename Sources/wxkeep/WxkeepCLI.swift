@@ -5,7 +5,7 @@ struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
-        version: "0.2.8",
+        version: "0.2.9",
         subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self, RuntimeCommand.self]
     )
 
@@ -798,6 +798,17 @@ extension Wxkeep {
         }
     }
 
+    /// 行为验证的优雅跳出：verify spec 绑定单一构建家族（stubs/zero_regions
+    /// 是 270099 族的绝对 VA），不适用该家族的构建上「跳过」是正确语义而非
+    /// 失败——补丁效果由 strict verify 字节级证明承担，报错只会把用户引向
+    /// 错误的排障方向（269631 实测链：SIGSEGV→「未建模状态」/ arm64→
+    /// 「请回报系统版本」）。统一 wording。
+    static func printSpecSkip(_ reason: String) {
+        print("ℹ︎ \(reason)——跳过行为验证")
+        print("  行为验证是加成项：补丁效果由 strict verify 字节级证明承担")
+        print("  （`wxkeep doctor` / `wxkeep patch --dry-run` 查看位点状态）。")
+    }
+
     struct Verify: ParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Prove the patch's behavior by calling the patched function out-of-process")
@@ -848,8 +859,10 @@ extension Wxkeep {
                 let armBinary = WeChatApp.binaryURL(app: options.app, relative: target?.binary)
                 let image = try MachImage(file: armBinary, arch: .arm64)
                 guard let pred = Verifier.ARM64.predicateVA(image: image, site: cbzVA) else {
-                    throw ValidationError("no bl predicate before arm64 cbz site 0x\(cbzHex) — "
-                                          + "recipe shape mismatch, refusing to guess")
+                    // gen1/gen2 等老代位点形态与 gen3 spec 不符 = 不适用，
+                    // 优雅跳过（worker 侧形态门是同一语义的第二道防线）。
+                    printSpecSkip("此构建的 arm64 位点形态与 verify spec（revoke_arm64_gen3）不符：cbz 前无 BL 谓词")
+                    return
                 }
                 targetVA = pred
             } else {
@@ -867,11 +880,16 @@ extension Wxkeep {
                 }
                 // 探针 VA 必须是 spec 描述的 isRevokemsg 位点：部分构建的
                 // revoke 目标首个 x64 条目是 parse 入口 silent，按配方 asm
-                // 选条目而非 entries.first。
+                // 选条目。无 asm 匹配 = 该构建不在 spec 的适用范围——优雅
+                // 跳过（旧实现回落 entries.first 去探一个 spec 未描述的
+                // 函数：结果无意义，崩溃误导排障）。
                 guard let x64Entry = Verifier.selectX64ProbeEntry(
                           in: target?.entries ?? [], recipeAsm: x64Recipe.asm),
                       let addrHex = x64Entry.addr, let va = UInt64(addrHex, radix: 16)
-                else { throw ValidationError("no x86_64 revoke entry for build \(build)") }
+                else {
+                    printSpecSkip("此构建的 x64 条目与 verify spec 描述的函数（isRevokemsg, asm \(x64Recipe.asm)）不匹配")
+                    return
+                }
                 entries = [x64Entry]
                 targetVA = va
                 binaryRelative = target?.binary
@@ -901,6 +919,12 @@ extension Wxkeep {
             do {
                 results = try Verifier.run(binary: binary, targetVA: targetVA, spec: spec)
             } catch let e as Verifier.VerifyError {
+                // spec 不适用（worker 形态/越界门 exit 4）：所有架构统一优雅
+                // 跳过——spec 绑定单一构建家族，老构建上跳过是正确语义而非失败。
+                if case .specNotApplicable = e {
+                    printSpecSkip("verify spec 不适用于此镜像")
+                    return
+                }
                 // arm64 行为验证是「家族完整性 + harness 自检」的加成项——
                 // worker 在受限环境（新 macOS/硬化为 MAP_JIT 拒绝）崩溃不阻塞：
                 // 补丁效果已由 strict verify 字节级证明（2026-10-02 ARM 真机

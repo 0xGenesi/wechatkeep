@@ -129,13 +129,14 @@ struct VerifierTests {
         #expect(!Verifier.arm64WorkerFailureIsBenign(.archMismatch(image: "a", host: "b")))
     }
 
-    /// 越界 stub VA 的诚实拒绝：旧构建的 verify spec 用在新（更小）镜像上时
+    /// 越界 stub VA 的优雅跳过：旧构建的 verify spec 用在新（更小）镜像上时
     /// stub VA 落在映射外——修复前 worker 越界读 → SIGSEGV → 被判读成
-    /// workerCrashed「函数摸了未建模状态」（排障方向被带偏）；修复后边界门
-    /// exit(3) = specRejected（spec 与镜像不符，语义与 zero 区越界一致）。
+    /// workerCrashed「函数摸了未建模状态」（排障方向被带偏）；后经 exit(3)
+    /// specRejected（仍是报错）演进为 exit(4) specNotApplicable：spec 绑定
+    /// 单一构建家族，不适用 = 跳过语义，对所有架构一致。
     @Test(.disabled(if: VerifierTests.environmentUnsuitable || VerifierTests.hostIsARM64,
                    "x86_64 host required — this fixture is raw x64 code; the worker executes it natively"))
-    func outOfBoundsStubVAIsSpecRejectedNotCrash() throws {
+    func outOfBoundsStubVAIsSpecNotApplicableNotCrash() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-verifier-oob-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
@@ -149,10 +150,39 @@ struct VerifierTests {
         do {
             _ = try Verifier.run(binary: dylib, targetVA: 0x100, spec: badSpec,
                                  executable: Self.wxkeepBinary)
-            Issue.record("expected specRejected for out-of-bounds stub VA")
+            Issue.record("expected specNotApplicable for out-of-bounds stub VA")
         } catch let e as Verifier.VerifyError {
-            guard case .specRejected = e else {
-                Issue.record("wrong error: \(e) — must be specRejected, not a crash")
+            guard case .specNotApplicable = e else {
+                Issue.record("wrong error: \(e) — must be specNotApplicable, not a crash")
+                return
+            }
+        }
+    }
+
+    /// 适用范围门（集成，269631 实测链的回归锁）：spec 桩 VA 指向非桩字节
+    /// （此处为 GLOBAL "revokems"）时，worker 必须 exit(4) = specNotApplicable，
+    /// 而非旧实现的静默跳过重定向（GOT 槽留 chained-fixup 原始值 → 调用即
+    /// SIGSEGV → 被误判读成「函数摸了未建模状态」）。
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable || VerifierTests.hostIsARM64,
+                   "x86_64 host required — this fixture is raw x64 code; the worker executes it natively"))
+    func foreignStubShapeIsSpecNotApplicable() throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-verifier-fgn-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let dylib = work.appendingPathComponent("mini-foreign.bin")
+        try miniImage().write(to: dylib)
+
+        let foreignSpec = Verifier.VerifySpec(
+            stubs: ["200": "strlen"],   // 0x200 = "revokems\0"，非 ff 25 形态
+            zeroRegions: [], probes: [["revokems", "1"]])
+        do {
+            _ = try Verifier.run(binary: dylib, targetVA: 0x100, spec: foreignSpec,
+                                 executable: Self.wxkeepBinary)
+            Issue.record("expected specNotApplicable for a stub VA that is not a PLT stub")
+        } catch let e as Verifier.VerifyError {
+            guard case .specNotApplicable = e else {
+                Issue.record("wrong error: \(e) — must be specNotApplicable, not a crash")
                 return
             }
         }
@@ -171,10 +201,17 @@ struct VerifierTests {
         // 形态守卫：垃圾字节必须拒绝（坏 spec 静默跳过 = 槽位留原始值必崩）
         #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0, bytes: [UInt8](repeating: 0, count: 12)) == nil)
         #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0, bytes: [0xFF, 0x25]) == nil)
+        // Rd 守卫：非 x16 目标寄存器的同形态指令不是桩（防误匹配无关
+        // adrp+ldr 对——重定向会写坏无辜数据）
+        var wrongAdrpRd = m
+        wrongAdrpRd[0] = m[0] | 1                          // adrp x17（Rd 0x10→0x11）
+        #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0x6FD1_D70, bytes: wrongAdrpRd) == nil)
+        var wrongLdrRt = m
+        wrongLdrRt[4] = m[4] & 0b1110_0000                 // ldr x0（Rt 低 5 位清零）
+        #expect(Verifier.ARM64.stubSlotOffset(pcOffset: 0x6FD1_D70, bytes: wrongLdrRt) == nil)
     }
 
-    @Test func arm64SSOProbeLayout() {
-        // arm64 短串：数据 @0、直接长度 @0x17（270100 谓词 ldrsb [x19,#0x17] 实证）
+    @Test func arm64SSOProbeLayout() {        // arm64 短串：数据 @0、直接长度 @0x17（270100 谓词 ldrsb [x19,#0x17] 实证）
         guard let sso = Verifier.ARM64.ssoProbe("revokemsg") else {
             Issue.record("probe rejected"); return
         }
@@ -245,6 +282,28 @@ struct VerifierTests {
         // 旧路径（原始字节直读）在这里必反解失败。
         #expect(fat.image[0x100...0x103] == Data(repeating: 0xCC, count: 4))
         #expect(Verifier.ARM64.predicateVA(fileData: fat.image, site: 0x104) == nil)
+    }
+
+    /// fat 切片按 fat_arch.size 截取：旧实现截到文件尾，把后续架构的字节/
+    /// 填充算进 data（越界搜索与 size 判断被污染）。fixture 里 arm64 切片
+    /// 后是 0xCC 填充 + x64 切片——不截则 arm64 视图的 data 会多出两段。
+    @Test func fatSliceIsTruncatedToDeclaredSize() throws {
+        let armThin = MachOFixture.thin(cputype: MachOFixture.arm64CPU)
+        let x64Thin = MachOFixture.thin(cputype: MachOFixture.x64CPU)
+        let fat = MachOFixture.fat(arm64: armThin, x64: x64Thin)
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-fatslice-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let fatURL = work.appendingPathComponent("fat.dylib")
+        try fat.image.write(to: fatURL)
+
+        let arm = try MachImage(file: fatURL, arch: .arm64)
+        #expect(arm.sliceOffset == fat.arm64Offset)
+        #expect(arm.data.count == armThin.count)
+        let x64 = try MachImage(file: fatURL, arch: .x86_64)
+        #expect(x64.sliceOffset == fat.x64Offset)
+        #expect(x64.data.count == x64Thin.count)
     }
 
     // MARK: - arm64 synthetic mini image (worker-path acceptance harness)
@@ -348,6 +407,36 @@ struct VerifierTests {
         #expect(Verifier.verdictPredicate(results: results, spec: arm64Spec) == nil)
     }
 
+    /// arm64 适用范围门（集成）：spec 桩 VA 指向非桩字节（此处为 GLOBAL
+    /// "revokems"）时 worker 必须 exit(4) = specNotApplicable——与 x64 侧
+    /// foreignStubShapeIsSpecNotApplicable 同语义。旧实现静默跳过重定向，
+    /// 调用即崩且被 arm64 良性化降级成「请回报系统版本」（269631 误导链
+    /// 的 arm64 侧）。
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable || VerifierTests.hostIsNotARM64,
+                   "arm64 host + executable-memory-capable environment required — worker executes mapped code natively"))
+    func arm64ForeignStubShapeIsSpecNotApplicable() throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-verifier-armfgn-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let dylib = work.appendingPathComponent("arm-mini-foreign.dylib")
+        try arm64MiniImage().write(to: dylib)
+
+        let foreignSpec = Verifier.VerifySpec(
+            stubs: ["200": "strlen"],   // 0x200 = "revokems\0"，非 adrp/ldr/br 桩
+            zeroRegions: [], probes: [["revokems", "1"]])
+        do {
+            _ = try Verifier.run(binary: dylib, targetVA: 0x100, spec: foreignSpec,
+                                 executable: Self.wxkeepBinary)
+            Issue.record("expected specNotApplicable for a stub VA that is not an arm64 stub")
+        } catch let e as Verifier.VerifyError {
+            guard case .specNotApplicable = e else {
+                Issue.record("wrong error: \(e) — must be specNotApplicable, not a crash")
+                return
+            }
+        }
+    }
+
     // MARK: - x64 探针条目选择（纯逻辑，无需 worker）
 
     /// 269629/269631/269578/579 及 3.x 旧代构建的 revoke 目标里，首个
@@ -369,9 +458,12 @@ struct VerifierTests {
             in: [parseSilent, isRevoke, guardFlip], recipeAsm: "31C0C3909090909090")
         #expect(picked?.addr == "4c42480")
 
-        // 旧代数据无 asm 匹配 → 回落首个 x64 条目（现状行为不变）
+        // 旧代数据无 asm 匹配 → nil（回落首个条目会把探针放到 spec 未描述
+        // 的函数上：探的是别的代码，结果无意义且崩溃误导排障——269631
+        // SIGSEGV 误导链的一环。调用方以优雅跳过收场）
         #expect(Verifier.selectX64ProbeEntry(
-            in: [parseSilent, guardFlip], recipeAsm: "31C0C3909090909090")?.addr == "512be50")
+            in: [parseSilent, guardFlip], recipeAsm: "31C0C3909090909090") == nil)
+        #expect(Verifier.selectX64ProbeEntry(in: [parseSilent], recipeAsm: nil) == nil)
 
         // 无 x64 条目（arm64-only 目标）→ nil
         let arm = Config.PatchEntry(arch: .arm64, addr: "4bc4fa4", recipe: nil,
@@ -390,7 +482,9 @@ struct VerifierTests {
     /// 约定的 128+n）——旧实现的 `status > 128` / `status == 137` 分支均
     /// 不可达，AMFI/taskgated 的 SIGKILL 被误报成「函数摸了未建模状态」。
     /// 矩阵锁死新判读：SIGKILL=环境击杀；SIGSEGV/SIGBUS=真 crash；
-    /// 126=mmap 拒绝；2/3=spec 与镜像不符；137=shell 包装拓扑防御位。
+    /// 126=mmap 拒绝 / harness 解析失败；2/3=spec 数据问题；4=spec 不适用
+    /// （优雅跳过路径）；137=shell 包装拓扑防御位。裸信号 4（SIGILL）与
+    /// 干净 exit(4) 靠 signalled 区分。
     @Test func workerExitInterpretation() {
         #expect(repr(Verifier.interpretWorkerExit(0, signalled: false)) == "nil")
         #expect(repr(Verifier.interpretWorkerExit(9, signalled: true))
@@ -401,6 +495,9 @@ struct VerifierTests {
                 "SIGSEGV 才是「摸了未建模状态」")
         #expect(repr(Verifier.interpretWorkerExit(7, signalled: true))
                 .hasPrefix("verification worker crashed (signal 7)"))
+        #expect(repr(Verifier.interpretWorkerExit(4, signalled: true))
+                .hasPrefix("verification worker crashed (signal 4)"),
+                "signalled 4 = 裸 SIGILL（真 crash），与干净的 exit(4) 靠 signalled 区分")
         #expect(repr(Verifier.interpretWorkerExit(126, signalled: false))
                 .hasPrefix("environment blocked"),
                 "126 = worker 自己 mmap 拒绝的 exit")
@@ -409,9 +506,12 @@ struct VerifierTests {
                 "137 = shell 包装拓扑（128+SIGKILL）防御位")
         #expect(repr(Verifier.interpretWorkerExit(3, signalled: false))
                 .hasPrefix("verify spec rejected"),
-                "exit 3 = stub/zero 区越界：spec 与镜像不符，不是函数崩溃")
+                "exit 3 = 探针目标 VA 越界（wxkeep 数据 bug，防御位）")
         #expect(repr(Verifier.interpretWorkerExit(2, signalled: false))
                 .hasPrefix("verify spec rejected"))
+        #expect(repr(Verifier.interpretWorkerExit(4, signalled: false))
+                .hasPrefix("verify spec does not fit"),
+                "exit 4 = spec 不适用（stub 形态/越界门）——优雅跳过路径，不是 crash")
     }
 
     /// Shell 直 exec 的信号死亡语义实测锁：signalled=true 且 status=裸信号

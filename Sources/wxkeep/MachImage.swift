@@ -39,7 +39,7 @@ struct MachImage {
         let magicBE = raw.prefix(4).reduce(0) { ($0 << 8) | UInt32($1) }
         if magicBE == 0xCAFEBABE {
             let nfat = raw.subdata(in: 4..<8).reduce(0) { ($0 << 8) | UInt32($1) }
-            var chosen: (offset: Int, cputype: Int32)?
+            var chosen: (offset: Int, size: Int, cputype: Int32)?
             var cursor = 8
             for _ in 0..<nfat {
                 guard cursor + 20 <= raw.count else { throw ImageError.notMachO }
@@ -48,15 +48,21 @@ struct MachImage {
                     (0..<4).reduce(UInt32(0)) { ($0 << 8) | UInt32(archBytes[$1]) })
                 // fat_arch: cputype@0 cpusubtype@4 offset@8 size@12 align@16
                 let sliceOff = (8..<12).reduce(UInt32(0)) { ($0 << 8) | UInt32(archBytes[$1]) }
+                let sliceSize = (12..<16).reduce(UInt32(0)) { ($0 << 8) | UInt32(archBytes[$1]) }
                 if cputype == arch.cpuType {
-                    chosen = (Int(sliceOff), cputype)
+                    chosen = (Int(sliceOff), Int(sliceSize), cputype)
                     break
                 }
                 cursor += 20
             }
             guard let pick = chosen else { throw ImageError.noSlice(arch: arch.rawValue) }
-            let end = raw.count
-            self.init(slice: raw.subdata(in: pick.offset..<end), sliceOffset: pick.offset,
+            // 切片按 fat_arch.size 截取——不截会把后续架构的字节/填充算进
+            // data，越界搜索与 size 判断都被污染。声明越界的坏 fat 按文件尾
+            // 收敛（容忍工具产出的轻微越界声明）。
+            let start = min(pick.offset, raw.count)
+            let end = min(start + max(pick.size, 0), raw.count)
+            guard start < end else { throw ImageError.notMachO }
+            self.init(slice: raw.subdata(in: start..<end), sliceOffset: start,
                       cputype: pick.cputype)
         } else {
             guard raw.withUnsafeBytes({ $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }) == 0xFEEDFACF

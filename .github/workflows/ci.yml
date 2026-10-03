@@ -34,6 +34,16 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - name: Ensure Rosetta (defensive; macos-15 images usually preinstall it)
+        if: matrix.os == 'macos-15'
+        run: /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
+      - name: Test x86_64 under Rosetta
+        if: matrix.os == 'macos-15'
+        # GitHub 免费 CI 池只有 arm64 runner——x64 路径（mini-loader worker、
+        # PLT/GOT 重定向、x64 SSO 探针）零覆盖，问题只能在用户 Intel 机上炸
+        # 出来（269631 SIGSEGV 实测链）。Rosetta 下 worker 照常执行映射代码，
+        # VerifierTests 的 x64 集成测试在这里跑的就是真 x64 worker 路径。
+        run: arch -x86_64 swift test
       - name: Release build (universal smoke)
         if: matrix.os == 'macos-15'
         run: swift build -c release

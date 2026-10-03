@@ -1,5 +1,28 @@
 import Foundation
 
+#if arch(arm64)
+// JIT 区懒修复处理器（macOS 27 专用兜底——np 开关失效、回调 API 被移除）：
+// 故障落在 JIT 区内即 mprotect 授 RWX 并返回（指令自动重试）；mprotect 被
+// 拒则打印 errno（= 系统最终策略的答案）。macOS ≤15 np 正常，永不触发。
+// 区域信息走文件级全局（@convention(c) 处理器不能捕获局部量）。
+nonisolated(unsafe) var workerJITRegionAddr: UInt = 0
+nonisolated(unsafe) var workerJITRegionSize: Int = 0
+let workerJITFaultHandler: @convention(c) (Int32, UnsafeMutablePointer<siginfo_t>?, UnsafeMutableRawPointer?) -> Void = { sig, info, _ in
+    let addr = info.map { UInt(bitPattern: $0.pointee.si_addr) } ?? 0
+    if addr >= workerJITRegionAddr, addr < workerJITRegionAddr + UInt(max(workerJITRegionSize, 0)) {
+        let page = addr & ~UInt(0x3FFF)   // 16K 页对齐
+        if mprotect(UnsafeMutableRawPointer(bitPattern: page)!, 0x4000,
+                    PROT_READ | PROT_WRITE | PROT_EXEC) == 0 { return }   // 重试故障指令
+        let msg = "wxkeep-verify: JIT 区 mprotect 被拒 errno=\(errno) addr=\(String(addr, radix: 16)) sig=\(sig)\n"
+        _ = write(2, msg, msg.utf8.count)
+    } else {
+        let msg = "wxkeep-verify: \(sig) 于 JIT 区外 addr=\(String(addr, radix: 16))——未建模状态\n"
+        _ = write(2, msg, msg.utf8.count)
+    }
+    _exit(129)
+}
+#endif
+
 /// Behavioral verification: prove a patch's EFFECT by calling the patched
 /// function out-of-process (mini-loader route — no dyld, no initializers,
 /// no app bundle deps; validated by the M2-3 spike on real 269602 x64).
@@ -23,6 +46,9 @@ enum Verifier {
         case workerCrashed(signal: Int32)
         case environmentBlocked
         case specRejected(String)
+        /// spec 绑定单一构建家族（270099 族）：stub VA 在本镜像里不是桩 /
+        /// 越界 = spec 不适用于该构建。优雅跳过路径，不是失败。
+        case specNotApplicable(String)
         case archMismatch(image: String, host: String)
         case mismatch(detail: String)
 
@@ -39,6 +65,10 @@ enum Verifier {
             case .specRejected(let detail):
                 "verify spec rejected by the worker: \(detail) — the spec encodes the "
                 + "270099-family ground truth and does not fit this image"
+            case .specNotApplicable(let detail):
+                "verify spec does not fit this image (\(detail)) — the spec is bound to one build "
+                + "family and this image is outside it; behavioral verification does not apply "
+                + "(strict byte-level verify remains valid)"
             case .archMismatch(let image, let host):
                 "dylib slice is \(image) but this machine runs \(host) — behavioral verification "
                 + "executes mapped code natively and cannot cross architectures"
@@ -99,11 +129,14 @@ enum Verifier {
     enum ARM64 {
         static let brX16: UInt32 = 0xD61F_0200
 
-        /// 12B 桩 → 映射内 GOT 槽偏移；形态不符返回 nil（守卫：坏 spec 静默
-        /// 跳过会留 chained-fixup 原始值，调用即崩——与 x64 侧同语义）。
+        /// 12B 桩 → 映射内 GOT 槽偏移；形态不符返回 nil（适用范围门的解码
+        /// 半边：坏 spec 在 worker 侧 exit(4) 优雅跳过——静默跳过会留
+        /// chained-fixup 原始值，调用即崩）。目标寄存器也必须是 x16：
+        /// adrp 的 Rd 与 ldr 的 Rt 同检——非 x16 的同形态指令不是桩
+        /// （防误匹配把无关 adrp+ldr 对当桩重定向）。
         static func stubSlotOffset(pcOffset: UInt64, w0: UInt32, w1: UInt32, w2: UInt32) -> Int? {
-            guard (w0 >> 31) == 1, ((w0 >> 24) & 0x1F) == 0x10 else { return nil }   // adrp
-            guard ((w1 >> 22) & 0x3FF) == 0x3E5, ((w1 >> 5) & 0x1F) == 16 else { return nil } // ldr x16,[x16,#imm]
+            guard (w0 >> 31) == 1, ((w0 >> 24) & 0x1F) == 0x10, (w0 & 0x1F) == 0x10 else { return nil }   // adrp x16
+            guard ((w1 >> 22) & 0x3FF) == 0x3E5, ((w1 >> 5) & 0x1F) == 0x10, (w1 & 0x1F) == 0x10 else { return nil } // ldr x16,[x16,#imm]
             guard w2 == brX16 else { return nil }
             let immlo = (w0 >> 29) & 0x3
             let immhi = (w0 >> 5) & 0x7_FFFF
@@ -168,10 +201,16 @@ enum Verifier {
     ///   实测四信号一致）——旧实现按 128+n 约定判读，`status > 128` 与
     ///   `status == 137` 两分支在直 exec 拓扑下均不可达，SIGKILL（AMFI/
     ///   taskgated 击杀，本仓两代先例）被误报成「函数摸了未建模状态」。
-    /// - worker 自身只 exit 0/2/3/126：126 = mmap 拒绝（环境门）；2/3 =
-    ///   参数/边界拒绝（spec 数据与镜像不符）。
+    /// - worker 自身只 exit 0/2/3/4/126：126 = mmap 拒绝 / harness 解析
+    ///   strlen/memcmp 失败（环境门）；2 = 参数拒绝；3 = 探针目标 VA 越界
+    ///   （wxkeep 数据 bug，防御位）；4 = **spec 不适用于此镜像**（stub 形态
+    ///   不符或越界——spec 绑定单一构建家族，老构建上优雅跳过而非报错。
+    ///   与 2/3 的关键差别：4 对所有架构都是预期内的「不适用」，父进程以
+    ///   提示收场退出 0）。
     /// - 映射的目标函数不可能自杀 SIGKILL（导入调用已被重定向到原生桩）——
     ///   SIGKILL 只能来自环境；SIGSEGV/SIGBUS/SIGILL 才是真 crash。
+    /// - 裸信号 4（SIGILL）与干净的 exit(4) 靠 `signalled` 区分：信号死亡
+    ///   走上面的 signalled 分支，永不落进本 switch。
     static func interpretWorkerExit(_ status: Int32, signalled: Bool) -> VerifyError? {
         if signalled {
             return status == SIGKILL ? .environmentBlocked : .workerCrashed(signal: status)
@@ -182,7 +221,8 @@ enum Verifier {
         case 129: return .environmentBlocked   // SIGBUS/SIGSEGV 捕获后的干净退出（诊断信息走 stderr 透传）
         case 137: return .environmentBlocked   // shell 包装拓扑防御位（128+SIGKILL）
         case 2: return .specRejected("malformed worker arguments")
-        case 3: return .specRejected("stub/zero-region VA out of the mapped image's bounds")
+        case 3: return .specRejected("probe target VA out of the mapped image's bounds")
+        case 4: return .specNotApplicable("spec stub VAs don't decode as import stubs in this image")
         default: return .workerCrashed(signal: status)
         }
     }
@@ -205,16 +245,16 @@ enum Verifier {
     /// revoke_x64 配方描述的是同一个函数（isRevokemsg 中性化——两者 asm
     /// 相同）。部分构建的 revoke 目标首个 x64 条目是 parse 入口 silent
     /// （`B801000000C3`，如 269629/269631/269578/579 及 3.x 旧代），按
-    /// 配方 asm 匹配才能取到 spec 实际描述的位点；无匹配回落首个（兼容
-    /// asm 演进前的旧代数据，维持现状行为）。
+    /// 配方 asm 匹配才能取到 spec 实际描述的位点。
+    ///
+    /// 无 asm 匹配返回 nil——旧实现的「回落首个条目」会把探针放到 spec
+    /// 未描述的函数上：探的是别的代码，结果无意义，崩溃还误导排障方向
+    /// （269631 实测链的一环）。调用方以「spec 不适用于该构建」优雅跳过。
     static func selectX64ProbeEntry(
         in entries: [Config.PatchEntry], recipeAsm: String?
     ) -> Config.PatchEntry? {
-        let x64 = entries.filter { $0.arch == .x86_64 }
-        if let recipeAsm, let match = x64.first(where: { $0.asm == recipeAsm }) {
-            return match
-        }
-        return x64.first
+        guard let recipeAsm else { return nil }
+        return entries.filter { $0.arch == .x86_64 }.first { $0.asm == recipeAsm }
     }
 
     // MARK: - Parent side
@@ -288,9 +328,13 @@ enum Verifier {
         ])
         if let failure = interpretWorkerExit(result.status, signalled: result.signalled) {
             // worker 的 stderr 是诊断面（SIGBUS/SIGSEGV 捕获信息、环境细节）
-            // ——裸抛会把它们丢进虚空
-            if !result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                print("worker: \(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+            // ——裸抛会把它们丢进虚空。specNotApplicable 是优雅跳过路径：
+            // 细节以缩进行呈现（不带 worker: 告警前缀）。
+            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            if case .specNotApplicable = failure {
+                if !stderr.isEmpty { print("  ↳ \(stderr)") }
+            } else if !stderr.isEmpty {
+                print("worker: \(stderr)")
             }
             throw failure
         }
@@ -373,9 +417,8 @@ enum Verifier {
         // writes are bracketed by the per-thread W^X toggle.
         #if arch(arm64)
         let mapFlags = MAP_PRIVATE | MAP_ANON | MAP_JIT
-        // 写入全部经回调式通道（下方 performSetupWrites）——macOS 27 真机
-        // 实测 pthread_jit_write_protect_np 开关失效（v0.2.6/v0.2.7 两版
-        // SIGBUS），回调式（macOS 11+）不依赖开关语义
+        // 写入走 np(0) 开写 + 懒修复处理器兜底（上方 sigaction 安装处）——
+        // macOS 27 实测 np 开关/回调语义随版本漂移，处理器是最终兜底
         #else
         let mapFlags = MAP_PRIVATE | MAP_ANON
         #endif
@@ -423,10 +466,23 @@ enum Verifier {
                 exit(126)
             }
         }
+        #if arch(arm64)
+        // macOS 27 兜底处理器（文件头说明）：np 开关失效、回调 API 被移除——
+        // 故障落在 JIT 区内即 mprotect 授 RWX 重试；mprotect 被拒则打印 errno。
+        // macOS ≤15 np 正常，处理器永不触发。
+        workerJITRegionAddr = UInt(bitPattern: mapped)
+        workerJITRegionSize = totalCount
+        var act = sigaction()
+        act.__sigaction_u.__sa_sigaction = workerJITFaultHandler
+        act.sa_flags = SA_SIGINFO
+        sigemptyset(&act.sa_mask)
+        sigaction(SIGBUS, &act, nil)
+        sigaction(SIGSEGV, &act, nil)
+        pthread_jit_write_protect_np(0)   // ≤15 通道；27 上为 no-op，兜底靠处理器
+        #endif
 
         // Phase B（全部 JIT 区写入）：段拷贝 + magic-static 清零 + GOT 重定向。
-        // arm64 经 pthread_jit_write_with_callback_np 执行（回调期间写使能、
-        // 返回即恢复执行态——官方通道）；x64 无 MAP_JIT，直写。
+        // arm64：np(0) 开写 + 懒修复处理器兜底（macOS 27）；x64 无 MAP_JIT 直写。
         let cpuWord = mapped.load(as: UInt32.self)   // mach header magic
         let cpuType = mapped.load(fromByteOffset: 4, as: UInt32.self)
         let isARM64 = cpuWord == 0xFEED_FACF && cpuType == 0x0100_000C
@@ -450,35 +506,67 @@ enum Verifier {
                 guard region.count == 2, let vaHex = UInt64(region[0], radix: 16),
                       let len = Int(region[1]), len > 0,
                       vaHex >= base, Int(vaHex - base) >= 0,
-                      Int(vaHex - base) + len <= mappedSize else { exit(3) }
+                      Int(vaHex - base) + len <= mappedSize else { exit(4) }
                 memset(mapped + Int(vaHex - base), 0, len)
             }
             // Redirect import stubs to native harness functions.
             // x64: PLT `ff 25 <rel32>` → slot = stubVA + 6 + disp32.
             // arm64: `adrp x16/ldr x16,[x16,#imm]/br x16` → slot = page + imm*8.
             // Mapped image header cputype decides (same mapping serves both).
+            //
+            // 适用范围门：spec 的 stub VA 必须在本镜像里解码为真桩（形态 +
+            // 越界）。spec 绑定单一构建家族（270099 族）——拿去探老构建时 VA
+            // 落在无关字节上：旧实现形态不符静默 continue → GOT 槽留
+            // chained-fixup 原始值 → 调用即 SIGSEGV 且被父进程误判读成
+            // 「函数摸了未建模状态」（269631 pristine x64 实测）；arm64 侧更
+            // 被良性化降级成「请回报系统版本」。统一 exit(4) =
+            // specNotApplicable：父进程优雅跳过行为验证（所有架构一致——
+            // 补丁效果由 strict verify 字节级证明承担）。
+            // 原生桩替身，经 RTLD_DEFAULT 全局搜索解析一次（dlopen(nil) 句柄
+            // 只搜主镜像——macOS 27 实测搜不到 libsystem 符号）。懒可选：无
+            // 桩 spec（workerCanExecute 探针）不依赖符号存在；解析失败 =
+            // harness 环境问题（126），静默跳过会让槽位留原始值、调用即崩且
+            // 被误判读成 crash。
+            let resolver = UnsafeMutableRawPointer(bitPattern: -2)   // RTLD_DEFAULT
+            let strlenFn = dlsym(resolver, "strlen")
+            let memcmpFn = dlsym(resolver, "memcmp")
             for (stubHex, kind) in stubs {
                 guard let stubVA = UInt64(stubHex, radix: 16) else { continue }
-                // 越界 spec（如旧构建的 verify spec 用于新镜像）必须 exit(3) 拒绝，
-                // 不能落到越界读：映射外读是 SIGSEGV、stubVA < base 的 UInt64 减法
-                // 下溢是 Int 转换 trap（SIGILL）——两者都会被退出码判读误报成
-                // 「函数摸了未建模状态」，把 spec 数据问题甩锅给镜像（㊶ 同类）。
-                guard stubVA >= base else { exit(3) }
+                let fn = kind == "memcmp" ? memcmpFn : strlenFn
+                guard let fn else {
+                    FileHandle.standardError.write(Data(
+                        "wxkeep-verify: harness 无法解析 \(kind == "memcmp" ? "memcmp" : "strlen")（dlsym RTLD_DEFAULT）——导入桩无法重定向\n".utf8))
+                    exit(126)
+                }
+                // 越界/形态不符的 spec 桩 = spec 不适用于此镜像，exit(4) 优雅
+                // 跳过；不能落到越界读：映射外读是 SIGSEGV、stubVA < base 的
+                // UInt64 减法下溢是 Int 转换 trap（SIGILL）——两者都会被退出
+                // 码判读误报成「函数摸了未建模状态」，把 spec 数据问题甩锅给
+                // 镜像（㊶ 同类）。
+                guard stubVA >= base else { exit(4) }
                 let stub = UnsafeRawPointer(mapped + Int(stubVA - base))
                 let slotOffset: Int
                 if isARM64 {
-                    guard Int(stubVA - base) + 12 <= mappedSize else { exit(3) }
+                    guard Int(stubVA - base) + 12 <= mappedSize else { exit(4) }
                     guard let s = ARM64.stubSlotOffset(
                         pcOffset: stubVA - base,
                         w0: stub.load(as: UInt32.self),
                         w1: stub.load(fromByteOffset: 4, as: UInt32.self),
-                        w2: stub.load(fromByteOffset: 8, as: UInt32.self)) else { continue }
+                        w2: stub.load(fromByteOffset: 8, as: UInt32.self)) else {
+                        FileHandle.standardError.write(Data(
+                            "wxkeep-verify: spec 桩 0x\(String(stubVA, radix: 16)) 不是 adrp x16/ldr x16/br x16 形态——verify spec 不适用于此镜像\n".utf8))
+                        exit(4)
+                    }
                     slotOffset = s
                 } else {
                     // ff25 + rel32 共 6B——形态检查前先判界，防越界读
-                    guard Int(stubVA - base) + 6 <= mappedSize else { exit(3) }
+                    guard Int(stubVA - base) + 6 <= mappedSize else { exit(4) }
                     guard stub.load(as: UInt8.self) == 0xFF,
-                          stub.load(fromByteOffset: 1, as: UInt8.self) == 0x25 else { continue }
+                          stub.load(fromByteOffset: 1, as: UInt8.self) == 0x25 else {
+                        FileHandle.standardError.write(Data(
+                            "wxkeep-verify: spec 桩 0x\(String(stubVA, radix: 16)) 不是 `ff 25 <rel32>` 形态——verify spec 不适用于此镜像\n".utf8))
+                        exit(4)
+                    }
                     // swift load() enforces alignment — assemble the unaligned rel32 byte-wise
                     var dispValue: UInt32 = 0
                     for i in 0..<4 {
@@ -488,45 +576,11 @@ enum Verifier {
                     slotOffset = Int(stubVA - base) + 6 + Int(disp)
                 }
                 guard slotOffset >= 0, slotOffset + 8 <= mappedSize,
-                      UInt(bitPattern: mapped + slotOffset) % 8 == 0 else { exit(3) }
-                let sym = kind == "memcmp" ? "memcmp" : "strlen"
-                if let fn = dlsym(dlopen(nil, RTLD_LAZY), sym) {
-                    (mapped + slotOffset).assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee = fn
-                }
+                      UInt(bitPattern: mapped + slotOffset) % 8 == 0 else { exit(4) }
+                (mapped + slotOffset).assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee = fn
             }
         }
-        #if arch(arm64)
-        final class SetupBox {
-            let fn: () -> Void
-            init(_ f: @escaping () -> Void) { fn = f }
-        }
-        // 经 dlsym 调 pthread_jit_write_with_callback_np：各 SDK 的 Swift
-        // 导入签名有差异（CI 编译实证），C ABI 稳定——自带类型声明最稳。
-        // RTLD_DEFAULT 全局搜索（dlopen(nil) 句柄只搜主程序——macOS 27
-        // 实测找不到 libsystem 符号 → 误报 126）
-        typealias JITCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void
-        typealias JITWriteWithCallbackFn = @convention(c) (JITCallback, UnsafeMutableRawPointer?) -> Int32
-        let box = Unmanaged.passRetained(SetupBox(performSetupWrites)).toOpaque()
-        let callback: JITCallback = { ctx in
-            Unmanaged<SetupBox>.fromOpaque(ctx!).takeUnretainedValue().fn()
-        }
-        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "pthread_jit_write_with_callback_np") else {
-            FileHandle.standardError.write(Data("wxkeep-verify: callback 符号未找到（dlsym RTLD_DEFAULT）\n".utf8))
-            exit(126)
-        }
-        guard let jitWriteFn = unsafeBitCast(sym, to: JITWriteWithCallbackFn?.self) else {
-            FileHandle.standardError.write(Data("wxkeep-verify: callback 符号类型不匹配\n".utf8))
-            exit(126)
-        }
-        let rc = jitWriteFn(callback, box)
-        Unmanaged<SetupBox>.fromOpaque(box).release()
-        guard rc == 0 else {
-            FileHandle.standardError.write(Data("wxkeep-verify: callback 式写 rc=\(rc)（ENOTSUP=系统拒绝）\n".utf8))
-            exit(126)
-        }
-        #else
         performSetupWrites()
-        #endif
 
         // WeChat SSO string ABI: pass 24 CONTIGUOUS bytes. Array's own
         // withUnsafeMutableBytes yields the element buffer — never &array
