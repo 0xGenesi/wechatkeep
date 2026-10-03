@@ -494,10 +494,17 @@ enum Verifier {
             let fn: () -> Void
             init(_ f: @escaping () -> Void) { fn = f }
         }
+        // 经 dlsym 调 pthread_jit_write_with_callback_np：各 SDK 的 Swift
+        // 导入签名有差异（CI 编译实证），C ABI 稳定——自带类型声明最稳。
+        typealias JITCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void
+        typealias JITWriteWithCallbackFn = @convention(c) (JITCallback, UnsafeMutableRawPointer?) -> Int32
         let box = Unmanaged.passRetained(SetupBox(performSetupWrites)).toOpaque()
-        let rc = pthread_jit_write_with_callback_np({ ctx in
+        let callback: JITCallback = { ctx in
             Unmanaged<SetupBox>.fromOpaque(ctx!).takeUnretainedValue().fn()
-        }, box)
+        }
+        guard let sym = dlsym(dlopen(nil, RTLD_LAZY), "pthread_jit_write_with_callback_np"),
+              let fn = unsafeBitCast(sym, to: JITWriteWithCallbackFn?.self) else { exit(126) }
+        let rc = fn(callback, box)
         Unmanaged<SetupBox>.fromOpaque(box).release()
         guard rc == 0 else { exit(126) }   // 回调式写不可用（< macOS 11 等）
         #else
