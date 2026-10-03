@@ -1,5 +1,18 @@
 # 路线图（待办归档）
 
+## 62·v0.2.7 修复轮（2026-10-03：MAP_JIT 写开关时序修复——SIGBUS 根因定案）
+
+1. **根因定案**（v0.2.6 诊断实锤 + 代码时序）：SIGBUS 发生在写 JIT 区，
+   而 worker 的 `pthread_jit_write_protect_np(0)` 在 **mmap 之前**调用——
+   macOS 27 下该时序不生效（区域建成即写保护态，首笔 memcpy 即总线
+   错误）；macOS 15 下容忍该时序，故 CI 全绿。
+2. **修复**：两处 mmap 成功后重申 np(0)（文档标准时序 mmap→np(0)，
+   幂等）。144 测全绿；v0.2.7 发版（数据四件套随版管线正常）。
+3. **v0.2.7 包**：`~/Downloads/wxkeep-v0.2.7/`。用户重测预期：verify
+   在 ARM 机完整走通（四探针 + 家族真值判定）。
+4. 若时序修复仍 SIGBUS → 下一版切回调式写（pthread_jit_write_with_
+   callback_np），但先验概率已大幅降低。
+
 ## 61·v0.2.6 诊断版（2026-10-03：SIGBUS 环境确认 macOS 27 + worker 异常捕获）
 
 1. **环境确认**（用户回报）：ARM 机 = **macOS 27.0 (26A428)**——CI
