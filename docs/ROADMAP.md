@@ -1,5 +1,26 @@
 # 路线图（待办归档）
 
+## 59·v0.2.5 tap 同步轮（2026-10-03：ARM 验证门槛达成 → brew 全链 0.2.5）
+
+任务：v0.2.5 发版后同步 Homebrew tap（0.2.3 用户拿到 Backup P0 修复 +
+79 构建目录 + arm64 优雅降级）。
+
+1. **ARM 验证门槛达成**（用户实测）：v0.2.5 包在 Mac Mini 上 verify
+   输出与设计完全一致（ℹ︎ 降级提示 + strict verify 结论）；v0.2.4 时
+   patch 全链已成功。打包注意：跨介质拷贝会丢可执行位（用户需
+   chmod +x——v0.2.4/v0.2.5 皆然，exFAT/网盘传输特性）。
+2. **tap 同步**（0xGenesi/homebrew-tap bd8386f）：Formula 0.2.5（四哈希
+   按发布资产/tag 复算；config.json=84f3f387… 含 79 构建）。
+3. **brew reinstall 端到端**（Cellar 0.2.5 七文件 / --version / 目录
+   79 构建 / x64 verify 冒烟走通）。过程坑：raw.githubusercontent 从
+   本机持续 connection reset（brew 缓存预置解法——下载缓存键为
+   sha256(URL)，cp 本地 tag 同源文件进缓存，brew 哈希校验仍执行）；
+   Tier 3 配置提示与本环境相关。**用户侧 raw.github 弱网是 formula
+   资源 URL 的已知脆弱点**——下版可评估改 GitHub release asset 承载
+   config/signatures（同一 release 挂四个文件，URL 同域更稳）。
+4. **主仓 Formula 副本同步**（b918cda）。formula manifest 资源缺失
+   （legacy 提示）维持与 0.2.3 同构，下版统一处理。
+
 ## 58·v0.2.5 ARM 真机反馈轮（2026-10-03：patch 全链真机成功 + arm64 verify SIGBUS 降为良性提示）
 
 任务（用户 ARM 真机测试反馈）：Mac Mini（arm64，macOS 新于 CI macos-15）
