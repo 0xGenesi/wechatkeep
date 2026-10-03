@@ -408,14 +408,20 @@ enum Verifier {
             mappedSize = data.count
             totalCount = data.count
             mapped = mmap(nil, data.count, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
-            guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
+            guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else {
+                FileHandle.standardError.write(Data("wxkeep-verify: mmap MAP_JIT 失败 errno=\(errno)（\(String(cString: strerror(errno)))）\n".utf8))
+                exit(126)
+            }
         } else {
             let top = segs.filter { $0.vmaddr >= base }.map { $0.vmaddr + $0.vmsize }.max() ?? 0
             let total = Int(top - base)
             mappedSize = total
             totalCount = total
             mapped = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
-            guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
+            guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else {
+                FileHandle.standardError.write(Data("wxkeep-verify: mmap MAP_JIT 失败 errno=\(errno)（\(String(cString: strerror(errno)))）\n".utf8))
+                exit(126)
+            }
         }
 
         // Phase B（全部 JIT 区写入）：段拷贝 + magic-static 清零 + GOT 重定向。
@@ -496,17 +502,28 @@ enum Verifier {
         }
         // 经 dlsym 调 pthread_jit_write_with_callback_np：各 SDK 的 Swift
         // 导入签名有差异（CI 编译实证），C ABI 稳定——自带类型声明最稳。
+        // RTLD_DEFAULT 全局搜索（dlopen(nil) 句柄只搜主程序——macOS 27
+        // 实测找不到 libsystem 符号 → 误报 126）
         typealias JITCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void
         typealias JITWriteWithCallbackFn = @convention(c) (JITCallback, UnsafeMutableRawPointer?) -> Int32
         let box = Unmanaged.passRetained(SetupBox(performSetupWrites)).toOpaque()
         let callback: JITCallback = { ctx in
             Unmanaged<SetupBox>.fromOpaque(ctx!).takeUnretainedValue().fn()
         }
-        guard let sym = dlsym(dlopen(nil, RTLD_LAZY), "pthread_jit_write_with_callback_np"),
-              let jitWriteFn = unsafeBitCast(sym, to: JITWriteWithCallbackFn?.self) else { exit(126) }
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "pthread_jit_write_with_callback_np") else {
+            FileHandle.standardError.write(Data("wxkeep-verify: callback 符号未找到（dlsym RTLD_DEFAULT）\n".utf8))
+            exit(126)
+        }
+        guard let jitWriteFn = unsafeBitCast(sym, to: JITWriteWithCallbackFn?.self) else {
+            FileHandle.standardError.write(Data("wxkeep-verify: callback 符号类型不匹配\n".utf8))
+            exit(126)
+        }
         let rc = jitWriteFn(callback, box)
         Unmanaged<SetupBox>.fromOpaque(box).release()
-        guard rc == 0 else { exit(126) }   // 回调式写不可用（< macOS 11 等）
+        guard rc == 0 else {
+            FileHandle.standardError.write(Data("wxkeep-verify: callback 式写 rc=\(rc)（ENOTSUP=系统拒绝）\n".utf8))
+            exit(126)
+        }
         #else
         performSetupWrites()
         #endif
