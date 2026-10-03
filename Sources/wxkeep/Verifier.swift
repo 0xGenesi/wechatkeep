@@ -401,6 +401,11 @@ enum Verifier {
                 let mem = mmap(nil, raw.count, PROT_READ | PROT_WRITE | PROT_EXEC,
                                mapFlags, -1, 0)
                 guard let mem = mem, mem != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
+                #if arch(arm64)
+                // macOS 27 真机实测：映射前调用写开关不生效（写 JIT 区即
+                // SIGBUS）——映射后再次确保可写（文档标准时序 mmap→np(0)）
+                pthread_jit_write_protect_np(0)
+                #endif
                 memcpy(mem, raw.baseAddress, raw.count)
                 mappedSize = raw.count
                 return mem
@@ -411,6 +416,9 @@ enum Verifier {
             let mem = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC,
                            mapFlags, -1, 0)
             guard let mem = mem, mem != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
+            #if arch(arm64)
+            pthread_jit_write_protect_np(0)   // 映射后重申可写（macOS 27 时序修复）
+            #endif
             for seg in segs where seg.vmaddr >= base {
                 let dst = Int(seg.vmaddr - base)
                 let src = raw.baseAddress! + seg.fileoff
