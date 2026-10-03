@@ -1,5 +1,22 @@
 # 路线图（待办归档）
 
+## 60·formula rev 1 轮（2026-10-03：brew 布局供应链门激活 + 数据资源改 release asset）
+
+任务：59 轮记录的两项下版候选项落地（tap 3dbd6d3，主仓 55ae77a）。
+
+1. **v0.2.5 release 补挂数据四件套**（config/signatures/manifest/
+   manifest.sig——tag 与 HEAD 逐字节一致确认后上传）；release.yml 未来
+   tag 自动携带（Attach 步扩展）。
+2. **tap formula rev 1**：①manifest/manifest-sig 资源新增，staged 到
+   bin/——**brew 布局的供应链门从 legacy 提示升为 ✓ verified 硬门**
+   （数据被篡改会被 Config.load 拒载）；②config/signatures URL 从
+   raw.github 改 release asset（与二进制同域——raw.github 对弱网用户
+   connection reset 实测，release 域稳定）。
+3. **brew reinstall 端到端**：0.2.5_1 九文件，六资源全从 release 域
+   下载，manifest ✓ verified，versions/verify 冒烟通过。test 块补
+   manifest 校验步（brew audit 语义）。
+4. **主仓 Formula 副本同步**（55ae77a）。
+
 ## 59·v0.2.5 tap 同步轮（2026-10-03：ARM 验证门槛达成 → brew 全链 0.2.5）
 
 任务：v0.2.5 发版后同步 Homebrew tap（0.2.3 用户拿到 Backup P0 修复 +
