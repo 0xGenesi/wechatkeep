@@ -1,5 +1,20 @@
 # 路线图（待办归档）
 
+## 61·v0.2.6 诊断版（2026-10-03：SIGBUS 环境确认 macOS 27 + worker 异常捕获）
+
+1. **环境确认**（用户回报）：ARM 机 = **macOS 27.0 (26A428)**——CI
+   macos-15 跨两个大版本。SIGBUS 头号嫌疑 = MAP_JIT 写保护开关
+   （pthread_jit_write_protect_np）语义变化：开关失效时对 JIT 区首笔
+   写即 SIGBUS（Apple Silicon 经典形态）。
+2. **v0.2.6 诊断版**：worker（arm64）装 SIGBUS/SIGSEGV 捕获器——裸
+   crash 变 exit 129 + 干净判读信息（stderr 透传：Verifier.run 抛错前
+   打印 worker 诊断；interpretWorkerExit 129→environmentBlocked）。
+   144 测全绿；release 数据四件套随版（60 轮管线首秀生效）。
+3. **v0.2.6 包**：`~/Downloads/wxkeep-v0.2.6/`（六文件，manifest ✓）。
+   用户重测预期：verify 显示 SIGBUS 判读信息——确认根因后下一版实施
+   回调式 JIT 写（pthread_jit_write_with_callback_np，macOS 11+ 官方
+   通道，不依赖开关语义）。
+
 ## 60·formula rev 1 轮（2026-10-03：brew 布局供应链门激活 + 数据资源改 release asset）
 
 任务：59 轮记录的两项下版候选项落地（tap 3dbd6d3，主仓 55ae77a）。
