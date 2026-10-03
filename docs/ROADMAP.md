@@ -1,5 +1,19 @@
 # 路线图（待办归档）
 
+## 64·v0.2.8 rev 轮（2026-10-03：SIGBUS 消灭——回调通道生效，残余 126 系符号查找方式）
+
+1. **回调式写生效**（用户实测 v0.2.8 首版）：SIGBUS 彻底消失——np 开关
+   问题定性完成，macOS 27 必须走回调通道。
+2. **残余 126 定位**：exit 126 三个出口无消息区分；头号嫌疑 =
+   `dlsym(dlopen(nil), …)` 只搜主程序作用域——macOS 27 上找不到
+   libsystem_pthread 的回调符号。修复：改 **RTLD_DEFAULT** 全局搜索；
+   三个 126 出口各带 stderr 判读（mmap errno / 符号未找到 / 回调 rc）。
+3. **v0.2.8 rev 包**：`~/Downloads/wxkeep-v0.2.8/`。用户重测预期：
+   若符号查找是唯一残余 → verify 四探针完整走通；若 callback rc 报
+   ENOTSUP → 系统 JIT 策略新约束，届时切 entitlement 方案
+   （`com.apple.security.cs.allow-jit`——ARM 真机 ad-hoc 重签带上，
+   54 轮已证明受限 entitlement 结论需在新版复核）。
+
 ## 63·v0.2.8 回调式 JIT 写轮（2026-10-03：arm64 worker 切官方通道——macOS 27 SIGBUS 根治）
 
 1. **v0.2.7 时序修复仍 SIGBUS**（用户实测）→ np 开关在 macOS 27 worker
