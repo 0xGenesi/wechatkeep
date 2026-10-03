@@ -373,12 +373,15 @@ enum Verifier {
         // writes are bracketed by the per-thread W^X toggle.
         #if arch(arm64)
         let mapFlags = MAP_PRIVATE | MAP_ANON | MAP_JIT
-        pthread_jit_write_protect_np(0)   // writable while we set the image up
+        // 写入全部经回调式通道（下方 performSetupWrites）——macOS 27 真机
+        // 实测 pthread_jit_write_protect_np 开关失效（v0.2.6/v0.2.7 两版
+        // SIGBUS），回调式（macOS 11+）不依赖开关语义
         #else
         let mapFlags = MAP_PRIVATE | MAP_ANON
         #endif
         var mappedSize = 0
-        let mapped = data.withUnsafeBytes { raw -> UnsafeMutableRawPointer in
+        // Phase A（只读）：解析段表 + mmap（不触碰 JIT 区内存）
+        let segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64)] = data.withUnsafeBytes { raw -> [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64)] in
             var segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64)] = []
             var p = 32
             for _ in 0..<raw.loadUnaligned(fromByteOffset: 16, as: UInt32.self) {
@@ -397,97 +400,108 @@ enum Verifier {
                 }
                 p += cmdsize
             }
-            if segs.isEmpty {   // bare blob: identity copy, base 0
-                let mem = mmap(nil, raw.count, PROT_READ | PROT_WRITE | PROT_EXEC,
-                               mapFlags, -1, 0)
-                guard let mem = mem, mem != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
-                #if arch(arm64)
-                // macOS 27 真机实测：映射前调用写开关不生效（写 JIT 区即
-                // SIGBUS）——映射后再次确保可写（文档标准时序 mmap→np(0)）
-                pthread_jit_write_protect_np(0)
-                #endif
-                memcpy(mem, raw.baseAddress, raw.count)
-                mappedSize = raw.count
-                return mem
-            }
+            return segs
+        }
+        let mapped: UnsafeMutableRawPointer
+        let totalCount: Int
+        if segs.isEmpty {
+            mappedSize = data.count
+            totalCount = data.count
+            mapped = mmap(nil, data.count, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
+            guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
+        } else {
             let top = segs.filter { $0.vmaddr >= base }.map { $0.vmaddr + $0.vmsize }.max() ?? 0
             let total = Int(top - base)
             mappedSize = total
-            let mem = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC,
-                           mapFlags, -1, 0)
-            guard let mem = mem, mem != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
-            #if arch(arm64)
-            pthread_jit_write_protect_np(0)   // 映射后重申可写（macOS 27 时序修复）
-            #endif
-            for seg in segs where seg.vmaddr >= base {
-                let dst = Int(seg.vmaddr - base)
-                let src = raw.baseAddress! + seg.fileoff
-                let n = min(Int(seg.filesize), total - dst)
-                if n > 0, dst >= 0 { memcpy(mem + dst, src, n) }
-            }
-            return mem
+            totalCount = total
+            mapped = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
+            guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else { exit(126) }
         }
 
-        // Zero magic-static regions to their runtime-start state.
-        // Bound-checked: a bad spec must fail with a clear exit code, not
-        // corrupt memory adjacent to the mapping before crashing.
-        for region in zeros {
-            guard region.count == 2, let vaHex = UInt64(region[0], radix: 16),
-                  let len = Int(region[1]), len > 0,
-                  vaHex >= base, Int(vaHex - base) >= 0,
-                  Int(vaHex - base) + len <= mappedSize else { exit(3) }
-            memset(mapped + Int(vaHex - base), 0, len)
-        }
-
-        // Redirect import stubs to native harness functions.
-        // x64: PLT `ff 25 <rel32>` → slot = stubVA + 6 + disp32.
-        // arm64: `adrp x16/ldr x16,[x16,#imm]/br x16` → slot = page + imm*8.
-        // Mapped image header cputype decides (same mapping serves both).
+        // Phase B（全部 JIT 区写入）：段拷贝 + magic-static 清零 + GOT 重定向。
+        // arm64 经 pthread_jit_write_with_callback_np 执行（回调期间写使能、
+        // 返回即恢复执行态——官方通道）；x64 无 MAP_JIT，直写。
         let cpuWord = mapped.load(as: UInt32.self)   // mach header magic
         let cpuType = mapped.load(fromByteOffset: 4, as: UInt32.self)
         let isARM64 = cpuWord == 0xFEED_FACF && cpuType == 0x0100_000C
-        for (stubHex, kind) in stubs {
-            guard let stubVA = UInt64(stubHex, radix: 16) else { continue }
-            // 越界 spec（如旧构建的 verify spec 用于新镜像）必须 exit(3) 拒绝，
-            // 不能落到越界读：映射外读是 SIGSEGV、stubVA < base 的 UInt64 减法
-            // 下溢是 Int 转换 trap（SIGILL）——两者都会被退出码判读误报成
-            // 「函数摸了未建模状态」，把 spec 数据问题甩锅给镜像（㊶ 同类）。
-            guard stubVA >= base else { exit(3) }
-            let stub = UnsafeRawPointer(mapped + Int(stubVA - base))
-            let slotOffset: Int
-            if isARM64 {
-                guard Int(stubVA - base) + 12 <= mappedSize else { exit(3) }
-                guard let s = ARM64.stubSlotOffset(
-                    pcOffset: stubVA - base,
-                    w0: stub.load(as: UInt32.self),
-                    w1: stub.load(fromByteOffset: 4, as: UInt32.self),
-                    w2: stub.load(fromByteOffset: 8, as: UInt32.self)) else { continue }
-                slotOffset = s
-            } else {
-                // ff25 + rel32 共 6B——形态检查前先判界，防越界读
-                guard Int(stubVA - base) + 6 <= mappedSize else { exit(3) }
-                guard stub.load(as: UInt8.self) == 0xFF,
-                      stub.load(fromByteOffset: 1, as: UInt8.self) == 0x25 else { continue }
-                // swift load() enforces alignment — assemble the unaligned rel32 byte-wise
-                var dispValue: UInt32 = 0
-                for i in 0..<4 {
-                    dispValue |= UInt32(stub.load(fromByteOffset: 2 + i, as: UInt8.self)) << (8 * i)
+        let performSetupWrites: () -> Void = {
+            data.withUnsafeBytes { raw in
+                if segs.isEmpty {
+                    memcpy(mapped, raw.baseAddress, data.count)
+                } else {
+                    for seg in segs where seg.vmaddr >= base {
+                        let dst = Int(seg.vmaddr - base)
+                        let src = raw.baseAddress! + seg.fileoff
+                        let n = min(Int(seg.filesize), totalCount - dst)
+                        if n > 0, dst >= 0 { memcpy(mapped + dst, src, n) }
+                    }
                 }
-                let disp = Int32(bitPattern: dispValue)
-                slotOffset = Int(stubVA - base) + 6 + Int(disp)
             }
-            guard slotOffset >= 0, slotOffset + 8 <= mappedSize,
-                  UInt(bitPattern: mapped + slotOffset) % 8 == 0 else { exit(3) }
-            let sym = kind == "memcmp" ? "memcmp" : "strlen"
-            if let fn = dlsym(dlopen(nil, RTLD_LAZY), sym) {
-                (mapped + slotOffset).assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee = fn
+            // Zero magic-static regions to their runtime-start state.
+            // Bound-checked: a bad spec must fail with a clear exit code, not
+            // corrupt memory adjacent to the mapping before crashing.
+            for region in zeros {
+                guard region.count == 2, let vaHex = UInt64(region[0], radix: 16),
+                      let len = Int(region[1]), len > 0,
+                      vaHex >= base, Int(vaHex - base) >= 0,
+                      Int(vaHex - base) + len <= mappedSize else { exit(3) }
+                memset(mapped + Int(vaHex - base), 0, len)
+            }
+            // Redirect import stubs to native harness functions.
+            // x64: PLT `ff 25 <rel32>` → slot = stubVA + 6 + disp32.
+            // arm64: `adrp x16/ldr x16,[x16,#imm]/br x16` → slot = page + imm*8.
+            // Mapped image header cputype decides (same mapping serves both).
+            for (stubHex, kind) in stubs {
+                guard let stubVA = UInt64(stubHex, radix: 16) else { continue }
+                // 越界 spec（如旧构建的 verify spec 用于新镜像）必须 exit(3) 拒绝，
+                // 不能落到越界读：映射外读是 SIGSEGV、stubVA < base 的 UInt64 减法
+                // 下溢是 Int 转换 trap（SIGILL）——两者都会被退出码判读误报成
+                // 「函数摸了未建模状态」，把 spec 数据问题甩锅给镜像（㊶ 同类）。
+                guard stubVA >= base else { exit(3) }
+                let stub = UnsafeRawPointer(mapped + Int(stubVA - base))
+                let slotOffset: Int
+                if isARM64 {
+                    guard Int(stubVA - base) + 12 <= mappedSize else { exit(3) }
+                    guard let s = ARM64.stubSlotOffset(
+                        pcOffset: stubVA - base,
+                        w0: stub.load(as: UInt32.self),
+                        w1: stub.load(fromByteOffset: 4, as: UInt32.self),
+                        w2: stub.load(fromByteOffset: 8, as: UInt32.self)) else { continue }
+                    slotOffset = s
+                } else {
+                    // ff25 + rel32 共 6B——形态检查前先判界，防越界读
+                    guard Int(stubVA - base) + 6 <= mappedSize else { exit(3) }
+                    guard stub.load(as: UInt8.self) == 0xFF,
+                          stub.load(fromByteOffset: 1, as: UInt8.self) == 0x25 else { continue }
+                    // swift load() enforces alignment — assemble the unaligned rel32 byte-wise
+                    var dispValue: UInt32 = 0
+                    for i in 0..<4 {
+                        dispValue |= UInt32(stub.load(fromByteOffset: 2 + i, as: UInt8.self)) << (8 * i)
+                    }
+                    let disp = Int32(bitPattern: dispValue)
+                    slotOffset = Int(stubVA - base) + 6 + Int(disp)
+                }
+                guard slotOffset >= 0, slotOffset + 8 <= mappedSize,
+                      UInt(bitPattern: mapped + slotOffset) % 8 == 0 else { exit(3) }
+                let sym = kind == "memcmp" ? "memcmp" : "strlen"
+                if let fn = dlsym(dlopen(nil, RTLD_LAZY), sym) {
+                    (mapped + slotOffset).assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee = fn
+                }
             }
         }
-
-        // arm64: all writes into the JIT mapping are done (segment copies,
-        // magic-static zeros, GOT redirects) — lock writes, unlock execution.
         #if arch(arm64)
-        pthread_jit_write_protect_np(1)
+        final class SetupBox {
+            let fn: () -> Void
+            init(_ f: @escaping () -> Void) { fn = f }
+        }
+        let box = Unmanaged.passRetained(SetupBox(performSetupWrites)).toOpaque()
+        let rc = pthread_jit_write_with_callback_np({ ctx in
+            Unmanaged<SetupBox>.fromOpaque(ctx!).takeUnretainedValue().fn()
+        }, box)
+        Unmanaged<SetupBox>.fromOpaque(box).release()
+        guard rc == 0 else { exit(126) }   // 回调式写不可用（< macOS 11 等）
+        #else
+        performSetupWrites()
         #endif
 
         // WeChat SSO string ABI: pass 24 CONTIGUOUS bytes. Array's own
