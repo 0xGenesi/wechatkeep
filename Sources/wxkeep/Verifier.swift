@@ -13,7 +13,7 @@ let workerJITFaultHandler: @convention(c) (Int32, UnsafeMutablePointer<siginfo_t
         let page = addr & ~UInt(0x3FFF)   // 16K 页对齐
         if mprotect(UnsafeMutableRawPointer(bitPattern: page)!, 0x4000,
                     PROT_READ | PROT_WRITE | PROT_EXEC) == 0 { return }   // 重试故障指令
-        let msg = "wxkeep-verify: JIT 区 mprotect 被拒 errno=\(errno) addr=\(String(addr, radix: 16)) sig=\(sig)\n"
+        let msg = "wxkeep-verify: JIT 区 mprotect 被拒 errno=\(errno) fault_addr=\(String(addr, radix: 16)) region=\(String(workerJITRegionAddr, radix: 16))+\(String(workerJITRegionSize, radix: 16)) sig=\(sig)\n"
         _ = write(2, msg, msg.utf8.count)
     } else {
         let msg = "wxkeep-verify: \(sig) 于 JIT 区外 addr=\(String(addr, radix: 16))——未建模状态\n"
@@ -423,9 +423,10 @@ enum Verifier {
         let mapFlags = MAP_PRIVATE | MAP_ANON
         #endif
         var mappedSize = 0
-        // Phase A（只读）：解析段表 + mmap（不触碰 JIT 区内存）
-        let segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64)] = data.withUnsafeBytes { raw -> [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64)] in
-            var segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64)] = []
+        // Phase A（只读）：解析段表 + mmap（不触碰 JIT 区内存）。
+        // initprot 一并捕获——arm64 拆分映射按「EXEC 前缀段」划分代码区。
+        let segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64, exec: Bool)] = data.withUnsafeBytes { raw -> [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64, exec: Bool)] in
+            var segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64, exec: Bool)] = []
             var p = 32
             for _ in 0..<raw.loadUnaligned(fromByteOffset: 16, as: UInt32.self) {
                 guard p + 72 <= raw.count else { break }
@@ -438,7 +439,8 @@ enum Verifier {
                         segs.append((raw.loadUnaligned(fromByteOffset: p + 24, as: UInt64.self),
                                      raw.loadUnaligned(fromByteOffset: p + 32, as: UInt64.self),
                                      Int(raw.loadUnaligned(fromByteOffset: p + 40, as: UInt64.self)),
-                                     fs))
+                                     fs,
+                                     raw.loadUnaligned(fromByteOffset: p + 60, as: UInt32.self) & 0x4 != 0))   // initprot EXEC
                     }
                 }
                 p += cmdsize
@@ -447,6 +449,9 @@ enum Verifier {
         }
         let mapped: UnsafeMutableRawPointer
         let totalCount: Int
+        /// arm64 拆分路径下 JIT（可执行）子区；nil = 单区布局（x64 / blob /
+        /// 非 EXEC 前缀的罕见镜像）。icache 与兜底处理器的范围都用它。
+        var jitSpan: (addr: UInt, size: Int)?
         if segs.isEmpty {
             mappedSize = data.count
             totalCount = data.count
@@ -460,18 +465,65 @@ enum Verifier {
             let total = Int(top - base)
             mappedSize = total
             totalCount = total
+            #if arch(arm64)
+            // macOS 27 拆分映射（2026-10-14 /tmp/jitsplit 最小复现实证）：
+            // W^X 升级为执行级——JIT 页写态（np(0)）RW 无 X，执行首条指令即
+            // SIGBUS；保护态（np(1)）可执行但写被硬件 TPRO 拦截，且对 JIT 页
+            // 的 mprotect RW/RWX 全部 EACCES。代码与数据同区即死锁：探针执行
+            // 要保护态，magic-static 懒初始化（__cxa_guard 首次进入要写守卫
+            // 位）要写态。拆法：EXEC 前缀段（__TEXT 族，Mach-O 惯例从 base
+            // 起）= MAP_JIT；其余段 = 普通 RW 匿名映射 MAP_FIXED 紧贴其后
+            // （MAP_FIXED+MAP_JIT 组合本身 EINVAL，顺序只能 JIT 先行；大区
+            // 紧邻撞上既有映射的概率可忽略，worker 又是可弃子进程）。守卫
+            // 写 / GOT 重定向全落普通 RW 页，np(1) 后执行只落在 JIT 页——
+            // 两个约束同时满足。非 EXEC 前缀的罕见布局回落单区（≤15 行为，
+            // 27 上按 129 诊断退出，不劣于修复前）。
+            var split: UnsafeMutableRawPointer?
+            var span: (addr: UInt, size: Int)?
+            if let first = segs.first, first.vmaddr == base, first.exec,
+               let jitEnd = segs.prefix(while: { $0.exec }).last.map({ $0.vmaddr + $0.vmsize }),
+               jitEnd > base, jitEnd <= top, let jitSize = Int(exactly: jitEnd - base), jitSize > 0 {
+                let jit: UnsafeMutableRawPointer = mmap(nil, jitSize, PROT_READ | PROT_WRITE | PROT_EXEC,
+                               MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0)
+                if jit != UnsafeMutableRawPointer(bitPattern: -1) {
+                    if jitSize < total {
+                        let rest: UnsafeMutableRawPointer = mmap(jit + jitSize, total - jitSize, PROT_READ | PROT_WRITE,
+                                        MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0)
+                        if rest != UnsafeMutableRawPointer(bitPattern: -1) {
+                            split = jit
+                            span = (UInt(bitPattern: jit), jitSize)
+                        }
+                    } else {
+                        split = jit
+                        span = (UInt(bitPattern: jit), jitSize)
+                    }
+                }
+            }
+            if let jit = split {
+                mapped = jit
+                jitSpan = span
+            } else {
+                mapped = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
+                guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else {
+                    FileHandle.standardError.write(Data("wxkeep-verify: mmap MAP_JIT 失败 errno=\(errno)（\(String(cString: strerror(errno)))）\n".utf8))
+                    exit(126)
+                }
+            }
+            #else
             mapped = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
             guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else {
-                FileHandle.standardError.write(Data("wxkeep-verify: mmap MAP_JIT 失败 errno=\(errno)（\(String(cString: strerror(errno)))）\n".utf8))
+                FileHandle.standardError.write(Data("wxkeep-verify: mmap 失败 errno=\(errno)（\(String(cString: strerror(errno)))）\n".utf8))
                 exit(126)
             }
+            #endif
         }
         #if arch(arm64)
         // macOS 27 兜底处理器（文件头说明）：np 开关失效、回调 API 被移除——
         // 故障落在 JIT 区内即 mprotect 授 RWX 重试；mprotect 被拒则打印 errno。
-        // macOS ≤15 np 正常，处理器永不触发。
-        workerJITRegionAddr = UInt(bitPattern: mapped)
-        workerJITRegionSize = totalCount
+        // macOS ≤15 np 正常，处理器永不触发。拆分路径下范围只覆盖 JIT 子区
+        // （数据页已是普通 RW，落在那儿的 fault 属未建模状态，如实上报）。
+        workerJITRegionAddr = jitSpan?.addr ?? UInt(bitPattern: mapped)
+        workerJITRegionSize = jitSpan?.size ?? totalCount
         var act = sigaction()
         act.__sigaction_u.__sa_sigaction = workerJITFaultHandler
         act.sa_flags = SA_SIGINFO
@@ -483,9 +535,15 @@ enum Verifier {
 
         // Phase B（全部 JIT 区写入）：段拷贝 + magic-static 清零 + GOT 重定向。
         // arm64：np(0) 开写 + 懒修复处理器兜底（macOS 27）；x64 无 MAP_JIT 直写。
-        let cpuWord = mapped.load(as: UInt32.self)   // mach header magic
-        let cpuType = mapped.load(fromByteOffset: 4, as: UInt32.self)
-        let isARM64 = cpuWord == 0xFEED_FACF && cpuType == 0x0100_000C
+        // 架构从头【文件字节】判定，不从 mapped 读：anon mmap 是零填充，
+        // 段拷贝发生前读 mapped 恒得 0 → isARM64 恒 false → arm64 镜像全部
+        // 误走 x64 ff25 解码 exit(4)（v0.2.9 回调式重构把拷贝挪进闭包后，
+        // 头读取留在了调用点之前——本机 270100 实测复现）。
+        let isARM64 = data.withUnsafeBytes { raw -> Bool in
+            raw.count >= 8 &&
+            raw.loadUnaligned(fromByteOffset: 0, as: UInt32.self) == 0xFEED_FACF &&
+            raw.loadUnaligned(fromByteOffset: 4, as: UInt32.self) == 0x0100_000C
+        }
         let performSetupWrites: () -> Void = {
             data.withUnsafeBytes { raw in
                 if segs.isEmpty {
@@ -581,6 +639,15 @@ enum Verifier {
             }
         }
         performSetupWrites()
+        #if arch(arm64)
+        // macOS 27 执行语义（2026-10-14 最小探针实证 /tmp/jittest 模式对比）：
+        // MAP_JIT 页在写态（np(0) 后）= RW 无 X，执行首条指令即 SIGBUS；
+        // np(1) 关写回保护态 = RX 可执行。旧判断「np 开关在 27 上 no-op」
+        // 不成立——开关一直有效，是写态可执行性被收紧。icache 失效是
+        // arm64 手写可执行内存的文档化契约，一并补上（范围只覆盖 JIT 子区）。
+        sys_icache_invalidate(mapped, jitSpan?.size ?? totalCount)
+        pthread_jit_write_protect_np(1)
+        #endif
 
         // WeChat SSO string ABI: pass 24 CONTIGUOUS bytes. Array's own
         // withUnsafeMutableBytes yields the element buffer — never &array

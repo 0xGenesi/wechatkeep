@@ -33,14 +33,25 @@ def run_group(name, dylib, entries):
         return True, "（无条目，跳过组）"
     jf = dylib + "." + name + ".json"
     json.dump(entries, open(jf, "w"))
-    r = subprocess.run(
-        ["swift", "test", "--filter", "BackfillRoundtrip"],
-        capture_output=True, text=True, cwd=ROOT, timeout=600, env=dict(
-            os.environ,
-            WXKEEP_BACKFILL_DYLIB=dylib, WXKEEP_BACKFILL_JSON=open(jf).read()))
-    out = r.stdout + r.stderr
-    if "skipped:" in out:
-        return False, "harness 静默跳过（环境变量/路径问题）"
+    # macOS 27 + Swift 6.4 实测：连发 swift test 时 TestingMacros 宏插件发现
+    # 间歇失败（"plugin for module 'TestingMacros' not found" → Build failed，
+    # 输出里没有任何 ✘ 测试失败行）。这是构建层抖动不是条目问题——同一命令
+    # 立即重跑即过。判据：无 ✘ 且报错文本含编译失败痕迹 → 最多重试 2 次。
+    for attempt in range(3):
+        r = subprocess.run(
+            ["swift", "test", "--filter", "BackfillRoundtrip"],
+            capture_output=True, text=True, cwd=ROOT, timeout=600, env=dict(
+                os.environ,
+                WXKEEP_BACKFILL_DYLIB=dylib, WXKEEP_BACKFILL_JSON=open(jf).read()))
+        out = r.stdout + r.stderr
+        if "skipped:" in out:
+            return False, "harness 静默跳过（环境变量/路径问题）"
+        build_flake = ("✘" not in out and "skipped" not in out
+                       and ("Build failed" in out or "could not be found for macro" in out))
+        if build_flake and attempt < 2:
+            print(f"    （构建层抖动，重试 {attempt + 1}/2）")
+            continue
+        break
     if "failed" in out or r.returncode != 0:
         return False, out[out.find("✘"):][:600] if "✘" in out else out[-600:]
     return True, ""

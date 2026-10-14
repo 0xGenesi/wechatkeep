@@ -81,6 +81,19 @@ enum RuntimeConfig {
         HookRow(build: "270100", uuid: "23350838-734b-3df6-a4ff-93cf2dd8c704",
                 arch: "x86_64", hook_off: "0x537dcd0", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
+        // 270133-270135（4.1.15.53-.55，2026-10-14 派生轮）：x64 行 =
+        // locate_x64_parse_guard → derive_runtime_hooks（序言门全过）；
+        // arm64 行 = revoke 位点所在函数起点（LC_FUNCTION_STARTS）+ 切片
+        // LC_UUID + 家族序言门。270101/270102 尚无行（已知缺口，见 ROADMAP）。
+        HookRow(build: "270133", uuid: "9a1ef201-c390-3412-a286-e629482602b2",
+                arch: "x86_64", hook_off: "0x54f9c10", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
+        HookRow(build: "270134", uuid: "c32fa6ee-bc41-399d-ae83-ee81512d7b57",
+                arch: "x86_64", hook_off: "0x5502500", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
+        HookRow(build: "270135", uuid: "661e436d-ae61-3413-a867-841f042ddc12",
+                arch: "x86_64", hook_off: "0x5503730", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
         HookRow(build: "270084", uuid: "a08e3e78-cc29-3927-9375-883c644d8ff8",
                 arch: "arm64", hook_off: "0x4bb380c", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
@@ -125,6 +138,15 @@ enum RuntimeConfig {
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270100", uuid: "0b9929bb-e55e-3513-b439-32375760bca2",
                 arch: "arm64", hook_off: "0x4bc4d34", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270133", uuid: "ea1a57e3-4599-3365-9dc3-c69375798d73",
+                arch: "arm64", hook_off: "0x4d15438", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270134", uuid: "8acf7a2f-517c-32b4-9dfb-47e8849cd444",
+                arch: "arm64", hook_off: "0x4d1c880", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270135", uuid: "0c2f01c0-c197-3286-901d-70e1d007a1c0",
+                arch: "arm64", hook_off: "0x4d1f8d8", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
     ]
 

@@ -1,5 +1,61 @@
 # 路线图（待办归档）
 
+## 65·macOS 27 verify 修复 + 4.1.15.53-.55 适配轮（2026-10-14：真机行为验证首次全绿 + 新构建三连入目）
+
+1. **[缺陷修复] arm64 verify 在 v0.2.8/9 上从未真正工作过**：v0.2.8 回调式
+   重构把段拷贝挪进 `performSetupWrites` 闭包，但 `isARM64` 的 Mach-O 头
+   读取留在了调用点之前——从零填充的匿名映射读头恒得 0 → **所有 arm64
+   镜像全部误走 x64 ff25 桩解码 exit(4)**，被优雅跳过路径掩盖成「spec
+   不适用」。此前用户报的「SIGBUS 消灭」部分是这一回归的假象（worker
+   根本没执行到故障点）。修复：架构改从**文件字节**判定（与写入时序
+   无关）。本机 270100 装机件实测复现→修复后四探针全对。
+2. **[定性] macOS 27 MAP_JIT 语义定案**（/tmp/jittest 系列最小探针）：
+   - 写态（np(0) 后）页 = RW 无 X，**执行首条指令即 SIGBUS**；
+   - np(1) 回保护态 = RX 可执行——np 开关一直有效，v0.2.8「27 上
+     no-op」的判断不成立，是写态可执行性被收紧；
+   - 对 JIT 页的 mprotect **RW 与 RWX 全部 EACCES**（懒修复处理器的
+     降级尝试也封死）——硬件级 TPRO 保护；
+   - **代码数据同区死锁**：探针执行要保护态，magic-static 懒初始化
+     （__cxa_guard 首次进入写守卫位）要写态。
+   **解法（拆分映射）**：EXEC 前缀段（__TEXT 族，从 base 起）= MAP_JIT；
+   其余段 = 普通 RW 匿名映射 `MAP_FIXED` 紧贴其后（MAP_FIXED+MAP_JIT
+   组合本身 EINVAL，顺序只能 JIT 先行）。守卫写/GOT 重定向全落普通页，
+   np(1) 后执行只落 JIT 页。写入后补 `sys_icache_invalidate`（arm64
+   手写可执行内存的文档化契约，此前一直缺失）。C 镜像 1:1 验证后移植
+   进 Swift worker。
+3. **[环境] 本轮 CLI「经常报错失败」的三个来源**：① `.build` 从旧机器
+   拷贝损坏（git alternates 指向不存在路径 → checkout bad object →
+   插件编译报误导性错误）——清空重建即愈；② GitHub 直连 git 克隆被
+   间歇重置——`swift package config set-mirror` 走 ghfast 镜像拉
+   swift-argument-parser；③ swift-testing 宏插件（TestingMacros）在
+   连发 `swift test` 时间歇发现失败——verify_staging.py 加纯构建失败
+   重试（判据：无 ✘ 测试失败行 + Build failed 文本）。另：仓库根
+   `wxkeep` 是 v0.1.0-dev 旧件读不懂现行 config（gitignored，勿用）；
+   三个 tools 脚本跨机器拷贝丢执行位（已恢复）。
+4. **[适配] 4.1.15.53/.54/.55 = 构建 270133/270134/270135**（zsbai 归档
+   2026-10-08/10/12 发布，超出目录最高 270102 达 33 个构建）：全链派生
+   落地——revoke 双配方命中（gen3 arm64 cbz 0x34001040 家族字节不变 +
+   x64 isRevokemsg 序言）+ keeptip 对 + update 16 点（derive_build_from_cdn
+   只出 x64 8 点，arm64 8 点需另跑 locate_update_arm64.py——本轮实测并
+   合并）+ runtime hook 行 ×6（x64 序言门 + arm64 函数起点/序言门全过）。
+   三构建 × 六组引擎级往返验证全 PASS（270133 首轮 1 组撞构建抖动，重跑
+   即过）。config 82 构建 / 69 新条目 / manifest 重签验证 / 147 测全绿 /
+   COMPATIBILITY 重生。
+5. **[验证] 270100 装机件独立字节核对**：23/23 点位（revoke 3 patched、
+   keeptip 4 pristine、update 16 patched）与 config expected/asm 完全
+   一致（独立 python 解析，非引擎自证）；行为验证四探针全对。
+6. **[跳过记录] 本轮未解决项**：
+   - verify spec（revoke_arm64_gen3）仍绑定 270100/270099 族绝对 VA——
+     270133-135 上 `verify` 按设计优雅跳过（补 spec 需
+     gen_verify_spec_arm64.py 反解 + 单族绑定架构支持多 spec，另行开轮）；
+   - runtime hook 表 270101/270102 缺行（4.1.15.21/.22 未派生——非本轮
+     zsbai 最新三件之列，下轮顺手）；
+   - derive_build_from_cdn.py 未集成 arm64 update 定位（本轮手工补跑，
+     脚本化待并入）；
+   - swift-testing 宏插件抖动根因未追（重试缓解，Xcode 工具链层面问题）；
+   - `.build` 产物路径出现 `.build/out/Intermediates.noindex`（xcbuild
+   风格布局）的由来未查证，不影响功能。
+
 ## 64·v0.2.8 rev 轮（2026-10-03：SIGBUS 消灭——回调通道生效，残余 126 系符号查找方式）
 
 1. **回调式写生效**（用户实测 v0.2.8 首版）：SIGBUS 彻底消失——np 开关

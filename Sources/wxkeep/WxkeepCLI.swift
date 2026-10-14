@@ -618,8 +618,10 @@ extension Wxkeep {
             c.append(bin.deletingLastPathComponent()
                 .appendingPathComponent("lib/libwxkeep_runtime.dylib").path)
             c.append(bin.appendingPathComponent("libwxkeep_runtime.dylib").path)
-            c.append(URL(fileURLWithPath: ".build/release/libwxkeep_runtime.dylib",
-                         relativeTo: URL(fileURLWithPath: cwd)).path)
+            // macOS 27 SDK 的 Foundation：相对 URL 的 .path 不再并入 base
+            // （实测返回 "/.build/…"，cwd 前缀丢失）——先落成绝对 URL 再取 path。
+            c.append(URL(fileURLWithPath: cwd)
+                .appendingPathComponent(".build/release/libwxkeep_runtime.dylib").path)
             return c
         }
 

@@ -15,7 +15,7 @@ wxkeep update-data   # 拉取最新补丁数据（brew 安装的 catalog 随发�
 
 ## 功能
 
-- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）。覆盖 4.1.13 全线（269573-269632 已知构建）+ 4.1.15 全家族（270084-270100 公开段）双架构
+- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）。覆盖 4.1.13 全线（269573-269632 已知构建）+ 4.1.15 全家族（270084-270100 公开段 + 270133-270135＝4.1.15.53-.55，2026-10-14 派生轮）双架构
 - **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效（x64 探针=补丁后的 isRevokemsg 本体；arm64 探针=喂值给 cbz 分支的独立谓词，家族完整性+输入路径自检，补丁效果由 strict verify 字节级证明承担）
 - **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示。**二进制级 update 目标**（XAppUpdateManager 四方法+访问器对全套 8 点，双架构同构覆盖 4.1.13 全线 + 4.1.15 全家族；270100 真机行为验证；269602 为纯 C++ 更新器时代，双架构周期工人→ret 单点）
 - **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）
@@ -57,7 +57,7 @@ wxkeep runtime remove    # 完整移除（幂等）
 | `tip_text` | 自定义文案。**必须保持官方骨架** `"<X>" 撤回了一条消息`（渲染层按此模式匹配，非规范形态显示为 Unsupported 占位；`wxkeep runtime tip` 会强制校验）；`{from}` 占位符展开为撤回者昵称（纯 `"{from}"` 形态展开后与原内文恒等长，最稳）；总长 ≤ 原提示内文（约 31B，超长自动放弃保原文）。推荐：`"⚠️" 撤回了一条消息` |
 | `rewrite_self` | `true` 时自发撤回（「你撤回了一条消息」）也改写；默认 false 保持诚实反馈 |
 
-示例：`tip_text = "⚠️" 撤回了一条消息`（实测可渲染形态）。改写是**等长原位替换**（多余长度空格填充），文案长于原提示时放弃保原文；hook 按构建 UUID + 入口字节双门匹配，未知构建零作用。地址表随 `install` 写入（30 行 = 4.1.15 全家族（除未发布的 270087/270092）× 双架构），新构建由 `tools/derive_runtime_hooks.py` 产出数据行即生效。**格式约束（实测）**：渲染层按官方骨架 `"…" 撤回了一条消息` 匹配显示，非规范形态会显示为 Unsupported 占位。
+示例：`tip_text = "⚠️" 撤回了一条消息`（实测可渲染形态）。改写是**等长原位替换**（多余长度空格填充），文案长于原提示时放弃保原文；hook 按构建 UUID + 入口字节双门匹配，未知构建零作用。地址表随 `install` 写入（36 行 = 4.1.15 全家族（除未发布的 270087/270092，270101/270102 为已知缺口）+ 270133-270135 × 双架构），新构建由 `tools/derive_runtime_hooks.py` 产出数据行即生效。**格式约束（实测）**：渲染层按官方骨架 `"…" 撤回了一条消息` 匹配显示，非规范形态会显示为 Unsupported 占位。
 
 **通用 keeptip（默认开启）**：hook 还会在解析前把撤回 XML 的 `<newmsgid>` 清零——撤回删除按目标查不到，**原消息保留**。runtime 用户无需 keeptip 字节补丁即得「消息保留 + 提示正常显示」（实测消息与灰条提示同时成立）；`keep_message: false` 可关闭。进阶配置：`wxkeep restore` 撤掉 revoke/keeptip 字节补丁 + `wxkeep patch --variant keeptip --only update` 仅保留更新屏蔽——撤回防护完全由 runtime 承担，微信升级后 revoke 域无需重新打点。
 
@@ -75,7 +75,7 @@ wxkeep runtime remove    # 完整移除（幂等）
 
 ## 版本兼容
 
-见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，77 个构建号）。
+见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，82 个构建号）。
 catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（配方代不变时 day-0 可用），或显式 `wxkeep locate [--append]`。
 
 ## 从源码构建
@@ -103,9 +103,10 @@ docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现 / 工具
 
 - **keeptip 覆盖**：4.1.13 全线 + 4.1.15 全家族双架构对称（revoke-keeptip 每构建 x64+arm64 各 2 点；私聊提示保留，群聊提示为字节路线已知限制——全生态皆然）；silent 双架构全可用
 - **二进制级屏蔽更新**：4.1.13 全线 + 4.1.15 全家族双架构同构 8 点（XAppUpdateManager 四方法+访问器对；270100 真机行为验证，其余同构派生+字节级往返）；269602 为纯 C++ 更新器时代（周期工人→ret 双架构单点）；4.1.12 及更老构建的 arm64 8/9 点来自 zengtianli/fzlzjerry 导入。偏好层三开关（`wxkeep update-guard`，patch 时自动附带）在无二进制目标的构建上兜底
-- verify 的行为验证双架构可用：worker 在 arm64 走 **MAP_JIT**（非 hardened 进程免 entitlement——`allow-unsigned-executable-memory` 属受限 entitlement，ad-hoc 重签带不上，CI 两轮实证），x64 直接 RWX 映射；`verify` 先起一次 worker 探针实测能力，被拒时打环境提示。arm64 执行路径已 CI 真件端到端验收（`.github/workflows/arm64-verify.yml`：macos-15 runner 上 CDN 270100 fat → lipo → 谓词反解 → MAP_JIT worker 执行 → 四探针全对，与静态地面真值一致）；stock arm64 真机无需 AMFI boot-arg
+- verify 的行为验证双架构可用：worker 在 arm64 走 **MAP_JIT 拆分映射**（EXEC 前缀段=MAP_JIT，数据段=普通 RW 匿名映射紧贴其后——macOS 27 的 W^X 是执行级：写态页不可执行、保护态页不可写且 mprotect 全封，代码数据同区即死锁；2026-10-14 最小探针定案），x64 直接 RWX 映射；写入后 `sys_icache_invalidate` + `np(1)` 回保护态再执行。arm64 执行路径已 CI（macos-15）与 **macOS 27 真机**（270100 装机件四探针全对）双端验收；stock arm64 真机无需 AMFI boot-arg
+- **verify spec 只覆盖 270099 族**：verify 规格（stubs/zero_regions）是该族构建的绝对 VA，不是全构建通用数据。不适用构建上 `verify` 优雅跳过并提示（worker 有 stub 形态/越界门；x64 探针条目按配方 asm 匹配，无匹配即跳过；arm64 位点形态不符同样跳过）——补丁效果始终由 strict verify 字节级证明承担，`doctor` / `patch --dry-run` 不受影响。CI 另在 Rosetta 下跑 x86_64 全量测试覆盖 Intel worker 路径
 - 78 个隔离条目缺 expected 溯源字节（tanranv5 x64 + zengtianli arm64，全部为 4.1.12 及更老时代构建）——官方 CDN 无归档；zsbai 社区归档虽有其 dmg 但老线资产**系统性源头损坏**（digest 与 GitHub 一致仍 XZ corrupt，2026-09-19 抽样实证），回填源确认为永久缺口
-- 运行时组件地址表 = 4.1.15 全家族（除未发布的 270087/270092）× 双架构 30 行；M-R2 parse 直挂已实机验证（270100），其余家族行为同构派生（序言门全过，未单独实机验收）
+- 运行时组件地址表 = 4.1.15 全家族（除未发布的 270087/270092；270101/270102 缺行待补）+ 270133-270135 × 双架构 36 行；M-R2 parse 直挂已实机验证（270100），其余家族行为同构派生（序言门全过，未单独实机验收）
 - 270087/270092 与 4.1.13.1-.4、.12-.49 段（含 269602）官方 CDN 无归档（疑似从未公开发布）——269602 条目已由历史轮次覆盖，其余为目录永久缺口
 
 ## 贡献
