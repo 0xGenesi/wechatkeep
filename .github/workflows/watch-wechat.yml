@@ -155,7 +155,15 @@ jobs:
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "builds=$BUILDS" >> "$GITHUB_OUTPUT"
       - name: Open PR
+        # 2026-10 五连红根因：仓库未开「Allow GitHub Actions to create and
+        # approve pull requests」（Settings→Actions→General→Workflow
+        # permissions），pulls.create 直接抛 HttpError 炸掉整个 run，连后面的
+        # fallback issue 都被短路。改为：权限错误不再上抛——置 failed 输出，
+        # 交给 fallback issue 兜底告警（分支已推上去，issue 带一键建 PR 链接）。
+        # continue-on-error 再兜一层：脚本其他意外异常同样降级而非红 run。
         if: steps.latest.outputs.need_report == 'yes' && steps.pr.outputs.opened == 'yes'
+        id: openpr
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
@@ -176,29 +184,74 @@ jobs:
               core.notice('PR #' + existing.data[0].number + ' refreshed');
               return;
             }
-            const pr = await github.rest.pulls.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              base: context.ref.replace('refs/heads/', ''),
-              head: head,
-              title: `适配新微信构建 ${{ steps.pr.outputs.builds }}（自动定位，待审核）`,
-              body: body + '\n\n合并前请：核对 expected 字节与构建号；实机行为验证后移除 manual-verify-needed。'
-            });
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner, repo: context.repo.repo,
-              issue_number: pr.data.number,
-              labels: ['auto-locate', 'manual-verify-needed']
-            });
+            try {
+              const pr = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: context.ref.replace('refs/heads/', ''),
+                head: head,
+                title: `适配新微信构建 ${{ steps.pr.outputs.builds }}（自动定位，待审核）`,
+                body: body + '\n\n合并前请：核对 expected 字节与构建号；实机行为验证后移除 manual-verify-needed。'
+              });
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: pr.data.number,
+                labels: ['auto-locate', 'manual-verify-needed']
+              });
+            } catch (e) {
+              // 常见形态：「GitHub Actions is not permitted to create or
+              // approve pull requests」——仓库设置问题，分支推送（contents:write）
+              // 不受影响。降级转 issue，不为告警通道的配置缺口毁掉整轮。
+              core.setOutput('failed', '1');
+              core.setOutput('reason', String(e.message).slice(0, 300));
+              core.warning('PR 创建失败，转 fallback issue：' + e.message);
+            }
       - name: Fallback tracking issue (no entries / PR failed)
-        if: steps.latest.outputs.need_report == 'yes' && steps.locate.outputs.processed != '0' && steps.pr.outputs.opened != 'yes'
+        # 触发面：① 配方未命中（opened=no）② PR 步骤失败/被权限拒绝
+        # （openpr.outputs.failed=1 或 outcome=failure）。issue 是比红 run
+        # 更好的告警载体——带完整定位报告与一键建 PR 链接。
+        if: steps.latest.outputs.need_report == 'yes' && steps.locate.outputs.processed != '0' && (steps.pr.outputs.opened != 'yes' || steps.openpr.outputs.failed == '1' || steps.openpr.outcome == 'failure')
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const body = fs.readFileSync('/tmp/report.md', 'utf-8');
-            await github.rest.issues.create({
+            let body = fs.readFileSync('/tmp/report.md', 'utf-8');
+            const head = '${{ steps.pr.outputs.branch }}' || '';
+            const prFailed = '${{ steps.openpr.outputs.failed }}' === '1';
+            const reason = '${{ steps.openpr.outputs.reason }}' || '';
+            if (head) {
+              // 分支已推送：一键建 PR（compare 页 expand=1 直接开 PR 表单）
+              body += `\n\n---\n自动分支：\`${head}\`\n` +
+                (prFailed
+                  ? `PR 自动创建被拒（${reason}）。开启路径：仓库 Settings → Actions → General → Workflow permissions 勾选 **Allow GitHub Actions to create and approve pull requests**；或直接人工建 PR：\n`
+                  : '') +
+                `https://github.com/${context.repo.owner}/${context.repo.repo}/compare/${context.ref.replace('refs/heads/', '')}...${head}?expand=1\n<!-- wxkeep-branch: ${head} -->`;
+            }
+            if (prFailed) {
+              body = '## ⚠️ 自动 PR 创建失败（已在上面给出修复路径）\n' + body;
+            }
+            // 幂等：同分支 marker 的开放 issue 已存在 → 更新正文，避免
+            // 权限缺口期间每日一 issue 刷屏
+            const marker = `<!-- wxkeep-branch: ${head} -->`;
+            if (head) {
+              const found = await github.rest.issues.listForRepo({
+                owner: context.repo.owner, repo: context.repo.repo,
+                state: 'open', labels: 'auto-locate', per_page: 100
+              });
+              const hit = found.data.find(i => (i.body || '').includes(marker));
+              if (hit) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: hit.number, body
+                });
+                core.notice('fallback issue #' + hit.number + ' refreshed');
+                return;
+              }
+            }
+            const issue = await github.rest.issues.create({
               owner: context.repo.owner, repo: context.repo.repo,
               title: `适配新微信构建（自动定位报告 ${{ steps.pr.outputs.builds || '见正文' }}）`,
               labels: ['auto-locate', 'manual-verify-needed'],
               body
             });
+            core.notice('fallback issue #' + issue.data.number + ' created');

@@ -81,6 +81,17 @@ enum RuntimeConfig {
         HookRow(build: "270100", uuid: "23350838-734b-3df6-a4ff-93cf2dd8c704",
                 arch: "x86_64", hook_off: "0x537dcd0", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154"),
+        // 270131/270132（4.1.15.51/.52，2026-10-17 CDN 缺口补齐轮）：zsbai 漏
+        // 归档、watch CI 因此从未发现的构建——官方 CDN 构建归档直链按线性
+        // 探测（4.1.15.23-.50 全 404，.51/.52 在档）补入。派生与序言门同
+        // 270133-135 口径：x64 = parse-guard → FUNCTION_STARTS parse 入口；
+        // arm64 = revoke 位点所在函数起点 + 切片 LC_UUID。
+        HookRow(build: "270131", uuid: "255452e3-73fa-3682-8d06-6be7fe42352b",
+                arch: "x86_64", hook_off: "0x54f7160", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
+        HookRow(build: "270132", uuid: "281a9644-2629-34cb-82ee-8e58dc5eb5e7",
+                arch: "x86_64", hook_off: "0x54f9340", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154"),
         // 270133-270135（4.1.15.53-.55，2026-10-14 派生轮）：x64 行 =
         // locate_x64_parse_guard → derive_runtime_hooks（序言门全过）；
         // arm64 行 = revoke 位点所在函数起点（LC_FUNCTION_STARTS）+ 切片
@@ -138,6 +149,12 @@ enum RuntimeConfig {
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270100", uuid: "0b9929bb-e55e-3513-b439-32375760bca2",
                 arch: "arm64", hook_off: "0x4bc4d34", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270131", uuid: "825a26b5-c211-31d6-9e6f-9295865ae5c9",
+                arch: "arm64", hook_off: "0x4d12b50", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+        HookRow(build: "270132", uuid: "15884091-e6a6-34a4-afe0-36c207a1a58b",
+                arch: "arm64", hook_off: "0x4d16ce8", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270133", uuid: "ea1a57e3-4599-3365-9dc3-c69375798d73",
                 arch: "arm64", hook_off: "0x4d15438", msg_arg: 1, xml_sso_off: 0,

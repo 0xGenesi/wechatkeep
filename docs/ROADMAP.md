@@ -1,5 +1,60 @@
 # 路线图（待办归档）
 
+## 66·watch CI 五连红治本 + 近期构建实证复核 + CDN 缺口补齐轮（2026-10-17：270131/270132 全链接入，目录 84 构建）
+
+1. **[治本] watch-wechat 五连红（10/9、10/12-15）单一根因**：工作流检测到
+   新构建（270133-135）→ 分支推送成功（contents:write）→ `pulls.create`
+   抛 `GitHub Actions is not permitted to create or approve pull requests`
+   → 未捕获异常炸掉 run，且把后面的 fallback issue 步骤一并短路——**告警
+   通道被权限缺口整体摧毁**。根因是仓库设置（Settings→Actions→General→
+   Workflow permissions 的「Allow GitHub Actions to create and approve
+   pull requests」复选框）——REST API 不暴露该开关（GET actions/permissions
+   仅 enabled/allowed_actions/sha_pinning_required），只能网页设置。
+   修复分两层：① Open PR 步骤对权限错误不再上抛（置 failed 输出 +
+   warning，continue-on-error 兜底意外异常）；② fallback issue 扩触发面
+   （opened=no 或 openpr 失败均开），正文带分支名 + compare 一键建 PR
+   链接 + 开启 PR 权限的路径说明，且按 `<!-- wxkeep-branch: … -->` marker
+   幂等（权限缺口期间每日刷新同一 issue 而非刷屏）。**未做**：降级路径
+   无法本地验证（需要 need_report=yes 的真实新构建），首个新构建日的
+   run 日志需人工复核一次。
+2. **[实证] 270133-135 补丁点 vs 实际字节复核**：zsbai sha256 边车与 CDN
+   归档直链互证（270135 逐字节同哈希 ceea355d…），从 CDN 原版重下三 dmg →
+   thin 切片 → verify_derivations **7/7 × 3 全 PASS**（revoke 双架构配方、
+   guard、keeptip store、update imps、hook 行双架构）+ verify_staging
+   **6 组 × 3 全 PASS**（引擎级往返：pristine→patch→幂等→restoreAsm
+   字节级一致）。结论：65 轮（v0.2.10）的三构建目录数据与官方原版逐点
+   一致，「软件打的补丁点 = 实际位点」成立。
+3. **[补缺] CDN 线性探测发现 270131/270132（zsbai 漏归档）**：4.1.15 家族
+   线性映射（4.1.15.N ↔ 270080+N）对 .23-.50 全量探测 **全 404**（永久
+   缺口定案），但 **.51（270131）/.52（270132）在档**——热修通道发布过、
+   zsbai 漏收，watch CI 只看 zsbai 所以从未发现（zsbai 最新 15 个 release
+   从 .55 直接跳回 .22，中间全空）。两构建全链接入：derive_build_from_cdn
+   （revoke×3 + keeptip×4 + update.x64 8）+ locate_update_arm64 手工拼接
+   8 条/构建（derive 脚本只做 x64 面——与 270133-135 轮同款手工步骤，
+   **改进候选**：把 arm64 update 并进 derive 脚本）+ HookRow 4 行/构建
+   （parse 入口 + LC_UUID + 家族序言门 554889E54157415641554154 /
+   F85FBCA9F65701A9F44F02A9FD7B03A9 全过）→ merge_staging → manifest
+   重签 → verify_derivations **7/7 × 2** + verify_staging **6 组 × 2**
+   全 PASS。目录 82→84 构建，COMPATIBILITY 重生（270131/132 双架构全绿）。
+4. **[判读] 两个流程坑（都消耗了一轮假红）**：
+   - **verify 必须在 manifest 重签之后**：merge_staging 改 config.json 后
+     manifest.sig 陈旧 → CLI 供应链门拒绝加载 → verify_derivations 的
+     revoke 项 derived=None 假红（5/7）。正序：merge → sign_manifest →
+     verify。已在 MAINTAINING 固化。
+   - **构建抖动新形态**：既有「TestingMacros plugin not found」之外，
+     本机 macOS 27 + Swift 6.4 连发 `swift test` 还会撞
+     `nProcPluginServer … error: fatalError`（270131 首跑连撞 5 次耗尽
+     重试；立即重跑全过）。verify_staging 重试 2→4 档 + 2s 冷却，「重跑
+     即过」经验依旧成立——假红特征 = 无 ✘ 测试失败行 + Build failed。
+5. **[记录] 跳过/未决**：① 4.1.15.23-.50（270103-130）CDN 永久缺口
+   （探测定案，非工具缺陷）；② 270101/270102 仍无 hook 行（已知缺口，
+   无 dmg 工件可派生）；③ 4.1.14 线存在性未探（下一轮可做 CDN 线性
+   扫描，但 4.1.13 线的经验是「中间版本大段不存在」）；④ watch CI 的
+   zsbai 单源依赖未解——CDN-only 构建（如本轮 .51/.52）仍需人工缺口
+   扫描发现，watch_new_builds 增加 CDN 线性探测是改进候选（点分版本
+   无法从构建号反推是设计难点）；⑤ zsbai 归档不含 .51/.52，archive_
+   index.json 不动（它只索引 zsbai 资产）。
+
 ## 65·macOS 27 verify 修复 + 4.1.15.53-.55 适配轮（2026-10-14：真机行为验证首次全绿 + 新构建三连入目）
 
 1. **[缺陷修复] arm64 verify 在 v0.2.8/9 上从未真正工作过**：v0.2.8 回调式

@@ -23,6 +23,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -37,7 +38,9 @@ def run_group(name, dylib, entries):
     # 间歇失败（"plugin for module 'TestingMacros' not found" → Build failed，
     # 输出里没有任何 ✘ 测试失败行）。这是构建层抖动不是条目问题——同一命令
     # 立即重跑即过。判据：无 ✘ 且报错文本含编译失败痕迹 → 最多重试 2 次。
-    for attempt in range(3):
+    # 2026-10-17 实证：抖动可以连发 3 次耗尽 2 档重试（270133 首跑整组假红、
+    # 立即重跑全过）。加到 4 档重试 + 重试间 2s 冷却，压掉连发宏插件失败窗口。
+    for attempt in range(5):
         r = subprocess.run(
             ["swift", "test", "--filter", "BackfillRoundtrip"],
             capture_output=True, text=True, cwd=ROOT, timeout=600, env=dict(
@@ -48,8 +51,9 @@ def run_group(name, dylib, entries):
             return False, "harness 静默跳过（环境变量/路径问题）"
         build_flake = ("✘" not in out and "skipped" not in out
                        and ("Build failed" in out or "could not be found for macro" in out))
-        if build_flake and attempt < 2:
-            print(f"    （构建层抖动，重试 {attempt + 1}/2）")
+        if build_flake and attempt < 4:
+            print(f"    （构建层抖动，重试 {attempt + 1}/4）")
+            time.sleep(2)
             continue
         break
     if "failed" in out or r.returncode != 0:

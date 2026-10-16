@@ -28,6 +28,18 @@
    函数起点，序言门 `F85FBCA9F65701A9F44F02A9FD7B03A9`，见 ㉒ 轮记录）。
    arm64 行加好后跑 `wxkeep runtime hooks` 刷新即可，无需重装 dylib。
 
+**流程顺序（2026-10-17 实证，假红教训）**：`merge_staging` 改过 config.json
+之后、`sign_manifest` 重签之前，CLI 的供应链门会拒绝加载数据——
+verify_derivations 此时跑出 revoke `derived=None` 的 5/7 假红（locate 全空，
+不是配方 miss）。正序永远是：**merge → sign_manifest → verify**。
+
+**CDN 缺口扫描（zsbai 漏归档兜底，2026-10-17 实证）**：watch CI 只看
+zsbai，热修通道构建若 zsbai 漏收（如 4.1.15.51/.52）就永远不会被发现。
+家族内线性映射（4.1.15.N ↔ 270080+N）可用 range GET 并行探测 CDN 归档
+直链（`…_universal_<点分>_<构建>.dmg`，404=不存在、206=在档）；.23-.50
+全 404 是永久缺口，.51/.52 在档即 66 轮补入的来源。新营销线（如 4.1.16）
+上线时重跑一轮线性探测即可定界。
+
 ## 已知签名代（arm64 revoke，几何特征）
 
 | 代 | 构建 | cbz 字节 | delta | newmsgid 字段 |
@@ -149,6 +161,12 @@ revoke.py，Weixin.dll 4.0.6+，仅两条通配规则、无注入）：
   清理恢复型（旧补丁存在则还原，幂等）。
 
 ## 误改与踩坑记录（防重蹈）
+
+- **构建抖动两形态（macOS 27 + Swift 6.4 连发 `swift test`）**：①
+  TestingMacros「plugin not found → Build failed」（既有）；②
+  `nProcPluginServer … error: fatalError`（2026-10-17 新见，可连撞 5 次耗尽
+  重试）。共同特征 = 输出无 ✘ 测试失败行 + Build failed——**重跑即过**，
+  verify_staging 已内置 4 档重试 + 2s 冷却；组级失败先整轮重跑再判真红。
 
 - **~~x64 结构偏移 ≠ arm64~~（2026-09-16 推翻）**：newmsgid 字段两架构同为
   +0x1C8（同一 C++ 结构）。M2 的旧结论源于当时只扫到 TryParseMessage 之外的
