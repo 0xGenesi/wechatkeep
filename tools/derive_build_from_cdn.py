@@ -11,8 +11,9 @@ var/staging/<build>.json（后续合入 config.json 前的暂存产物）：
   3. guard       locate_x64_parse_guard.py（test→xor 条目）
   4. keeptip x64 parse 入口内 E8+newmsgid store 唯一命中（expected 按实读字节）
                  + isRevokemsg 归一化恢复型条目
-  5. update      locate_update_x64.py（XAppUpdateManager 四方法 + 访问器对；
-                 类不存在的构建诚实跳过）
+  5. update      locate_update_x64.py + locate_update_arm64.py（XAppUpdateManager
+                 四方法 + 访问器对，双架构；类不存在的构建诚实跳过——arm64 面
+                 2026-10-19 并入，65/66 两轮均为手工跑 + 手工拼 JSON）
   6. arm64 keeptip（仅目录外新构建）：按命中配方的代际几何派生
                  （cbz 归一化 + newmsgid 存储清零对）
   7. 隔离回填    目录内已有条目缺 expected 者，按 (arch, addr) 实读字节回填
@@ -142,7 +143,7 @@ def run_locate(build, x64thin, armthin, staging):
 
 # ---------------------------------------------------------------- guard + keeptip x64
 def derive_guard_and_keeptip(x64thin, rev_x64_site):
-    r = sh(["python3", os.path.join(HERE, "locate_x64_parse_guard.py"), x64thin])
+    r = sh([sys.executable, os.path.join(HERE, "locate_x64_parse_guard.py"), x64thin])
     m = re.search(r"条目: addr=([0-9a-f]+)\s+expected=(\S+)\s+asm=(\S+)", r.stdout)
     if not m:
         return None, None, r.stdout[-400:]
@@ -188,7 +189,7 @@ def check_rev_x64_bytes(x64thin, site):
 
 # ---------------------------------------------------------------- update
 def derive_update(x64thin, build):
-    r = sh(["python3", os.path.join(HERE, "locate_update_x64.py"), x64thin])
+    r = sh([sys.executable, os.path.join(HERE, "locate_update_x64.py"), x64thin])
     if "not found" in (r.stdout + r.stderr):
         return None, "XAppUpdateManager 不存在（该构建更新器走 C++/其他类）"
     entries = []
@@ -209,6 +210,33 @@ def derive_update(x64thin, build):
             "expected": [exp], "asm": "C3",
             "source": f"wxkeep:objc:{sel}@{build}"})
     note = "访问器对形态不符已跳过（只入 ret 方法）" if entries else "无可用 update 条目"
+    return entries or None, note + (f"; 工具输出尾: {r.stdout[-200:]}" if not entries else "")
+
+
+def derive_update_arm64(armthin, build):
+    """update 目标的 arm64 面（65/66 两轮手工跑 locate_update_arm64 + 手工
+    拼 JSON，2026-10-19 并进脚本）。策略与 x64 面同构：JSON 段优先，工具因
+    problems 退出时只收形态良好的 ret 方法行，类不存在诚实跳过。"""
+    r = sh([sys.executable, os.path.join(HERE, "locate_update_arm64.py"), armthin])
+    if "not found" in (r.stdout + r.stderr):
+        return None, "XAppUpdateManager（arm64）不存在"
+    entries = []
+    m = re.search(r"=== config\.json update target.*?===\s*(\{.*\})\s*$",
+                  r.stdout, re.S)
+    if m:
+        for e in json.loads(m.group(1))["entries"]:
+            entries.append({
+                "arch": "arm64", "addr": e["addr"],
+                "expected": [e["expected"]], "asm": e["asm"],
+                "source": f"wxkeep:{e['source']}@{build}"})
+        return entries, None
+    for sel, imp, exp in re.findall(
+            r"ret  (\S+)\s+imp 0x([0-9A-Fa-f]+) expected ([0-9A-F]+)(?!\s*<<<)", r.stdout):
+        entries.append({
+            "arch": "arm64", "addr": format(int(imp, 16), "x"),
+            "expected": [exp], "asm": "C0035FD6",
+            "source": f"wxkeep:objc:{sel}@{build}"})
+    note = "arm64 访问器对形态不符已跳过（只入 ret 方法）" if entries else "无可用 arm64 update 条目"
     return entries or None, note + (f"; 工具输出尾: {r.stdout[-200:]}" if not entries else "")
 
 
@@ -331,14 +359,18 @@ def main():
     else:
         report["notes"].append("revoke_x64 配方未命中（无 guard/keeptip 派生）")
 
-    # update
+    # update（x64 + arm64 双面；arm64 面缺类/形态不符各自诚实降级）
     upd_entries, upd_note = derive_update(x64thin, args.build)
+    upd_arm_entries, upd_arm_note = derive_update_arm64(armthin, args.build)
+    upd_entries = (upd_entries or []) + (upd_arm_entries or [])
     if upd_entries:
         targets.append({"identifier": "update",
                         "binary": "Contents/Resources/wechat.dylib",
                         "entries": upd_entries})
     if upd_note:
-        report["notes"].append(f"update: {upd_note}")
+        report["notes"].append(f"update x64: {upd_note}")
+    if upd_arm_note:
+        report["notes"].append(f"update arm64: {upd_arm_note}")
 
     # arm64 keeptip（仅新构建；arm64 revoke 已由 locate 产出）
     if args.new_build:
