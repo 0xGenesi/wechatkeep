@@ -89,6 +89,38 @@ struct VariantSwitchTests {
         #expect(data.range(of: Data([0x7F, 0xE6, 0x00, 0xF9])) == nil,
                 "dry-run 不得预写 keeptip 字节")
     }
+
+    /// 变体切换的还原写入必须计入 wroteAnything。混合态机器（silent 与
+    /// keeptip 字节并存——旧版本无切换还原时期的实况）上幂等重打 keeptip：
+    /// undo 撤掉 silent 在共享位点的字节（写 >0），keeptip 各点全部
+    /// alreadyPatched（written=0）。此时 wroteAnything 必须为真，否则 CLI
+    /// 按「无写入」跳过重签——字节已改+旧签名 = 启动必崩态（Engine 失败
+    /// 路径的恢复重签同样被该门短路）。
+    @Test func switchRestoreWriteCountsTowardResignDecision() throws {
+        let (app, config) = try makeAppAndCatalog()
+        let dylib = app.appendingPathComponent("Contents/Resources/wechat.dylib")
+        // 用 Patcher 直接造混合态：先全量写 silent，再单独写 keeptip 的
+        // 专属位点（共享位点 0x100 留给 Engine 的切换还原处理）。
+        let entry = try #require(config.entry(build: "999999"))
+        let revoke = try #require(entry.targets.first { $0.identifier == "revoke" })
+        let keeptip = try #require(entry.targets.first { $0.identifier == "revoke-keeptip" })
+        _ = try Patcher.patch(binary: dylib, entries: revoke.entries, identifier: "revoke")
+        _ = try Patcher.patch(
+            binary: dylib,
+            entries: keeptip.entries.filter { !($0.arch == .arm64 && $0.addr == "100") },
+            identifier: "revoke-keeptip")
+
+        // 幂等重打 keeptip：undo 还原共享位点（写入），keeptip 全 alreadyPatched
+        let summary = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
+                                       dryRun: false, allowUnverified: false, only: nil)
+        #expect(summary.wroteAnything, "undo 的还原写入必须触发重签决策")
+        #expect(summary.patchedBinaries.contains("Contents/Resources/wechat.dylib"))
+        // 终态 = 干净的 keeptip：silent 字节已在共享位点被还原
+        let data = try Data(contentsOf: dylib)
+        #expect(data.range(of: Data([0xF4, 0x4F, 0xBE, 0xA9, 0xFD, 0x7B, 0x01, 0xA9])) != nil,
+                "共享位点恢复原始序言（keeptip 归一化态）")
+        #expect(data.range(of: Data([0x7F, 0xE6, 0x00, 0xF9])) != nil, "keeptip 专属位点保留")
+    }
 }
 
 /// `--only` 作用域语义：限定目标时不得触碰任何 revoke 变体——

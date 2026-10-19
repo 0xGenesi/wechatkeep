@@ -253,6 +253,11 @@ enum Engine {
             if undo.wroteAnything {
                 summary.lines.append("  [switch] restored previous variant \(otherID) writes")
                 summary.patchedBinaries += undo.patchedBinaries
+                // 还原也是写：混合态机器上（revoke+keeptip 并存）本变体全部
+                // alreadyPatched 时，written=0 会让 CLI 跳过重签；下方失败路径
+                // 的恢复重签同样被 wroteAnything 门掉——字节已改+旧签名 =
+                // 启动必崩态，与该防线要防的半套态同构。
+                summary.wroteAnything = true
             }
         }
 
