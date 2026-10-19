@@ -28,9 +28,12 @@ jobs:
           set -euo pipefail
           # zsbai/wechat-versions 的每个 release body 带 DestVersion（构建号），
           # release asset 是当日归档的官方 dmg——构建号与安装包一一对应。
+          # --cdn-probe：zsbai 之外的官方 CDN 线性探测（270131/270132 漏报
+          # 教训——热修通道构建 zsbai 漏收时 watch 也能发现；锚点缺失/映射
+          # 非线性/CDN 不可达时探测安静跳过，不影响 zsbai 主路径）。
           curl -sf "https://api.github.com/repos/zsbai/wechat-versions/releases?per_page=15" \
             -o /tmp/zsbai_releases.json || true
-          python3 tools/watch_new_builds.py /tmp/zsbai_releases.json config.json > /tmp/new_builds.txt
+          python3 tools/watch_new_builds.py /tmp/zsbai_releases.json config.json --cdn-probe > /tmp/new_builds.txt
           if [ -s /tmp/new_builds.txt ]; then
             echo "new builds:"; cat /tmp/new_builds.txt
             echo "need_report=yes" >> "$GITHUB_OUTPUT"
