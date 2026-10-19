@@ -1,5 +1,42 @@
 # 路线图（待办归档）
 
+## 67·变体切换重签缺口 + 两个改进候选落地 + 4.1.14 线定案轮（2026-10-19）
+
+1. **[缺陷修复] 变体切换的还原写入不计入重签决策**：混合态机器（silent 与
+   keeptip 字节并存——旧版无切换还原时期的实况）幂等重打 keeptip 时，
+   undo 撤共享位点写 >0 但本变体各点全 alreadyPatched（written=0）→
+   `wroteAnything` 为假 → CLI 按「无写入」跳过重签、失败路径的恢复重签
+   同被门短路——字节已改+旧签名 = 启动必崩态。修复：undo.wroteAnything
+   传播进 summary；新测试 switchRestoreWriteCountsTowardResignDecision
+   （Patcher 直造混合态，断言重签触发 + 终态归一化）。
+2. **[改进落地] derive_build_from_cdn 集成 arm64 update 派生**（65/66 两轮
+   手工步骤）：derive_update_arm64 与 x64 面同构降级（类缺失诚实跳过、
+   problems 退出只收 ret 行）；source 口径 wxkeep:objc:sel@build；内层
+   工具子进程 python3 → sys.executable（capstone 只在 var/venv，字面量
+   仅激活态碰巧可用）。验证：270131/270132 全量重派生，revoke 3/3 +
+   keeptip 4/4 + update 16/16 与 66 轮手工合入条目逐项一致。
+3. **[改进落地] watch CI CDN 线性探测**（270131/132 漏报治本）：
+   `watch_new_builds --cdn-probe`。**关键发现**：现行 zsbai body 的
+   DestVersion 已是点分格式（数字锚点恒缺）——锚定改为最高 tag 定线 +
+   最新 tag CDN X-搜索定真实构建号（base = X - maxN；稳态首候选即中，
+   领先窗 +64 覆盖实测 33 构建、滞后窗 -16）；候选 known+1..X+8 线性反推
+   点分，线内已有 tag 的 N 排除（防与「?」行双重下载 500MB）；**探测行
+   必须输出在 release 行之前**（「?」行 break 语义会截断尾部行——首版
+   实测踩中）。四场景实测：事件复现精确发现 270131/132、真数据稳态空、
+   滞后态 X=known-1、老格式数字锚点回归不变。
+4. **[定案] 4.1.14 线无 Mac 归档**（66 轮遗留③）：zsbai 全量 115 release
+   零 4.1.14；CDN 256 阶梯假设位（base=269824，阶梯 269312/269568/269824/
+   270080 等差 256 三点互证）0/65；全区间 base 269633..270083 × N 0..15
+   扫描（7216 探测零网络异常）零命中——判永久缺口。新工具
+   probe_cdn_line.py（对照 4.1.15 线 22/65 精确复现已知档案集）供未来
+   新营销线定界。残余盲区：base<269633 且 N≥16 的交错布局与单调阶梯
+   矛盾，未扫。
+5. **[附带] wxkeep_runtime.h #endif 越界**（三个声明在 guard 外裸声明）；
+   README 地址表 36→40 行（66 轮入目的实数核对）。148 测全绿。
+6. **[未决]**：watch 降级路径（PR 权限 fallback issue）仍需首个真实新构建
+   日人工复核（66 轮遗留，CDN 探测使新构建日更早到来）；270101/270102
+   hook 行仍缺（无 dmg 工件，永久）；verify spec 绑 270099 族（另行开轮）。
+
 ## 66·watch CI 五连红治本 + 近期构建实证复核 + CDN 缺口补齐轮（2026-10-17：270131/270132 全链接入，目录 84 构建）
 
 1. **[治本] watch-wechat 五连红（10/9、10/12-15）单一根因**：工作流检测到
