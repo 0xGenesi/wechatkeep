@@ -381,3 +381,51 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 - **无新构建**：CDN 归档 4.1.15.21-.25（270101-105）与 4.1.16 线全 404
   （09-18 ㉟ 收口后三天无热修）；`WeChatMac.dmg` 滚动件在档（200），
   无构建号变化信号。
+
+## 2026-10-20 生态调研（GitHub 深挖：v3 前置课题被社区攻克 + 自仓 stale 结论修正）
+
+### 竞品动态（gh API 实查）
+| 项目 | 状态 | 十月动态 |
+|---|---|---|
+| fzlzjerry/wechat-antirecall | ★430，10-19 仍在推 | 270133/135 当日适配（10-14）；270102 适配（09-30，runtime-tip 解析器 0x4bc5168/终结器 0x4b61c3c，"解析器跨页后入口桩 ADRP 编码改变"）；新功能：撤回日志、关键词提醒、屏幕共享隐私窗、红包"仅提醒"模式；偏好走 CFPreferences |
+| X1a0HeWeChatPlugin | ★1604，10-16 推 | 闭源二进制分发延续 |
+| zetaloop/BetterWX (Win) | ★1226，10-19 推 | **2.0.0 发布**：minimize function patch footprints、coexistence identity 从原生路径派生 |
+| sunnyyoung/WeChatTweak | 停更（2026-02） | 无变化 |
+| 新生代：本地库读取潮 | 10 月爆发 | sunfmin/wxread、sunfmin/wechat-export、wechat-mac-export-markdown、wechat-group-report-macos、mac-wechat-export-kit——Mac 4.x 库进程外直读成小生态 |
+
+### 核心情报一：SQLCipher key 获取（v3 前置课题）——被 wxread 攻克
+- **Key 形态**：微信 4.x 在内存里以 ASCII 字面量 `x'<64 位 hex key><32 位 hex salt>'`
+  持有每个库的原始 32B key（非派生）。wxread 在进程内存扫该字面量，候选 key
+  用库首页 HMAC 重算自证（proved, never guessed）。
+- **wxread 路线（进程外）**：task_for_pid 需微信带 get-task-allow——`wxread resign`
+  ad-hoc 重签微信并在**保留全部既有 entitlements** 基础上加该键（不关 SIP，重装
+  即还原）。上游格式来自 huohuoer/wechat-cli（★2603）+ wechat-decrypt。
+- **对 wxkeep 的更优解**：我们的 runtime dylib 本就在微信进程内——进程内扫
+  `x'…'` 字面量即可，零提权零重签。V2-PLAN 记录的「4.1.11+ 内存扫描已死」
+  是扫 PRAGMA ASCII 串的结论——换 hex 字面量签名即活，**该课题重开**。
+- ⚠ 保留证据：看雪逆向（Win 侧，Mac 共用核心）称撤回处理物理删行——
+  「能读库」≠「撤回后原文还在库里」。v3 立项前需一次实验：撤回后查该行存否。
+  X1a0He 的内容实为消息流缓存（hook 终结器先存），非读库。
+- wxread ADR 0007：直接复用微信自带 FTS 索引做检索——按 newmsgid 定位消息
+  的现成路径。
+
+### 核心情报二：自仓 stale 结论修正（270101/270102）
+- ROADMAP 66/README 记「270101/270102 无 hook 行——无 dmg 工件可派生」。
+  **今日定点复核：CDN 两构建均在档（206）**，.23-.50 段仍 404（永久缺口结论
+  不变）。9-21 探测记录「.21-.25 全 404」与今日矛盾（彼时误判或其后上档）。
+  → HookRow ×4 可立即补齐，README/ROADMAP 缺口行随之消除。fzlzjerry 已发布
+  270102 runtime-tip 入口（arm64 解析器 0x4bc5168）可做派生结果交叉验证。
+- fzlzjerry「preserve nested code signatures」（09-30）：其重签链保留嵌套码签名；
+  我们 Resigner 走 --deep 语义等价，无行动项，留档备查。
+
+### 值得融合的工程思路（按价值排序）
+1. **270101/270102 HookRow 补齐**（数据修正，立即执行——本轮调研直接产物）
+2. **v3 内容来源技术路径成型**：进程内扫 key 字面量 + SQLCipher 只读 + FTS
+   检索——立项前先做「撤回后行存否」实验（一次性真机撤回，与 M-R4 窗口合并）
+3. **撤回日志（recall log）**：fzlzjerry 10-14 新功能——runtime 已 hook parse，
+   追加事件落盘是低成本高感知功能，v3 候选首批
+4. **CLI「每个失败给出修法」审计**（wxread 设计哲学）：doctor 的 next_command
+   模式推广到全部报错路径
+5. Rodert/wechat-mac-versions（★145）：微信 Mac 历史版本归档站，第四回填源
+   候选（zsbai 之外的 dmg 镜像）
+6. ADR 式决策存档（wxread）：我们 ROADMAP 已同构，可选不必改
