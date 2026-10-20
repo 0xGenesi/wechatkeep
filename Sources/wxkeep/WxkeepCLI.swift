@@ -666,7 +666,9 @@ extension Wxkeep {
                 var data = try Data(contentsOf: main)
                 do {
                     try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: lcPath)
-                    try data.write(to: main)
+                    // 主可执行整体覆写走原子替换 + 权限保留（SafeWrite）：撕裂
+                    // 写 = 微信无法启动；.atomic 替换文件的默认 0644 同样如此。
+                    try SafeWrite.overwrite(data, to: main)
                 } catch {
                     Wxkeep.printPermissionHintIfTCC(error)
                     throw error
@@ -675,7 +677,7 @@ extension Wxkeep {
                 // 否则 dylib 装了也永远不加载——静默失效比失败更危险）
                 let verifyData = try Data(contentsOf: main)
                 guard MachOInjector.isInjectedAnySlice(data: verifyData, path: lcPath) else {
-                    try? Data(contentsOf: backup).write(to: main)
+                    try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
                     throw ValidationError("LC_LOAD_DYLIB 写入未生效（已回滚备份）——请汇报此问题")
                 }
 
@@ -693,7 +695,7 @@ extension Wxkeep {
                     // LC 已注入但 dylib 拷贝/重签失败 = 下次启动 dyld 找不到库必崩的
                     // 混合态——回滚主程序并尽力清掉已拷入的 dylib，保持原子性。
                     Wxkeep.printPermissionHintIfTCC(error)
-                    try? Data(contentsOf: backup).write(to: main)
+                    try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
                     try? fm.removeItem(at: dest)
                     throw error
                 }
@@ -743,11 +745,11 @@ extension Wxkeep {
                         lcWasPresent = false
                     }
                     if lcWasPresent {
-                        // 内存态先验证：LC 真的没了才落盘
+                        // 内存态先验证：LC 真的没了才落盘（原子替换 + 权限保留）
                         guard !MachOInjector.isInjectedAnySlice(data: data, path: lcPath) else {
                             throw ValidationError("LC_LOAD_DYLIB 移除未生效（遍历校验失败）——已中止，dylib 保留")
                         }
-                        try data.write(to: main)
+                        try SafeWrite.overwrite(data, to: main)
                     }
                 } catch {
                     Wxkeep.printPermissionHintIfTCC(error)
@@ -758,7 +760,7 @@ extension Wxkeep {
                     // 文件 = 下次启动必崩。失败即回滚备份，dylib 文件原样保留）
                     let verifyData = try Data(contentsOf: main)
                     guard !MachOInjector.isInjectedAnySlice(data: verifyData, path: lcPath) else {
-                        try? Data(contentsOf: backup).write(to: main)
+                        try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
                         throw ValidationError("LC_LOAD_DYLIB 移除写盘未生效（已回滚备份）——请汇报此问题")
                     }
                 }

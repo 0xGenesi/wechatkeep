@@ -1,5 +1,29 @@
 # 路线图（待办归档）
 
+## 71·第二轮深审加固轮（2026-10-20：Verifier worker 全读补完 + 三处事故级隐患收口）
+
+1. **[审读] Verifier.swift 300-730（worker 侧）全读补完**：MAP_JIT 拆分映射
+   的 EXEC 前缀判定、np 开关 + 懒修复处理器双保险、RTLD_DEFAULT 符号解析、
+   exit-4 适用范围门、SSO 探针构造（x64 短串 <23B / arm64 数据@0 长度@0x17）
+   ——逻辑自洽，无新增缺陷。combined with 70 轮，全仓源码两轮过目。
+2. **[加固① 主可执行原子覆写]**：runtime install/remove 对 Contents/MacOS/
+   WeChat 的整体覆写共 5 处（写 2 + 回滚 3）全为非原子 `Data.write`——撕裂
+   写 = 微信无法启动（备份在但需手工恢复）。新 `SafeWrite.overwrite`：
+   `.atomic`（temp+rename）+ 覆写前快照 posixPermissions、覆写后回写
+   （.atomic 替换文件默认 0644，可执行位不随 rename 存活——不补权限等于
+   把撕裂写换成权限丢失，同一症状换来源）。Patcher 的定点偏移写不适用此
+   路（撕裂面只有补丁字节自身，由备份+verify-after-write 承担），维持原样。
+3. **[加固② pgrep ERE 转义]**：isRunning 把 app 路径直接当 `pgrep -f` 的
+   ERE pattern——「WeChat (1).app」这类合法目录名让正则非法/错配，pgrep
+   失败被当成「没在运行」→ **微信运行中继续 patch**（真事故链）。
+   pgrepPattern(for:) 纯函数转义全部 ERE 元字符 + 端到端回归（sh 双命令
+   载体进程——单命令会被 sh exec 优化掉、注释不进 cmdline，首轮实测踩中）。
+4. **[加固③ Shell.run stdout 改 temp 文件]**：stderr 曾因「子进程 helper
+   继承管道 fd 永不退出 → read-to-EOF 挂死」在 CI 实测炸过并改文件；
+   stdout 是同一类隐患（同款挂死窗口），一并改文件——双文件 + wait 后读，
+   挂死类隐患清零。
+5. 156 测全绿（+4：SafeWrite ×2、pgrepPattern 纯函数、isRunning 端到端）。
+
 ## 70·全源码审读轮（2026-10-20：19 Swift 文件 + runtime.m 逐行过目，5 处收口）
 
 1. **[审读结论] 主链无功能 bug**：Patcher 双相写（全验后写）、Engine 变体
