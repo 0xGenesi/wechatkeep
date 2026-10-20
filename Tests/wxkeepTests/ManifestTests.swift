@@ -5,7 +5,7 @@ import CryptoKit
 
 /// 供应链清单签名校验：OpenSSL(签名端)/CryptoKit(校验端) 互通 + 三态语义。
 final class ManifestTests {
-    private func makeSignedDir() throws -> (dir: URL, cleanup: () -> Void) {
+    private func makeSignedDir() throws -> (dir: URL, pubB64: String, sigB64: String, cleanup: () -> Void) {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("wxkeep-manifest-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -28,12 +28,13 @@ final class ManifestTests {
         try json.write(to: dir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
         try sig.base64EncodedString().write(to: dir.appendingPathComponent("manifest.sig"), atomically: true, encoding: .utf8)
         let pubB64 = key.publicKey.rawRepresentation.base64EncodedString()
-        return (dir, { try? FileManager.default.removeItem(at: dir) })
+        return (dir, pubB64, sig.base64EncodedString(),
+                { try? FileManager.default.removeItem(at: dir) })
     }
 
     @Test func verifyRoundtripAndTamperDetection() throws {
         // 1) 正常签名 → verified
-        let (dir, cleanup) = try makeSignedDir()
+        let (dir, _, _, cleanup) = try makeSignedDir()
         defer { cleanup() }
         let manifestURL = dir.appendingPathComponent("manifest.json")
         let sigText = try String(contentsOf: dir.appendingPathComponent("manifest.sig"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,6 +64,33 @@ final class ManifestTests {
         if case .invalid = Manifest.verify(directory: empty) { #expect(Bool(true)) }
         else { Issue.record("manifest without sig must be invalid") }
         _ = sigText
+    }
+
+    /// 4) 签名语义的完整三向（72·L4 变异测试揭出的缺口：isValidSignature
+    ///    行此前零覆盖——「禁用签名校验」变异曾存活）。对签 → verified；
+    ///    同一清单换一把钥匙签 / 篡改签名字节 → invalid（供应链硬门）。
+    @Test func signatureVerificationVerdicts() throws {
+        let (dir, pubB64, sigB64, cleanup) = try makeSignedDir()
+        defer { cleanup() }
+        // 对签 → verified
+        if case .verified = Manifest.verify(directory: dir, publicKeyB64: pubB64) {}
+        else { Issue.record("正确签名必须 verified") }
+        // 篡改签名字节（保 base64 合法）→ invalid
+        var tampered = Array(sigB64.utf8)
+        tampered[10] = tampered[10] == UInt8(ascii: "A") ? UInt8(ascii: "B") : UInt8(ascii: "A")
+        try String(bytes: tampered, encoding: .utf8)!
+            .write(to: dir.appendingPathComponent("manifest.sig"), atomically: true, encoding: .utf8)
+        if case .invalid = Manifest.verify(directory: dir, publicKeyB64: pubB64) {}
+        else { Issue.record("篡改签名必须 invalid") }
+        // 换一把钥匙签（内容未动）→ invalid
+        let other = Curve25519.Signing.PrivateKey()
+        let loaded = try JSONDecoder().decode(Manifest.LoadedManifest.self,
+                                              from: Data(contentsOf: dir.appendingPathComponent("manifest.json")))
+        let otherSig = try other.signature(for: Manifest.canonicalData(loaded)!)
+        try otherSig.base64EncodedString()
+            .write(to: dir.appendingPathComponent("manifest.sig"), atomically: true, encoding: .utf8)
+        if case .invalid = Manifest.verify(directory: dir, publicKeyB64: pubB64) {}
+        else { Issue.record("异钥签名必须 invalid") }
     }
 
     @Test func canonicalDataIsStableAndCompact() throws {

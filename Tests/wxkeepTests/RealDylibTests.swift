@@ -76,6 +76,113 @@ struct RealDylibTests {
     }
 }
 
+/// L2 可逆性穷举 harness（ROADMAP 72·L2，sha256 恒等预言）：
+/// WXKEEP_L2_PLAN 指向 JSON 计划文件 [{"build":"270101","arm":"…arm64.dylib",
+/// "x64":"…x64.dylib"}, …]。每个构建对：lipo 合成 fat（与装机拓扑一致，
+/// thin 切片会让单架构目标 noArchMatched 假红）→ 假 app 结构 →
+/// 真实 Engine 全状态迁移：
+///   每个单点态 {silent, keeptip, --only 各子集}：patch → 全位点字节 ∈ 合法集
+///   （asm ∪ expected，inspect 无 .unknown）→ restore → 整文件 sha256 ==
+///   pristine sha256（不是位点比对——通配尾部/padding/长度偏差类缺陷位点
+///   比对看不见，哈希藏不住）。
+///   链式态：silent→keeptip→silent→keeptip→silent+only:update→keeptip+
+///   only:revoke→restore→sha（变体切换往返 + 子集路径全交叉）。
+/// 无环境自动跳过（CI）。证据行 "L2 <build> <state> legal/sha"。
+struct L2ReversibilityTests {
+    private static func plan() -> [[String: String]]? {
+        guard let path = ProcessInfo.processInfo.environment["WXKEEP_L2_PLAN"],
+              FileManager.default.fileExists(atPath: path),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: String]],
+              !json.isEmpty else { return nil }
+        return json
+    }
+
+    @Test(.disabled(if: plan() == nil, "WXKEEP_L2_PLAN not set — L2 reversibility oracle skipped"))
+    func reversibilityOracleOnRealSlices() throws {
+        for item in try #require(Self.plan()) {
+            let build = try #require(item["build"])
+            let arm = try #require(item["arm"])
+            let x64 = try #require(item["x64"])
+            try runOneBuild(build: build, armPath: arm, x64Path: x64)
+        }
+    }
+
+    private func runOneBuild(build: String, armPath: String, x64Path: String) throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-l2-\(build)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        // fat 合成：与装机件同构（双架构切片都在 → Engine 按 cputype 选择）
+        let fat = work.appendingPathComponent("fat.dylib")
+        let lipo = Shell.run("/usr/bin/lipo",
+                             ["-create", armPath, x64Path, "-output", fat.path])
+        guard lipo.status == 0 else {
+            Issue.record("lipo 合成失败: \(lipo.stderr)")
+            return
+        }
+        let app = work.appendingPathComponent("Fake.app")
+        let resources = app.appendingPathComponent("Contents/Resources")
+        try FileManager.default.createDirectory(
+            at: resources, withIntermediateDirectories: true)
+        let binary = resources.appendingPathComponent("wechat.dylib")
+        try FileManager.default.copyItem(at: fat, to: binary)
+
+        let config = try Config.load(explicit: "config.json")
+        guard let versionEntry = config.entry(build: build) else {
+            Issue.record("build \(build) 不在目录")
+            return
+        }
+        let allEntries = versionEntry.targets.flatMap(\.entries)
+        let pristineSHA = try Manifest.sha256(fileURL: binary)
+
+        func assertLegalSites(_ label: String) throws {
+            let inspections = try Patcher.inspect(binary: binary, entries: allEntries,
+                                                  identifier: "l2")
+            let unknown = inspections.filter { $0.state == .unknown }
+            if !unknown.isEmpty {
+                let sites = unknown.map { "0x\(String($0.va, radix: 16))" }.joined(separator: ",")
+                Issue.record("\(label): \(unknown.count) 个位点字节 ∉ 合法集 (asm ∪ expected)：\(sites)")
+            }
+        }
+        func restoreAndCompareSHA(_ label: String) throws {
+            _ = try Engine.restore(app: app, build: build, config: config, dryRun: false)
+            try assertLegalSites("\(label)/restored")
+            let restored = try Manifest.sha256(fileURL: binary)
+            if restored != pristineSHA {
+                Issue.record("\(label): restore 后整文件 sha256 \(restored) != pristine \(pristineSHA)")
+            }
+        }
+
+        // 单点态：每个 {variant × only 子集} 从 pristine 出发，独立 restore 收口
+        let states: [(String, [String]?)] = [
+            ("silent", nil), ("keeptip", nil),
+            ("silent", ["update"]), ("silent", ["revoke"]),
+            ("keeptip", ["revoke"]), ("keeptip", ["update"]),
+        ]
+        for (variant, only) in states {
+            let label = "\(build) \(variant)\(only.map { " --only \($0.joined(separator: ","))" } ?? "")"
+            try Engine.patch(app: app, versionEntry: versionEntry, variant: variant,
+                             dryRun: false, allowUnverified: false, only: only)
+            try assertLegalSites(label)
+            try restoreAndCompareSHA(label)
+        }
+
+        // 链式态：变体切换往返 + 子集路径交叉，一段连续迁移后 restore 收口
+        let chain: [(String, [String]?)] = [
+            ("silent", nil), ("keeptip", nil), ("silent", nil), ("keeptip", nil),
+            ("silent", ["update"]), ("keeptip", ["revoke"]),
+        ]
+        for (variant, only) in chain {
+            try Engine.patch(app: app, versionEntry: versionEntry, variant: variant,
+                             dryRun: false, allowUnverified: false, only: only)
+            try assertLegalSites("\(build) chain(\(variant))")
+        }
+        try restoreAndCompareSHA("\(build) chain")
+        print("L2 \(build): \(states.count + 1) 状态迁移全部 legal + sha256 恒等 ✓")
+    }
+}
+
 /// 通用回填端到端 harness（目录回填 SOP 的机器证明步骤）：
 /// WXKEEP_BACKFILL_DYLIB 指向真 wechat.dylib（源不被修改，副本上操作），
 /// WXKEEP_BACKFILL_JSON 给出 revoke target 的 entries JSON（locate +

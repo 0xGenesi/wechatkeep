@@ -1,5 +1,107 @@
 # 路线图（待办归档）
 
+## 72·深度审计四层执行轮（2026-10-20：证据化 oracle 审计全过——模糊测试修出五个真缺陷 + 变异测试修出四个测试缺口）
+
+> 原则执行到位：所有结论落在机器可核验的预言上。四层 + 旁路项全部执行；
+> 本轮全部缺陷先写会红的测试再修复。原始计划文句归档于 git 历史。
+
+1. **[L1 数据完整性｜地面真值全扫]** tools/sweep_ground_truth.py：对
+   var/wxarm **现存全部切片**（7 构建 × 双架构：270101/102/131-135——
+   旧构建切片按 dmg 清理策略早已删除，计划稿「~80 构建」是过时估计）
+   × catalog 全条目读回。语义与 ExpectedPattern 一比一（通配半字节/
+   掩码），断言分层：归一化条目（asm∈expected，如 keeptip 序言恢复型）
+   pristine ∈ expected 集；普通条目 pristine == expected[0]（restore 反演
+   依赖）。首版「一律 ==expected[0]」在 7 条归一化条目上误报——分层
+   修正后 **145 条目失配 = 0**；xxd 第二只眼交叉核对 8/8。证据
+   var/logs/l1-ground-truth-sweep-20261020.txt。
+2. **[L2 可逆性｜sha256 恒等预言]** L2ReversibilityTests +
+   tools/verify_reversibility.py：每构建 lipo 合 fat（与装机拓扑一致，
+   thin 切片会让单架构目标 noArchMatched 假红）→ 真实 Engine 全状态
+   迁移：{silent, keeptip, silent+only:update, silent+only:revoke,
+   keeptip+only:revoke, keeptip+only:update} 六单点态 + 链式
+   （silent→keeptip→silent→keeptip→子集）。每态断言 (a) 全位点
+   inspect 无 .unknown（字节 ∈ asm ∪ expected 合法集）(b) restore 后
+   **整文件 sha256 == pristine**（非位点比对）。**7/7 构建全过**
+   （修复后代码复验同绿）。证据 var/logs/l2-reversibility-20261020.txt。
+3. **[L3① 弱序发布修复]** install_hook：依赖字段（msg_arg/xml_sso_off/
+   saved/trampoline/g_real_wrapper）全部先写，g_hook.target 最后
+   `__ATOMIC_RELEASE` 存储；hook 侧 `__ATOMIC_ACQUIRE` 读配对——他核
+   见 target 非零时发布序字段必然齐见，杜绝「见 stub 读到陈旧
+   g_real_wrapper=NULL → 跳 0」。失败清理同序 release 置 0（对称）。
+   mprotect 系统调用事实提供屏障，但这不是 C 语义保证——修掉。
+4. **[L3②③ Sanitizer]** runtime.m 以 ASan+UBSan 重编 + 确定性驱动
+   （tools/fuzz/runtime_driver.c：内置合法/边界/畸形语料 + corpus 目录，
+   覆盖 parse_hooks/load_config_file/rewrite/zero/uuid_match 全部测试缝）
+   零报告；`swift test --sanitize=thread` 全套 **零 TSan 报告**。
+5. **[L3④ 信任边界]** RUNTIME-DESIGN 重写 runtime.json 章节：App Group
+   容器**腾讯可写**的完整威胁模型（删改文件 / 自选 hook_off+expected 挂
+   任意函数 / 蹦床换址重放 x64 无编码门）+ 残余风险评估 + 加签评估结论
+   （暂缓，出现实际对抗实证即升级 P0）。顺手落 **x64 序言可换址门**
+   （x64_prologue_relocatable：E8/E9/EB/7x/0F8x/FF 转移编码整行拒绝，
+   与 arm64 编码门对齐 + 回归）。
+6. **[L3⑤ 模糊测试｜修出五个真缺陷]** CLT 无 libFuzzer 运行时且无
+   Xcode——自研等价随机驱动 runtime_random.c（SplitMix64 种子固定，
+   corpus 变异 + 纯随机），**20 万次输入零崩溃**；Swift 侧
+   FuzzParseSurfaces（Data(hex:)/ExpectedPattern/MachOInjector/
+   MachImage 四面）2 万迭代零崩溃。修出（全部「生产路径有旁门守卫、
+   但解析面本身不安全」类）：
+   - runtime.m uuid_matches：病态 sizeofcmds 裸缓冲游走冲未映射页
+     （ASan SIGBUS）→ uuid_matches/match_target/try_hook_image 增加
+     avail 长度参数（seam/probe 传真实界，dyld 镜像 SIZE_MAX）+
+     LC_UUID 载荷界内检查；测试缝签名带 len + 病态头回归。
+   - MachOInjector.slices：<8B 输入与病态 nfat 的 loadUnaligned 越界
+     → 长度守卫 + fat 表越文件尾条目丢弃。
+   - MachOInjector.sliceInfo：32B 恰装头的输入在 cursor==count 无守卫
+     load；cmdsize=8 伪 LC_SEGMENT_64 的 +64/+72 越读；垃圾节 offset
+     抬 contentFloor → insert replaceSubrange 越界 → 三处界内守卫 +
+     floor 钳位文件尾。
+   - MachOInjector.removeLoadDylib：sizeofcmds 越界的命令区切片以
+     文件尾钳位。
+   - MachImage.init(slice:)：<32B 切片读 ncmds 越界 → 按零命令镜像处理。
+7. **[L4① 变异测试｜杀灭率 18/20 = 90%（达标），过程本身两次揭出测试
+   基建缺陷]** tools/mutation_test.py：20 个安全关键单行变异。首轮两轮
+   结果不可信——(a) 会话并发污染，(b) **本机 Swift Build 文件变更检测
+   楔死**（改文件/rename/未来 mtime 全不触发重编，「0.95s Build
+   complete」跑旧二进制——变异结果两个方向都可假）；最终形态 = 每变异
+   独立 scratch path 全新构建。权威结果 14 杀 + 真存活 6：
+   - 补测试杀灭 4：**M14 isValidSignature 零覆盖**（「禁 Ed25519 验签」
+     变异曾存活——补 signatureVerificationVerdicts 三向）；**M20 切换
+     还原**（共享位点被 keeptip 归一化条目自身还原所掩盖，补不相交
+     位点测试——真目录 x64 guard/call 位点正是不相交形态）；**M05**
+     Config 装载期坏 hex asm（Patcher 二层门掩盖一层）补直测；**M12**
+     mismatches() 漂移检测（此前只测 profile 选择）补检测直测。
+   - 可接受暴露 2（逐条论证）：**M10 截断备份拒绝**——截断只能由 FS
+     层故障制造，无注入缝可确定性触发，校验逻辑自明；**M17 .atomic
+     降级直写**——撕裂写只在崩溃窗口可观察，无确定性测试手段（行为
+     差异 = 崩溃语义，安全侧由备份 + verify-after-write 承担）。
+8. **[L4② 覆盖率]** llvm-cov（fresh scratch，164 测）：安全核心
+   ExpectedPattern/SafeWrite 100%、MachOInjector 函数 100%（行 99.6%）、
+   Manifest 函数 100%、Patcher 函数 93%、MachImage 85%、Config 82%。
+   低覆盖面逐类声明：Verifier worker 侧（子进程执行，覆盖不归因父
+   进程——由 exit 矩阵单测 + arm64-verify.yml 端到端承担）、CLI/Doctor/
+   UpdateData/Clone/Guards（真机/e2e 域，verify_staging 与真机巡检轮
+   承担）、Engine 恢复分支（需真实重签失败注入，67/72 轮语义测试覆盖
+   决策传播）。RecipeEngine 55%（真实配方解析在 verify_derivations +
+   RealDylib 环境测）。
+9. **[旁路项]** ① openssl 独立验签 tools/verify_manifest_openssl.sh
+   （手构 SPKI DER + pkeyutl + shasum，OpenSSL 4.0.3）：当前 manifest
+   ✓——Ed25519 语义在 CryptoKit/PyNaCl/openssl 三方互异实现下一致。
+   ② 本机 x86_46 测试：libxcrun.dylib 本身无 x86_64 切片（比 68 轮
+   「compat 库缺」更彻底的 Apple 侧 arm64-only 化）——维持 CI Rosetta
+   三轨结论，无解记录。③ ips 巡检：DiagnosticReports **零 WeChat 崩溃
+   报告**（强于「零 CODESIGNING 终止」）。④ 发版盘点修正：v0.2.10
+   tag/Release/六资产**今日已就绪**（计划稿记载过时）；主仓 Formula
+   副本同步 0.2.10（六哈希按 release 资产复算）；**tap 推送待用户
+   指令**；本轮 runtime.m 五缺陷修复 + 弱序修复不在 v0.2.10 资产内
+   （下次发版内容）。
+10. **[环境新知]** TestingMacros 插件楔死本日进入长发作期（清缓存/
+    全清 .build 均无效）；可靠解 = `-Xswiftc -load-plugin-library
+    …/libTestingMacros.dylib` 显式装载（已内置 fuzz 脚本与 MAINTAINING）。
+    Swift Build 变更检测楔死为同族新症（见 7），独立 scratch 是根治。
+11. 156→164 测（+L2 harness +模糊×2 +病态头回归 +签名三向 +不相交
+    切换 +坏 hex 装载 +漂移检测直测 +短数据不匹配）。全量回归 164 绿；
+    TSan 160 绿（补测前基线）。
+
 ## 71·第二轮深审加固轮（2026-10-20：Verifier worker 全读补完 + 三处事故级隐患收口）
 
 1. **[审读] Verifier.swift 300-730（worker 侧）全读补完**：MAP_JIT 拆分映射

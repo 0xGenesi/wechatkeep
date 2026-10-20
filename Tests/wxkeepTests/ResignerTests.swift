@@ -199,6 +199,31 @@ final class ResignerTests {
     /// Drift 恢复的 profile 按对象终态选择：重签集成员恢复 original+injected，
     /// 未触碰对象恢复原始 profile。旧实现一律用 resignPlist——未触碰对象被盖上
     /// 注入键后，复查按原始 profile 比对必然再判 drift，恢复分支不可收敛。
+    /// 72·L4 变异测试揭出的缺口（M12）：mismatches() 的漂移**检测**此前
+    /// 零覆盖（只测过 driftRepairProfile 的 profile 选择）。未触碰对象的
+    /// 当前 entitlements 与快照不符必须被判漂移——供应链上这是「重签后
+    /// 篡改检测」的唯一哨兵。
+    @Test func mismatchesDetectsDivergedProfiles() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-mismatch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let unsigned = tmp.appendingPathComponent("unsigned.dylib")
+        try Data([0x1]).write(to: unsigned)   // codesign 对非 Mach-O → 无 entitlements
+        // 快照声称它有 profile（非重签集成员 → 终态应等于原始 profile）
+        let snapshot = Resigner.Snapshot(entries: [
+            Resigner.Entry(url: unsigned, plist: ["com.apple.x": true],
+                           resignPlist: ["com.apple.x": true]),
+        ])
+        let drifted = Resigner.mismatches(snapshot, app: tmp, resigned: [])
+        #expect(drifted.map(\.lastPathComponent) == ["unsigned.dylib"])
+        // 快照与实际一致（都无 entitlements）→ 零漂移
+        let clean = Resigner.Snapshot(entries: [
+            Resigner.Entry(url: unsigned, plist: nil, resignPlist: nil),
+        ])
+        #expect(Resigner.mismatches(clean, app: tmp, resigned: []).isEmpty)
+    }
+
     @Test func driftRepairProfilePerObjectEndState() {
         let patched = workDir.appendingPathComponent("patched.dylib")
         let untouched = workDir.appendingPathComponent("untouched.dylib")

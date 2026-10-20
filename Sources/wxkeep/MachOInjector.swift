@@ -60,13 +60,19 @@ enum MachOInjector {
         var floor = Int.max
         var cursor = commandsOff
         for _ in 0..<ncmds {
+            // 命令头/命令体/节头的每次读都以文件尾为界（L3⑤ 模糊测试实锤：
+            // 32B 恰好装下 Mach-O 头的输入在 cursor==count 处无守卫 load
+            // 即 fatal；cmdsize==8 的伪 LC_SEGMENT_64 会让 +64/+72 读越界）。
+            guard cursor + 8 <= data.count else { break }
             let cmd = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor, as: UInt32.self) }
             let cmdsize = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 4, as: UInt32.self) }
             guard cmdsize >= 8, cursor + Int(cmdsize) <= data.count else { break }
             if cmd == 0x19 {   // LC_SEGMENT_64
+                guard cursor + 72 <= data.count else { break }
                 let nsects = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 64, as: UInt32.self) }
                 for si in 0..<nsects {
                     let sec = cursor + 72 + Int(si) * 80
+                    guard sec + 80 <= data.count else { break }
                     let size = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sec + 40, as: UInt64.self) }
                     let offset = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: sec + 48, as: UInt32.self) }
                     if size > 0, offset > 0 { floor = min(floor, base + Int(offset)) }
@@ -75,6 +81,11 @@ enum MachOInjector {
             cursor += Int(cmdsize)
         }
         if floor == Int.max { floor = commandsOff + Int(sizeofcmds) }
+        // 内容地板永不超出文件尾（L3⑤ 模糊测试实锤）：节的 offset 来自
+        // 镜像字节，垃圾值会把 floor 抬到 data.count 之外，insertLoadDylib
+        // 按 floor 计算 available 后 replaceSubrange 越界崩溃。合法镜像
+        // 的节必在文件内，钳位不改变其行为。
+        floor = min(floor, data.count)
         return SliceInfo(offset: base, ncmdsOff: ncmdsOff, sizeofcmdsOff: sizeofcmdsOff,
                          commandsOff: commandsOff, ncmds: ncmds, sizeofcmds: sizeofcmds,
                          contentFloor: floor)
@@ -82,15 +93,24 @@ enum MachOInjector {
 
     /// 64-bit slices (file offsets) in a thin or fat Mach-O.
     static func slices(in data: Data) throws -> [Int] {
+        // 头部字段都不读不出来就拒绝（L3⑤ 模糊测试实锤：无长度守卫的
+        // loadUnaligned 对短输入直接 fatal；fat 分支的 nfat 同理）。
+        guard data.count >= 8 else { throw InjectorError.not64BitMachO }
         let magic = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
         if magic == 0xBEBAFECA {   // FAT big-endian magic (little-endian read)
             let nfat = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self).byteSwapped }
             var out = [Int]()
             for i in 0..<nfat {
                 let e = 8 + Int(i) * 20
+                guard e + 12 <= data.count else { break }   // 病态 nfat：以文件尾为界
                 let cputype = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: e, as: UInt32.self).byteSwapped }
                 let off = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: e + 8, as: UInt32.self).byteSwapped }
-                if cputype & 0x0100_0000 != 0 { out.append(Int(off)) }   // 64-bit arch
+                if cputype & 0x0100_0000 != 0 {
+                    // fat 表的 offset 是镜像字节：越文件尾的条目直接丢弃
+                    // （否则下游 subdata/replaceSubrange 的区间下界越过上界
+                    // ——L3⑤ 模糊测试实锤的崩溃面；合法镜像不变）。
+                    if Int(off) + 32 <= data.count { out.append(Int(off)) }   // 64-bit arch
+                }
             }
             guard !out.isEmpty else { throw InjectorError.no64BitSlice }
             return out
@@ -160,8 +180,10 @@ enum MachOInjector {
         let cmd = buildLoadDylibCommand(path: dylibInstallPath)
         for base in try slices(in: data) {
             let info = try sliceInfo(in: data, base: base)
-            // 幂等：已注入的切片跳过（重复 install = no-op）
-            if isInjected(data: data.subdata(in: base..<(base + 32 + Int(info.sizeofcmds))),
+            // 幂等：已注入的切片跳过（重复 install = no-op）；命令区切片
+            // 以文件尾钳位（sizeofcmds 是镜像字节，垃圾值会越界）。
+            let idemEnd = min(base + 32 + Int(info.sizeofcmds), data.count)
+            if isInjected(data: data.subdata(in: base..<max(idemEnd, base)),
                           base: 0, path: dylibInstallPath) {
                 continue
             }
@@ -187,7 +209,10 @@ enum MachOInjector {
         var removedAny = false
         for base in try slices(in: data) {
             var info = try sliceInfo(in: data, base: base)
-            var commands = Data(data[info.commandsOff..<(info.commandsOff + Int(info.sizeofcmds))])
+            // sizeofcmds 是镜像字节，垃圾值可能越过文件尾——命令区切片
+            // 以文件尾钳位（L3⑤ 模糊测试实锤的崩溃面；合法镜像不变）。
+            let cmdsEnd = min(info.commandsOff + Int(info.sizeofcmds), data.count)
+            var commands = Data(data[info.commandsOff..<max(cmdsEnd, info.commandsOff)])
             var found = false
             var cursor = 0
             while cursor + 8 <= commands.count {

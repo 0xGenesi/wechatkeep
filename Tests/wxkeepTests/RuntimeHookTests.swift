@@ -172,11 +172,48 @@ import Foundation
                                0xbe,0xc0,0xef,0x26,0x53,0xc6,0xb4,0x23]
         let hit = machHeaderWith(uuid: target)
         #expect(hit.withUnsafeBufferPointer {
-            wxkeep_runtime_test_uuid_match(UnsafeRawPointer($0.baseAddress!))
+            wxkeep_runtime_test_uuid_match(UnsafeRawPointer($0.baseAddress!),
+                                           CUnsignedLong($0.count))
         } == 1)
         let miss = machHeaderWith(uuid: Array(target[0..<15]) + [0x24])   // 末字节漂移
         #expect(miss.withUnsafeBufferPointer {
-            wxkeep_runtime_test_uuid_match(UnsafeRawPointer($0.baseAddress!))
+            wxkeep_runtime_test_uuid_match(UnsafeRawPointer($0.baseAddress!),
+                                           CUnsignedLong($0.count))
+        } == 0)
+    }
+
+    /// L3⑤ 模糊测试实锤的越界回归：病态 sizeofcmds（远超缓冲）+ 巨型
+    /// cmdsize 不得让命令区游走冲出缓冲（旧实现在 ASan 下 SIGBUS，
+    /// runtime_random 种子可复现）。缓冲长度就是硬边界。
+    @Test func uuidGateSurvivesPathologicalSizeofcmds() {
+        func header(sizeofcmds: UInt32, cmd: UInt32, cmdsize: UInt32) -> [UInt8] {
+            var h = [UInt8]()
+            func le32(_ v: UInt32) {
+                h += [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF),
+                      UInt8((v >> 16) & 0xFF), UInt8((v >> 24) & 0xFF)]
+            }
+            le32(0xFEEDFACF); le32(0x01000007); le32(3); le32(6)
+            le32(1); le32(sizeofcmds); le32(0); le32(0)
+            le32(cmd); le32(cmdsize)
+            h += [UInt8](repeating: 0x97, count: 16)   // 伪 UUID 载荷
+            return h
+        }
+        let cases = [
+            header(sizeofcmds: 0xFFFFFFF, cmd: 0x19, cmdsize: 0x7FFFFFFF), // 巨型段命令
+            header(sizeofcmds: 0xFFFFFFF, cmd: 0x1B, cmdsize: 24),         // LC_UUID 紧贴缓冲尾
+            header(sizeofcmds: 0xFFFFFFFF, cmd: 0x1B, cmdsize: 0xFFFFFFF), // 双巨
+            header(sizeofcmds: 40, cmd: 0x1B, cmdsize: 0x1000),            // cmdsize 越 sizeofcmds
+        ]
+        for h in cases {
+            #expect(h.withUnsafeBufferPointer {
+                wxkeep_runtime_test_uuid_match(UnsafeRawPointer($0.baseAddress!),
+                                               CUnsignedLong($0.count))
+            } == 0)
+        }
+        // 不足 32B 的头：读都不读，直接 0
+        #expect([UInt8](repeating: 0, count: 16).withUnsafeBufferPointer {
+            wxkeep_runtime_test_uuid_match(UnsafeRawPointer($0.baseAddress!),
+                                           CUnsignedLong($0.count))
         } == 0)
     }
 
@@ -306,6 +343,24 @@ import Foundation
         {"hooks":[{"uuid":"not-a-uuid","hook_off":"0x1","xml_sso_off":0,
         "expected":"554889E54157415641554154"}]}
         """) == 0)
+        // 72·L3④ x64 可换址门：expected 含 PC 相对转移编码（E8 call rel32 /
+        // 0F8x jcc rel32 / FF /2 间接 call）→ 换址重放即跳错目标，整行拒绝。
+        // runtime.json 在微信 App Group 容器（腾讯可写）——行作者可自选
+        // expected 指向任意函数，此门压掉「换址破坏控制流」的随意性。
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","arch":"x86_64",
+        "hook_off":"0x100","xml_sso_off":0,"expected":"E84889E54157415641554154"}]}
+        """) == 0)   // E8 call rel32
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","arch":"x86_64",
+        "hook_off":"0x100","xml_sso_off":0,"expected":"554889E50F84112233445566"}]}
+        """) == 0)   // 0F 84 jcc rel32
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","arch":"x86_64",
+        "hook_off":"0x100","xml_sso_off":0,"expected":"554889E54157415641FF1554"}]}
+        """) == 0)   // FF /2 间接 call
+        // 家族序言（纯栈操作）不受影响——既有 accepted 用例覆盖（hooksMixed
+        // RowsKeepGood 等）。
         // 非 JSON / hooks 缺失 → -1 / 0
         #expect(parseHooks("not-json") == -1)
         #expect(parseHooks("{\"tip_text\":\"x\"}") == 0)

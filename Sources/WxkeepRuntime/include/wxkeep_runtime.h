@@ -8,7 +8,9 @@
 long wxkeep_runtime_test_rewrite(unsigned char *data, unsigned long data_len,
                                  const char *tip, unsigned long tip_len);
 // 对伪 mach_header_64（32B 头 + LC_UUID）执行 270099 身份判定；1 = 匹配。
-int wxkeep_runtime_test_uuid_match(const void *hdr);
+// len = hdr 起可读字节数——命令区游走以 min(32+sizeofcmds, len) 为界
+// （模糊测试实证：只信 sizeofcmds 的裸缓冲契约会冲出未映射页）。
+int wxkeep_runtime_test_uuid_match(const void *hdr, unsigned long len);
 // 切换自发撤回门（“你撤回…”内文是否也改写；默认 0=不改）。
 void wxkeep_runtime_test_set_policy(int rewrite_self);
 // 解析 runtime.json 形态的 JSON 字节装载外部 hooks 表（重置旧态），

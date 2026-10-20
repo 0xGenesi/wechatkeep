@@ -66,6 +66,28 @@ struct VariantSwitchTests {
         #expect(try data().range(of: Data([0x7F, 0xE6, 0x00, 0xF9])) == nil, "keeptip x64 点被还原")
     }
 
+    /// 72·L4 变异测试揭出的缺口（M20）：两变体位点**不相交**时，切换还原
+    /// 是唯一把 silent 字节撤掉的机制（共享位点上 keeptip 的归一化条目
+    /// 自身会还原，掩盖过这个分支——真目录 x64 的 guard 位点 0x5503a19
+    /// vs keeptip call 位点 0x5503f8d 正是不相交形态）。
+    @Test func switchRestoresDisjointSitesOfOtherVariant() throws {
+        let (app, config) = try makeAppAndCatalog()
+        let dylib = app.appendingPathComponent("Contents/Resources/wechat.dylib")
+        let data = { try Data(contentsOf: dylib) }
+        // silent → x64 补丁位（0x100）已写入 31C0C3
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "silent",
+                             dryRun: false, allowUnverified: false, only: ["revoke"])
+        #expect(try data().range(of: Data([0x31, 0xC0, 0xC3])) != nil)
+        // keeptip（--only revoke → revoke-keeptip 域）：silent 的 0x100 位点
+        // 不在 keeptip 条目覆盖内——必须由切换还原撤回原始序言
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
+                             dryRun: false, allowUnverified: false, only: ["revoke"])
+        #expect(try data().range(of: Data([0x31, 0xC0, 0xC3, 0x90])) == nil,
+                "silent 的不相交位点必须被切换还原撤回")
+        #expect(try data().range(of: Data([0x31, 0xD2, 0x90])) != nil,
+                "keeptip 自己的位点已应用")
+    }
+
     /// 变体切换的 dry-run 预览：silent 补丁态上预览 keeptip 必须给出预览
     /// 结果而不是 expectedMismatch 误报（「wrong WeChat build」）——前提是
     /// 目录数据在共享位点带跨变体 expected（pristine + silent 补丁态双态，

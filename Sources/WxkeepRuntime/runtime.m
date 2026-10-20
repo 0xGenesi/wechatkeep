@@ -2,6 +2,7 @@
 #import <AppKit/AppKit.h>
 #import <mach-o/dyld.h>
 #import <mach/mach.h>
+#import <mach/mach_vm.h>
 #import <mach-o/loader.h>
 #import <sys/mman.h>
 #import <string.h>
@@ -107,7 +108,8 @@ enum { kStIdle = 0, kStUuidMismatch = 1, kStPrologueMismatch = 2,
        kStInstallFail = 3, kStArmed = 4, kStCallbackBit = 8,
        kStScanMissed = 16 };
 static char g_probe_name[96];   // 构造器期匹配到的镜像名样本（诊断）
-static int uuid_matches(const struct mach_header_64 *hdr, const char *want);
+static int uuid_matches(const struct mach_header_64 *hdr, const char *want,
+                        size_t avail);
 
 // marker 回写：armed 后状态翻转；构造器/武装路径 loud=1（带 NSLog），
 // 周期证据回写 loud=0（30s 一次，刷计数器——不刷则 marker 永远停在启动
@@ -240,6 +242,26 @@ static int arm64_prologue_relocatable(const uint8_t *p, size_t n) {
     return 1;
 }
 
+/// x64 序言可换址性（72·L3④，启发式字节扫描）：蹦床把入口 12B 换址重放，
+/// 含 PC 相对转移编码（E8/E9 call/jmp rel32、EB/7x 短转移、0F 8x jcc
+/// rel32、FF /2 /4 间接转移）的字节序列换址后跳向错误目标——runtime.json
+/// 在微信自己的 App Group 容器（腾讯可写，见 RUNTIME-DESIGN 信任边界节），
+/// 行作者可自选 expected，这道门把「换址破坏控制流」的随意性压到需要
+/// 精心构造且绕过字节扫描。启发式非反汇编：零散命中同值字节会误拒——
+/// 按「宁可不挂也不挂错」接受（家族序言 554889E54157415641554154 实测
+/// 不含这些字节；误拒的可见后果是 hook 不武装，status 可诊断）。
+static int x64_prologue_relocatable(const uint8_t *p, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        if (p[i] == 0xE8 || p[i] == 0xE9 || p[i] == 0xEB) return 0;
+        if (p[i] >= 0x70 && p[i] <= 0x7F) return 0;            // jcc rel8
+        if (p[i] == 0x0F && i + 1 < n
+            && p[i + 1] >= 0x80 && p[i + 1] <= 0x8F) return 0; // jcc rel32
+        if (p[i] == 0xFF && i + 1 < n
+            && ((p[i + 1] & 0x38) == 0x10 || (p[i + 1] & 0x38) == 0x20)) return 0; // call/jmp /2 /4
+    }
+    return 1;
+}
+
 /// runtime.json hooks 行 → hook_target_t。字段：build(诊断)/uuid/arch/
 /// hook_off(hex)/msg_arg/xml_sso_off/expected(hex)。任何字段坏 → 整行
 /// 丢弃（宁可不挂也不挂错——与 expected 门的哲学一致）。
@@ -271,6 +293,7 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
         return 0;
     }
     if (out->is_arm64 && !arm64_prologue_relocatable(out->expected, 16)) return 0;
+    if (!out->is_arm64 && !x64_prologue_relocatable(out->expected, 12)) return 0;
     strlcpy(out->uuid, uuid.UTF8String, sizeof(out->uuid));
     NSString *build = [row[@"build"] isKindOfClass:[NSString class]] ? row[@"build"] : @"?";
     strlcpy(out->build, build.UTF8String, sizeof(out->build));
@@ -290,16 +313,19 @@ static void load_hooks_from(NSDictionary *cfg) {
 }
 
 /// 镜像与地址表的匹配入口：外部表在场则只查外部表（数据权威），
-/// 否则查内置表。返回命中行，未命中返回 NULL。
-static const hook_target_t *match_target(const struct mach_header_64 *hdr) {
+/// 否则查内置表。返回命中行，未命中返回 NULL。`avail` = hdr 起可读字节
+/// 数（缓冲式调用传真实长度；dyld 已装载镜像传 SIZE_MAX——内核映射 +
+/// dyld 自身解析过头部，sizeofcmds 与映射自洽）。
+static const hook_target_t *match_target(const struct mach_header_64 *hdr,
+                                         size_t avail) {
     if (g_ext_hook_count > 0) {
         for (int i = 0; i < g_ext_hook_count; i++) {
-            if (uuid_matches(hdr, g_ext_hooks[i].uuid)) return &g_ext_hooks[i];
+            if (uuid_matches(hdr, g_ext_hooks[i].uuid, avail)) return &g_ext_hooks[i];
         }
         return NULL;
     }
     for (size_t i = 0; i < kBuiltinCount; i++) {
-        if (uuid_matches(hdr, kBuiltins[i]->uuid)) return kBuiltins[i];
+        if (uuid_matches(hdr, kBuiltins[i]->uuid, avail)) return kBuiltins[i];
     }
     return NULL;
 }
@@ -548,7 +574,13 @@ static void *(*g_real_wrapper)(void *, void *, void *, void *, void *, void *);
 
 static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
                                  void *a3, void *a4, void *a5) {
-    if (g_hook.target && (g_tip_len || g_keep_message)) {
+    // g_hook.target 以 acquire 读，与 install_hook 的 release 存储配对
+    //（见安装侧注释）：acquire 命中非零值时，发布序在它之前的
+    // msg_arg/xml_sso_off/saved/trampoline/g_real_wrapper 全部可见——
+    // 杜绝「他核已见入口 stub 却读到陈旧 g_real_wrapper=NULL → 跳 0」
+    // 的弱序窗口（arm64 弱内存序下 C 语义无保证的路径）。
+    if (__atomic_load_n(&g_hook.target, __ATOMIC_ACQUIRE)
+        && (g_tip_len || g_keep_message)) {
         void *args[6] = {a0, a1, a2, a3, a4, a5};
         uint8_t *msg = (uint8_t *)args[g_hook.msg_arg];
         if (msg > (uint8_t *)0x10000) {
@@ -608,22 +640,32 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
         memcpy(mem + 22, "\x41\xff\xe3", 3);             // jmp r11
     }
 
-    g_hook.target = target;
+    // 发布序（弱内存序防线，72·L3①）：依赖字段全部先写，g_hook.target
+    // 最后以 release 存储——它是 hook 侧的唯一准入判据（acquire 读），
+    // release/acquire 配对保证他核在看到 target 非零的同时必然看到完整
+    // 的 msg_arg/xml_sso_off/saved/trampoline/g_real_wrapper。旧实现全部
+    // 普通赋值且 target 先写：arm64 弱序下理论上另一核可见入口 stub 的
+    // 同时读到陈旧 g_real_wrapper=NULL → 间接跳 0 崩溃（概率极低——
+    // mprotect 系统调用事实提供屏障——但 C 语义不保证，装机量上去后
+    // 不能赌）。失败清理路径同序复位（target=0 也走 release，保持配对
+    // 对称；此刻 stub 未写、hook 无调用者，普通写本也安全）。
     g_hook.msg_arg = t->msg_arg;
     g_hook.xml_sso_off = t->xml_sso_off;
     memcpy(g_hook.saved, prologue, len);
     g_hook.trampoline = mem;
     g_real_wrapper = (void *(*)(void *, void *, void *, void *, void *, void *))mem;
+    __atomic_store_n(&g_hook.target, target, __ATOMIC_RELEASE);
 
     uintptr_t page = target & ~(uintptr_t)0xfff;
     if (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
         g_hook_status |= kStInstallFail;
         // 失败清理：蹦床页归还 + 复位 g_hook（此刻 entry 尚未改写、hook 未
         // 到达，g_real_wrapper 不可能有调用者——g_arm_done 已置位不再重试，
-        // 残留武装态字段只会误导诊断）。
-        g_hook.target = 0;
+        // 残留武装态字段只会误导诊断）。target=0 的 release 存储与 hook 侧
+        // acquire 保持发布序对称。
         g_hook.trampoline = NULL;
         g_real_wrapper = NULL;
+        __atomic_store_n(&g_hook.target, 0, __ATOMIC_RELEASE);
         munmap(mem, 4096);
         return -1;
     }
@@ -653,17 +695,28 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
 // 双侧必须同时耗尽）。注意不能先在 buf 里补 '-' 再比较：want 耗尽时 a
 // 停在填充字符上，收尾的 `*a == 0 && *b == 0` 恒假——任何镜像（含目标
 // 本尊）都会被判不匹配，hook 永不安装。
-static int uuid_matches(const struct mach_header_64 *hdr, const char *want) {
+//
+// `avail` = hdr 起的真实可读字节数：命令区游走以 min(32+sizeofcmds,
+// avail) 为界。只信 sizeofcmds 的旧契约对裸缓冲不安全——2026-10-20
+// L3⑤ 模糊测试实锤：病态 sizeofcmds 让游走直冲未映射页（SIGBUS，
+// runtime_random 复现）。生产两条缓冲式路径（probe_match_target 的
+// malloc 块 / 测试缝的任意字节）现在都传真实长度；dyld 已装载镜像传
+// SIZE_MAX（内核映射自洽，语义与旧版一致）。
+static int uuid_matches(const struct mach_header_64 *hdr, const char *want,
+                        size_t avail) {
     uint8_t uuid[16];
     int found = 0;
-    const uint8_t *p = (const uint8_t *)hdr + sizeof(struct mach_header_64);
+    const uint8_t *base = (const uint8_t *)hdr;
+    const uint8_t *p = base + sizeof(struct mach_header_64);
     const uint8_t *end = p + hdr->sizeofcmds;
+    if (avail != (size_t)-1 && end > base + avail) end = base + avail;
     // p+8<=end：cmd/size 字段本身 8B——缓冲式调用（probe_match_target 的
     // malloc 缓冲）下防病态尾部 4B 越读；合法镜像每条 cmd ≥8B 不受影响
     while (p + 8 <= end) {
         uint32_t cmd, size;
         memcpy(&cmd, p, 4); memcpy(&size, p + 4, 4);
-        if (cmd == LC_UUID && size >= 24) {
+        if (cmd == LC_UUID && size >= 24
+            && (size_t)(end - p) >= size) {   // LC_UUID 的 16B 载荷须在界内
             memcpy(uuid, p + 8, 16);
             found = 1;
             break;
@@ -685,12 +738,13 @@ static int uuid_matches(const struct mach_header_64 *hdr, const char *want) {
     return *b == 0;
 }
 
-static void try_hook_image(const struct mach_header_64 *hdr, intptr_t slide) {
+static void try_hook_image(const struct mach_header_64 *hdr, intptr_t slide,
+                           size_t avail) {
     (void)slide;
     // UUID 即身份门（构建+切片唯一），不做镜像名匹配——名字反查需要
     // _dyld_image_count()，在 add_image 回调上下文里不可靠（实测 status=24：
     // 名字链提前 return，UUID 检查从未到达）。直接读 header 的 LC_UUID。
-    const hook_target_t *t = match_target(hdr);
+    const hook_target_t *t = match_target(hdr, avail);
     if (t) {
         if (install_hook(t, (uintptr_t)hdr) == 0) {
             g_hook_installed = 1;
@@ -729,12 +783,13 @@ static void on_image_add(const struct mach_header *mh, intptr_t slide) {
             if (size < 8) break;   // 与 uuid_matches 同规：非法 cmdsize 停走防死循环
             p += size;
         }
-        if (uuid_matches((const struct mach_header_64 *)mh, kTarget270099_uuid)) {
+        if (uuid_matches((const struct mach_header_64 *)mh, kTarget270099_uuid,
+                         (size_t)-1)) {
             // wechat.dylib 确实从回调到达——记下这一事实
             strlcpy(g_probe_name, "callback-saw-wechat-uuid", sizeof(g_probe_name));
         }
     }
-    try_hook_image((const struct mach_header_64 *)mh, slide);
+    try_hook_image((const struct mach_header_64 *)mh, slide, (size_t)-1);
 }
 
 // ---------------------------------------------------------------------------
@@ -867,7 +922,7 @@ static int probe_match_target(uintptr_t addr) {
     if (mach_vm_read_overwrite(task, (mach_vm_address_t)addr, len,
                                (mach_vm_address_t)(unsigned long)buf, &got) == KERN_SUCCESS
         && got == len) {
-        hit = match_target((const struct mach_header_64 *)buf) != NULL;
+        hit = match_target((const struct mach_header_64 *)buf, len) != NULL;
     }
     free(buf);
     return hit;
@@ -877,9 +932,9 @@ static void scan_and_arm(void) {
     if (g_hook_installed) return;
     for (uint32_t i = 0; i < _dyld_image_count(); i++) {
         const struct mach_header *mh = _dyld_get_image_header(i);
-        if (match_target((const struct mach_header_64 *)mh) != NULL) {
+        if (match_target((const struct mach_header_64 *)mh, (size_t)-1) != NULL) {
             try_hook_image((const struct mach_header_64 *)mh,
-                           _dyld_get_image_vmaddr_slide(i));
+                           _dyld_get_image_vmaddr_slide(i), (size_t)-1);
             return;
         }
     }
@@ -889,7 +944,9 @@ static void scan_and_arm(void) {
     uintptr_t base = find_wechat_base_by_region_scan();
     if (base) {
         strlcpy(g_probe_name, "region-scan-found", sizeof(g_probe_name));
-        try_hook_image((const struct mach_header_64 *)base, 0);
+        // probe_match_target 已 mach-读验证 32+sizeofcmds 全量可读——按同界传入
+        try_hook_image((const struct mach_header_64 *)base, 0,
+                       32 + ((const struct mach_header_64 *)(void *)base)->sizeofcmds);
     }
 }
 
@@ -943,11 +1000,11 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
         int found = 0;
         for (uint32_t i = 0; i < n; i++) {
             const struct mach_header *mh = _dyld_get_image_header(i);
-            if (match_target((const struct mach_header_64 *)mh) != NULL) {
+            if (match_target((const struct mach_header_64 *)mh, (size_t)-1) != NULL) {
                 found = 1;
                 strlcpy(g_probe_name, "scan-saw-wechat-uuid", sizeof(g_probe_name));
                 try_hook_image((const struct mach_header_64 *)mh,
-                               _dyld_get_image_vmaddr_slide(i));
+                               _dyld_get_image_vmaddr_slide(i), (size_t)-1);
                 break;
             }
         }
@@ -974,8 +1031,10 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
 
 /// UUID 门回归缝：对调用方构造的伪 mach_header_64（含 LC_UUID）执行一次
 /// 身份判定。锁死「比对逻辑恒假 → hook 永不安装」这类静默失效。
-int wxkeep_runtime_test_uuid_match(const void *hdr) {
-    return uuid_matches((const struct mach_header_64 *)hdr, kTarget270099_uuid);
+int wxkeep_runtime_test_uuid_match(const void *hdr, unsigned long len) {
+    if (len < sizeof(struct mach_header_64)) return 0;   // 头本身都读不完整
+    return uuid_matches((const struct mach_header_64 *)hdr, kTarget270099_uuid,
+                        (size_t)len);
 }
 
 /// rewrite_self 策略缝：测试里切换自发撤回门的开关。

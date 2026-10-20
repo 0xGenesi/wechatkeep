@@ -78,6 +78,14 @@ struct MachImage {
         self.cputype = cputype
         var segs: [(UInt64, UInt64, UInt64)] = []
         var secs: [Section] = []
+        // 头都读不完整（<32B）的切片按零命令镜像处理（L3⑤ 模糊测试实锤：
+        // 无守卫的 ncmds load 对短切片越界 fatal；调用方得到 noSection/
+        // 定位失败等干净错误而不是进程崩溃）。
+        guard data.count >= 32 else {
+            self.segments = segs
+            self.sections = secs
+            return
+        }
         let ncmds = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt32.self) }
         var p = 32
         for _ in 0..<ncmds {

@@ -66,6 +66,27 @@ struct ConfigLocalTests {
 /// expected 门只校验 expected 长度的前缀——asm 更长的条目会覆盖无出处的
 /// 尾部字节且 restore 无法回补（catalog 拒载是唯一安全侧）。
 extension ConfigLocalTests {
+    /// 72·L4 变异测试揭出的缺口（M05）：装载期坏 hex asm 拒绝此前无直接
+    /// 测试（Patcher 的 malformedAsm 门是第二层防线，掩盖了第一层）。
+    @Test func badHexAsmIsRejectedAtLoad() {
+        let bad = """
+        [{"version":"999998","targets":[{"identifier":"revoke","entries":[
+          {"arch":"x86_64","addr":"100","expected":"554889E5","asm":"ZZGG"}]}]}]
+        """
+        do {
+            _ = try Config(data: Data(bad.utf8), origin: "inline")
+            Issue.record("坏 hex asm 必须在装载期被拒")
+        } catch let e as Config.LoadError {
+            if case .malformed(let detail) = e {
+                #expect(detail.contains("bad hex asm"))
+            } else {
+                Issue.record("应报 malformed(bad hex asm)，实得 \(e)")
+            }
+        } catch {
+            Issue.record("应报 LoadError.malformed，实得 \(error)")
+        }
+    }
+
     @Test func asmSpanBeyondProvenanceIsRejected() {
         // asm 6B > expected 4B：必须拒载
         let over = """

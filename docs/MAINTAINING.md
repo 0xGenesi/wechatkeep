@@ -520,3 +520,27 @@ keeptip store（parse+偏移处 E8 call + `488983C8010000`，asm 家族恒定，
 call rel32 按时代分五变体）：.5-.8=`E81E85E9FF`、.9-.11=`E8DE67E9FF`、
 .50-.54=`E8BE67E9FF`、.56-.64=`E81E66E9FF`、4.1.15=`E83E4BE9FF`——
 expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全部如此）。
+
+## 证据化审计工具（2026-10-20 72 轮沉淀；新构建/发版前可复跑）
+
+- **地面真值全扫** `python3 tools/sweep_ground_truth.py --otool-sample 8`：
+  var/wxarm 现存全部切片 × catalog 全条目读回比对（ExpectedPattern 通配/
+  掩码语义一比一；归一化条目按「∈expected 集」分层断言）。新构建入目后
+  必跑——失配=数据级 P0。证据落 var/logs/l1-ground-truth-sweep-*.txt。
+- **可逆性穷举** `python3 tools/verify_reversibility.py`：真 Patcher/真切片
+  lipo 合 fat → {silent, keeptip, --only 各子集, 链式切换} 全状态迁移，每态
+  「位点字节∈合法集」+ restore 后整文件 sha256 == pristine。改 Engine/
+  Patcher/restoreAsm 语义后必跑（比位点比对强的哈希预言）。
+- **解析面模糊** `bash tools/fuzz/run_fuzz.sh 200000`：runtime.m 测试缝
+  （ASan+UBSan 确定性驱动 + 20 万次随机）+ Swift 侧 FuzzParseSurfaces
+  （Data(hex:)/ExpectedPattern/MachOInjector/MachImage 随机畸形注入）。
+  runtime.m 或解析面改动后必跑。CLT 无 libFuzzer 运行时——runtime_random.c
+  为等价自研实现（种子固定可复现）。
+- **变异测试** `python3 tools/mutation_test.py`：20 个安全关键单行变异 ×
+  全量测套，杀灭率 ≥90% 验收。新增安全防线（新守卫/新门）时补对应变异行。
+- **openssl 独立验签** `bash tools/verify_manifest_openssl.sh`：CryptoKit 之外
+  的 Ed25519 验证（手构 SPKI DER + pkeyutl + shasum），每次重签 manifest 后
+  顺手跑一次防共因。
+- 本机 macOS 27 CLT 的 TestingMacros 插件间歇楔死：swift test 加
+  `-Xswiftc -load-plugin-library -Xswiftc $CLT/…/libTestingMacros.dylib`
+  显式装载即绕过（tools/fuzz/run_fuzz.sh 内置；清缓存只偶发缓解）。
