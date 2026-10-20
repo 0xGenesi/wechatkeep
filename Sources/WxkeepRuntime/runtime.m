@@ -77,7 +77,8 @@ static const hook_target_t kTarget270099 = {
 static const hook_target_t *const kBuiltins[] = { &kTarget270099 };
 static const size_t kBuiltinCount = sizeof(kBuiltins) / sizeof(kBuiltins[0]);
 
-// 30 = 4.1.15 全家族（除未发布的 270087/270092）× 双架构；128 留 update-data
+// 44 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-270135 × 双架构
+// （2026-10-20 补齐 270101/270102 后的 knownHooks 现量）；128 留 update-data
 // 分发新构建行的余量（越限行被静默丢弃——parse 循环的 n >= 上限 break，
 // 丢的是追加在尾部的最新构建行：容量必须显著大于 knownHooks 现量，
 // RuntimeHookTests 有 128 行全收的容量回归锁）。

@@ -5,7 +5,7 @@ struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
-        version: "0.2.9",
+        version: "0.2.10",
         subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self, RuntimeCommand.self]
     )
 
@@ -287,7 +287,9 @@ extension Wxkeep {
                 }
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                try encoder.encode(localConfig.versions).write(to: localURL)
+                // 原子写：中途断电/中断不留半文件（半文件会让下一次 patch 的
+                // Config.load 直接 malformed 拒载，本地定位数据不可用）
+                try encoder.encode(localConfig.versions).write(to: localURL, options: .atomic)
                 print("appended to \(localURL.path) (backup: \(backup.lastPathComponent))")
                 print("next: wxkeep patch --variant silent")
             }
@@ -567,7 +569,11 @@ extension Wxkeep {
                         : "\(rowsForBuild.count) 行匹配（\(rowsForBuild.compactMap { $0["arch"] as? String }.joined(separator: "+"))）"
                     print("当前构建 \(currentBuild):    \(matchNote)")
                 } else {
-                    print("hooks 地址表:      无（dylib 用内置表，仅 270099 x64）")
+                    // 无 hooks 行 = runtime.json 从未写入（install/hooks 都没跑过）
+                    // 或被清空——dylib 回落内置表（仅 270099 x64 兜底）。给出
+                    // 实际修复动作而不是陈述现状。
+                    print("hooks 地址表:      无（dylib 回落内置表，仅 270099 x64 兜底）")
+                    print("                   → 跑 `wxkeep runtime hooks` 写入全量 44 行地址表")
                 }
                 if let tip = cfg?["tip_text"] as? String, !tip.isEmpty {
                     print("自定义文案:        \(tip)")

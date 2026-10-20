@@ -459,4 +459,32 @@ final class ExpectedWildcardTests {
         """
         expectThrows(try Config(data: Data(malformed.utf8), origin: "inline"))
     }
+
+    /// 绕过 Config.load 校验直达 Patcher 的坏 hex asm（restore 反转条目 /
+    /// 测试合成 / 未来数据源）必须是带上下文的干净拒绝，不是 Data(hex:)
+    /// 强解包的进程崩溃（buildPlans 的 `!` 收口，70 轮）。
+    @Test func badHexAsmIsRejectedNotCrashed() throws {
+        let binary = try writeBinary(
+            MachOFixture.thin(cputype: MachOFixture.x64CPU, code: [
+                (0x100, [0x55, 0x48, 0x89, 0xE5]),
+            ]),
+            name: "thin-badhex.dylib")
+        let bad = MachOFixture.entry(.x86_64, addr: "100", asm: "ZZGG",
+                                     expected: ["554889E5"])
+        var caught: Patcher.PatchError?
+        do { _ = try Patcher.patch(binary: binary, entries: [bad], identifier: "revoke") }
+        catch let e as Patcher.PatchError { caught = e }
+        var ok = false
+        if case .malformedAsm(let idx, let id, let asm)? = caught {
+            ok = (idx == 0 && id == "revoke" && asm == "ZZGG")
+        }
+        #expect(ok, "expected malformedAsm(0, revoke, ZZGG), got \(String(describing: caught))")
+        // inspect 同路径（共用 buildPlans）同样干净拒绝
+        var caught2: Patcher.PatchError?
+        do { _ = try Patcher.inspect(binary: binary, entries: [bad], identifier: "revoke") }
+        catch let e as Patcher.PatchError { caught2 = e }
+        var inspectMalformed = false
+        if case .malformedAsm? = caught2 { inspectMalformed = true }
+        #expect(inspectMalformed, "inspect 应同样报 malformedAsm，got \(String(describing: caught2))")
+    }
 }

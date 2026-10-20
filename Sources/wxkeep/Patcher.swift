@@ -19,6 +19,7 @@ struct Patcher {
         case vaNotFound(va: UInt64, arch: String)
         case missingExpected(index: Int, identifier: String)
         case expectedMismatch(index: Int, identifier: String, va: UInt64, expected: [String], current: String)
+        case malformedAsm(index: Int, identifier: String, asm: String)
 
         var description: String {
             switch self {
@@ -39,6 +40,9 @@ struct Patcher {
                 "entry #\(i) (target \(id)) at VA 0x\(String(format: "%X", va)): bytes on disk are "
                 + "\(current), expected one of \(expected.joined(separator: " / ")) — "
                 + "wrong WeChat build or unknown prior modification. Nothing was written."
+            case .malformedAsm(let i, let id, let asm):
+                "entry #\(i) (target \(id)) has bad hex asm \"\(asm)\" — refusing. "
+                + "Catalog/recipe data failed load-time validation? Please report this."
             }
         }
     }
@@ -186,11 +190,16 @@ struct Patcher {
     ) throws -> [Plan] {
         let slices = try slices(of: handle)
         var plans = [Plan]()
-        for entry in entries {
+        for (index, entry) in entries.enumerated() {
             guard let slice = slices.first(where: { $0.cputype == entry.arch.cpuType }) else { continue }
             guard let addrHex = entry.addr, let va = UInt64(addrHex, radix: 16) else { continue } // recipe entries: M2
             let fileOffset = try resolveVA(va: va, handle: handle, sliceOffset: slice.offset, arch: entry.arch)
-            let asm = Data(hex: entry.asm)!
+            // 装载期校验覆盖 catalog/signatures 两条主路，但 restore 的反转条目、
+            // 测试合成条目与未来数据源仍可能带坏 hex 到这里——强解包 trap 会
+            // 把数据错误变成进程崩溃，换成带上下文的干净拒绝。
+            guard let asm = Data(hex: entry.asm) else {
+                throw PatchError.malformedAsm(index: index, identifier: identifier, asm: entry.asm)
+            }
             let expected = entry.expected?.values.compactMap { ExpectedPattern(spec: $0) }
             plans.append(Plan(entry: entry, va: va, asm: asm, expected: expected, fileOffset: fileOffset))
         }

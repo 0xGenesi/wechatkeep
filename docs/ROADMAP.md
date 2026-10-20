@@ -1,5 +1,25 @@
 # 路线图（待办归档）
 
+## 70·全源码审读轮（2026-10-20：19 Swift 文件 + runtime.m 逐行过目，5 处收口）
+
+1. **[审读结论] 主链无功能 bug**：Patcher 双相写（全验后写）、Engine 变体
+   切换/undo、Resigner 快照-漂移-终态模型、MachOInjector 幂等/事故防线、
+   runtime.m 的 CAS 单装 + mach 读探针 + 无锁 hook 体、Manifest 规范字节串
+   ——历轮复审沉淀的防线都在位且相互咬合。本轮为卫生性收口，非缺陷修复。
+2. **[收口 5 处]**：① CLI 版本 0.2.9→0.2.10（62-69 轮的未发版积累——
+   verify 变体、270131-135/270101/102 数据、MAP_JIT 均不在 v0.2.9 里；
+   常量先行对齐，发版 tag 待用户指令）；② runtime status 无表提示改带
+   修复动作（旧文案只陈述「仅 270099 x64」现状，不说怎么修）；③
+   runtime.m 容量注释 30→44（stale 数字）；④ **Patcher.buildPlans 的
+   `Data(hex:)!` 强解包 → malformedAsm 干净拒绝**（装载期校验覆盖
+   catalog/signatures 主路，但 restore 反转/测试合成/未来数据源可绕达；
+   数据错误不该是进程崩溃）+ 回归测试；⑤ locate --append 改原子写
+   （半文件会让下次 Config.load 直接 malformed）。
+3. **[附带] UpdateData.swift 编译告警清除**：`finished` 未使用变量
+   （group.wait 结果本就由 completed 检查兜住，语义无变化）。
+4. 152 测全绿（+1 malformedAsm 回归）。经验：`#expect(if case …)` 不是
+   合法表达式——case 判定先落变量再断言（宏展开上下文限制）。
+
 ## 69·270101/270102 HookRow 补齐轮（2026-10-20：地址表 44 行，4.1.15 家族缺口清零）
 
 1. **[数据修正] 「无 dmg 工件可派生」是 stale 结论**：当日定点复核 CDN，

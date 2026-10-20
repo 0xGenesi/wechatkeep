@@ -49,7 +49,9 @@ enum UpdateData {
             }
             task.resume()
         }
-        let finished = group.wait(timeout: .now() + 30) == .success
+        // 30s 上限：超时后 completed 检查把未完成文件如实报「下载超时」，
+        // 不会误报成签名校验失败（残缺文件）。
+        _ = group.wait(timeout: .now() + 30)
         if !failures.isEmpty {
             throw UpdateError.network(failures.joined(separator: ", "))
         }
