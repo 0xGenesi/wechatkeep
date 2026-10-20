@@ -21,8 +21,13 @@ arm64 的撤回补丁 = parse 函数内 cbz 分支翻转（非独立函数），
   是），patched 态下谓词行为不变：arm64 行为验证的语义 = 家族完整性自检
   + 谓词输入路径证明（详见 ROADMAP ㉝）。
 
-用法: python3 tools/gen_verify_spec_arm64.py <thin-arm64-dylib> <cbz-site-VA-hex>
+用法: python3 tools/gen_verify_spec_arm64.py <thin-arm64-dylib> <cbz-site-VA-hex> \
+     [--variant BUILD]
+--variant：输出包一层 {"builds": [BUILD], …spec}（signatures.json 配方的
+verify_variants 条目形态——spec 的 stubs/zero_regions 是绝对 VA，逐构建
+漂移，新构建一律各自派生变体，不再改写 legacy verify）。
 """
+import argparse
 import json
 import sys
 
@@ -72,10 +77,14 @@ def is_br_x16(word):
 
 
 def main():
-    if len(sys.argv) < 3:
-        sys.exit(__doc__)
-    d = machutil.load_slice(sys.argv[1], machutil.CPU_ARM64)
-    site = int(sys.argv[2], 16)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("dylib")
+    ap.add_argument("site", help="cbz 位点 VA（hex）")
+    ap.add_argument("--variant", metavar="BUILD",
+                    help="输出包 verify_variants 条目形态（builds 绑定）")
+    args = ap.parse_args()
+    d = machutil.load_slice(args.dylib, machutil.CPU_ARM64)
+    site = int(args.site, 16)
 
     # 1. cbz 位点 -4 处必须 BL（谓词调用）
     off = machutil.va2off(d, site - 4)
@@ -139,8 +148,10 @@ def main():
         "stubs": stubs,
         "zero_regions": zero,
         "probes": [["revokemsg", "1"], ["sysmsg", "0"], ["NewMsg", "0"], ["", "0"]],
-        "_generated": f"arm64 predicate 0x{pred:X} (cbz 0x{site:X}) on {sys.argv[1]}"
+        "_generated": f"arm64 predicate 0x{pred:X} (cbz 0x{site:X}) on {args.dylib}"
     }
+    if args.variant:
+        spec = {"builds": [args.variant], **spec}
     print(json.dumps(spec, indent=2))
     print(f'# target(谓词) = 0x{pred:X}', file=sys.stderr)
 

@@ -16,6 +16,41 @@ struct Signatures: Codable {
         var binary: String?
         /// Optional behavioral-verification data (mini-loader route).
         var verify: Verifier.VerifySpec?
+        /// 按构建绑定的 verify spec 变体：stubs/zero_regions 是绝对 VA，逐
+        /// 构建漂移——legacy `verify` 只覆盖 270099 族，其余构建各自派生
+        /// （gen_verify_spec*.py 从 thin 切片反解）。选中规则：本构建命中
+        /// 变体优先；未命中回落 `verify`（不适用镜像由 worker 形态门
+        /// exit 4 优雅跳过，语义不变）。旧 CLI 忽略未知 JSON 键，新字段
+        /// 不破坏 update-data 的向后兼容。
+        var verifyVariants: [VerifyVariant]?
+
+        enum CodingKeys: String, CodingKey {
+            case arch, anchor, derive, confirm, expected, asm, binary
+            case verify, verifyVariants = "verify_variants"
+        }
+
+        /// 谓词变体只做选址：stubs/probes 的解码与校验复用 VerifySpec。
+        struct VerifyVariant: Codable {
+            /// 适用构建号（点分营销线无构建号，变体一律按构建号绑定）。
+            let builds: [String]
+            let stubs: [String: String]
+            let zeroRegions: [[String]]
+            let probes: [[String]]
+
+            enum CodingKeys: String, CodingKey {
+                case builds, stubs, probes
+                case zeroRegions = "zero_regions"
+            }
+        }
+
+        /// 行为验证 spec 的按构建选择：变体命中优先，回落 legacy `verify`。
+        func verifySpec(for build: String) -> Verifier.VerifySpec? {
+            if let hit = verifyVariants?.first(where: { $0.builds.contains(build) }) {
+                return Verifier.VerifySpec(
+                    stubs: hit.stubs, zeroRegions: hit.zeroRegions, probes: hit.probes)
+            }
+            return verify
+        }
     }
 
     var recipes: [String: RecipeSpec]

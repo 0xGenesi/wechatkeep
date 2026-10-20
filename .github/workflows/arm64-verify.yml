@@ -96,6 +96,8 @@ jobs:
             270100) V=4.1.15.20 ;; 270099) V=4.1.15.19 ;; 270098) V=4.1.15.18 ;;
             270097) V=4.1.15.17 ;; 270096) V=4.1.15.16 ;; 270095) V=4.1.15.15 ;;
             270094) V=4.1.15.14 ;; 270091) V=4.1.15.11 ;; 270090) V=4.1.15.10 ;;
+            270131) V=4.1.15.51 ;; 270132) V=4.1.15.52 ;; 270133) V=4.1.15.53 ;;
+            270134) V=4.1.15.54 ;; 270135) V=4.1.15.55 ;;
             *) echo "::error::no CDN version mapping for $BUILD (add to the case map)"; exit 1 ;;
           esac
           URL="https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${V}_${BUILD}.dmg"
@@ -110,3 +112,39 @@ jobs:
           # arm64 全链验收：catalog 定位 → MachImage 切片谓词反解（fat 装机
           # 形态）→ worker RWX 执行 → verdictPredicate 对照家族地面真值
           .build/release/wxkeep verify -a "$APP" -c config.json -s signatures.json
+      - name: Real-dylib end-to-end x64 (Rosetta, isRevokemsg branch)
+        # x64 面的行为验证在 macOS 27 本地不可达（CLT swift compat 库已无
+        # x86_64 切片，交叉链接失败）；macos-15 全量 Xcode 可造 x86_64 产物。
+        # verify spec 的 stubs/zero_regions 逐构建漂移，x64 变体（270131-135）
+        # 的端到端证明在这里闭环。
+        if: steps.rwx.outputs.rwx == 'ok'
+        env:
+          BUILD: ${{ github.event.inputs.build || '270100' }}
+        run: |
+          set -euo pipefail
+          # dmg 上一步骤已删挂载点但文件保留；不存在则重新拉取
+          if [ ! -s /tmp/wx.dmg ]; then
+            case "$BUILD" in
+              270100) V=4.1.15.20 ;; 270099) V=4.1.15.19 ;; 270131) V=4.1.15.51 ;;
+              270132) V=4.1.15.52 ;; 270133) V=4.1.15.53 ;; 270134) V=4.1.15.54 ;;
+              270135) V=4.1.15.55 ;;
+              *) echo "::error::no CDN version mapping for $BUILD"; exit 1 ;;
+            esac
+            curl -fL --retry 3 -o /tmp/wx.dmg \
+              "https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${V}_${BUILD}.dmg"
+          fi
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmnt /tmp/wx.dmg
+          lipo -thin x86_64 /tmp/wxmnt/WeChat.app/Contents/Resources/wechat.dylib \
+            -output /tmp/wechat_x64.dylib
+          hdiutil detach /tmp/wxmnt
+          APPX="$RUNNER_TEMP/WeChat_${BUILD}_x64.app"
+          mkdir -p "$APPX/Contents/Resources"
+          cp /tmp/wechat_x64.dylib "$APPX/Contents/Resources/wechat.dylib"
+          printf '<?xml version="1.0"?><plist version="1.0"><dict>\n  <key>CFBundleVersion</key><string>%s</string>\n</dict></plist>\n' "$BUILD" > "$APPX/Contents/Info.plist"
+          # x86_64 CLI：Rosetta 下整工具链构建（ci.yml 同款），独立 scratch
+          # 防覆盖 arm64 产物；x64 worker 走普通 RWX mmap，重签执行内存权限
+          arch -x86_64 swift build -c release --scratch-path /tmp/wxkeep-x64
+          XBIN=$(arch -x86_64 swift build -c release --scratch-path /tmp/wxkeep-x64 --show-bin-path)/wxkeep
+          codesign --force --sign - --entitlements /tmp/wxkeep-exec.plist "$XBIN"
+          arch -x86_64 "$XBIN" verify -a "$APPX" -c config.json -s signatures.json
+

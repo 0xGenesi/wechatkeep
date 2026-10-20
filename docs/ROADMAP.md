@@ -1,5 +1,38 @@
 # 路线图（待办归档）
 
+## 68·verify spec 多族支持轮（2026-10-20：verify_variants 按构建变体 + 270131-135 双架构入目）
+
+1. **[架构] spec 按构建变体**：signatures.json 配方新增 `verify_variants`
+   （builds 绑定 + spec 字段），选中规则 = 本构建命中变体优先、回落
+   legacy `verify`（270099 族语义不变，worker 形态门 exit 4 继续兜底）。
+   旧 CLI 忽略未知 JSON 键——update-data 向后兼容不破坏。**实现期踩坑**：
+   RecipeSpec 不带 CodingKeys 时 Swift 合成键是 `verifyVariants`，JSON 的
+   `verify_variants` 被当未知键忽略、optional 静默解码 nil → 永远走
+   legacy；arm64 验收 worker 报旧族桩 VA 才拦下（防御链生效的实证：
+   若无形态门，错误 spec 会被静默当不适用跳过）。
+2. **[数据] 270131-135 双架构 10 变体入目**：gen_verify_spec*.py 加
+   `--variant` 出口（spec 包 builds 绑定层），从 var/wxarm thin 切片 +
+   config 位点 VA 派生；manifest 重签。桩 VA 逐构建漂移实证（270131
+   strlen@7BC1E64 → 270135 @7BD6C24——按构建变体是必要粒度，非「族」）。
+3. **[验收] arm64 原生 5/5 全绿**：每构建 thin 切片 fake app → release
+   CLI `verify` 全链（catalog 定位 → MachImage 谓词反解 → MAP_JIT worker
+   执行 → 家族地面真值 4 探针全对）。**x64 本地不可达**：macOS 27 CLT
+   swift compat 库已无 x86_64 切片（交叉链接 `swiftCompatibility56`
+   undefined + CLT 全套 arm64-only，Rosetta 起不来）——x64 面验收三轨：
+   ①静态镜像门（FF25 形态 + rel32 槽界内 + 8 对齐 + zero 界内，
+   逐条镜像 worker exit-4 判据）5/5；②arm64-verify.yml 新增 Rosetta
+   x64 端到端步骤（macos-15 全量 Xcode 可造 x86_64 产物，case 图扩
+   270131-135）；③CI Rosetta 全量测试既有覆盖。
+4. **[测试] +3（151 全绿）**：变体选中/回落、旧格式解码（update-data
+   历史）、仓库数据契约（270131-135 变体在位且不与 legacy 同源——把
+   「抄错 VA → worker 静默跳过」的数据错误前移到 CI）。字典序稳定性
+   教训：`stubs.keys.first` 断言在无序字典上随机翻红，断言集合。
+5. **[未决]**：x64 变体的真机/Rosetta 端到端待 CI 首跑
+   （arm64-verify.yml 手动 dispatch）；老族（270084-270098、270101/
+   270102、4.1.13 线）变体未派生——按需开轮（SOP 已固化 MAINTAINING
+   第 9 步）；macOS 27 本地 x64 工具链缺口属 Apple 侧（compat 库裁剪），
+   无解，记录在案。
+
 ## 67·变体切换重签缺口 + 两个改进候选落地 + 4.1.14 线定案轮（2026-10-19）
 
 1. **[缺陷修复] 变体切换的还原写入不计入重签决策**：混合态机器（silent 与

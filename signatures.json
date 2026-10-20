@@ -1,116 +1,480 @@
 {
-  "recipes": {
-    "revoke_x64": {
-      "arch": "x86_64",
-      "anchor": "imm64:revokems",
-      "derive": "padding-boundary",
-      "confirm": "unique-positive-callers",
-      "expected": "554889E553504889FB",
-      "asm": "31C0C3909090909090",
-      "binary": "Contents/Resources/wechat.dylib",
-      "_comment": "isRevokemsg(std::string*) 比较函数：movabs 立即数锚点 + 函数入口 + 唯一有直接调用者。2026-09 在 269602 验证（0x4BC5940, 9 callers）。",
-      "verify": {
-        "stubs": {
-          "7A23CE4": "strlen",
-          "7A2373E": "memcmp"
-        },
-        "zero_regions": [
-          [
-            "AD2C3F8",
-            "16"
-          ]
-        ],
-        "probes": [
-          [
-            "revokemsg",
-            "1"
-          ],
-          [
-            "sysmsg",
-            "0"
-          ],
-          [
-            "NewMsg",
-            "0"
-          ],
-          [
-            "",
-            "0"
-          ]
-        ],
-        "_verify_note": "VA 为 270099 x64 实测反解（isRevokemsg 0x4E8D440：call strlen 桩 0x7A23CE4@+0x3A、memcmp 桩 0x7A2373E@+0x70；movabs 懒初始化槽 0xAD2C3F8 含 +0xA guard 字节，本构建落 __DATA BSS 尾、zero 为保险）。269602 旧值 stubs 778B55C/778AFBC、zero A988320 对 270099 必崩：桩守卫失配不重定向→GOT 槽保持 chained-fixup 原始值（非规范地址 GPFLT）。pristine 探针 1/0/0/0、patched 全 0 双向实测。新构建需重反解"
-      }
+ "recipes": {
+  "revoke_x64": {
+   "arch": "x86_64",
+   "anchor": "imm64:revokems",
+   "derive": "padding-boundary",
+   "confirm": "unique-positive-callers",
+   "expected": "554889E553504889FB",
+   "asm": "31C0C3909090909090",
+   "binary": "Contents/Resources/wechat.dylib",
+   "_comment": "isRevokemsg(std::string*) 比较函数：movabs 立即数锚点 + 函数入口 + 唯一有直接调用者。2026-09 在 269602 验证（0x4BC5940, 9 callers）。",
+   "verify": {
+    "stubs": {
+     "7A23CE4": "strlen",
+     "7A2373E": "memcmp"
     },
-    "revoke_arm64_gen1": {
-      "arch": "arm64",
-      "anchor": "bytes:E00F0034",
-      "derive": "self",
-      "confirm": "bytes@+794:60B600F9:maskFFFFFFE0",
-      "expected": "E00F0034",
-      "asm": "7F000014",
-      "binary": "Contents/Resources/wechat.dylib",
-      "_comment": "4.1.10-4.1.11 (268575-269136) 代：cbz w0 @E+0x270，str x0,[x19,#0x168] @+0x794。数据来源 zengtianli signatures.json。"
+    "zero_regions": [
+     [
+      "AD2C3F8",
+      "16"
+     ]
+    ],
+    "probes": [
+     [
+      "revokemsg",
+      "1"
+     ],
+     [
+      "sysmsg",
+      "0"
+     ],
+     [
+      "NewMsg",
+      "0"
+     ],
+     [
+      "",
+      "0"
+     ]
+    ],
+    "_verify_note": "VA 为 270099 x64 实测反解（isRevokemsg 0x4E8D440：call strlen 桩 0x7A23CE4@+0x3A、memcmp 桩 0x7A2373E@+0x70；movabs 懒初始化槽 0xAD2C3F8 含 +0xA guard 字节，本构建落 __DATA BSS 尾、zero 为保险）。269602 旧值 stubs 778B55C/778AFBC、zero A988320 对 270099 必崩：桩守卫失配不重定向→GOT 槽保持 chained-fixup 原始值（非规范地址 GPFLT）。pristine 探针 1/0/0/0、patched 全 0 双向实测。新构建需重反解"
+   },
+   "verify_variants": [
+    {
+     "builds": [
+      "270131"
+     ],
+     "stubs": {
+      "7BC1E64": "strlen",
+      "7BC18BE": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AF1C268",
+       "16"
+      ],
+      [
+       "AF1C278",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4FFCAE0 on var/wxarm/270131_x64.dylib"
     },
-    "revoke_arm64_gen2": {
-      "arch": "arm64",
-      "anchor": "bytes:40100034",
-      "derive": "self",
-      "confirm": "bytes@+7A0:60CE00F9:maskFFFFFFE0",
-      "expected": "40100034",
-      "asm": "82000014",
-      "binary": "Contents/Resources/wechat.dylib",
-      "_comment": "4.1.12 (269332-269341) 代：field 0x198。"
+    {
+     "builds": [
+      "270132"
+     ],
+     "stubs": {
+      "7BC3E64": "strlen",
+      "7BC38BE": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AF1F398",
+       "16"
+      ],
+      [
+       "AF1F3A8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4FFEB50 on var/wxarm/270132_x64.dylib"
     },
-    "revoke_arm64_gen3": {
-      "arch": "arm64",
-      "anchor": "bytes:40100034",
-      "derive": "self",
-      "confirm": "bytes@+7A0:60E600F9:maskFFFFFFE0",
-      "expected": "40100034",
-      "asm": "82000014",
-      "binary": "Contents/Resources/wechat.dylib",
-      "_comment": "4.1.13 (269574+) 代：field 0x1C8。269626 实测。",
-      "verify": {
-        "stubs": {
-          "6FD28EC": "strlen",
-          "6FD1D70": "memcmp"
-        },
-        "zero_regions": [
-          [
-            "A2B1AC8",
-            "16"
-          ]
-        ],
-        "probes": [
-          [
-            "revokemsg",
-            "1"
-          ],
-          [
-            "sysmsg",
-            "0"
-          ],
-          [
-            "NewMsg",
-            "0"
-          ],
-          [
-            "",
-            "0"
-          ]
-        ],
-        "_verify_note": "arm64 谓词规格（270100 实测反解：predicate 0x47575FC = parse cbz 0x4BC4FA4 前 BL；strlen 桩 0x6FD28EC / memcmp 桩 0x6FD1D70（adrp/ldr/br 三件套）；懒初始化槽 0xA2B1AC8 含 guard 位 0xA2B1AD2，16B 内）。arm64 SSO 布局：数据@0、长度@+0x17。谓词非补丁位点（补丁=cbz 翻转）→ probe 为家族完整性/harness 自检语义，两态预期相同。270099 谓词 0x47574E8（漂移 +0x114）、桩/槽跨构建稳定。新构建用 tools/gen_verify_spec_arm64.py 重反解。"
-      }
+    {
+     "builds": [
+      "270133"
+     ],
+     "stubs": {
+      "7BCDB24": "strlen",
+      "7BCD57E": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AF29438",
+       "16"
+      ],
+      [
+       "AF29448",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4FFF420 on var/wxarm/270133_x64.dylib"
     },
-    "revoke_arm64_gen0": {
-      "arch": "arm64",
-      "anchor": "pool64:revokems",
-      "derive": "arm64-init-to-entry",
-      "confirm": null,
-      "expected": "F44FBEA9FD7B01A9",
-      "asm": "00008052C0035FD6",
-      "binary": "Contents/MacOS/WeChat",
-      "_comment": "4.1.6-4.1.9 夹缝代（桩代布局，静态池懒初始化）。2026-09-16 在 33480 arm64 实测：定位 0x103CBE7B0（disasm 同构验证 + 真写测试）。confirm 为 null 由距离过滤+expected 门兜底。"
+    {
+     "builds": [
+      "270134"
+     ],
+     "stubs": {
+      "7BD5C24": "strlen",
+      "7BD567E": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AF32888",
+       "16"
+      ],
+      [
+       "AF32898",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x5007D10 on var/wxarm/270134_x64.dylib"
+    },
+    {
+     "builds": [
+      "270135"
+     ],
+     "stubs": {
+      "7BD6C24": "strlen",
+      "7BD667E": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AF33828",
+       "16"
+      ],
+      [
+       "AF33838",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x5008960 on var/wxarm/270135_x64.dylib"
     }
+   ]
+  },
+  "revoke_arm64_gen1": {
+   "arch": "arm64",
+   "anchor": "bytes:E00F0034",
+   "derive": "self",
+   "confirm": "bytes@+794:60B600F9:maskFFFFFFE0",
+   "expected": "E00F0034",
+   "asm": "7F000014",
+   "binary": "Contents/Resources/wechat.dylib",
+   "_comment": "4.1.10-4.1.11 (268575-269136) 代：cbz w0 @E+0x270，str x0,[x19,#0x168] @+0x794。数据来源 zengtianli signatures.json。"
+  },
+  "revoke_arm64_gen2": {
+   "arch": "arm64",
+   "anchor": "bytes:40100034",
+   "derive": "self",
+   "confirm": "bytes@+7A0:60CE00F9:maskFFFFFFE0",
+   "expected": "40100034",
+   "asm": "82000014",
+   "binary": "Contents/Resources/wechat.dylib",
+   "_comment": "4.1.12 (269332-269341) 代：field 0x198。"
+  },
+  "revoke_arm64_gen3": {
+   "arch": "arm64",
+   "anchor": "bytes:40100034",
+   "derive": "self",
+   "confirm": "bytes@+7A0:60E600F9:maskFFFFFFE0",
+   "expected": "40100034",
+   "asm": "82000014",
+   "binary": "Contents/Resources/wechat.dylib",
+   "_comment": "4.1.13 (269574+) 代：field 0x1C8。269626 实测。",
+   "verify": {
+    "stubs": {
+     "6FD28EC": "strlen",
+     "6FD1D70": "memcmp"
+    },
+    "zero_regions": [
+     [
+      "A2B1AC8",
+      "16"
+     ]
+    ],
+    "probes": [
+     [
+      "revokemsg",
+      "1"
+     ],
+     [
+      "sysmsg",
+      "0"
+     ],
+     [
+      "NewMsg",
+      "0"
+     ],
+     [
+      "",
+      "0"
+     ]
+    ],
+    "_verify_note": "arm64 谓词规格（270100 实测反解：predicate 0x47575FC = parse cbz 0x4BC4FA4 前 BL；strlen 桩 0x6FD28EC / memcmp 桩 0x6FD1D70（adrp/ldr/br 三件套）；懒初始化槽 0xA2B1AC8 含 guard 位 0xA2B1AD2，16B 内）。arm64 SSO 布局：数据@0、长度@+0x17。谓词非补丁位点（补丁=cbz 翻转）→ probe 为家族完整性/harness 自检语义，两态预期相同。270099 谓词 0x47574E8（漂移 +0x114）、桩/槽跨构建稳定。新构建用 tools/gen_verify_spec_arm64.py 重反解。"
+   },
+   "verify_variants": [
+    {
+     "builds": [
+      "270131"
+     ],
+     "stubs": {
+      "7144C44": "strlen",
+      "71440C8": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A477938",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x489CD70 (cbz 0x4D12DC0) on var/wxarm/270131_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270132"
+     ],
+     "stubs": {
+      "7148C4C": "strlen",
+      "71480D0": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A47BA78",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x48A0D84 (cbz 0x4D16F58) on var/wxarm/270132_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270133"
+     ],
+     "stubs": {
+      "7136918": "strlen",
+      "7135D9C": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A467B28",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x489F4D4 (cbz 0x4D156A8) on var/wxarm/270133_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270134"
+     ],
+     "stubs": {
+      "713D9F8": "strlen",
+      "713CE7C": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A46FFE8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x48A691C (cbz 0x4D1CAF0) on var/wxarm/270134_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270135"
+     ],
+     "stubs": {
+      "71419F8": "strlen",
+      "7140E7C": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A473F88",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x48A94CC (cbz 0x4D1FB48) on var/wxarm/270135_arm64.dylib"
+    }
+   ]
+  },
+  "revoke_arm64_gen0": {
+   "arch": "arm64",
+   "anchor": "pool64:revokems",
+   "derive": "arm64-init-to-entry",
+   "confirm": null,
+   "expected": "F44FBEA9FD7B01A9",
+   "asm": "00008052C0035FD6",
+   "binary": "Contents/MacOS/WeChat",
+   "_comment": "4.1.6-4.1.9 夹缝代（桩代布局，静态池懒初始化）。2026-09-16 在 33480 arm64 实测：定位 0x103CBE7B0（disasm 同构验证 + 真写测试）。confirm 为 null 由距离过滤+expected 门兜底。"
   }
+ }
 }

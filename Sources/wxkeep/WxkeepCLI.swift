@@ -839,8 +839,9 @@ extension Wxkeep {
             var targetVA: UInt64
             var binaryRelative: String?
             if hostArch == .arm64 {
-                guard let armSpec = signatures.recipes["revoke_arm64_gen3"]?.verify else {
-                    throw ValidationError("no verify spec for revoke_arm64_gen3 in signatures.json")
+                guard let armRecipe = signatures.recipes["revoke_arm64_gen3"],
+                      let armSpec = armRecipe.verifySpec(for: build) else {
+                    throw ValidationError("no verify spec for revoke_arm64_gen3 (build \(build)) in signatures.json")
                 }
                 spec = armSpec
                 var target = config.entry(build: build)?.targets.first { $0.identifier == "revoke" }
@@ -869,8 +870,8 @@ extension Wxkeep {
                 targetVA = pred
             } else {
                 guard let x64Recipe = signatures.recipes["revoke_x64"],
-                      let x64Spec = x64Recipe.verify else {
-                    throw ValidationError("no verify spec for revoke_x64 in signatures.json")
+                      let x64Spec = x64Recipe.verifySpec(for: build) else {
+                    throw ValidationError("no verify spec for revoke_x64 (build \(build)) in signatures.json")
                 }
                 spec = x64Spec
                 var target = config.entry(build: build)?.targets.first { $0.identifier == "revoke" }

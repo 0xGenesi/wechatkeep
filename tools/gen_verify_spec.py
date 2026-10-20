@@ -8,9 +8,12 @@ gen_verify_spec.py — 从补丁点自动反解行为验证规格（verify spec�
   zero_regions : movabs 懒初始化写入的字符串槽（mov [rip+X], rax 的 X，清 16 字节）
   probes       : 默认探针集（revokemsg→1 其余→0）
 
-用法: python3 tools/gen_verify_spec.py <thin-x64-dylib> <site-VA-hex>
-输出: verify spec JSON（贴进 signatures.json 对应配方的 "verify" 字段）
+用法: python3 tools/gen_verify_spec.py <thin-x64-dylib> <site-VA-hex> [--variant BUILD]
+输出: verify spec JSON（贴进 signatures.json 对应配方的 "verify" 字段；
+--variant 则输出 verify_variants 条目形态——stubs/zero_regions 是绝对 VA，
+逐构建漂移，新构建一律各自派生变体，不改写 legacy verify）。
 """
+import argparse
 import json
 import sys
 
@@ -27,10 +30,14 @@ def va2off(text, va):
     return text[2] + (va - text[0])
 
 def main():
-    if len(sys.argv) < 3:
-        sys.exit(__doc__)
-    d = open(sys.argv[1], 'rb').read()
-    site = int(sys.argv[2], 16)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("dylib")
+    ap.add_argument("site", help="isRevokemsg 位点 VA（hex）")
+    ap.add_argument("--variant", metavar="BUILD",
+                    help="输出包 verify_variants 条目形态（builds 绑定）")
+    args = ap.parse_args()
+    d = open(args.dylib, 'rb').read()
+    site = int(args.site, 16)
     text = machutil.text_range(d)
     segs = machutil.segments(d)
     def seg_off(va):
@@ -70,8 +77,10 @@ def main():
         "stubs": stubs,
         "zero_regions": zero,
         "probes": [["revokemsg", "1"], ["sysmsg", "0"], ["NewMsg", "0"], ["", "0"]],
-        "_generated": f"site 0x{site:X} on {sys.argv[1]}"
+        "_generated": f"site 0x{site:X} on {args.dylib}"
     }
+    if args.variant:
+        spec = {"builds": [args.variant], **spec}
     print(json.dumps(spec, indent=2))
 
 if __name__ == '__main__':

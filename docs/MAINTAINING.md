@@ -27,6 +27,19 @@
    会锁 schema），并同步 arm64（arm64 行 = catalog arm64 revoke 位点所在
    函数起点，序言门 `F85FBCA9F65701A9F44F02A9FD7B03A9`，见 ㉒ 轮记录）。
    arm64 行加好后跑 `wxkeep runtime hooks` 刷新即可，无需重装 dylib。
+9. **verify spec 变体（可选，行为验证的构建覆盖）**：
+   `python3 tools/gen_verify_spec.py <thin-x64.dylib> <isRevokemsg-site-hex> --variant <build>`
+   `python3 tools/gen_verify_spec_arm64.py <thin-arm64.dylib> <cbz-site-hex> --variant <build>`
+   ——spec 的 stubs/zero_regions 是绝对 VA、**逐构建漂移**，新构建一律
+   各自派生变体并追加进 signatures.json 对应配方的 `verify_variants`
+   （revoke_x64 收 x64 行、revoke_arm64_gen3 收 arm64 行），不改写 legacy
+   `verify`（270099 族）。位点 VA 从 config.json 该构建 revoke 条目取。
+   选中规则：本构建命中变体优先，否则回落 legacy（不适用镜像由 worker
+   形态门 exit 4 优雅跳过）。改 signatures.json 后必须 `sign_manifest`
+   重签。本地验收：arm64 原生跑 `wxkeep verify`（thin 切片造 fake app）；
+   x64 在 macOS 27 本地不可达（CLT compat 库已无 x86_64 切片）——静态
+   镜像门（FF25 形态 + 槽界内 + 8 对齐）+ CI `arm64-verify.yml` 的
+   Rosetta x64 端到端步骤承担。仓库数据契约由 VerifyVariantTests 锁。
 
 **流程顺序（2026-10-17 实证，假红教训）**：`merge_staging` 改过 config.json
 之后、`sign_manifest` 重签之前，CLI 的供应链门会拒绝加载数据——
