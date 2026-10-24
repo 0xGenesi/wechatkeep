@@ -1,5 +1,63 @@
 # 路线图（待办归档）
 
+## 73·深度轮（2026-10-23：V3-DEPTH 需求重写 + 四项深度门槛落地——崩溃一致性 WAL / 确定性 oracle / 负控 / 随机化性质，177 测全绿）
+
+> 用户指令：「更深版本而非更大版本」+ 专家实践对照 + 外部客观标准 +
+> 需求重写。重写产物 = docs/V3-DEPTH.md（R1-R6 六条可验收需求 + 5 处
+> 设计修正）。反目标：不新增功能面，全部深度落在机器可核验的预言上。
+
+1. **[I1 崩溃一致性 WAL]** `PatchJournal`（write-ahead intent journal，
+   Sources/wxkeep/PatchJournal.swift）：事务边界 = 一次 CLI patch/restore
+   （字节+重签一个语义单元）。begin 在引擎获得写入机会**之前**原子落盘
+   （SafeWrite——撕裂的 journal 等于没有 journal），complete 只在确认
+   成功后（含 noResign 显式调试态）；进程中途被杀（catch 型恢复重签
+   覆盖不到的 SIGKILL/断电）→ journal 残留。doctor 三态判读
+   （`interruptedTxGuidance` 纯函数，journal 态 × 字节态合读）：
+   patch+字节完好 → verify 确认（可能死于收口前）；patch+pristine →
+   修因重跑（写前失败是最高频残留来源——权限/TCC/错版，不该吓人）；
+   patch+残缺 → restore 先归一；restore → 重跑即收敛。**两处实现期
+   自纠**：①单一全局 journal 会跨 app 误报（clone/多 bundle 机器 A 的
+   中断劫持 B 的 doctor）→ Record 携带 app 路径，不匹配时只提示
+   `doctor --app <path>` 不越权指路；②坏 JSON 不得吞检测（exists=true/
+   record=nil 走保守恢复）。Report/JSON 新增 `journal` 字段（增量兼容）。
+   测试 ×9（生命周期/坏 JSON/判读矩阵/跨 app 防劫持）+ **CLI e2e 三段**
+   （真 270101 切片假 app：patch 后 journal 清除；伪造中断 → doctor
+   PENDING+verify 指路；restore → journal 清除 + CLI 路径 sha 回 pristine）。
+2. **[I2 确定性 L6]** `tools/verify_determinism.py` + `L6DeterminismTests`
+   （WXKEEP_L6_PLAN 注入，真 Engine/真切片）：每构建**两份独立** fake app
+   （各自 fresh lipo——连 lipo 确定性一并实证）同 pristine 出发，silent
+   全打 → sha 恒等；keeptip（含变体切换还原路径）→ 恒等；restore →
+   各自回 pristine sha。**7/7 构建全过**（silent/keeptip 各 7 个恒等
+   sha 对），台账 var/logs/l6-determinism-20261023.txt。Swift 侧另有
+   合成 fixture 双跑恒等测试（patchIsDeterministicAcrossIndependentRuns）。
+   **[实证新知] codesign ad-hoc 每次输出含 1 字节相异**（170MB 文件仅
+   此 1 字节差异，落在签名元数据区 ASCII 序号；三次独立签名三不同）——
+   「全管线（patch+resign）sha 恒等」命题**不成立**，已记入 V3-DEPTH
+   事实边界：引擎层确定性已证，签名层以 strict verify 为准不比 sha。
+3. **[I4 负控]** tamperedPatchPointIsDetectedNotReportedClean：翻转已打
+   补丁点 1 字节 → Patcher.inspect 必须报 .unknown、Doctor.aggregate
+   传播 unknown——检测器自身的检测被证明（负控哲学：能报错才算检测器）。
+4. **[I5 随机化性质]** injectorRoundTripHoldsAcrossRandomizedVariants：
+   500 次变体（路径长 8-97 / 镜像 4K-36K / 头填充随机非零）。
+   **首跑 500/500 全红逼出精确契约**：removeLoadDylib「尾部补零」语义
+   使往返在非零头填充上不恒等——唯一允许差异 = 原命令区末尾被临时命令
+   占用的窗口归零（真实链接器零填充下退化为完全恒等，既有单点 fixture
+   测的就是该形态）。契约测试改为断言该精确像（零填充自动含于其中）。
+5. **[I3 启动浸泡门槛]** `tools/launch_soak.py`：隔离副本（clonefile
+   CoW）→ CLI patch 全链 → DiagnosticReports(WeChat .ips) 前后差集 →
+   open -n 浸泡 → pgrep 存活断言 → .ips 零新增 → TERM 收场。
+   `--plan` 模式（前置检查+计划打印，不启 GUI）已验证通过；真 soak
+   弹登录窗属用户触发动作（`python3 tools/launch_soak.py --seconds 45`），
+   诚实记录待触发。pgrep ERE 转义与 WeChatApp.pgrepPattern 同义。
+6. **[文档]** docs/V3-DEPTH.md（专家实践对照 D1-D7 / 原始数据与工具 /
+   外部客观标准表 / 需求重写 R1-R6 / 设计修正 5 条 / 诚实边界）；
+   README 安全模型 9→11 条（journal 第 3 条 + 深度台账第 11 条）；
+   测试数 164→176。
+7. **[环境]** 本轮 TestingMacros 楔死一次（-load-plugin-library 显式
+   装载可靠解，未浪费时间）；L6/CLI e2e 无一次假红。
+8. **[未决]** launch_soak 真跑待用户；密钥轮换预案成文（V3-DEPTH §5）；
+   tap 推送维持待用户指令（72 轮遗留）。
+
 ## 72·深度审计四层执行轮（2026-10-20：证据化 oracle 审计全过——模糊测试修出五个真缺陷 + 变异测试修出四个测试缺口）
 
 > 原则执行到位：所有结论落在机器可核验的预言上。四层 + 旁路项全部执行；

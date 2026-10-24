@@ -244,3 +244,96 @@ struct BackfillRoundtripTests {
         #expect(try Data(contentsOf: dylib) == before)
     }
 }
+
+/// L6 确定性 oracle（V3-DEPTH）：patch(pristine) 必须是数学函数。
+/// 每构建两份**独立** fake app（各自 fresh lipo），同一 pristine 出发：
+/// silent 全打 → 两份输出 sha256 必须恒等；keeptip（含变体切换还原路径）
+/// → 恒等；restore → 各自回到 pristine sha。任何未来的时间戳/随机性/
+/// 迭代序引入（HashMap 遍历序写盘等）都会在这里翻红。
+/// 证据行 "L6 <build> deterministic ✓"。无 WXKEEP_L6_PLAN 自动跳过（CI）。
+struct L6DeterminismTests {
+    private static func plan() -> [[String: String]]? {
+        guard let path = ProcessInfo.processInfo.environment["WXKEEP_L6_PLAN"],
+              FileManager.default.fileExists(atPath: path),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: String]],
+              !json.isEmpty else { return nil }
+        return json
+    }
+
+    @Test(.disabled(if: plan() == nil, "WXKEEP_L6_PLAN not set — L6 determinism oracle skipped"))
+    func determinismOracleOnRealSlices() throws {
+        for item in try #require(Self.plan()) {
+            let build = try #require(item["build"])
+            let arm = try #require(item["arm"])
+            let x64 = try #require(item["x64"])
+            try runOneBuild(build: build, armPath: arm, x64Path: x64)
+        }
+    }
+
+    private func runOneBuild(build: String, armPath: String, x64Path: String) throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-l6-\(build)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let config = try Config.load(explicit: "config.json")
+        guard let versionEntry = config.entry(build: build) else {
+            Issue.record("build \(build) 不在目录")
+            return
+        }
+        // 两份独立镜像：各自 fresh lipo（连 lipo 自身的确定性也一并实证）
+        var binaries = [URL]()
+        var pristineSHAs = [String]()
+        for name in ["a", "b"] {
+            let fat = work.appendingPathComponent("fat-\(name).dylib")
+            let lipo = Shell.run("/usr/bin/lipo", ["-create", armPath, x64Path, "-output", fat.path])
+            guard lipo.status == 0 else {
+                Issue.record("lipo 合成失败: \(lipo.stderr)")
+                return
+            }
+            let app = work.appendingPathComponent("Fake\(name).app")
+            let resources = app.appendingPathComponent("Contents/Resources")
+            try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+            let binary = resources.appendingPathComponent("wechat.dylib")
+            try FileManager.default.copyItem(at: fat, to: binary)
+            try? FileManager.default.removeItem(at: fat)
+            binaries.append(binary)
+            pristineSHAs.append(try Manifest.sha256(fileURL: binary))
+        }
+        guard pristineSHAs[0] == pristineSHAs[1] else {
+            Issue.record("pristine fat 即不确定：\(pristineSHAs)")
+            return
+        }
+
+        // …/FakeX.app/Contents/Resources/wechat.dylib → …/FakeX.app
+        let apps = binaries.map { $0.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
+        func patchedSHA(_ variant: String) throws -> (String, String) {
+            for app in apps {
+                _ = try Engine.patch(app: app, versionEntry: versionEntry, variant: variant,
+                                     dryRun: false, allowUnverified: false, only: nil)
+            }
+            return (try Manifest.sha256(fileURL: binaries[0]),
+                    try Manifest.sha256(fileURL: binaries[1]))
+        }
+
+        let (silentA, silentB) = try patchedSHA("silent")
+        if silentA != silentB {
+            Issue.record("\(build) silent: 两份独立副本输出不一致 \(silentA) != \(silentB)")
+        }
+        #expect(silentA != pristineSHAs[0], "补丁必须真的写入了字节（防恒真）")
+
+        let (tipA, tipB) = try patchedSHA("keeptip")   // 走变体切换还原→应用路径
+        if tipA != tipB {
+            Issue.record("\(build) keeptip: 两份独立副本输出不一致 \(tipA) != \(tipB)")
+        }
+
+        for (i, binary) in binaries.enumerated() {
+            _ = try Engine.restore(app: apps[i], build: build, config: config, dryRun: false)
+            let restored = try Manifest.sha256(fileURL: binary)
+            if restored != pristineSHAs[i] {
+                Issue.record("\(build) copy\(i): restore 后 sha \(restored) != pristine \(pristineSHAs[i])")
+            }
+        }
+        print("L6 \(build): deterministic ✓ silent=\(String(silentA.prefix(8))) keeptip=\(String(tipA.prefix(8)))")
+    }
+}

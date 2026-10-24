@@ -65,13 +65,15 @@ wxkeep runtime remove    # 完整移除（幂等）
 
 1. **expected 多变体字节门**：写入前逐点校验原始字节（接受 pristine/已打补丁两态），错版/未知修改零写入
 2. **全量预检**：所有 target 所有 entry 先验后写，杜绝「打到第 5 个点失败留下半套补丁」
-3. **自动备份**：写入前生成 `<binary>.wxkeep-bak-<ts>`（大小校验）
-4. **restore 幂等反演**：`expected[0]` 恒为原始字节；有 target 不可恢复则整体不动
-5. **重签五步流水线**：entitlements 快照 → 嵌套先签（注入保命键）→ 根深签 → 漂移恢复（deepest-first）→ strict verify
-6. **隔离区**：无 expected 溯源的条目（如上游导入数据）默认拒写——手上有对应构建原版 dylib 可一键回填：`python3 tools/contribute_expected.py /Applications/WeChat.app`
-7. **发布清单签名**：`manifest.json`+`manifest.sig`（Ed25519）守护 config/signatures 供应链——篡改过的补丁数据会被 `wxkeep manifest` / doctor 检出并拒载；`python3 tools/contribute_expected.py /Applications/WeChat.app --hashes` 可登记本机构建切片哈希
-8. **数据 OTA**：`wxkeep update-data` 从仓库拉取最新已签名 catalog（Ed25519 验签后原子安装到用户目录）——新构建适配 day-0 生效，无需升级工具本体
-9. **行为验证**：`verify` 把补丁函数拉出进程调用，证明补丁生效——不再依赖人工撤回测试
+3. **崩溃一致性（WAL journal）**：每次 patch/restore 事务写前落 intent journal、确认成功后收口——中途被杀（SIGKILL/断电，catch 型恢复覆盖不到的路径）后 `doctor` 判定「中断」并给收敛指引（restore 幂等永远安全；字节态完好时降级为 verify 确认；写前失败指回修因重跑；跨 app 残留不劫持本 app 判定）
+4. **自动备份**：写入前生成 `<binary>.wxkeep-bak-<ts>`（大小校验）
+5. **restore 幂等反演**：`expected[0]` 恒为原始字节；有 target 不可恢复则整体不动
+6. **重签五步流水线**：entitlements 快照 → 嵌套先签（注入保命键）→ 根深签 → 漂移恢复（deepest-first）→ strict verify
+7. **隔离区**：无 expected 溯源的条目（如上游导入数据）默认拒写——手上有对应构建原版 dylib 可一键回填：`python3 tools/contribute_expected.py /Applications/WeChat.app`
+8. **发布清单签名**：`manifest.json`+`manifest.sig`（Ed25519）守护 config/signatures 供应链——篡改过的补丁数据会被 `wxkeep manifest` / doctor 检出并拒载；`python3 tools/contribute_expected.py /Applications/WeChat.app --hashes` 可登记本机构建切片哈希
+9. **数据 OTA**：`wxkeep update-data` 从仓库拉取最新已签名 catalog（Ed25519 验签后原子安装到用户目录）——新构建适配 day-0 生效，无需升级工具本体
+10. **行为验证**：`verify` 把补丁函数拉出进程调用，证明补丁生效——不再依赖人工撤回测试
+11. **深度证据台账**（[docs/V3-DEPTH.md](docs/V3-DEPTH.md)）：L1 地面真值全扫 / L2 可逆性 sha 恒等 / L6 补丁确定性（双副本独立运行恒等，7/7 构建）+ 篡改负控 + 随机化性质测试；`tools/launch_soak.py` 提供补丁后启动浸泡对照实验（隔离副本 + DiagnosticReports 零新增断言）
 
 ## 版本兼容
 
@@ -84,7 +86,7 @@ catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（
 
 ```bash
 swift build -c release          # 产出 .build/release/wxkeep
-swift test                      # 164 项测试（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件；arm64 行为项在非 arm64 主机自动 skip）
+swift test                      # 177 项测试（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件 + 崩溃一致性/确定性/负控/性质深度门；arm64 行为项在非 arm64 主机自动 skip）
 WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路（开发机）
 ```
 

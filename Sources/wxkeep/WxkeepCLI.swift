@@ -87,6 +87,13 @@ extension Wxkeep {
             let version = WeChatApp.marketingVersion(app: options.app).map { " (v\($0))" } ?? ""
             print("build \(build)\(version) — variant \(variant.rawValue)\(dryRun ? " — dry run" : "")")
             let onlyList = Engine.parseOnlyList(only)
+            // WAL 意图 journal：引擎获得写入机会之前落盘；全链成功（含重签）
+            // 后由 complete 收口。中断（SIGKILL/断电）→ journal 残留 →
+            // doctor 精确指路。dry-run 不写盘，不立 journal。
+            if !dryRun {
+                try PatchJournal.begin(kind: .patch, build: build, variant: variant.rawValue,
+                                       app: options.app.path)
+            }
             let summary: Engine.RunSummary
             do {
                 if config.entry(build: build) != nil {
@@ -128,6 +135,7 @@ extension Wxkeep {
                 #endif
                 print("本机架构 \(host)：可运行 `wxkeep verify` 行为级确认补丁效果")
             }
+            if !dryRun { PatchJournal.complete() }   // 事务确认成功（无写入或写入+重签均达终态）
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
     }
@@ -169,6 +177,12 @@ extension Wxkeep {
             let config = try Config.load(explicit: options.config)
             let build = try WeChatApp.buildNumber(app: options.app)
             print("restore build \(build)\(dryRun ? " — dry run" : "")")
+            // WAL 意图 journal：restore 也是多点写（Patcher 反演），同样有
+            // 中断窗口；成功收口时顺带清掉任何残留（含 patch 留下的）。
+            if !dryRun {
+                try PatchJournal.begin(kind: .restore, build: build, variant: nil,
+                                       app: options.app.path)
+            }
             let summary: Engine.RunSummary
             do {
                 summary = try Engine.restore(app: options.app, build: build, config: config, dryRun: dryRun)
@@ -187,6 +201,7 @@ extension Wxkeep {
                 }
                 // restore 语义 = 回到原始；不附带任何偏好写入
             }
+            if !dryRun { PatchJournal.complete() }   // 事务成功（幂等 restore 到达 pristine 终态）
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
     }

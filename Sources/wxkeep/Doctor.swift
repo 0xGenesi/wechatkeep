@@ -26,6 +26,8 @@ struct Doctor {
         let restrictedEntitlements: Bool
         let patchStates: [String: String]   // identifier → patched/pristine/mixed/unknown（仅本机架构切片）
         let manifest: String?              // verified/legacy/invalid:<reason>（数据供应链）
+        /// nil = 无残留；否则为未确认写入事务的摘要（kind + 起始时间）。
+        var journal: String? = nil
         let verdicts: [String]
         let nextCommand: String?
         // runtime 组件（可选功能）。nil = 无启动记录（marker 缺失）——
@@ -48,6 +50,7 @@ struct Doctor {
             case restrictedEntitlements = "restricted_entitlements"
             case patchStates = "patch_states"
             case manifest
+            case journal
             case verdicts
             case nextCommand = "next_command"
             case runtimeInjected = "runtime_injected"
@@ -283,6 +286,21 @@ struct Doctor {
         }
         // （不再处方 AMFI boot-arg：watch 级判定无前置动作，见 assessAmfiRisk 注释）
 
+        // ---- 中断事务（WAL journal 残留）：判读行 + nextCommand 覆盖 ----
+        // journal 残留时恢复指引优先于「继续打补丁」——半套态上叠加新动作
+        // 与错误路径的处置哲学（先归一）相悖。
+        let journalPending = PatchJournal.pending()
+        var journalSummary: String? = nil
+        if journalPending.exists {
+            let gating = patchStates.filter { $0.key != "revoke-keeptip2" }
+            let guidance = interruptedTxGuidance(
+                journalExists: true, record: journalPending.record,
+                gatingStates: gating, sudoRequired: !writable, appPath: app.path)
+            verdicts.append(contentsOf: guidance.verdictLines)
+            journalSummary = guidance.journalSummary
+            nextCommand = guidance.nextCommand ?? nextCommand
+        }
+
         return Report(
             overall: overall,
             nativeArch: nativeArch,
@@ -301,6 +319,7 @@ struct Doctor {
             restrictedEntitlements: restricted,
             patchStates: patchStates,
             manifest: manifestStatus,
+            journal: journalSummary,
             verdicts: verdicts,
             nextCommand: nextCommand,
             runtimeInjected: runtimeDylibExists ? runtimeInjected : nil,
@@ -338,6 +357,75 @@ struct Doctor {
         return "on（不检查更新；4.1.13+ 前两键可能被微信改回）"
     }
 
+    // MARK: - 中断事务判读（WAL 残留 × 字节态合读，纯函数）
+
+    /// journal 残留 = 上次写入事务（patch/restore）未确认完成——进程可能
+    /// 在多点写入中途被杀（catch 型恢复重签覆盖不到 SIGKILL/断电）。但
+    /// journal 在场 ≠ 字节必坏：进程也可能在「写完+签完、收口前」死掉。
+    /// 与 gating 字节态合读给精确指引（restore 幂等，永远是安全动作）：
+    ///
+    /// - patch + 字节态完好 → 疑似写完未收口：verify 确认即可（re-patch
+    ///   也能收口，但 verify 更轻）；
+    /// - patch + 字节态残缺 → 确认中断：restore 先归一，再按需重打——
+    ///   直接重打虽也写全点位，但「半套态上直接重打」与既有错误路径的
+    ///   处置哲学（先 restore 归一）保持一致；
+    /// - restore → 重跑 restore 即可（幂等，收口 journal）。
+    /// gating 语义与 overall 判定共用：废弃目标不参与。
+    static func interruptedTxGuidance(
+        journalExists: Bool,
+        record: PatchJournal.Record?,
+        gatingStates: [String: String],
+        sudoRequired: Bool,
+        appPath: String
+    ) -> (verdictLines: [String], journalSummary: String?, nextCommand: String?) {
+        guard journalExists else { return ([], nil, nil) }
+        let sudo = sudoRequired ? "sudo " : ""
+        guard let record else {
+            return (["⚠️ patch journal present but UNREADABLE — a write transaction may have been "
+                     + "interrupted (or the journal was tampered with). Run `\(sudo)wxkeep restore` "
+                     + "(idempotent) to normalize, then re-patch if desired"],
+                    "unreadable", "\(sudo)wxkeep restore")
+        }
+        // app 不匹配（clone/多 bundle 机器）：不越权指路，只提示去正确 app 检查
+        guard record.app == appPath else {
+            return (["journal from a DIFFERENT app bundle (\(record.app), \(record.kind.rawValue) "
+                     + "started \(record.startedAt)) — inspect it with `wxkeep doctor --app \(record.app)`"],
+                    "\(record.kind.rawValue)@\(record.app)", nil)
+        }
+        let started = record.startedAt
+        let revokePatched = gatingStates["revoke"] == "patched"
+            || gatingStates["revoke-keeptip"] == "patched"
+        let byteDamage = gatingStates.values.contains { $0 == "mixed" || $0 == "unknown" }
+        let anyPatched = gatingStates.values.contains { $0 == "patched" }
+        switch record.kind {
+        case .patch where revokePatched && !byteDamage:
+            return (["journal from an unfinished patch run (started \(started)) — bytes look fully "
+                     + "applied; it likely died before cleanup. Confirm with `wxkeep verify`; "
+                     + "re-running patch (idempotent) clears the journal"],
+                    "patch@\(started)", "wxkeep verify")
+        case .patch where !byteDamage && !anyPatched:
+            return (["journal from an unfinished patch run (started \(started)) — bytes look "
+                     + "pristine: the run likely failed BEFORE writing (permissions / TCC / wrong "
+                     + "build) or died before the first byte. Fix the cause and re-run patch, "
+                     + "or `\(sudo)wxkeep restore` to clear"],
+                    "patch@\(started)", "\(sudo)wxkeep patch")
+        case .patch:
+            return (["⚠️ INTERRUPTED PATCH detected (started \(started)) — the process likely died "
+                     + "mid-write; bytes may be half-applied with a stale signature. "
+                     + "Run `\(sudo)wxkeep restore` (idempotent) first, then re-patch"],
+                    "patch@\(started)", "\(sudo)wxkeep restore")
+        case .restore where !byteDamage && !anyPatched:
+            return (["journal from an unfinished restore run (started \(started)) — bytes look "
+                     + "pristine; re-run `\(sudo)wxkeep restore` once to clear it"],
+                    "restore@\(started)", "\(sudo)wxkeep restore")
+        case .restore:
+            return (["⚠️ INTERRUPTED RESTORE detected (started \(started)) — re-run "
+                     + "`\(sudo)wxkeep restore` to complete it (idempotent)"],
+                    "restore@\(started)", "\(sudo)wxkeep restore")
+        }
+    }
+
+
     // MARK: - Rendering
 
     static func render(_ report: Report) -> String {
@@ -374,6 +462,7 @@ struct Doctor {
         }
         lines.append("------ Verdict ------")
         if let m = report.manifest { lines.append("manifest: \(m)") }
+        lines.append("journal:     \(report.journal == nil ? "clean (no pending write transaction)" : "PENDING — \(report.journal!)")")
         lines.append("overall: \(report.overall)")
         report.verdicts.forEach { lines.append(" • \($0)") }
         if let next = report.nextCommand { lines.append("➡️  next: \(next)") }

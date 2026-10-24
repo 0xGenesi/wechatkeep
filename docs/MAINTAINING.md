@@ -538,6 +538,20 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   为等价自研实现（种子固定可复现）。
 - **变异测试** `python3 tools/mutation_test.py`：20 个安全关键单行变异 ×
   全量测套，杀灭率 ≥90% 验收。新增安全防线（新守卫/新门）时补对应变异行。
+- **确定性 oracle（L6）** `python3 tools/verify_determinism.py`：真切片
+  双副本独立运行 → patch 输出 sha256 恒等（silent+keeptip 双路径）+ restore
+  回 pristine；附带 codesign ad-hoc 确定性实证（informational——实证为
+  每次相异 1 字节，全管线 sha 恒等不作标准）。改 Engine/Patcher 写入语义
+  后必跑。证据落 var/logs/l6-determinism-*.txt。
+- **启动浸泡门槛** `python3 tools/launch_soak.py [--plan]`：隔离副本全链
+  patch → 浸泡 → 存活断言 → DiagnosticReports(WeChat .ips) 零新增。
+  --plan（不启 GUI）可在 CI/无人值守跑；真 soak 弹登录窗属用户触发。
+  发版前建议在真机上跑一次真 soak。
+- **崩溃一致性 journal（WAL）**：CLI patch/restore 事务边界 = `PatchJournal`
+  begin/complete（userData 目录 patch.journal.json）。改 CLI 编排/Engine
+  写入路径后：确认 (a) 成功事务清 journal (b) 伪造中断（手写 journal JSON，
+  app 指向假 app）doctor 给对指引 (c) restore 收敛清除。CLI e2e 模板见
+  ROADMAP 73 轮第 1 条。
 - **openssl 独立验签** `bash tools/verify_manifest_openssl.sh`：CryptoKit 之外
   的 Ed25519 验证（手构 SPKI DER + pkeyutl + shasum），每次重签 manifest 后
   顺手跑一次防共因。
