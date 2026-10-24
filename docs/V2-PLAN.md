@@ -40,10 +40,10 @@
 
 1. **撤销 newmsgid 清零**（0x50A5BAD 恢复原 call+store）→ 原生解析全量流动，
    群聊/私聊原生提示照常插入。
-2. **NOP 下游删除调用**（macOS 对应 Windows 的 DeleteMessage call；**74 轮静态
-   修正**：不在 0x3a90d60 投递的延迟任务 lambda 体内——那是
-   RemoveOutOfDataRevokeItemAsync 收尾清理；破坏性步骤收敛在 0x3a91130
-   Phase3 的 0x55132f0 应用层与 0x3aafad0/0x3aa8800 语句构建层，详见
+2. **NOP 下游删除调用**（macOS 对应 Windows 的 DeleteMessage call；**74 轮
+   两次静态修正后定案**：本链 DB 写入全部收敛在延迟任务 0x3aa3100 的两个
+   语句执行点 0x3aa397b（语句①）/0x3aa3a35（语句②）；0x55132f0 是内存层
+   内容构造（reedit HTML），0x3aafad0/0x3aa8800 是语句构建器，详见
    MAINTAINING「270135 撤回链地图」）→ 原消息保留。
 3. **配套放行规则**（仅当实测提示入库被拒时需要，对应 BetterWX 规则2）。
 4. 落地形态：config.json 新 variant `keeptip2`（保留 v1 条目做回退）；补丁点
@@ -54,10 +54,11 @@
 ## 实施步骤
 
 - **P0 动态定位（状态：2026-10-24 静态收口完成，真机 A/B 待用户窗口）**
-  74 轮把 270135 x64 全链剥到语句构建层（地址图与依据见 MAINTAINING
-  「270135 撤回链地图」）：lambda 体已定址 0x3aa3100 且定性为收尾清理，
-  破坏性候选 = ①0x55132f0 应用层 visitor 链 ②0x3aafad0/0x3aa8800 语句
-  构建器 ③（对照点）保持 newmsgid 原值。**真机 A/B 一次性实验方案不变**：
+  74 轮把 270135 x64 全链剥到语句执行点（地址图与依据见 MAINTAINING
+  「270135 撤回链地图」）：lambda 体已定址 0x3aa3100 且全链 DB 写入收敛于
+  其两个语句执行点（0x3aa397b/0x3aa3a35），破坏性候选 = ①延迟任务语句①
+  执行点 ②延迟任务语句②执行点 ③（对照）0x55132f0 内存层改写 ④保持
+  newmsgid 原值。**真机 A/B 一次性实验方案不变**：
   对候选点逐个「patch→观察行为→restore」（一次撤回即可判定），不做
   lldb 陪跑。drive35/36 双路径模型（原生撤回疑走存储层直写）未被静态
   推翻——A/B 同时裁决「本链在无运行时组件时是否可达」。
@@ -130,13 +131,18 @@ hook（缓存 serverId/msgType/content 三元组）。
 1. **lambda 体定址并定性**：0x3a90d60（0x3a91130 Phase3 末尾的投递器）
    所投 functor 的 invoke 体 = **0x3aa3100**（vtable @0xa8c4ae0 七槽按
    libc++ __func 布局逐槽解出）。任务名解密 = `RemoveOutOfDataRevokeItemAsync`
-   ——**延迟清理过期撤回条目的 housekeeping，不是原消息删除步骤**。
-   「删除+tip 都在 lambda 体」的旧预期就此修正。
-2. **原位应用层浮出**：模板 memcpy（0x278）→ 0x55132f0 应用层（消息对象
-   字段变更 + 0x88 visitor functor，vtable @0xa8c4bb0）都在 0x3a91130
-   （任务名 `CoCheckRevokeMessageListReEditStatus`）的 Phase3 循环体内。
-   v2 规则1 候选 = 0x55132f0 链内的破坏性字段写 / 0x3aafad0、0x3aa8800
-   两个 ORM 语句构建器。0x7102860 是通用执行器（Phase2 查库也用），不可整体 NOP。
+   ——延迟任务体；「删除+tip 都在立即执行链」的旧预期就此修正。
+2. **双层模型（参数级复核后定案）**：
+   - **内存层立即改写**：0x3a91130 Phase3 查库命中 → 0x55132f0（0x6f0，
+     纯内存、无 DB 调用；内含 0x5512dd0×3 `<a href="` HTML 构造 = 269602
+     0x50B4F10 同源体）把撤回内容写入内存消息对象；
+   - **DB 层延迟强制**：全部 DB 写入收敛在 0x3aa3100 的语句①执行点
+     0x3aa397b 与语句②执行点 0x3aa3a35（`call 0x7102860` 站点）；语句级
+     语义（原消息行 UPDATE/DELETE vs 撤回条目清理）待伪代码判读；
+   - tip 模板（0x278，type-10000）仅提取内容（0x5495180，其首指令
+     `cmp dword [rdi+0xc],0x2710` = 新配方锚点）投给延迟任务后即销毁；
+   - 0x7102860 是通用执行器（Phase2 查库也用），不可整体 NOP；结果门为假
+     跳过注册表除名（0x3aa435e），补丁设计需评估残留。
 3. **锚点增益**：任务名与日志串（dely_time_ms/is exist/success/failed/
    task has removed）与构建机源码路径（message_revoke_manager.cc）都是
    滚动密钥可解的静态锚——配方化时可用（decrypt_strings 同族算法，

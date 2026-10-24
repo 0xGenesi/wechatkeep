@@ -579,12 +579,19 @@ E8 rel32 扫描 = 9 调用者（0x368bb98/0x3a72fc3/0x3a7462c/0x3f36806/0x483092
   同函数日志 'system message list count:%_, revoke'）
   Phase3 逐 DB 命中行：FUN_036d1290(&vec,&str) 查库命中谓词（行字段比较器，
   仅调 0x56d40/0x15040 微助手）→ FUN_05546740 二次门 → memcpy 0x278 模板
-  (DAT_0938d920) → FUN_010891f0 补行字段 → dynamic_cast → 0x88 visitor functor
-  (vtable @0xa8c4bb0) → FUN_055132f0(msgObj,&visitor) 原位应用层
-  → FUN_05546770×3 → FUN_03a90d60(ctx,xml,?,timeMs,&obj) 投递延迟任务
-0x55132f0（0x6f0）应用层：消息对象字段变更（0x5512dd0×3 setter 族、0x5515730/
-  0x5515580/0x5613050/0x56131d0、0x5006ff0）；无混淆串；对 functor 的虚调用
-  语义（visitor invoke 槽）以 decomp_targets.c 伪代码为准
+  (DAT_0938d920) → FUN_010891f0 补行字段 → dynamic_cast(共享 local_298) →
+  0x88 shared 控制块 functor（vtable @0xa8c4bb0，0x3aa5430 捕获批内 XML 串）→
+  FUN_055132f0(msgObj,&shared{functor}) 内存层内容改写
+  → FUN_05546770(row)×2 → timeMs=createTime×1000
+  → FUN_05495180(&tip) 提取 tip 内容（**函数体首指令即 type-10000 过滤**：
+  `cmp dword [rdi+0xc],0x2710`，走 10000 分支取串——新配方锚点）
+  → FUN_03a90d60(ctx, content, ?, timeMs, &shared{msgObj}) 投递延迟任务
+  → FUN_00b95600(&tip) 销毁模板副本（tip 仅提取内容后即弃）
+0x55132f0（0x6f0）= **撤回内容构造/原位改写（纯内存层，全身无 DB 调用——
+  无 0x7102860/0x7102b50/0x70e55a0）**：内含 0x5512dd0×3 `<a href="` HTML
+  链接构造（立即数 0x3d6665726820613c = "<a href=" 实证）——即 269602 时代
+  0x50B4F10（提示文本构造 + xwechat://reedit 五分钟重编辑链接）的同源体；
+  对 functor 的调用语义（捕获载荷消费方式）待 decomp_targets.c 伪代码定槽
 0x3a90d60（0x254）= 延迟任务投递器：0x48B functor（vtable @0xa8c4ae0）+
   任务名「RemoveOutOfDataRevokeItemAsync」（解密实证）→ FUN_04c3de40 执行队列
 ```
@@ -607,27 +614,35 @@ operator()）。**v2 逐层的「lambda 体」就此定址：0x3aa3100。**
 
 **0x3aa3100 invoke 体结构**（指令级通读）：构造 0x60 存储上下文 functor
 （vtable @0xa8c4b50，0x3aaf540 拷贝捕获）→ 注册表（[mgr+0x130]+0x50）查/插
-（0x3aa4650 命中取 shared_ptr / 0x3aa4870 未命中插入）→ 0x3aafad0 构建语句①
-（ORM 层，无明文 SQL）→ **0x7102860 执行** → 0x25a8a10 结果门 → 命中则
-0x3aa8800 构建语句② → 0x7102860 执行 → 结果门 → 0x3aaffd0 提交 →
-0x3a92100([mgr+0x98],…) 通知 → 0xa63b20 注册表除名。日志串（解密）：
+（0x3aa4650 命中取 shared_ptr / 0x3aa4870 未命中插入；命中走 `is exist` 日志
+后直达收尾）→ 0x3aaf820(taskObj, &capturedMsgShared) 绑定捕获消息 →
+0x3aafad0 构建语句①（ORM 层，无明文 SQL）→ **执行点 0x3aa397b `call 0x7102860`**
+→ 0x25a8a10 结果门 → 命中则 0x3aa8800（带 [mgr+0x110]/[r14+0x20]）构建语句②
+→ **执行点 0x3aa3a35 `call 0x7102860`** → 结果门 → success/failed 日志（行号
+0x5a3/0x5a7）→ 0x3aaffd0 收口 → 0x3a92100([mgr+0x98],…) 通知 → 注册表复查 +
+0xa63b20 除名（行号 0x5ad `task has removed`）。日志串（解密）：
 `RemoveOutOfDataRevokeItemAsync:%_, dly_time_ms:%_` / `is exist` / `success` /
 `failed` / `task has removed`；内部数字反转表（ZYX…9876543210…）= u64→十进制
 格式化（铸 key 串）。
 
-**行为定性（模型修正，v2 关键）**：0x3aa3100 是**延迟清理过期撤回条目的
-housekeeping 任务**（dely_time_ms 后把 revoke 条目从注册表/库中移除），**不是**
-原消息删除步骤——73 轮台账「删除+tip 入库都在 lambda 体」的预期被修正：
-原位改写/提示应用集中在 0x3a91130 Phase3 的 0x55132f0 应用层（模板+visitor），
-本任务只是收尾。v1 清零 newmsgid 使 Phase3 查空 → 应用层与收尾全静默，与
-「私聊提示随流保留 / 群聊提示消失」行为模型仍完全自洽。
+**行为定性（模型修正，v2 关键）**：撤回链是**双层模型**——
+① **内存层立即改写**：0x3a91130 Phase3 查库命中后立刻 0x55132f0 把撤回内容
+  （含 reedit HTML 链接）写入内存消息对象（0x50B4F10 同源体）；
+② **DB 层延迟强制**：0x3aa3100 延迟任务（dely_time_ms=createTime×1000）内
+  执行两条 ORM 语句——本链全部 DB 写入收敛在这两个执行点，语句级语义
+  （原消息行 UPDATE/DELETE vs 撤回条目表清理）待 decomp_targets.c 伪代码
+  落地判读，静态不再断言。73 轮台账「删除在 lambda 体」的旧预期被二次修正
+  （lambda 体确实有 DB 动作，但它整体是延迟侧）；v1 清零 newmsgid 使 Phase3
+  查空 → 两层全静默，与「私聊提示随流保留 / 群聊提示消失」行为模型完全自洽。
 
-**v2 干预点修订**（BetterWX 规则1 的 macOS 对应物候选收敛到两处，均在
-0x3a91130 Phase3 链内，非 lambda 体）：
-1. 0x55132f0 应用层内对原消息行的破坏性字段写（visitor 语义待
-   decomp_targets.c 0x55132f0 伪代码定槽）；
-2. 0x3aafad0/0x3aa8800 语句构建层（若破坏性 UPDATE/DELETE 在此两构建器中）。
-注意 0x7102860 是通用语句执行器（0x3a91130 Phase2 查库也用），**不可**整体 NOP。
+**v2 干预点修订**（BetterWX 规则1 的 macOS 对应物候选）：
+1. 延迟任务语句执行点（站点级 NOP/重定向）：0x3aa3100 内 0x3aa397b（语句①）
+   / 0x3aa3a35（语句②）的 `call 0x7102860`——0x7102860 本体共用（Phase2 查库
+   同用），**不可** NOP 本体；注意结果门为假时跳 0x3aa435e 会跳过注册表除名
+   （残留仅影响同 key 重投递的去重，补丁设计需评估）。
+2. （备选）0x3aafad0/0x3aa8800 构建器产空语句——同样受门语义约束。
+3. （对照）0x55132f0 内存层改写——但它同时是提示文案（含 reedit 链接）构造
+   所在，NOP 连带杀提示内容，A/B 时作对照组而非首选。
 可行性终判仍需 V2-PLAN P0 真机 A/B（drive35/36 双路径模型：原生撤回疑走
 WCDB/存储层直写、本链是防护态重扫路径——未被本轮静态推翻）。
 

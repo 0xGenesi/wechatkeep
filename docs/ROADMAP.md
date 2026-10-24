@@ -39,19 +39,20 @@ launch_soak。
    V3-DEPTH R5/D5 关账（§5 已同步）。
 3. **[密钥轮换预案成文]** docs/KEY-ROTATION.md（例行/紧急双流程 + 三方互证
    验收 + schema 2 双签过渡占位）；V3-DEPTH D7 关账。
-4. **[v2 静态收口（本轮核心）]** 270135 x64 撤回链剥到语句构建层，lambda 体
-   定址 0x3aa3100 并定性为 RemoveOutOfDataRevokeItemAsync 收尾清理（旧假设
-   「删除在 lambda 体」修正）；原位应用层 = 0x3a91130 Phase3 的 0x55132f0 +
-   visitor；v2 规则1 候选收敛到 0x55132f0 链 / 0x3aafad0、0x3aa8800 语句
-   构建器；任务名/日志串/源码路径三重静态锚解密入档。完整地址图与依据见
-   MAINTAINING「270135 撤回链地图」+ V2-PLAN 附录；证据工件 var/wxarm/
+4. **[v2 静态收口（本轮核心）]** 270135 x64 撤回链剥到语句执行点，**双层模型
+   定案**：内存层立即改写 = 0x3a91130 Phase3 的 0x55132f0（0x50B4F10 同源体，
+   纯内存、内含 `<a href=` reedit HTML 构造）；DB 层延迟强制 = 延迟任务
+   0x3aa3100（RemoveOutOfDataRevokeItemAsync）的两个语句执行点 0x3aa397b/
+   0x3aa3a35（全链 DB 写入收敛于此，语句级语义待伪代码判读）；v2 规则1 候选
+   = 延迟任务语句执行点（0x7102860 站点级）；任务名/日志串/源码路径/
+   type-10000（0x5495180 内 cmp 0x2710）四重静态锚解密入档。完整地址图与
+   依据见 MAINTAINING「270135 撤回链地图」+ V2-PLAN 附录；证据工件 var/wxarm/
    （vtable_slots_disasm.txt / hand_disasm_key4.txt / decode_revoke_logs.py /
    decomp_targets{,2}.c Ghidra 批量转储）。**结论口径：静态=已定位，
    可行性=待 P0 真机 A/B，双路径之问（drive35/36）未被静态推翻。**
 5. **[未启动/留待]** Windows spike（队列第 3 项，可选 3 天时间盒，未动）；
    v2 真机 A/B（需用户在场一次群聊撤回）；Ghidra B/C 批量转储伪代码
-   落地后对 0x55132f0 visitor 槽与语句构建器语义做参数级复核（增量，
-   不改本轮结论口径）。
+   落地后对延迟任务语句①②做语句级语义判读（增量，不改本轮结论口径）。
 
 ## 73·深度轮（2026-10-23：V3-DEPTH 需求重写 + 四项深度门槛落地——崩溃一致性 WAL / 确定性 oracle / 负控 / 随机化性质，177 测全绿）
 
