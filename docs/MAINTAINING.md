@@ -558,3 +558,79 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
 - 本机 macOS 27 CLT 的 TestingMacros 插件间歇楔死：swift test 加
   `-Xswiftc -load-plugin-library -Xswiftc $CLT/…/libTestingMacros.dylib`
   显式装载即绕过（tools/fuzz/run_fuzz.sh 内置；清缓存只偶发缓解）。
+
+## 270135 x64 撤回链地图与 lambda 层收口（2026-10-24 74 轮；v2 静态落点定案）
+
+工具链：machutil + capstone 全量反汇编（`var/wxarm/vtable_slots_disasm.txt`、
+`var/wxarm/hand_disasm_key4.txt`）+ `objdump --macho --indirect-symbols`（__stubs 桩
+→ 导入符号名）+ 滚动密钥日志串定点解码（`var/wxarm/decode_revoke_logs.py`，与
+tools/decrypt_strings.py 同族 i%20 算法交叉验证一致）+ Ghidra headless 批量转储
+（B/C 两批 DumpTargets 在飞，落地 `var/wxarm/decomp_targets.c` / `decomp_targets2.c`；
+LC_FUNCTION_STARTS 种子 390413 函数；本节结论全部来自 capstone/objdump/解码器
+的手工验证，伪代码落地后只做参数级增量复核）。关键反证复扫：isRevokemsg 0x5008960 全文
+E8 rel32 扫描 = 9 调用者（0x368bb98/0x3a72fc3/0x3a7462c/0x3f36806/0x4830922/
+0x4cb4f7a/0x5503a14/0x5513a19/0x5514291）；"newmsgid" movabs 字面量 4 处
+（0x36519f4/0x3654337/0x3654f8e/0x5503f3b，前缀 48b8 复核）。
+
+```
+宿主批分派器 0x4cb47e0（isRevokemsg→0x3699730 分派；同窗前台台账 var/HANDOFF-20261024.md §二）
+  → 0x36997b0(0x650) → thunk 0x365f780 → 0x3a91130 异步任务体
+0x3a91130（0xe60）= 任务「CoCheckRevokeMessageListReEditStatus」（任务名串解密实证；
+  同函数日志 'system message list count:%_, revoke'）
+  Phase3 逐 DB 命中行：FUN_036d1290(&vec,&str) 查库命中谓词（行字段比较器，
+  仅调 0x56d40/0x15040 微助手）→ FUN_05546740 二次门 → memcpy 0x278 模板
+  (DAT_0938d920) → FUN_010891f0 补行字段 → dynamic_cast → 0x88 visitor functor
+  (vtable @0xa8c4bb0) → FUN_055132f0(msgObj,&visitor) 原位应用层
+  → FUN_05546770×3 → FUN_03a90d60(ctx,xml,?,timeMs,&obj) 投递延迟任务
+0x55132f0（0x6f0）应用层：消息对象字段变更（0x5512dd0×3 setter 族、0x5515730/
+  0x5515580/0x5613050/0x56131d0、0x5006ff0）；无混淆串；对 functor 的虚调用
+  语义（visitor invoke 槽）以 decomp_targets.c 伪代码为准
+0x3a90d60（0x254）= 延迟任务投递器：0x48B functor（vtable @0xa8c4ae0）+
+  任务名「RemoveOutOfDataRevokeItemAsync」（解密实证）→ FUN_04c3de40 执行队列
+```
+
+**functor vtable A @0xa8c4ae0 七槽全解**（chained-fixup 槽值 → 实际 VA 取低 32 位；
+槽语义判定全部有指令级依据）：
+
+| 槽 | 函数 | 语义 | 依据 |
+|---|---|---|---|
+| [0] | 0x3aa2e30 | complete dtor | 调 `__shared_weak_count::__release_weak`（桩 0x7bd5d1e） |
+| [1] | 0x3aa2ea0 | deleting dtor | 同上 + `operator delete`（0x7bd5f16） |
+| [2] | 0x3aa2f20 | clone() | `operator new(0x48)` + vtable 写回 + 逐字段拷贝 + `lock inc [rax+8]` |
+| [3] | 0x3aa2fc0 | clone(void*) | 同拷贝入 caller 缓冲（rsi），不分配 |
+| [4] | 0x3aa3030 | destroy() | 释放 shared + 长串释放，不 free this |
+| [5] | 0x3aa3090 | destroy_deallocate() | 同上 + `operator delete(this,0x48)` |
+| [6] | **0x3aa3100** | **operator()（invoke 体）** | 唯一业务函数（0x14b0） |
+
+= libc++ `std::__function::__func` 标准布局（dtor 对 + clone 对 + destroy 对 +
+operator()）。**v2 逐层的「lambda 体」就此定址：0x3aa3100。**
+
+**0x3aa3100 invoke 体结构**（指令级通读）：构造 0x60 存储上下文 functor
+（vtable @0xa8c4b50，0x3aaf540 拷贝捕获）→ 注册表（[mgr+0x130]+0x50）查/插
+（0x3aa4650 命中取 shared_ptr / 0x3aa4870 未命中插入）→ 0x3aafad0 构建语句①
+（ORM 层，无明文 SQL）→ **0x7102860 执行** → 0x25a8a10 结果门 → 命中则
+0x3aa8800 构建语句② → 0x7102860 执行 → 结果门 → 0x3aaffd0 提交 →
+0x3a92100([mgr+0x98],…) 通知 → 0xa63b20 注册表除名。日志串（解密）：
+`RemoveOutOfDataRevokeItemAsync:%_, dly_time_ms:%_` / `is exist` / `success` /
+`failed` / `task has removed`；内部数字反转表（ZYX…9876543210…）= u64→十进制
+格式化（铸 key 串）。
+
+**行为定性（模型修正，v2 关键）**：0x3aa3100 是**延迟清理过期撤回条目的
+housekeeping 任务**（dely_time_ms 后把 revoke 条目从注册表/库中移除），**不是**
+原消息删除步骤——73 轮台账「删除+tip 入库都在 lambda 体」的预期被修正：
+原位改写/提示应用集中在 0x3a91130 Phase3 的 0x55132f0 应用层（模板+visitor），
+本任务只是收尾。v1 清零 newmsgid 使 Phase3 查空 → 应用层与收尾全静默，与
+「私聊提示随流保留 / 群聊提示消失」行为模型仍完全自洽。
+
+**v2 干预点修订**（BetterWX 规则1 的 macOS 对应物候选收敛到两处，均在
+0x3a91130 Phase3 链内，非 lambda 体）：
+1. 0x55132f0 应用层内对原消息行的破坏性字段写（visitor 语义待
+   decomp_targets.c 0x55132f0 伪代码定槽）；
+2. 0x3aafad0/0x3aa8800 语句构建层（若破坏性 UPDATE/DELETE 在此两构建器中）。
+注意 0x7102860 是通用语句执行器（0x3a91130 Phase2 查库也用），**不可**整体 NOP。
+可行性终判仍需 V2-PLAN P0 真机 A/B（drive35/36 双路径模型：原生撤回疑走
+WCDB/存储层直写、本链是防护态重扫路径——未被本轮静态推翻）。
+
+**源码路径解密**（0x3a90d60 内，构建机泄漏）：
+`/Users/xwechat/agent/workspace/xwechat_mac_release_02/kernel/core/manager/message/revoke/message_revoke_manager.cc`
+—— 与 269602/270099 时代同名单元，家族跨构建稳定。

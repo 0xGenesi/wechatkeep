@@ -40,8 +40,11 @@
 
 1. **撤销 newmsgid 清零**（0x50A5BAD 恢复原 call+store）→ 原生解析全量流动，
    群聊/私聊原生提示照常插入。
-2. **NOP 下游删除调用**（macOS 对应 Windows 的 DeleteMessage call；藏在
-   0x36DBAE0 执行器 → 0x36F2DD0 异步任务的 lambda 链内、虚派发点）→ 原消息保留。
+2. **NOP 下游删除调用**（macOS 对应 Windows 的 DeleteMessage call；**74 轮静态
+   修正**：不在 0x3a90d60 投递的延迟任务 lambda 体内——那是
+   RemoveOutOfDataRevokeItemAsync 收尾清理；破坏性步骤收敛在 0x3a91130
+   Phase3 的 0x55132f0 应用层与 0x3aafad0/0x3aa8800 语句构建层，详见
+   MAINTAINING「270135 撤回链地图」）→ 原消息保留。
 3. **配套放行规则**（仅当实测提示入库被拒时需要，对应 BetterWX 规则2）。
 4. 落地形态：config.json 新 variant `keeptip2`（保留 v1 条目做回退）；补丁点
    配方化（锚点 = 执行器链内跨版本稳定证据：`_b13e0758` 服务名、type-10000
@@ -50,14 +53,14 @@
 
 ## 实施步骤
 
-- **P0 动态定位（状态：2026-09-17 判定离线不可达，等待一次性实验窗口）**
-  lldb 全套基建已备好并归档（tools/dyntrace/：WeChatMain 哨兵、滑移硬编码+地面真值校验、
-  驱动循环），但多轮会话实证该 lldb 构建存在五层障碍（-a 语义、dlopen 时机、回调注册
-  KeyError、事件监听饿死、SB Continue 状态误报），且 wrapper 0x50A5120 在登录+真实撤回中
-  动态零命中——静态「唯一调用者」结论与 v1 行为生效矛盾，模型有缺口。
-  **下一次的执行方案（不需用户反复配合）**：一次性补丁实验法——对三个候选消费点逐个做
-  「patch→观察行为→restore」的对照实验（机器上一次撤回即可判定），或改用 watchpoint 盯
-  +0x1C8 的读取者。在此之前不再消耗用户时间做断点陪跑。
+- **P0 动态定位（状态：2026-10-24 静态收口完成，真机 A/B 待用户窗口）**
+  74 轮把 270135 x64 全链剥到语句构建层（地址图与依据见 MAINTAINING
+  「270135 撤回链地图」）：lambda 体已定址 0x3aa3100 且定性为收尾清理，
+  破坏性候选 = ①0x55132f0 应用层 visitor 链 ②0x3aafad0/0x3aa8800 语句
+  构建器 ③（对照点）保持 newmsgid 原值。**真机 A/B 一次性实验方案不变**：
+  对候选点逐个「patch→观察行为→restore」（一次撤回即可判定），不做
+  lldb 陪跑。drive35/36 双路径模型（原生撤回疑走存储层直写）未被静态
+  推翻——A/B 同时裁决「本链在无运行时组件时是否可达」。
 - **P1 补丁设计**：x64 间接 call（`FF /2`，2-7 字节）按命中点现场字节替换为等长 NOP
   （若返回值被使用则 `31 C0` + NOP 填充）；arm64 `blr xN`→`NOP`（4 字节等长）。
   每处过 expected 门。
@@ -117,3 +120,27 @@ hook（缓存 serverId/msgType/content 三元组）。
 ### 内容来源（开放课题）
 - X1a0He 实证进程内 SQLCipher 直读可行；wxkeep 无注入路线拿 key 需独立研究，
   记录为 v3 前置课题，不阻塞 v2
+
+## 附录：270135 x64 静态收口（2026-10-24 74 轮）
+
+> 本轮把 V2-PLAN 追尽数月的「下游删除调用藏在 lambda 链哪一层」问题在
+> 270135 上剥到底。完整地址图与指令级依据见 MAINTAINING「270135 撤回链
+> 地图」；此处只记录对 v2 决策的直接含义。
+
+1. **lambda 体定址并定性**：0x3a90d60（0x3a91130 Phase3 末尾的投递器）
+   所投 functor 的 invoke 体 = **0x3aa3100**（vtable @0xa8c4ae0 七槽按
+   libc++ __func 布局逐槽解出）。任务名解密 = `RemoveOutOfDataRevokeItemAsync`
+   ——**延迟清理过期撤回条目的 housekeeping，不是原消息删除步骤**。
+   「删除+tip 都在 lambda 体」的旧预期就此修正。
+2. **原位应用层浮出**：模板 memcpy（0x278）→ 0x55132f0 应用层（消息对象
+   字段变更 + 0x88 visitor functor，vtable @0xa8c4bb0）都在 0x3a91130
+   （任务名 `CoCheckRevokeMessageListReEditStatus`）的 Phase3 循环体内。
+   v2 规则1 候选 = 0x55132f0 链内的破坏性字段写 / 0x3aafad0、0x3aa8800
+   两个 ORM 语句构建器。0x7102860 是通用执行器（Phase2 查库也用），不可整体 NOP。
+3. **锚点增益**：任务名与日志串（dely_time_ms/is exist/success/failed/
+   task has removed）与构建机源码路径（message_revoke_manager.cc）都是
+   滚动密钥可解的静态锚——配方化时可用（decrypt_strings 同族算法，
+   var/wxarm/decode_revoke_logs.py 可复现）。
+4. **诚实边界**：以上全部静态结论；本链是否在「纯字节补丁、无运行时
+   组件」时可达（drive35/36 双路径之问）与群聊 tip 最终效果，仍由
+   P0 真机 A/B 裁决，静态推定不得写成已证。
