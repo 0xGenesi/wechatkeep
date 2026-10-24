@@ -1,4 +1,26 @@
-# 路线图（待办归档）
+## 当前优先级队列（2026-10-24 用户定案；同日修订：发版留最后）
+
+> 决策依据：Windows 生态已由 BetterWX 覆盖 4.1.15.53（原位提示已实现、更新随机、
+> 无备份/还原承诺；RevokeMsgPatcher 停在 3.x）——本仓差异化在安全契约与 macOS
+> Intel 空白，Windows 立项排后。
+
+1. **v2 外科式补丁（群聊原位提示）**：V2-PLAN 既定方案——撤销 newmsgid 清零 +
+   NOP 下游删除调用 + 配套放行规则；Windows BetterWX 已实证该路线完整效果
+   （提示插原消息下方），macOS 双架构落地。P0 = 一次性补丁对照实验定位删除点
+   （V2-PLAN 已备方案），不做 lldb 陪跑。
+2. **密钥轮换预案成文**（文档债，约半小时）：Ed25519 发布密钥的轮换 SOP
+   （V3-DEPTH §5 承诺项）。
+3. **（可选）Windows spike**（3 天时间盒）：新仓库 Rust + mac/Win 共用 catalog
+   数据层设计；拿 Windows 4.1.15.53 官方原版用现有 capstone 方法论独立重 derive
+   撤回链位点（不抄 BetterWX），spike 结论再决定立项与否。
+4. **v0.2.11 发版（留最后，必做）**：tag → release 流水线（universal 双资产 +
+   签名数据四件套）→ tap formula 0.2.11 同步。内容 = 72 轮 runtime.m 五缺陷修复 +
+   hook 弱序修复 + 73 轮深度四件套（WAL journal / L6 / 负控 / 性质）+ CI 修复。
+   发版前真机 launch_soak（2026-10-24 首跑已全绿）。
+
+被动/事件触发项（不排期）：新构建日 watch PR 降级路径人工复核一次 run 日志；
+老构建 verify spec 有用户反馈再按需派生（SOP 已固化）；每次发版前真机
+launch_soak。
 
 ## 73·深度轮（2026-10-23：V3-DEPTH 需求重写 + 四项深度门槛落地——崩溃一致性 WAL / 确定性 oracle / 负控 / 随机化性质，177 测全绿）
 
