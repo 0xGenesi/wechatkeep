@@ -612,37 +612,49 @@ E8 rel32 扫描 = 9 调用者（0x368bb98/0x3a72fc3/0x3a7462c/0x3f36806/0x483092
 = libc++ `std::__function::__func` 标准布局（dtor 对 + clone 对 + destroy 对 +
 operator()）。**v2 逐层的「lambda 体」就此定址：0x3aa3100。**
 
-**0x3aa3100 invoke 体结构**（指令级通读）：构造 0x60 存储上下文 functor
-（vtable @0xa8c4b50，0x3aaf540 拷贝捕获）→ 注册表（[mgr+0x130]+0x50）查/插
-（0x3aa4650 命中取 shared_ptr / 0x3aa4870 未命中插入；命中走 `is exist` 日志
-后直达收尾）→ 0x3aaf820(taskObj, &capturedMsgShared) 绑定捕获消息 →
-0x3aafad0 构建语句①（ORM 层，无明文 SQL）→ **执行点 0x3aa397b `call 0x7102860`**
-→ 0x25a8a10 结果门 → 命中则 0x3aa8800（带 [mgr+0x110]/[r14+0x20]）构建语句②
-→ **执行点 0x3aa3a35 `call 0x7102860`** → 结果门 → success/failed 日志（行号
-0x5a3/0x5a7）→ 0x3aaffd0 收口 → 0x3a92100([mgr+0x98],…) 通知 → 注册表复查 +
-0xa63b20 除名（行号 0x5ad `task has removed`）。日志串（解密）：
-`RemoveOutOfDataRevokeItemAsync:%_, dly_time_ms:%_` / `is exist` / `success` /
-`failed` / `task has removed`；内部数字反转表（ZYX…9876543210…）= u64→十进制
-格式化（铸 key 串）。
+**0x3aa3100 invoke 体结构**（指令级通读 + 快路伪代码 -noanalysis 复核）：构造
+0x60 存储上下文 functor（vtable @0xa8c4b50，0x3aaf540 拷贝捕获）→ 注册表
+（[mgr+0x130]+0x50）查/插（0x3aa4650 命中取 shared_ptr / 0x3aa4870 未命中插入；
+命中走 `is exist` 日志后直达收尾）→ 0x3aaf820(task, &msgShared) 绑定捕获消息 →
+0x3aafad0(&out, task) = **RemoveRevokeItemTask 执行门**（单元名
+`remove_revoke_item_task.cc`、日志 `RemoveRevokeItemTask:%_, has execute just
+skip` 解密实证）：已执行则仅兑现 bool；未执行则标记 task[+0x40]=1 并
+**0x3aafb96 `call 0x7102b50` 启动任务工作**（0x7102b50=协程 resume/await 入口，
+真身协程体另启）→ 之后 0x3aa397b/0x3aa3a35 的 `call 0x7102860` 是**协程 await
+基建**（0x7102860 内含 zlog/await/coroutine.cpp 明文基建串 + Fatal error 抛出，
+非语句执行器）→ 0x25a8a10 取 awaitable bool 结果 → 0x3aa8800（带
+[mgr+0x110]/[r14+0x20]/rbx）= **存储操作闭包构建器**（单元名
+`message_revoke_storage_impl.cc` 解密实证）：0x68 闭包捕获 {awaitable, 16B
+任务字段(msgid 类), param_3, string}，invoke 体 = **0x3aab070** →
+**0x3aab0da `call 0x4196130`(msgid-shared, u64, string) → bool** → 0x70e55a0
+兑现 → await#2 结果 → success/failed 日志（行号 0x5a3/0x5a7）→ 0x3aaffd0 收口
+→ 0x3a92100([mgr+0x98],…) 通知 → 注册表复查 + 0xa63b20 除名（行号 0x5ad
+`task has removed`）。
 
-**行为定性（模型修正，v2 关键）**：撤回链是**双层模型**——
+**0x4196130（0x520B）= 存储原语（链上最后一个未知）**：重度调用 0x5e/0x5f 区
+ORM 语句 API 族（0x5f102b0/0x5f417c0/0x5f11f10×n/0x5f413c0/0x5e66810…），
+无明文 SQL、无可解密串（全量 decrypt_strings 119 串已穷尽）。语句级语义
+（删原消息行 / 删撤回条目行 / UPDATE）静态不可判读——出路两条：B/C 全量
+伪代码认领 WCDB vtable，或 P0 A/B 行为裁决（后者本是终判）。
+
+**行为定性（双层模型，参数级复核定案）**：
 ① **内存层立即改写**：0x3a91130 Phase3 查库命中后立刻 0x55132f0 把撤回内容
   （含 reedit HTML 链接）写入内存消息对象（0x50B4F10 同源体）；
-② **DB 层延迟强制**：0x3aa3100 延迟任务（dely_time_ms=createTime×1000）内
-  执行两条 ORM 语句——本链全部 DB 写入收敛在这两个执行点，语句级语义
-  （原消息行 UPDATE/DELETE vs 撤回条目表清理）待 decomp_targets.c 伪代码
-  落地判读，静态不再断言。73 轮台账「删除在 lambda 体」的旧预期被二次修正
-  （lambda 体确实有 DB 动作，但它整体是延迟侧）；v1 清零 newmsgid 使 Phase3
-  查空 → 两层全静默，与「私聊提示随流保留 / 群聊提示消失」行为模型完全自洽。
+② **DB/协程层延迟强制**：RemoveRevokeItemTask（dely_time_ms=createTime×1000）
+  经执行门 0x3aafad0 启动（0x3aafb96），存储动作经 0x3aa8800 闭包落到
+  0x4196130。v1 清零 newmsgid 使 Phase3 查空 → 两层全静默，与「私聊提示
+  随流保留 / 群聊提示消失」行为模型完全自洽。
 
-**v2 干预点修订**（BetterWX 规则1 的 macOS 对应物候选）：
-1. 延迟任务语句执行点（站点级 NOP/重定向）：0x3aa3100 内 0x3aa397b（语句①）
-   / 0x3aa3a35（语句②）的 `call 0x7102860`——0x7102860 本体共用（Phase2 查库
-   同用），**不可** NOP 本体；注意结果门为假时跳 0x3aa435e 会跳过注册表除名
-   （残留仅影响同 key 重投递的去重，补丁设计需评估）。
-2. （备选）0x3aafad0/0x3aa8800 构建器产空语句——同样受门语义约束。
-3. （对照）0x55132f0 内存层改写——但它同时是提示文案（含 reedit 链接）构造
-   所在，NOP 连带杀提示内容，A/B 时作对照组而非首选。
+**v2 干预点（指令级地址，语义终判= P0 A/B）**：
+- ~~0x3aa397b/0x3aa3a35 的 `call 0x7102860`~~ **无效候选**——那是 await 调用点，
+  工作在 await 之前已由 0x3aafb96 启动；
+- 候选1：**0x3aafb96**（0x3aafad0 内任务启动 `call 0x7102b50`）——NOP 后任务
+  不启动，但 bool 永不兑现（await 挂起语义需 P1 设计评估）；
+- 候选2：**0x3aab0da**（闭包 invoke 内 `call 0x4196130`）——NOP 后 eax 残留
+  （bool 结果垃圾），P1 需「替换为良性等值操作」而非纯 NOP（BetterWX 的
+  SrvID+=1 同型思路）；
+- 候选3：0x3aa8800 调用点（0x3aa3100 内）——闭包不构建，await#2 语义同需评估；
+- 0x7102860/0x7102b50 本体为协程基建（多链路共用），**不可**动。
 可行性终判仍需 V2-PLAN P0 真机 A/B（drive35/36 双路径模型：原生撤回疑走
 WCDB/存储层直写、本链是防护态重扫路径——未被本轮静态推翻）。
 

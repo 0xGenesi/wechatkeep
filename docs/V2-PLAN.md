@@ -41,10 +41,12 @@
 1. **撤销 newmsgid 清零**（0x50A5BAD 恢复原 call+store）→ 原生解析全量流动，
    群聊/私聊原生提示照常插入。
 2. **NOP 下游删除调用**（macOS 对应 Windows 的 DeleteMessage call；**74 轮
-   两次静态修正后定案**：本链 DB 写入全部收敛在延迟任务 0x3aa3100 的两个
-   语句执行点 0x3aa397b（语句①）/0x3aa3a35（语句②）；0x55132f0 是内存层
-   内容构造（reedit HTML），0x3aafad0/0x3aa8800 是语句构建器，详见
-   MAINTAINING「270135 撤回链地图」）→ 原消息保留。
+   三次静态修正后定案**：本链 DB 动作 = RemoveRevokeItemTask 协程任务——
+   启动点 0x3aafb96（0x3aafad0 执行门内 `call 0x7102b50`）→ 存储原语
+   0x4196130（经 0x3aa8800 闭包 invoke 0x3aab070 内 0x3aab0da 调用）；
+   await 调用点 0x3aa397b/0x3aa3a35 是协程基建**非**执行点，NOP 无效；
+   0x4196130 语句级语义为链上最后未知（B/C 全量伪代码或 P0 A/B 判读），
+   详见 MAINTAINING「270135 撤回链地图」）→ 原消息保留。
 3. **配套放行规则**（仅当实测提示入库被拒时需要，对应 BetterWX 规则2）。
 4. 落地形态：config.json 新 variant `keeptip2`（保留 v1 条目做回退）；补丁点
    配方化（锚点 = 执行器链内跨版本稳定证据：`_b13e0758` 服务名、type-10000
@@ -54,11 +56,13 @@
 ## 实施步骤
 
 - **P0 动态定位（状态：2026-10-24 静态收口完成，真机 A/B 待用户窗口）**
-  74 轮把 270135 x64 全链剥到语句执行点（地址图与依据见 MAINTAINING
-  「270135 撤回链地图」）：lambda 体已定址 0x3aa3100 且全链 DB 写入收敛于
-  其两个语句执行点（0x3aa397b/0x3aa3a35），破坏性候选 = ①延迟任务语句①
-  执行点 ②延迟任务语句②执行点 ③（对照）0x55132f0 内存层改写 ④保持
-  newmsgid 原值。**真机 A/B 一次性实验方案不变**：
+  74 轮把 270135 x64 全链剥到存储原语层（地址图与依据见 MAINTAINING
+  「270135 撤回链地图」）：任务机制 = RemoveRevokeItemTask（执行门 0x3aafad0，
+  启动点 0x3aafb96，await 基建 0x7102860/0x7102b50），存储动作 = 0x3aa8800
+  闭包 invoke 0x3aab070 → 存储原语 0x4196130；破坏性候选 = ①0x3aafb96
+  任务启动 ②0x3aab0da 存储原语调用（需替换非 NOP，eax 为 bool 返回值）
+  ③0x3aa8800 调用点 ④（对照）0x55132f0 内存层改写 ⑤保持 newmsgid 原值。
+  **真机 A/B 一次性实验方案不变**：
   对候选点逐个「patch→观察行为→restore」（一次撤回即可判定），不做
   lldb 陪跑。drive35/36 双路径模型（原生撤回疑走存储层直写）未被静态
   推翻——A/B 同时裁决「本链在无运行时组件时是否可达」。
@@ -136,13 +140,15 @@ hook（缓存 serverId/msgType/content 三元组）。
    - **内存层立即改写**：0x3a91130 Phase3 查库命中 → 0x55132f0（0x6f0，
      纯内存、无 DB 调用；内含 0x5512dd0×3 `<a href="` HTML 构造 = 269602
      0x50B4F10 同源体）把撤回内容写入内存消息对象；
-   - **DB 层延迟强制**：全部 DB 写入收敛在 0x3aa3100 的语句①执行点
-     0x3aa397b 与语句②执行点 0x3aa3a35（`call 0x7102860` 站点）；语句级
-     语义（原消息行 UPDATE/DELETE vs 撤回条目清理）待伪代码判读；
+   - **DB/协程层延迟强制**：RemoveRevokeItemTask（dely_time_ms=createTime×1000；
+     执行门 0x3aafad0，已执行则 `has execute just skip`）→ 启动点 0x3aafb96
+     （`call 0x7102b50` 协程入口）→ 存储动作 = 0x3aa8800 闭包（invoke 体
+     0x3aab070）→ **0x3aab0da call 0x4196130**(msgid,u64,string)→bool =
+     存储原语（0x5e/0x5f ORM API 族，语句级语义=链上最后未知）；
    - tip 模板（0x278，type-10000）仅提取内容（0x5495180，其首指令
      `cmp dword [rdi+0xc],0x2710` = 新配方锚点）投给延迟任务后即销毁；
-   - 0x7102860 是通用执行器（Phase2 查库也用），不可整体 NOP；结果门为假
-     跳过注册表除名（0x3aa435e），补丁设计需评估残留。
+   - 0x7102860/0x7102b50 本体为协程基建（多链路共用），不可整体动；
+     await 调用点 0x3aa397b/0x3aa3a35 非执行点（工作已先行启动）。
 3. **锚点增益**：任务名与日志串（dely_time_ms/is exist/success/failed/
    task has removed）与构建机源码路径（message_revoke_manager.cc）都是
    滚动密钥可解的静态锚——配方化时可用（decrypt_strings 同族算法，
