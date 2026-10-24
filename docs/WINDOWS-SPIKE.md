@@ -51,10 +51,12 @@ gitignore 惯例不入库不删除）。
    是 movabs 立即数惰性缓存，无明文——见 §5 方法差异）；`newmsgid` × 3、
    `reeditre`/`xwechat` 立即数碎片、UTF-8 tip 文案串堆（.data）。
 
-xlog 混淆串：Windows 侧**同样混淆**但帧格式不同（`\xa1 len16 \xb1 payload
-\xc1`），与 macOS 的 `(base[i]+addend)^key[i%20]` 不同构——已知明文攻击
-可行（tag 10 字节、file 路径 30 字节级），spike 内时间盒收住未破，立项后
-第一优先（破解 = 免 Ghidra 的全量函数名恢复）。
+xlog 混淆串：Windows 侧**同样混淆**但帧格式不同（`\xa1` + 4 字符 ASCII
+hex 长度（LE）+ `\xb1` payload + `\xc1`）。已知明文攻击已试（30 字节
+载荷 ↔ "message_revoke_storage_impl.cc" 长度精确吻合的猜测）：XOR/加法/
+(P+a)^K 三族全部 i-周期形态被排除（周期 4-20 无一自洽）——Windows 密钥
+流不是 i-周期（强于 macOS 的 i%20，疑按全局位置索引或更强 PRNG），需多样
+本统计攻击，立项后第一优先（破解 = 免 Ghidra 的全量函数名恢复）。
 
 ## 3. 独立推导的撤回链位点（Windows 4.1.15.56 全表）
 
@@ -147,7 +149,7 @@ macOS 插入 impl 0x3a7a040 的伪代码确认（对位 Windows 0x182380b60 的�
 - tip 文案：双方都不是直接 lea 可达——macOS 0x278 模板 rodata；Windows
   .data 串堆（索引式引用）。
 - xlog 混淆：macOS=`(base[i]+addend)^key[i%20]`（已破）；Windows=`\xa1len
-  \xb1payload\xc1` 帧（未破，已知明文攻击可行）。
+  \xb1payload\xc1` 帧（未破；简单周期密码族已被 30 字节已知明文样本排除，需多样本统计攻击）。
 - lambda 挂载：macOS=chained-fixup vtable 槽；Windows=lea 直挂 functor。
 - 序言门：macOS x64=`55 48 89 E5 41 57 41 56 41 55 41 54`；Windows=
   `55 41 57 41 56 41 55 41 54`（无 mov rbp,rsp，栈帧 lea rbp,[rsp+N]）。
@@ -219,7 +221,7 @@ xref 通道——capstone 线性扫描的截断缺陷入 README 警示）、Ghid
 
 ### 6.5 路线（立项后）
 
-1. 破 Windows xlog `\xa1` 帧（已知明文攻击）→ 全量函数名恢复。
+1. 破 Windows xlog `\xa1` 帧（周期族已排除，走多样本统计分析）→ 全量函数名恢复。
 2. 补齐「原消息行删除点」derive（BetterWX 规则 1 真目标；从批分派器非撤回
    分支 + F1/F2/F3 的 delete 型被调走同款 xref 链）。
 3. catalog 0 号版 = 本 spike 全部位点（含双平台对位表）+ 现有 wxkeep macOS
