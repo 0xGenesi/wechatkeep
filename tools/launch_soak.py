@@ -35,6 +35,25 @@ ROOT = os.path.dirname(HERE)
 DEFAULT_APP = "/Applications/WeChat.app"
 REPORTS_DIR = os.path.expanduser("~/Library/Logs/DiagnosticReports")
 MIN_FREE_GB = 8.0
+LOG_DIR = os.path.join(ROOT, "var", "logs")
+
+
+class Tee:
+    """stdout 双写：终端 + 证据台账 var/logs/launch-soak-<stamp>.txt。
+    与 l1/l2/l6 台账同惯例（var/ 不入库）——「跑过且全绿」的声称自此
+    有盘上工件可审计，不依赖会话 stdout。"""
+
+    def __init__(self, path):
+        self._f = open(path, "w", encoding="utf-8", buffering=1)
+        self._stdout = sys.stdout
+
+    def write(self, s):
+        self._stdout.write(s)
+        self._f.write(s)
+
+    def flush(self):
+        self._stdout.flush()
+        self._f.flush()
 
 
 def sh(cmd, **kw):
@@ -103,10 +122,15 @@ def main():
     quarantine = os.path.join(tempfile.gettempdir(), f"wxkeep-soak-{stamp}")
     copy_app = os.path.join(quarantine, "WeChat.app")
 
+    os.makedirs(LOG_DIR, exist_ok=True)
+    log_path = os.path.join(LOG_DIR, f"launch-soak-{stamp}.txt")
+    sys.stdout = Tee(log_path)
+
     print("== 启动浸泡门槛 ==")
     print(f"app:      {args.app}")
     print(f"变体:     {args.variant}   浸泡: {args.seconds}s   模式: {'plan(不启动GUI)' if args.plan else 'soak'}")
     print(f"隔离区:   {quarantine}")
+    print(f"台账:     {log_path}")
 
     problems, wxkeep = preconditions(args)
     for p in problems:
