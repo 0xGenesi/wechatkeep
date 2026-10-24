@@ -40,7 +40,11 @@ struct FuzzParseSurfaces {
     private static func randomMachOBlob(_ rng: inout Rng) -> Data {
         let n = 1 + rng.below(8192)
         var data = Data(count: n)
-        data.withUnsafeMutableBytes { raw in
+        // 显式标注闭包参数类型：CI 的旧 SDK 上 Data 同时存在 RawBufferPointer
+        // 与 legacy Pointer<UInt8> 两条 withUnsafeMutableBytes 重载，`raw[i]`
+        // 对两者皆合法 → 裸 `{ raw in` 类型推断二义（新 SDK 已删旧重载故
+        // 本机可编译）。显式类型让重载唯一，全工具链一致。
+        data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
             for i in 0..<n { raw[i] = rng.byte() }
         }
         switch rng.below(5) {
