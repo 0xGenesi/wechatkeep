@@ -86,7 +86,8 @@
 - ✅ 已达成本轮：R1-R4、R6 全绿；R5 工具就绪（--plan 验证）。
 - ⏳ 待用户动作：launch_soak 真跑（会弹微信登录窗，用户在场时执行
   `python3 tools/launch_soak.py --seconds 45`）。
-- ⏳ 长期项（不阻塞）：密钥轮换预案成文（D7）；wxread SQLCipher 课题
+- ✅ 密钥轮换预案已成文（D7，2026-10-24）：docs/KEY-ROTATION.md（例行/紧急双流程 + 三方互证验收 + schema 2 双签过渡设计占位）。
+- ⏳ 长期项（不阻塞）：wxread SQLCipher 课题
   （v3 前置，另行立项）；M-R4 群聊 tip（WCDB 层，维持长期项）。
 - 台账索引：`var/logs/l1-ground-truth-*.txt`、`l2-reversibility-*.txt`、
   `l6-determinism-*.txt`（新增）。
