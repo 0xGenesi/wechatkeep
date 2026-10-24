@@ -2742,3 +2742,20 @@ manifest 重签验证。
    脚本必须绝对路径 + 把 "skipped:" 判为失败。
 3. swift-test 结果缓存不感知环境变量——同一 filter 反复跑会回放缓存结果，
    换环境变量输入的 harness 必须核对真实执行时长/失败文本。
+
+### 74 轮追加（同日深夜：B 批全量伪代码落地，模型升级）
+
+6. **[v2 模型升级]** B 批（16 链函数全量分析伪代码，decomp_targets.c）+
+   存储族快路（decomp_storage.c）终版判读：macOS 撤回持久层 = `revokemessage`
+   表（明文表名实证）；+0x278 载荷唯一附着点 0x55132f0（唯一调用者
+   0x3a91b69 ∈ CoCheck 链）；群聊 tip = 渲染期 GetRevokeMessage(0x55139e0)
+   从模板 DAT_09581de0 生成、**不入库**；全链**无原消息行 DELETE**——
+   Windows BetterWX 规则1/2 的「DeleteMessage/DB 放行」前提在 macOS 均无
+   对应物。v2 首选落点改向 revokemessage 行插入点（同步路径写者，待定位）
+   与渲染门；9 个 isRevokemsg 调用者全归属；+0x1D0/+0x218/+0x278/+0x248
+   对象偏移跨版本稳定（配方锚点）。详见 MAINTAINING「终版判读」+ V2-PLAN
+   附录二。P0 A/B 问题不变且更聚焦。
+7. **[环境]** Ghidra 快路定型：`-noanalysis` 导入 + 现场建函数定点反编译
+   ≈3 分钟出伪代码（DumpTargets.java 复用）；全量种子分析 6h+ 级（B 批
+   14:39→20:59）；同机并发两 JVM 全量分析会互杀（C 批被 SIGTERM，10G×2 堆）。
+   下一轮定点优先走快路，全量批一次只跑一个。

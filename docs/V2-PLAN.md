@@ -156,3 +156,26 @@ hook（缓存 serverId/msgType/content 三元组）。
 4. **诚实边界**：以上全部静态结论；本链是否在「纯字节补丁、无运行时
    组件」时可达（drive35/36 双路径之问）与群聊 tip 最终效果，仍由
    P0 真机 A/B 裁决，静态推定不得写成已证。
+
+## 附录二：模型升级——macOS 无「原消息删除」（2026-10-24 深夜，B 批全量伪代码终版判读）
+
+> 证据与完整地址图见 MAINTAINING「270135 撤回链地图·终版判读」。本节只记对
+> 本方案结构的直接影响。
+
+1. **规则1 前提修正**：macOS 4.x 撤回持久层 = `revokemessage` 表（表名明文
+   实证）；撤回显示 = 该行 + +0x278 内存载荷（唯一附着点 0x55132f0，唯一
+   调用者 = CoCheck 链 0x3a91b69）+ 渲染期 tip（GetRevokeMessage 0x55139e0，
+   模板 DAT_09581de0，不入库）。**「NOP call DeleteMessage」在 macOS 无
+   对应物**——全链没有原消息行 DELETE。
+2. **规则2 作废**：tip 不作为 DB 行插入（渲染期从载荷生成），「DB 放行自造
+   SrvID」无 macOS 对应物；「提示需重进会话刷新」的 Windows 瑕疵映射为
+   载荷内存态生命周期。
+3. **新的首选落点**：revokemessage 行插入点（同步路径写者，待定位）与
+   渲染门（0x5514280/0x55139e0）；本链（CoCheck + RemoveRevokeItemTask +
+   0x4196130）是消费/清理侧，NOP 只影响清理不影响撤回效果。
+4. **P0 A/B 问题不变但更聚焦**：一次真机群聊撤回裁决「0x3a91130 链在纯
+   字节补丁（无 hook）时是否可达」——这直接决定上述所有落点的可达性。
+5. 配方锚点增益：+0x278/+0x248/+0x1D0/+0x218 对象字段偏移跨版本稳定
+   （269602↔270135 实证）；`revokemessage`/`GetRevokeMessage`/
+   `reeditrevoke`/`RemoveRevokeItemTask` 明文与可解密串见
+   var/wxarm/decode_revoke_logs.py。

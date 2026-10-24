@@ -661,3 +661,65 @@ WCDB/存储层直写、本链是防护态重扫路径——未被本轮静态推
 **源码路径解密**（0x3a90d60 内，构建机泄漏）：
 `/Users/xwechat/agent/workspace/xwechat_mac_release_02/kernel/core/manager/message/revoke/message_revoke_manager.cc`
 —— 与 269602/270099 时代同名单元，家族跨构建稳定。
+
+## 270135 撤回链地图·终版判读（2026-10-24 深夜：B 批全量伪代码落地 + 快路存储族，模型升级）
+
+> 证据：var/wxarm/decomp_targets.c（B 批 16 函数全量分析伪代码，20:59 落地）、
+> decomp_storage.c（0x4196130+ORM 族快路伪代码）、E8 全扫、种子归属。
+> 本节为最终口径，覆盖上文「干预点修订」等中间稿。
+
+### 指令级新事实
+
+1. **0x55132f0（载荷附着器）全二进制唯一调用者**（E8 rel32 全扫）：
+   0x3a91b69 ∈ 0x3a91130（CoCheckRevokeMessageListReEditStatus）Phase3。
+   撤回显示机制整体只挂这一条链。
+2. **0x55132f0 语义落锤**（全量伪代码）：撤回载荷 shared 写消息对象 **+0x278**；
+   "reeditrevoke"（明文重建 0x6572746964656572/0x656b6f76）标记入 **+0x248** 列表
+   （0x78 步进）；`xwechat`+`://`+`reedit` 深链 + `<a href=` HTML 写 **+0x1D0**
+   并串赋值拷 **+0x218**——与 269602 时代 0x50B4F10「写入 +0x1D0 和 +0x218」
+   逐字吻合，同源体实锤，且对象字段偏移跨版本稳定（配方锚点）。
+3. **0x55139e0 = `GetRevokeMessage`**（函数名明文 0xaf70a10，行号 0x440）：
+   消息对象带 +0x278 载荷 && isRevokemsg(+0x1a8) && 时间窗(+0x288) → 从第二张
+   0x278 模板（**DAT_09581de0**）构造 tip 消息，字段全取自载荷——
+   **群聊 tip = 渲染期从载荷生成，不是 DB 新行**。0x5514280 = 同门的 bool 谓词。
+4. **0x55142d0 = revokemsg XML 序列化器**（明文键 "version"/"1.0"/"sysmsg"/
+   "type"/"revokemsg"）——撤回 XML 写侧（自发撤回请求方向）。
+5. **0x4196130 操作 `revokemessage` 表**（表名明文内联 @0x4196416）：
+   构建两条 ORM 语句（绑 param_2=u64、param_3=string）→ 0x5f393c0(db,
+   "revokemessage", …) 出行列表。延迟任务管理的是**撤回条目行**。
+6. **isRevokemsg(0x5008960) 9 调用者全归属**：revoke_manager 家族 3
+   （0x368ba70/0x3a729b0/0x3a74030）+ 批分派器族 3（0x3f345b0/0x48307e0/
+   0x4cb47e0）+ 存储读侧 2（0x55139e0/0x5514280）+ parse 1（0x5503730，
+   catalog guard 同函数）。
+
+### 模型升级（v2 决策级）
+
+**macOS 4.x 的撤回持久层 = `revokemessage` 表；全链不存在「原消息行 DELETE」。**
+撤回的显示效果 = revokemessage 行（DB 持久）+ +0x278 载荷（内存，唯一附着点
+0x55132f0）+ 渲染期 tip（GetRevokeMessage）。Windows BetterWX「call DeleteMessage」
+前提在本链**没有对应物**——drive35/36 的「存储层直写」即 revokemessage 行插入
+（同步路径、本链之前）。
+
+三层时序（静态实证）：
+```
+同步层收到撤回事件 → revokemessage 行插入（写者待定位 = 下一定位目标 P1）
+  → 批分派 0x4cb47e0 → 0x3a91130 CoCheckRevokeMessageListReEditStatus
+    Phase3: 按 key 查 revokemessage 行（0x36d1290 命中）→ 0x55132f0 附着载荷
+    （+0x278/+0x248/+0x1D0/+0x218）→ 投递 RemoveRevokeItemTask（延迟）
+渲染: 0x55139e0 GetRevokeMessage(+0x278 载荷) → 模板 DAT_09581de0 → tip 显示
+清理: RemoveRevokeItemTask(0x3aa3100) → 0x4196130 操作 revokemessage 表
+  → 通知 → 注册表除名
+```
+
+v1 自洽复验：newmsgid=0 → 解析层断链 → revokemessage 行不可达/不匹配 →
+Phase3 查空 → 无载荷 → 无群聊 tip + 消息不受影响；私聊 tip = 服务器 in-band
+type-10000，独立于本链。✓
+
+**v2 落点校准**（替代上文中间稿候选）：
+- 首选定位目标 = **revokemessage 行插入点**（同步路径写者；revoke_manager 家族
+  0x3a7xxxx/0x3a8xxxx 或存储实现 AddRevokeMessage 型函数——待定点）；
+- 「保消息」在 macOS 上= 让载荷/行不生效或让渲染门(0x5514280/0x55139e0)走
+  「非撤回」分支，而非阻止行删除；
+- BetterWX 规则2（DB 放行自造 ID）在 macOS 无对应物（tip 不入库）——V2-PLAN
+  第 3 点相应作废待修；
+- 0x4196130/清理链是消费侧，NOP 只影响清理不影响撤回效果。
