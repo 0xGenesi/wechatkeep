@@ -723,3 +723,42 @@ type-10000，独立于本链。✓
 - BetterWX 规则2（DB 放行自造 ID）在 macOS 无对应物（tip 不入库）——V2-PLAN
   第 3 点相应作废待修；
 - 0x4196130/清理链是消费侧，NOP 只影响清理不影响撤回效果。
+
+### 75 轮增补（2026-10-25：行插入点定案 + 存储家族全图——Windows spike 反哺）
+
+> 完整 spike 报告（Windows 4.1.15.56 官方原版独立推导 + 双平台对位表）
+> 见 docs/WINDOWS-SPIKE.md。本节只记 macOS 侧结论。
+
+1. **表名构造者全图（movabs "revokeme" 扫描，5 函数）**：macOS 表名无明文
+   （movabs 立即数惰性缓存，`48 b8/bf`+`revokeme` 模式扫描）——
+   0x4190130（表注册器）/0x4195490/0x4195ca0/0x4196130/0x4196650，
+   与 Windows 五函数家族（.rdata 明文 xref）一一对应。
+2. **四 lambda invoke→四存储操作**（rel32 扫描；winre.py 首版 capstone
+   线性扫描有静默截断缺陷已修——「零调用者」结论曾假阴性；macOS 侧
+   tools/xref_x64.py 核查后本就正确）：
+   0x3aaa450→0x4195490 / 0x3aaae70→0x4195ca0 / 0x3aab070→0x4196130 /
+   0x3aab2a0→0x4196650；ctor = 0x3aa8370/0x3aa8590/0x3aa8800/0x3aa8a90。
+3. **行插入点定案（P1 前最后定位目标关账）**：
+   `0x3a7a040（impl，revoke_manager 0x3a7xxxx 区）→ ctor 0x3aa8590 →
+   invoke 0x3aaae70 → 0x4195ca0（INSERT 单行）`。
+   伪代码四段结构与 Windows 孪生 0x182380b60 逐段同构（四谓词门→建记录
+   （FUN_05546730）→异步插入→await FUN_07102860→门 FUN_025a8a10→失败 xlog
+   **行号 0x589 双平台同值**=同一源码函数；日志串现场物化 "AddR"+"Data"
+   =AddRevokeData 命名）。**谓词门 FUN_05006ff0 即 tip 构造器 0x55132f0 内
+   self 分型函数**——撤回链与 tip 链在类型判定处交汇。证据
+   var/wxarm/decomp_mac_insertimpl.c。
+4. **存储语义对位表（Windows 伪代码定性反哺 macOS）**：
+   | 操作 | macOS | Windows（伪代码实证） |
+   |---|---|---|
+   | 表注册 | 0x4190130 | 0x183224200（另发现 revokebatchmessage 第二表） |
+   | SELECT | 0x4195490（0x3a91130 CoCheck Phase3 经 0x3aa8370） | 0x183229fb0 |
+   | INSERT | 0x4195ca0 | 0x18322a970 |
+   | 写（对位推断） | 0x4196130（RemoveRevokeItemTask 链，语句级=清理族） | 0x18322b240=DELETE 过期（cutoff=now−配置，实证） |
+   | 写（对位推断） | 0x4196650 | 0x18322ace0=UPDATE 双参（实证） |
+   0x4196130 的「两条语句」定案为**清理族写**（非原消息删除——与「全链无
+   原消息行 DELETE」自洽）；DELETE/UPDATE 精确对位为链形推断（无双平台
+   行号锚），不影响 v2 落点（清理链=消费侧）。
+5. **v2 落点新增候选**：插入链四站（impl 谓词门/记录构造 FUN_05546730/
+   插入 ctor 调用点 0x3a7a040→0x3aa8590/INSERT 本体）——「铸行内容」类
+   干预（如记录字段改写）在此层最干净；真机 A/B 候选清单相应扩编。
+

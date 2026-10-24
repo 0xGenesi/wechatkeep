@@ -45,8 +45,17 @@
    启动点 0x3aafb96（0x3aafad0 执行门内 `call 0x7102b50`）→ 存储原语
    0x4196130（经 0x3aa8800 闭包 invoke 0x3aab070 内 0x3aab0da 调用）；
    await 调用点 0x3aa397b/0x3aa3a35 是协程基建**非**执行点，NOP 无效；
-   0x4196130 语句级语义为链上最后未知（B/C 全量伪代码或 P0 A/B 判读），
-   详见 MAINTAINING「270135 撤回链地图」）→ 原消息保留。
+   **75 轮关账**：0x4196130 语句级语义经 Windows 孪生定性（Weixin.dll
+   0x18322b240 伪代码 = DELETE FROM revokemessage WHERE 时间列 < now−配置）
+   为**清理族写（删过期撤回条目）**，非原消息删除——「全链无原消息行
+   DELETE」闭环，详见 MAINTAINING「75 轮增补」+ WINDOWS-SPIKE.md）→
+   原消息保留。
+2b. **（75 轮新增）插入链候选**：撤回持久化同步写路径定案——0x3a7a040
+   （AddRevokeData impl，revoke_manager 0x3a7xxxx 区，失败日志行号 0x589
+   与 Windows 孪生 0x182380b60 同值=同源函数实锤）→ ctor 0x3aa8590 →
+   invoke 0x3aaae70 → INSERT 0x4195ca0。铸行内容类干预（revokemessage
+   记录字段改写，使渲染门 0x5514280 走保留分支）在此层最干净，与候选
+   ①-⑤并列进 P0 A/B 矩阵。
 3. **配套放行规则**（仅当实测提示入库被拒时需要，对应 BetterWX 规则2）。
 4. 落地形态：config.json 新 variant `keeptip2`（保留 v1 条目做回退）；补丁点
    配方化（锚点 = 执行器链内跨版本稳定证据：`_b13e0758` 服务名、type-10000
@@ -61,7 +70,9 @@
   启动点 0x3aafb96，await 基建 0x7102860/0x7102b50），存储动作 = 0x3aa8800
   闭包 invoke 0x3aab070 → 存储原语 0x4196130；破坏性候选 = ①0x3aafb96
   任务启动 ②0x3aab0da 存储原语调用（需替换非 NOP，eax 为 bool 返回值）
-  ③0x3aa8800 调用点 ④（对照）0x55132f0 内存层改写 ⑤保持 newmsgid 原值。
+  ③0x3aa8800 调用点 ④（对照）0x55132f0 内存层改写 ⑤保持 newmsgid 原值；
+  75 轮追加插入链候选（见方案定义 2b：0x3a7a040 谓词门/FUN_05546730 记录
+  构造/插入 ctor 调用点）。
   **真机 A/B 一次性实验方案不变**：
   对候选点逐个「patch→观察行为→restore」（一次撤回即可判定），不做
   lldb 陪跑。drive35/36 双路径模型（原生撤回疑走存储层直写）未被静态

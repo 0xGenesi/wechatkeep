@@ -22,6 +22,38 @@
 老构建 verify spec 有用户反馈再按需派生（SOP 已固化）；每次发版前真机
 launch_soak。
 
+## 75·Windows spike + 双平台反哺轮（2026-10-25：队列第 3 项一次会话收口——独立 derive 成立，GO 建议；macOS 两遗留未知一并关账）
+
+1. **[Windows spike 全链]** 官方原版获取（`WeChatWin_4.1.15.exe` 滚动直链，
+   sha256 4422bad9…）→ NSIS 解包 → **Weixin.dll 4.1.15.56**（PE32+ x64
+   204MB = wechat.dylib 对应物）。方法论移植一次成功：winre.py（PE 解析 +
+   .pdata 513,887 函数边界 + rel32 算术扫描 + 字符串锚点）+ Ghidra 快路
+   PE 版（.pdata 种子 → 34 函数 767KB 伪代码 ≈13 分钟）。**独立推导撤回
+   链全图**（parse/批分派/执行/存储五函数家族/tip reeditrevoke 枢纽/
+   RemoveRevokeItemTask）——未参考 BetterWX 任何偏移。报告
+   docs/WINDOWS-SPIKE.md（含 Rust+共用 catalog 新仓设计 + GO/NO-GO 论证：
+   差异化=安全契约与数据纪律；未 derive 项=Windows「原消息行删除点」）。
+2. **[工具缺陷修正]** winre.py 首版 capstone 线性扫描静默截断（坏字节即停，
+   「零调用者」假阴性）→ rel32 算术扫描替换（2.5s/120MB 全量完备；与
+   tools/xref_x64.py 既有实现同法——后核查实 xref_x64 本就正确，病只在
+   winre 首版，已修）。教训入记忆。
+3. **[macOS 反哺①：0x4196130 语句级语义关账]** Windows 孪生 0x18322b240
+   伪代码实证 = `DELETE FROM revokemessage WHERE 时间列 < now−配置`——
+   macOS 0x4196130 定性为**清理族写**（删过期撤回条目），非原消息删除；
+   「全链无原消息行 DELETE」闭环。V2-PLAN「链上最后未知」销项。
+4. **[macOS 反哺②：revokemessage 行插入点定案]** movabs "revokeme" 扫描
+   出 macOS 表名构造 5 函数家族（对位 Windows 5 函数）；rel32 扫描四
+   lambda invoke/ctor 全图；**插入链 = 0x3a7a040（AddRevokeData impl，
+   日志行号 0x589 双平台同值=同源函数实锤）→ ctor 0x3aa8590 →
+   0x3aaae70 → INSERT 0x4195ca0**。谓词门 FUN_05006ff0 即 tip 链 self
+   分型函数（两链交汇点）。§八「下轮首要目标」关账，v2 候选矩阵扩编
+   （V2-PLAN 方案定义 2b）。
+5. **[文档]** WINDOWS-SPIKE.md 新篇；MAINTAINING「75 轮增补」；V2-PLAN
+   2/2b 更新；记忆两条（Ghidra 快路 PE 版+扫描陷阱 / Windows spike 定案）。
+6. **[未启动/留待]** v2 真机 A/B（需用户一次群聊撤回）；新仓立项动工
+   （GO 建议待用户批）；xlog `\xa1` 帧破解（Windows 函数名恢复，立项后
+   第一优先）。
+
 ## 74·收口轮（2026-10-24：v0.2.11 发版全链 + launch_soak 真跑 + 密钥轮换成文 + v2 静态收口）
 
 > 队列四项：①v2 外科式 ②密钥轮换预案 ③Windows spike（可选，未启动）
