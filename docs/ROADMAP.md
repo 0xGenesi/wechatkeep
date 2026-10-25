@@ -22,6 +22,39 @@
 老构建 verify spec 有用户反馈再按需派生（SOP 已固化）；每次发版前真机
 launch_soak。
 
+## 76·v2 P0 真机 A/B 终审轮（2026-10-25：两次撤回裁决——revokemessage 链不在原生路径，v2-as-designed 死亡；arm64 链全图顺手 deriving 成新资产）
+
+1. **[P0 A/B 执行（用户配合 ×2 群聊自撤回，arm64 原生，clonefile 副本全程
+   零风险）]** T1（行插入杀死）→ 撤回照常；T2（载荷附着 NOP）→ 同 T1。
+   **终审：revokemessage 链整体不在原生撤回显示路径——其真实身份 =
+   撤回后重新编辑资格记账（ReEditStatus），非删除器。drive35/36 双路径
+   模型实弹实锤，v2 候选 ①②③④ 全部作废**（V2-PLAN P0 终审已同步）。
+   原生删除执行体仍未知（排除面再收窄），灰条 = 服务端 replacemsg 由
+   UI 直接渲染。换道候选三案入册：(a) WCDB 层继续 RE；(b) **runtime
+   合成群聊 tip**（v1 不动，parse hook 手持完整 revokemsg XML）；(c)
+   接受 v1 现状。台账 var/ab/EXPERIMENT-20261025.md。
+2. **[arm64 链全图 derive（新资产）]** 新方法论五步法（arm64 无 movabs：
+   16 字节对齐 SSO 明文名池 → arm64_index.py 全量引用索引
+   [capstone 重同步线性扫描 29M 指令 3 分钟] → 链式行走 → 尺寸/形态
+   指纹 → Ghidra 确认）：270100 arm64 表名族 5 ops + invoke 四件套 +
+   ctor 簇 + impl 0x3408e7c（AddRevokeData）+ CoCheck 0x341c7c4 +
+   attach-ctor 0x4bd1930 + GetRevokeMessage 族，全部定址（MAINTAINING
+   「arm64 撤回链地图」）。三补丁点双架构字节级验证（T1 0x3434f30 /
+   T2 0x341cffc / T3 0x34351c8）。
+3. **[环境事实与新工具]** ①**macOS 28 将移除 Rosetta**（用户实测系统
+   预告）——x64 补丁面止步 Intel Mac（macOS 27 封顶），arm64 唯一长期
+   路径；②Rosetta 实验路线受阻记录（thin 主可执行可拉起进程但
+   WeChatAppEx 不 spawn、QUIC 死转，≈40 分钟止损）；③GUI 会话陷阱
+   （shell 直启进程不进 Aqua，GUI 一律走 `open`）；④签名陷阱（裸
+   `codesign --deep -s -` 剥 ents → 正规会话下自退 exit 0，必须引擎
+   Resigner 管线）；⑤OpenSSL Ed25519 manifest 签署器（pynacl 不可得
+   环境替代，var/ab/sign_manifest_openssl.py）。
+4. **[机器收口]** /Applications 原版全程未动（sha 复核一致）；clone 已
+   清理；用户日常态无需恢复（实验隔离设计生效）。
+5. **[未决]** 换道三案待用户决策（建议 b：投入产出比最高且与 v1 生态
+   无冲突）；Windows spike 报告 §6 新仓路线不受本轮影响（其安全契约
+   叙事照旧，但「mac 对位表」注记本轮结论）。
+
 ## 75·Windows spike + 双平台反哺轮（2026-10-25：队列第 3 项一次会话收口——独立 derive 成立，GO 建议；macOS 两遗留未知一并关账）
 
 1. **[Windows spike 全链]** 官方原版获取（`WeChatWin_4.1.15.exe` 滚动直链，

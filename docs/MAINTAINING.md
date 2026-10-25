@@ -762,3 +762,47 @@ type-10000，独立于本链。✓
    插入 ctor 调用点 0x3a7a040→0x3aa8590/INSERT 本体）——「铸行内容」类
    干预（如记录字段改写）在此层最干净；真机 A/B 候选清单相应扩编。
 
+
+### 76 轮增补（2026-10-25：270100 arm64 撤回链地图 + P0 A/B 终审）
+
+> 实验台账 var/ab/EXPERIMENT-20261025.md（T1/T2 结果与 v2 换道三案）。
+> 本节登记 arm64 新资产——下轮任何 arm64 侧工作的地址基线。
+
+**方法论**（arm64 无 movabs，x64 锚点法失效）：arm64 编译器把短串常量以
+16 字节对齐 SSO 池放 __TEXT,__const（明文："AddRevokeMessage"/"GetRevokeMessage"
+/"HandleRevokeFail" 等——各自被所属函数 adrp+ldr 自引用）；全量引用索引 =
+var/ab/arm64_index.py（capstone 重同步线性扫描，29M 指令 3 分钟，refs+calls
+pickle 复用）；链式行走 + x64 尺寸指纹（arm64 ≈ x64 的 0.9-1.4×）+ Ghidra
+快路确认。工具：var/ab/arm64re.py（movz/movk 对 + BL + ADRP 算术扫描）。
+
+**270100 arm64 链全图**（与 x64 图逐段对位）：
+
+```
+存储族 5 ops（表名族，地址相邻）：
+  0x3a3a0a0 (0x4f8B) SELECT     [x64 0x404bd60 0x620B]
+  0x3a3a740 (0xb0B)  INSERT     [x64 0x404c570 0xa0B]
+  0x3a3aaa8 (0x428B) DELETE过期 [x64 0x404ca00 0x520B]
+  0x3a3aed0 (0x308B) UPDATE     [x64 0x404cf20 0x380B]
+  0x3a3b498 (0x1dcB) 第5成员    [x64 0x4046a00 register 族]
+invoke 四件套（0x3434xxx 簇）：
+  0x343452c (0x320B) select-invoke  [x64 0x396a560]
+  0x3434edc (0x1fcB) insert-invoke  [x64 0x396af80]  ← T1 站点 0x3434f30
+  0x343516c (0x188B) cleanup-invoke [x64 0x396b180]  ← T3 站点 0x34351c8
+  0x34353ac (0x138B) update-invoke  [x64 0x396b3b0]
+ctor 簇：0x3432528 sel / 0x343275c ins (0x274B) / …（sel-ctor 唯一调用者
+  = CoCheck，x64 不变量保持）
+impl：0x3408e7c (0x780B) AddRevokeData  [x64 0x393a0b0 0x7e0B]
+  —— 函数体内引用自身名 "AddRevokeMessage" @0x875ac90（16B SSO 池）
+CoCheck 任务体：0x341c7c4 (0xbf0B)      [x64 0x39511a0 0xe60B]
+  ← T2 站点 0x341cffc（bl attach-ctor）
+attach-ctor：0x4bd1930 (0x65cB)         [x64 0x538d890 0x6f0B]
+GetRevokeMessage 族：0x4bd1f8c（引用名串 @0x89390d0）
+共享 statement-builder：0x342fbe4（insert-invoke 与 CoCheck 共用，同 x64
+  0x3965540/0x530e280 关系）
+promise 兑现原语：0x64eb294 [x64 0x6f3cb40]
+```
+
+**P0 A/B 终审**（详见台账）：T1/T2 双点闭合——本链对原生撤回显示整体
+无效（真实身份 = 重新编辑资格记账）。上节「v2 落点新增候选」随之作废；
+v2 换道三案见 V2-PLAN P0。x64 侧同轮验证的补丁点（0x396afde/0x3951bd9/
+0x396b1ea）保留在案（Intel 面止步 macOS 27 的前提下价值有限）。
