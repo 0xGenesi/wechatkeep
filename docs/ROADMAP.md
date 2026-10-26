@@ -22,6 +22,28 @@
 老构建 verify spec 有用户反馈再按需派生（SOP 已固化）；每次发版前真机
 launch_soak。
 
+## 77·v2 换道①执行轮（2026-10-25/26：T4 msgid 判读未达但 runtime 修通 macOS 27 安装链——MAP_JIT + vm_remap COW 两处硬化修复落地）
+
+1. **[T4 设计与实现]** 换道①开工前的字段判读实验：清 <msgid> 保
+   newmsgid（裁决删除键是否双字段）。runtime.m 泛化 zero_tag_digits +
+   zero_msgid/allow_runtime_prologue 配置键 + 测试缝 + 双测（179 全绿）。
+2. **[排障实录（台账 T4 追记）]** clone→真机直装四轮取证（boot log 诊断
+   通道）：沙盒微信 App Group 写被拒（marker 盲区缺陷在档未修）→
+   status=11 位形误读纠偏 → **istep=2 errno=13 = mprotect 已签名页
+   EACCES = macOS 27 W^X 硬化**（与 65 轮 Verifier 同坑同期；runtime
+   hook 自用户升级 27 起装不上——时间线巧合曾误导为微信自更新所致）。
+3. **[修复落地]** install_hook 两处：arm64 trampoline 走 MAP_JIT +
+   np 写开关；目标页走 **vm_remap COW**（VM_INHERIT_COPY 私有副本）→
+   installed=1 首次达成。自适应序言门（allow_runtime_prologue，默认关）
+   随行入档。
+4. **[未达与止损]** 修复后 R1/R2 仍零判读：calls=22→hits=0（needle 未
+   见）→ x1 取证轮 calls=0（stub 会话内失效，10-03 新壳完整性机制疑
+   吞 stub）。完全修复需三关（stub 存活/参数 re-derive/needle）= 独立
+   时间盒。用户日常态完整恢复（silent patch + runtime remove，sha 复核）。
+5. **[结论口径]** v1 单键结论（newmsgid）由历史实弹独立支撑不变；msgid
+   悬置；「runtime 合成 tip」换道①的前置 = runtime hook 在 macOS 27+
+   新壳的完全修复（本轮修通第一关）。
+
 ## 76·v2 P0 真机 A/B 终审轮（2026-10-25：两次撤回裁决——revokemessage 链不在原生路径，v2-as-designed 死亡；arm64 链全图顺手 deriving 成新资产）
 
 1. **[P0 A/B 执行（用户配合 ×2 群聊自撤回，arm64 原生，clonefile 副本全程

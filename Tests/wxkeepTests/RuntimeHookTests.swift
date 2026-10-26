@@ -485,4 +485,26 @@ extension RuntimeHookTests {
         #expect(n3 == 2)
         #expect(mixed == Array("<newmsgid>00x34</newmsgid>".utf8))
     }
+
+    /// T4 实验（2026-10-25）：清 <msgid> 保 newmsgid——裁决原生删除键与
+    /// tip 锚是否同字段。缝语义与 newmsgid 清零同构（等长数字清零）。
+    @Test func zeroMsgidDigits() {
+        var xml = Array("<msg><newmsgid>467688165590285950</newmsgid><msgid>720421</msgid></msg>".utf8)
+        let n = xml.withUnsafeMutableBufferPointer { b -> Int32 in
+            wxkeep_runtime_test_zero_msgid(b.baseAddress, CUnsignedLong(b.count))
+        }
+        #expect(n == 5, "非零数字清零计数（'0' 跳过不计——与 newmsgid 缝同语义）")
+        #expect(xml == Array("<msg><newmsgid>467688165590285950</newmsgid><msgid>000000</msgid></msg>".utf8),
+                "newmsgid 不动，msgid 等长清零")
+    }
+
+    @Test func zeroMsgidDoesNotMatchNewmsgidTag() {
+        // "<msgid>" 7 字节 needle 不得命中 <newmsgid> 内部（前缀是 new 非更有 '<'）
+        var xml = Array("<newmsgid>123</newmsgid>".utf8)
+        let n = xml.withUnsafeMutableBufferPointer { b -> Int32 in
+            wxkeep_runtime_test_zero_msgid(b.baseAddress, CUnsignedLong(b.count))
+        }
+        #expect(n == 0)
+        #expect(xml == Array("<newmsgid>123</newmsgid>".utf8))
+    }
 }

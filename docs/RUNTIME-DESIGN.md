@@ -134,3 +134,25 @@ Contents/Frameworks/wxkeep_runtime.dylib                                    ← 
      x64 转移编码门已把「换址破坏控制流」的随意性压到需要精心构造且
      绕过字节扫描；一旦出现腾讯实际对抗的实证（marker/status 显示行
      被改），加签升级为 P0 立即实施。
+
+## macOS 27 安装链修复（2026-10-26，77 轮）
+
+**硬化的表现**：微信进程（entitlements 全注入）内 `mmap RWX` 与
+`mprotect(已签名页, +W)` 全部 EACCES——runtime hook 自用户升级 macOS 27
+起就装不上（此前症状被 status=11 位形误读掩盖：kStInstallFail=3 与
+uuid-mismatch(1)+prologue(2) 位形重叠）。与 Verifier 的 MAP_JIT 硬化
+（65 轮）同期同源。
+
+**修复**（install_hook 两处，实证 installed=1）：
+1. trampoline 页（arm64）：`MAP_JIT` + `pthread_jit_write_protect_np(0/1)`
+   写开关 + icache 失效——Verifier 同款语义；页装成后只执行不再写。
+2. 目标镜像页：直接 mprotect RWX 失败时走 **vm_remap COW**
+   （`VM_FLAGS_OVERWRITE|VM_FLAGS_RETURN_DATA_ADDR` + `VM_INHERIT_COPY`
+   自映射）——私有副本脱离 cs 只读强制，mprotect RW 可写；写 stub 后
+   恢复 R|X。
+
+**残余（未修，77 轮止步）**：新壳（10-03 自更新起的 libwxld 世代）会话内
+吞 stub（calls 22→0 跨轮不稳定）+ hook 点参数语义需对 10-03 dylib 重验
+（x1 取证通道已备）。沙盒微信 App Group 写被拒（ad-hoc 签名无 team）→
+marker dir 选择在 Group 拒时不回落 legacy = 沙盒微信 marker 盲区（boot
+log 诊断通道已替代取证职能）。

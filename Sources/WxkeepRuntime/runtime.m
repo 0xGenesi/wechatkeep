@@ -5,6 +5,10 @@
 #import <mach/mach_vm.h>
 #import <mach-o/loader.h>
 #import <sys/mman.h>
+#import <pthread.h>
+#ifndef MAP_JIT
+#define MAP_JIT 0x800
+#endif
 #import <string.h>
 #import <stdlib.h>
 #import <os/log.h>
@@ -97,7 +101,16 @@ static int g_rewrite_self;         // 自发撤回提示是否也改写（默认
 static int g_rewrite_hits;         // 撤回 needle 命中计数（含自发跳过/超长放弃）
 static int g_rewrite_fires;        // 实际完成改写的计数（验证肉眼化的证据面）
 static int g_keep_message = 1;     // 通用 keeptip：parse 前清零 XML newmsgid（默认开）
-static int g_zero_fires;           // newmsgid 清零计数
+static int g_zero_msgid;           // T4 实验（2026-10-25）：清零 <msgid>（本地号）——
+                                   // 裁决原生删除键与 tip 锚是否同字段（newmsgid vs msgid）
+static int g_allow_runtime_prologue;  // 序言门自适应（默认关）：270100 的 10-03 自更新
+                                   // 后 libwxld 壳改写 parse 入口运行时字节（磁盘=expected
+                                   // 而运行时≠，实证 2026-10-26 真机 status=11）——开时
+                                   // memcmp 失败可接受运行时字节，但仍必须过 arm64 可换址
+                                   // 编码门/x64 转移编码门。威胁模型变化：expected 从「字
+                                   // 节锁」降为「构建 UUID 锁+编码锁」，RUNTIME-DESIGN
+                                   // 72·L3④ 分析需按此更新。
+static int g_zero_fires;           // 清零计数（newmsgid 与 msgid 共用，配置互斥使用）
 static char g_last_fired[96];      // 最后一次改写后的内文前 95B（渲染问题取证）
 static char g_last_inner[96];      // 最后一次 needle 命中时的原始内文前 95B
 static int g_hook_installed;
@@ -129,6 +142,10 @@ static NSString *cstr_sample(const volatile char *src) {
 static volatile int32_t g_arm_done;   // 整个进程只装一次（多触发源竞态防御）
 static const char kTarget270099_uuid[] = "97e21436-abda-3b79-bec0-ef2653c6b423";
 static char g_last_uuid[40];     // 回调收到的最后一个镜像 UUID
+static uint8_t g_saved_prologue[16];  // T4 排障：install_hook 序言比对现场快照
+static int g_saved_prologue_valid;
+static int g_install_errno;          // T4 排障：install 失败的 errno 与步骤
+static int g_install_step;
 static int g_cb_count;           // 回调触发计数
 static int g_scan_missed;
 
@@ -355,6 +372,13 @@ static void apply_config_dict(NSDictionary *cfg) {
     // keep_message 缺省即开（runtime hook 的核心价值）；显式 false 关闭
     id km = cfg[@"keep_message"];
     g_keep_message = (km == nil) ? 1 : [km boolValue];
+    // zero_msgid：T4 实验键（默认关）。与 keep_message 互斥使用——
+    // 实验配置 = keep_message:false + zero_msgid:true（清 <msgid> 保 newmsgid）
+    id zm = cfg[@"zero_msgid"];
+    g_zero_msgid = (zm == nil) ? 0 : [zm boolValue];
+    // allow_runtime_prologue：壳改写入口后的自适应开关（默认关，见全局注释）
+    id ar = cfg[@"allow_runtime_prologue"];
+    g_allow_runtime_prologue = (ar == nil) ? 0 : [ar boolValue];
     load_hooks_from(cfg);
 }
 
@@ -513,16 +537,12 @@ static int rewrite_inner_with(uint8_t *ptr, uint64_t size,
     return 1;
 }
 
-/// 通用 keeptip 核心（0.2.x 降维实现）：不改任何指令，直接把 XML 里
-/// <newmsgid> 的数字等长清零（'1'-'9' → '0'）——parse 读到 0 → 撤回删除
-/// 按目标查不到 → 原消息保留（v1 语义），提示文本不受影响。不依赖任何
-/// 指令地址：hook 能武装的构建即工作，跨构建通用。
-/// 返回清零的数字个数（0 = 无 <newmsgid> 或已是 0）。
-static int zero_newmsgid_digits(uint8_t *buf, uint64_t size) {
-    static const char tag[] = "<newmsgid>";
-    uint8_t *p = find_bytes(buf, size, tag, sizeof(tag) - 1);
+/// <tag> 的数字等长清零（'1'-'9' → '0'）——parse 读到 0 → 下游按该键定位失败。
+/// 返回清零的数字个数（0 = 无该 tag 或已是 0）。
+static int zero_tag_digits(uint8_t *buf, uint64_t size, const char *tag, uint64_t taglen) {
+    uint8_t *p = find_bytes(buf, size, tag, taglen);
     if (!p) return 0;
-    uint64_t i = (uint64_t)(p - buf) + (sizeof(tag) - 1);
+    uint64_t i = (uint64_t)(p - buf) + taglen;
     int n = 0;
     while (i < size && buf[i] != '<') {
         if (buf[i] >= '1' && buf[i] <= '9') { buf[i] = '0'; n++; }
@@ -530,6 +550,15 @@ static int zero_newmsgid_digits(uint8_t *buf, uint64_t size) {
         i++;
     }
     return n;
+}
+
+/// 通用 keeptip 核心（0.2.x 降维实现）：不改任何指令，直接把 XML 里
+/// <newmsgid> 的数字等长清零（'1'-'9' → '0'）——parse 读到 0 → 撤回删除
+/// 按目标查不到 → 原消息保留（v1 语义），提示文本不受影响。不依赖任何
+/// 指令地址：hook 能武装的构建即工作，跨构建通用。
+/// 返回清零的数字个数（0 = 无 <newmsgid> 或已是 0）。
+static int zero_newmsgid_digits(uint8_t *buf, uint64_t size) {
+    return zero_tag_digits(buf, size, "<newmsgid>", sizeof("<newmsgid>") - 1);
 }
 
 static int rewrite_replacemsg_inner(uint8_t *sso) {
@@ -572,8 +601,16 @@ static hook_ctx_t g_hook;
 // 足够还原 wrapper 的 (rdi=信息对象, rsi=消息结构) 形态（arm64 为 x0/x1）。
 static void *(*g_real_wrapper)(void *, void *, void *, void *, void *, void *);
 
+static volatile int g_hook_calls;    // T4 排障：stub 调用计数（诊断）
+static uint8_t g_arg1_head[24];      // T4 排障：最近一次 x1 头 24B（参数语义取证）
+static volatile int g_arg1_valid;
 static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
                                  void *a3, void *a4, void *a5) {
+    g_hook_calls++;
+    if (a1 > (void *)0x10000) {
+        memcpy((void *)g_arg1_head, a1, sizeof(g_arg1_head));
+        g_arg1_valid = 1;
+    }
     // g_hook.target 以 acquire 读，与 install_hook 的 release 存储配对
     //（见安装侧注释）：acquire 命中非零值时，发布序在它之前的
     // msg_arg/xml_sso_off/saved/trampoline/g_real_wrapper 全部可见——
@@ -594,6 +631,10 @@ static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
                     if (g_keep_message) {
                         if (zero_newmsgid_digits(ptr, size) > 0) g_zero_fires++;
                     }
+                    if (g_zero_msgid) {
+                        if (zero_tag_digits(ptr, size, "<msgid>", sizeof("<msgid>") - 1) > 0)
+                            g_zero_fires++;
+                    }
                     if (g_tip_len) rewrite_replacemsg_inner(sso);
                 }
             }
@@ -612,10 +653,20 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     size_t len = t->expected_len;               // x64 12 / arm64 16
     uint8_t prologue[16];
     memcpy(prologue, (void *)target, len);
+    memcpy(g_saved_prologue, prologue, 16);
+    g_saved_prologue_valid = 1;
     if (memcmp(prologue, t->expected, len) != 0) {
-        os_log(OS_LOG_DEFAULT, "[wxkeep-runtime] prologue mismatch — hook skipped");
-        g_hook_status |= kStPrologueMismatch;
-        return -1;
+        // 自适应路径（allow_runtime_prologue，默认关）：270100 的 10-03 自更新
+        // 后壳改写 parse 入口运行时字节——磁盘仍是 expected（我们的 RE/补丁
+        // 位点不受影响，v1 字节补丁实证有效）。接受运行时原像的前提 = 它
+        // 本身过可换址编码门（arm64 见下 / x64 转移编码拒绝），蹦床保存的
+        // 就是壳填充后的真实原像，语义保全。构造身份仍由行 UUID 锁死。
+        if (!(g_allow_runtime_prologue && (!t->is_arm64 ||
+                arm64_prologue_relocatable(prologue, len)))) {
+            os_log(OS_LOG_DEFAULT, "[wxkeep-runtime] prologue mismatch — hook skipped");
+            g_hook_status |= kStPrologueMismatch;
+            return -1;
+        }
     }
     // arm64 的 PC 相对编码在换址执行时会指向错误目标——外部表已在解析期
     // 过滤，这里对实际内存再验一次（内置表同受保护）。
@@ -624,9 +675,16 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
         return -1;
     }
     // 蹦床：RWX 页内 = 原入口原像 + 跳回 target+len。
+    // arm64（macOS 27 微信进程实测 2026-10-26）：匿名 RWX mmap 被 W^X 拒
+    // （EACCES → kStInstallFail，status 位形 8|3 曾被误读为序言门）——与
+    // Verifier 65 轮同坑同解：MAP_JIT 是无 entitlement 的官方通道，写入用
+    // np(0) 开写 + icache 失效；页装成后只执行不再写。x64 无 MAP_JIT 语义，
+    // 维持 RWX。
+    int jit = t->is_arm64;
     uint8_t *mem = mmap(NULL, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
-                        MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (mem == MAP_FAILED) { g_hook_status |= kStInstallFail; return -1; }
+                        MAP_ANON | MAP_PRIVATE | (jit ? MAP_JIT : 0), -1, 0);
+    if (mem == MAP_FAILED) { g_hook_status |= kStInstallFail; g_install_errno = errno; g_install_step = 1; return -1; }
+    if (jit) pthread_jit_write_protect_np(0);
     memcpy(mem, prologue, len);
     uint64_t back = target + len;
     if (t->is_arm64) {
@@ -634,6 +692,7 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
         memcpy(mem + len + 4, "\x20\x02\x1f\xd6", 4);    // br x17
         memcpy(mem + len + 8, &back, 8);
         sys_icache_invalidate(mem, len + 16);
+        pthread_jit_write_protect_np(1);
     } else {
         memcpy(mem + 12, "\x49\xbb", 2);                 // movabs r11, imm64
         memcpy(mem + 14, &back, 8);
@@ -657,8 +716,27 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     __atomic_store_n(&g_hook.target, target, __ATOMIC_RELEASE);
 
     uintptr_t page = target & ~(uintptr_t)0xfff;
-    if (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
-        g_hook_status |= kStInstallFail;
+    // macOS 27 硬化（2026-10-26 实证 istep=2 errno=13）：entitlements 全在
+    // （allow-jit / allow-unsigned-executable-memory），mprotect 给已签名
+    // 镜像页加 W 仍 EACCES——27 的 W^X 只放行 MAP_JIT 区。合法通道 =
+    // vm_remap COW：VM_INHERIT_COPY 让目标页获得私有副本（脱离 cs 只读
+    // 强制），之后 mprotect RW 写 stub、恢复 R|X。9-25 的直接 mprotect
+    // 成功是 macOS 26 语义（用户 10 月初升级 27——与 65 轮 Verifier
+    // MAP_JIT SIGBUS 大战同期同硬化）。
+    int page_writable =
+        (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC) == 0);
+    if (!page_writable) {
+        vm_address_t rw = (vm_address_t)page;
+        vm_prot_t cur = 0, mx = 0;
+        kern_return_t kr = vm_remap(mach_task_self(), &rw, 0x2000, 0,
+                                    VM_FLAGS_OVERWRITE | VM_FLAGS_RETURN_DATA_ADDR,
+                                    mach_task_self(), (vm_address_t)page, FALSE,
+                                    &cur, &mx, VM_INHERIT_COPY);
+        page_writable = (kr == KERN_SUCCESS) &&
+            (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE) == 0);
+    }
+    if (!page_writable) {
+        g_hook_status |= kStInstallFail; g_install_errno = errno; g_install_step = 2;
         // 失败清理：蹦床页归还 + 复位 g_hook（此刻 entry 尚未改写、hook 未
         // 到达，g_real_wrapper 不可能有调用者——g_arm_done 已置位不再重试，
         // 残留武装态字段只会误导诊断）。target=0 的 release 存储与 hook 侧
@@ -852,7 +930,29 @@ static void start_evidence_timer(void) {
     dispatch_source_set_timer(timer,
                               dispatch_walltime(NULL, (int64_t)30 * NSEC_PER_SEC),
                               (int64_t)30 * NSEC_PER_SEC, 0);
-    dispatch_source_set_event_handler(timer, ^{ write_marker_ex(0); });
+    dispatch_source_set_event_handler(timer, ^{
+        write_marker_ex(0);
+        // T4 排障：marker 通道在沙盒微信里写不出（Group 拒+不回落），计数器
+        // 改走 boot log 通道（构造器诊断同款，沙盒 tmp 必可达）。
+        @autoreleasepool {
+            NSString *boot = [NSString stringWithFormat:@"%@/tmp/wxkeep-boot.log",
+                              NSHomeDirectory()];
+            NSMutableString *acc = [NSMutableString stringWithContentsOfFile:boot
+                                                                    encoding:NSUTF8StringEncoding error:nil];
+            [acc appendFormat:@"tick installed=%d status=%d calls=%d fires=%d hits=%d zero=%d arg1=",
+                g_hook_installed, g_hook_status, g_hook_calls, g_rewrite_fires, g_rewrite_hits,
+                g_zero_fires];
+            if (g_arg1_valid) {
+                for (int k = 0; k < 24; k++) [acc appendFormat:@"%02x", g_arg1_head[k]];
+            } else {
+                [acc appendString:@"<none>"];
+            }
+            [acc appendFormat:@" last=%@ inner=%@\n",
+                g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
+                g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>"];
+            [acc writeToFile:boot atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
+    });
     dispatch_resume(timer);
     // 刻意被静态引用持有、永不 cancel：source→handler→全局函数 无环，
     // 常驻即设计（进程内一次性安装）。
@@ -992,6 +1092,22 @@ static int host_is_wechat(void) {
 }
 
 __attribute__((constructor)) static void wxkeep_runtime_init(void) {
+    // 诊断通道（2026-10-26 T4 排障，实验后回退）：构造器最早期写沙盒容器
+    // tmp——微信进程里 NSLog/marker 双失联时，这里是唯一保证可达的证据面。
+    @autoreleasepool {
+        NSString *boot = [NSString stringWithFormat:@"%@/tmp/wxkeep-boot.log",
+                          NSHomeDirectory()];
+        NSString *line = [NSString stringWithFormat:
+            @"enter exe=%@ ts=%f\n", @( _dyld_get_image_name(0) ?: "<nil>"),
+            [NSDate date].timeIntervalSince1970];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:
+                [NSHomeDirectory() stringByAppendingString:@"/tmp"]]) {
+            [[NSFileManager defaultManager] createDirectoryAtPath:
+                [NSHomeDirectory() stringByAppendingString:@"/tmp"]
+                withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+        [line writeToFile:boot atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
     if (!host_is_wechat()) return;   // 非微信宿主：零副作用（测试缝为直接函数调用，不受影响）
     load_config();
     // 既有镜像线性扫描（wechat.dylib 可能早于本 dylib 加载）——按地址表直查
@@ -1023,6 +1139,40 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
 
     start_evidence_timer();   // fires/hits/zero 会话内周期回写（marker 证据闭环）
     write_marker();
+    // 诊断通道（T4 排障）：构造器走完的尾部标记
+    @autoreleasepool {
+        NSString *boot = [NSString stringWithFormat:@"%@/tmp/wxkeep-boot.log",
+                          NSHomeDirectory()];
+        NSMutableString *acc = [NSMutableString stringWithContentsOfFile:boot
+                                                                encoding:NSUTF8StringEncoding error:nil];
+        [acc appendFormat:@"done config=%@ installed=%d status=%d scanmiss=%d cb=%d last_uuid=%s armed=%d\n",
+            read_runtime_config() ? @"yes" : @"no", g_hook_installed, g_hook_status,
+            g_scan_missed, g_cb_count,
+            g_last_uuid[0] ? g_last_uuid : "<none>", g_hook_installed];
+        [acc writeToFile:boot atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+    // 诊断通道（T4 排障）：延迟采样——wechat.dylib 由 libwxld 在 main 内
+    // dlopen，构造器期快照看不到它；20s 后回调证据已齐。
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        @autoreleasepool {
+            NSString *boot = [NSString stringWithFormat:@"%@/tmp/wxkeep-boot.log",
+                              NSHomeDirectory()];
+            NSMutableString *acc = [NSMutableString stringWithContentsOfFile:boot
+                                                                    encoding:NSUTF8StringEncoding error:nil];
+            [acc appendFormat:@"late20s installed=%d status=%d cb=%d last_uuid=%s scanmiss=%d istep=%d errno=%d prologue=",
+                g_hook_installed, g_hook_status, g_cb_count,
+                g_last_uuid[0] ? g_last_uuid : "<none>", g_scan_missed,
+                g_install_step, g_install_errno];
+            if (g_saved_prologue_valid) {
+                for (int k = 0; k < 16; k++) [acc appendFormat:@"%02x", g_saved_prologue[k]];
+            } else {
+                [acc appendString:@"<not-captured>"];
+            }
+            [acc appendString:@"\n"];
+            [acc writeToFile:boot atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1077,6 +1227,12 @@ int wxkeep_runtime_test_hook_row(int idx, unsigned long *hook_off,
 /// 返回清零的数字个数。锁死 v1 语义的 runtime 化实现。
 int wxkeep_runtime_test_zero(unsigned char *data, unsigned long len) {
     return zero_newmsgid_digits(data, (uint64_t)len);
+}
+
+/// T4 实验缝：对 XML 缓冲执行 <msgid> 数字清零（等长）——独立于配置
+/// 全局，测试直接驱动改写逻辑本身。
+int wxkeep_runtime_test_zero_msgid(unsigned char *data, unsigned long len) {
+    return zero_tag_digits(data, (uint64_t)len, "<msgid>", sizeof("<msgid>") - 1);
 }
 
 /// 配置文件端到端缝：按生产路径（dictionaryWithContentsOfFile 的 plist
