@@ -467,6 +467,42 @@ extension Wxkeep {
             return armed ? "已武装（对已匹配构建生效）"
                          : "未武装（当前构建无匹配地址行或序言不符）"
         }
+
+        /// marker `status=` 位域判读（77 续，与 runtime.m 的 g_hook_status
+        /// 诊断位一一对应——两側同步改）。旧编码 kStInstallFail=3 与
+        /// uuid(1)+prologue(2) 同形（status=11 曾被误读为序言门，实为
+        /// callback+install-fail）；新 dylib 写出的 marker 带 enc=2 标记，
+        /// 只对带标记的 marker 判读（见 markerStatusFlags）——武装态的权威
+        /// 表达是 mr2= 字段，本函数只解诊断位。
+        static func runtimeStatusFlags(_ status: Int) -> [String] {
+            var flags: [String] = []
+            if status & 1 != 0 { flags.append("uuid-mismatch") }
+            if status & 2 != 0 { flags.append("prologue-mismatch") }
+            if status & 4 != 0 { flags.append("install-fail") }
+            if status & 8 != 0 { flags.append("armed") }
+            if status & 16 != 0 { flags.append("callback") }
+            if status & 32 != 0 { flags.append("scan-missed") }
+            if status & 64 != 0 { flags.append("func-id-mismatch") }
+            return flags.isEmpty ? ["idle"] : flags
+        }
+
+        /// 从 marker 文本提取 status 位域判读：带 enc=2（新编码）才解位，
+        /// 否则返回 nil（旧 dylib 写出的数字按旧编码不可靠，展示原值即可，
+        /// 重启微信后 marker 自动更新）。附带 istep/ierr（安装失败步骤与
+        /// errno，定位 mmap/mprotect/vm_remap 哪一步炸的——77 轮排障实证
+        /// 这两个数是唯一可靠信号）。
+        static func markerStatusDecode(_ marker: String) -> (status: Int, flags: [String]?,
+                                                            installStep: Int?, installErrno: Int?)? {
+            func intValue(_ key: String) -> Int? {
+                guard let r = marker.range(of: "\(key)=") else { return nil }
+                let digits = marker[r.upperBound...].prefix(while: { $0.isNumber })
+                return digits.isEmpty ? nil : Int(digits)
+            }
+            guard let status = intValue("status") else { return nil }
+            let newEncoding = marker.contains("enc=2")
+            let flags = newEncoding ? runtimeStatusFlags(status) : nil
+            return (status, flags, intValue("istep"), intValue("ierr"))
+        }
         static func frameworkDylibURL(_ app: URL) -> URL {
             WeChatApp.binaryURL(app: app, relative: "Contents/Frameworks/wxkeep_runtime.dylib")
         }
@@ -615,6 +651,22 @@ extension Wxkeep {
                     }
                     print("hook 证据:         fires=\(markerInt("fires")) hits=\(markerInt("hits")) "
                         + "zero=\(markerInt("zero"))（本次启动累计，30s 粒度回写）")
+                    // 诊断位判读（77 续）：install-fail 时 istep/ierr 指明
+                    // mmap(1)/页改写(2) 与 errno——macOS 27 W^X 排障的钥匙。
+                    if let decode = RuntimeCommand.markerStatusDecode(markerText) {
+                        if let flags = decode.flags {
+                            var line = "hook 诊断:         status=\(decode.status)（\(flags.joined(separator: "+"))）"
+                            if flags.contains("install-fail") {
+                                line += "——istep=\(decode.installStep.map(String.init) ?? "?") "
+                                    + "errno=\(decode.installErrno.map(String.init) ?? "?")"
+                                    + "（istep 1=mmap 蹦床 2=目标页改写；errno 13=W^X 拒写）"
+                            }
+                            print(line)
+                        } else {
+                            print("hook 诊断:         status=\(decode.status)（旧编码 dylib 写出，"
+                                + "重启微信后 marker 更新为新编码）")
+                        }
+                    }
                 }
                 let state = active ? (markerExists ? "已启用" : "已注入（启动微信后生效）") : "未启用"
                 print("整体:              \(state)")

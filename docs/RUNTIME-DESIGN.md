@@ -151,11 +151,20 @@ uuid-mismatch(1)+prologue(2) 位形重叠）。与 Verifier 的 MAP_JIT 硬化
    自映射）——私有副本脱离 cs 只读强制，mprotect RW 可写；写 stub 后
    恢复 R|X。
 
-**残余（未修，77 轮止步）**：新壳（10-03 自更新起的 libwxld 世代）会话内
-吞 stub（calls 22→0 跨轮不稳定）+ hook 点参数语义需对 10-03 dylib 重验
-（x1 取证通道已备）。沙盒微信 App Group 写被拒（ad-hoc 签名无 team）→
-marker dir 选择在 Group 拒时不回落 legacy = 沙盒微信 marker 盲区（boot
-log 诊断通道已替代取证职能）。
+**残余（77 续收口两项，2026-10-26）**：①新壳（10-03 自更新起的 libwxld
+世代）吞 stub 疑云已由 stub 存活性读回证伪（alive=1 全程稳定，77 轮的
+「calls 22→0」是诊断代码自身采样缺陷）；真残余 = hook 点参数语义需对
+10-03 dylib 重验（x1 取证通道已备，re-derive 见 ROADMAP 顶部队列）。
+②沙盒微信 App Group 写被拒（ad-hoc 签名无 team）的 marker 盲区已修：
+`write_marker_ex` 改为「候选目录按序尝试，首个建目录+写成功者胜」——
+Group 拒写时回落 legacy（沙盒内展开 = 容器 Application Support，boot log
+同位面可达），不再只认 Group。③status 诊断位改为独立 bit
+（1/2/4/8/16/32/64，见 runtime.m g_hook_status 注释）——旧编码
+kStInstallFail=3 与 uuid(1)+prologue(2) 位形同形是 77 轮误判排障方向的
+根因；marker 新增 `enc=2` 编码标记 + `istep/ierr`（安装失败步骤与
+errno，macOS 27 W^X 排障钥匙），CLI 判读只对 enc=2 marker 解位
+（runtimeStatusFlags/markerStatusDecode），旧编码 marker 展示原值不误读；
+武装态权威表达仍是 `mr2=` 字段，不受位形重编码影响。
 
 ## hook 行函数级身份门（77 续，2026-10-26）
 

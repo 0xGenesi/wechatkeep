@@ -129,14 +129,18 @@ static int g_zero_fires;           // 清零计数（newmsgid 与 msgid 共用�
 static char g_last_fired[96];      // 最后一次改写后的内文前 95B（渲染问题取证）
 static char g_last_inner[96];      // 最后一次 needle 命中时的原始内文前 95B
 static int g_hook_installed;
-// 诊断（marker 回写）：0=未尝试 1=UUID 不匹配 2=序言不匹配
-// 3=mmap/mprotect 失败 4=已武装；bit8=回调已触发；16=扫描未命中；
-// 64=函数身份门不符（func_size/anchor，77 续新增——独立 bit，不与
-// 1/2/3 的旧组合位形重叠）
+// 诊断（marker 回写）——独立 bit 位形（77 续修复）。旧编码 kStInstallFail=3
+// 是「值」不是位，与 uuid(1)+prologue(2) 的组合同形：status=11 曾被误读为
+// 「回调+序言门」排障方向，实为 callback(8)+install-fail(3)——77 轮靠
+// istep/errno 才纠偏（台账 T4）。现改为互不重叠的位（marker 带 enc=2 标记
+// 新编码；CLI 判读见 WxkeepCLI.runtimeStatusFlags，mr2= 字段是武装态权威、
+// 不受位形影响）：
+//   1=UUID 不匹配 2=序言不匹配 4=安装失败(mmap/mprotect/vm_remap)
+//   8=已武装 16=add_image 回调已触发 32=扫描未命中 64=函数身份门不符
 static int g_hook_status;
 enum { kStIdle = 0, kStUuidMismatch = 1, kStPrologueMismatch = 2,
-       kStInstallFail = 3, kStArmed = 4, kStCallbackBit = 8,
-       kStScanMissed = 16, kStFuncMismatch = 64 };
+       kStInstallFail = 4, kStArmed = 8, kStCallbackBit = 16,
+       kStScanMissed = 32, kStFuncMismatch = 64 };
 static char g_probe_name[96];   // 构造器期匹配到的镜像名样本（诊断）
 static int uuid_matches(const struct mach_header_64 *hdr, const char *want,
                         size_t avail);
@@ -951,7 +955,8 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     }
     // 蹦床：RWX 页内 = 原入口原像 + 跳回 target+len。
     // arm64（macOS 27 微信进程实测 2026-10-26）：匿名 RWX mmap 被 W^X 拒
-    // （EACCES → kStInstallFail，status 位形 8|3 曾被误读为序言门）——与
+    // （EACCES → kStInstallFail；旧编码下其值 3 与序言门位形重叠致误读，
+    // 77 续已改独立 bit——见 g_hook_status 注释）——与
     // Verifier 65 轮同坑同解：MAP_JIT 是无 entitlement 的官方通道，写入用
     // np(0) 开写 + icache 失效；页装成后只执行不再写。x64 无 MAP_JIT 语义，
     // 维持 RWX。
@@ -1157,32 +1162,55 @@ static void on_image_add(const struct mach_header *mh, intptr_t slide) {
 
 void write_marker(void) { write_marker_ex(1); }
 
+/// 按序尝试候选目录，首个「建目录成功 + marker 写成功」者胜（返回序号，
+/// 全败 -1）。沙盒微信的 App Group 写被拒（ad-hoc 签名无 team，
+/// containermanagerd 拒授权——T4 台账实证：containerURL 返回合法路径但
+/// createDirectory/writeToFile 静默失败）时，这里让 legacy 路径（沙盒内
+/// 展开 = 容器 Application Support，boot log 同源可达性）接管——marker
+/// 通道不再永久盲区。路径选择「只认 Group」的旧行为因此缺陷在档。
+static int write_marker_first_writable(NSString *const *dirs, int n,
+                                       NSString *content) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (int i = 0; i < n; i++) {
+        if (![fm createDirectoryAtPath:dirs[i] withIntermediateDirectories:YES
+                                    attributes:nil error:nil]) continue;
+        NSString *path = [dirs[i] stringByAppendingPathComponent:@"runtime.marker"];
+        if ([content writeToFile:path atomically:YES
+                        encoding:NSUTF8StringEncoding error:nil]) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static NSString *legacyMarkerDir(void) {
+    NSArray *dirs = NSSearchPathForDirectoriesInDomains(
+        NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    NSString *base = dirs.count > 0 ? dirs[0] : @"~/Library/Application Support";
+    return [[base stringByAppendingPathComponent:@"wxkeep"]
+        stringByExpandingTildeInPath];
+}
+
 static void write_marker_ex(int loud) {
     @autoreleasepool {
         // 与配置同策略：Group 容器优先（CLI/runtime status 在沙盒外读同一路
-        // 径），legacy NSSearchPath 路径回落——容器内 ~/ 展开曾让 marker 对
-        // CLI 不可见（沙盒实证）。
-        NSString *dir = nil;
-        NSURL *groupURL = nil;
+        // 径），写失败回落 legacy——容器内 ~/ 展开曾让 marker 对 CLI 不可见
+        // （沙盒实证），回落版至少对容器内诊断（boot log 同位面）可见。
+        NSString *groupDir = nil;
         @try {
-            groupURL = [[NSFileManager defaultManager]
+            NSURL *groupURL = [[NSFileManager defaultManager]
                 containerURLForSecurityApplicationGroupIdentifier:runtimeAppGroupID()];
+            if (groupURL.path.length > 0) {
+                groupDir = [groupURL.path stringByAppendingPathComponent:@"wxkeep"];
+            }
         } @catch (NSException *e) {
-            groupURL = nil;
+            groupDir = nil;
         }
-        if (groupURL.path.length > 0) {
-            dir = [groupURL.path stringByAppendingPathComponent:@"wxkeep"];
-        } else {
-            dir = @"~/Library/Application Support/wxkeep";
-            dir = [dir stringByExpandingTildeInPath];
-        }
-        [[NSFileManager defaultManager] createDirectoryAtPath:dir
-                                  withIntermediateDirectories:YES attributes:nil error:nil];
-        NSString *marker = [dir stringByAppendingPathComponent:@"runtime.marker"];
-        NSString *now = [NSString stringWithFormat:
-            @"loaded ts=%f mr2=%@ status=%d fires=%d hits=%d zero=%d last=%@ inner=%@ probe=%@\n",
+        NSString *content = [NSString stringWithFormat:
+            @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d last=%@ inner=%@ probe=%@\n",
             [NSDate date].timeIntervalSince1970,
             g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
+            g_install_step, g_install_errno,
             g_rewrite_fires, g_rewrite_hits, g_zero_fires,
             g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
             g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
@@ -1191,9 +1219,14 @@ static void write_marker_ex(int loud) {
                 g_last_uuid[0] ? @(g_last_uuid) : @"<none>",
                 g_scan_missed,
                 g_probe_name[0] ? @(g_probe_name) : @"<none>"]];
-        [now writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        NSString *legacyDir = legacyMarkerDir();
+        NSString *dirs[2];
+        int n = 0;
+        if (groupDir) dirs[n++] = groupDir;
+        dirs[n++] = legacyDir;
+        int which = write_marker_first_writable(dirs, n, content);
         if (loud) {
-            NSLog(@"[wxkeep-runtime] loaded, marker at %@, mr2=%d", marker, g_hook_installed);
+            NSLog(@"[wxkeep-runtime] loaded, marker dir idx=%d, mr2=%d", which, g_hook_installed);
         }
     }
 }
@@ -1567,6 +1600,17 @@ int wxkeep_runtime_test_load_config_file(const char *path) {
 /// 当前生效文案的字节长度（load_config_file 缝的 tip 断言用）。
 int wxkeep_runtime_test_tip_len(void) {
     return (int)g_tip_len;
+}
+
+/// marker 候选目录回落策略缝（77 续）：按序尝试两目录，返回首个「建目录
+/// +写 marker」成功的序号（0/1），全败 -1。锁死「Group 写被拒时不回落
+/// legacy」缺陷复发（沙盒微信 marker 永久盲区，台账 T4）。
+int wxkeep_runtime_test_marker_dirs(const char *d1, const char *d2) {
+    if (!d1 || !d2) return -1;
+    NSString *dirs[2];
+    dirs[0] = [NSString stringWithUTF8String:d1];
+    dirs[1] = [NSString stringWithUTF8String:d2];
+    return write_marker_first_writable(dirs, 2, @"wxkeep-marker-fallback-probe");
 }
 
 long wxkeep_runtime_test_rewrite(unsigned char *data, unsigned long data_len,

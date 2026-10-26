@@ -271,7 +271,7 @@ struct Doctor {
             verdicts.append("⚠️ catalog manifest INVALID — \(String(ms.dropFirst(8))). Refusing to trust bundled data; fetch a fresh copy.")
         }
         if runtimeInjected && runtimeHookArmed == false {
-            verdicts.append("runtime hook 未武装——当前构建无匹配地址行或序言不符：`wxkeep runtime hooks` 刷新后重启微信，`wxkeep runtime status` 看详情")
+            verdicts.append("runtime hook 未武装——当前构建无匹配地址行/序言不符/函数身份门不符（77 续：同序言不同函数已实证可能）：`wxkeep runtime hooks` 刷新后重启微信，`wxkeep runtime status` 看诊断位")
         }
 
         // next command

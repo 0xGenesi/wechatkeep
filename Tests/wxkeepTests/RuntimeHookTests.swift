@@ -544,6 +544,34 @@ import Foundation
         // 越段（vmsize 0x10000 之外）→ 失配而非崩溃
         #expect(anchorVerify(img, va: 0x20000, bytes: anchor) == 0)
     }
+
+    // ---- marker 候选目录回落（77 续缺陷修复：沙盒微信 Group 写被拒时
+    //      legacy 接管——「只认 Group」旧行为 = marker 永久盲区，台账 T4）----
+
+    @Test func markerDirsFallBackWhenFirstFails() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-marker-fb-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        // 坏目录（路径中段被文件占位 → withIntermediateDirectories 建不出）在前
+        let blocker = tmp.appendingPathComponent("blocker")
+        try Data().write(to: blocker)
+        let bad = blocker.appendingPathComponent("sub").path
+        let good = tmp.appendingPathComponent("ok").path
+        let r1: Int32 = bad.withCString { b in
+            good.withCString { g in wxkeep_runtime_test_marker_dirs(b, g) }
+        }
+        #expect(r1 == 1, "Group（首位）写失败必须回落 legacy（次位）")
+        let r2: Int32 = good.withCString { g in
+            bad.withCString { b in wxkeep_runtime_test_marker_dirs(g, b) }
+        }
+        #expect(r2 == 0, "首位成功即用首位")
+        let r3: Int32 = bad.withCString { b in wxkeep_runtime_test_marker_dirs(b, b) }
+        #expect(r3 == -1, "全败 -1")
+        // 回落真的写出了 marker（不只是返回序号）
+        #expect(FileManager.default.fileExists(
+            atPath: tmp.appendingPathComponent("ok/runtime.marker").path))
+    }
 }
 
 /// 跨边界回归：RuntimeConfig.knownHooks（Swift 管理面）必须被 C 侧

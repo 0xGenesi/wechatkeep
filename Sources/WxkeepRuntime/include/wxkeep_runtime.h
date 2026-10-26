@@ -39,5 +39,8 @@ int wxkeep_runtime_test_zero_msgid(unsigned char *data, unsigned long len);
 int wxkeep_runtime_test_load_config_file(const char *path);
 // 当前生效文案的字节长度。
 int wxkeep_runtime_test_tip_len(void);
+// marker 候选目录回落策略缝（77 续）：按序尝试两目录写 runtime.marker，
+// 返回首个成功序号（0/1），全败 -1。
+int wxkeep_runtime_test_marker_dirs(const char *d1, const char *d2);
 
 #endif

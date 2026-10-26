@@ -157,4 +157,37 @@ extension DoctorTests {
         #expect(Wxkeep.RuntimeCommand.runtimeHookStateText(active: true, markerExists: false, armed: false)
                 == "未知（无启动记录）")
     }
+
+    /// marker status 位域判读（77 续修复：kStInstallFail=3 与 uuid(1)+
+    /// prologue(2) 同形——status=11 曾被误读为序言门，实为 callback+
+    /// install-fail，77 轮靠 istep/errno 才纠偏）。新编码独立 bit +
+    /// marker enc=2 标记；旧编码 marker 只展示原值不解位。
+    @Test func runtimeStatusFlagsDecodeIndependentBits() {
+        let f = Wxkeep.RuntimeCommand.runtimeStatusFlags
+        #expect(f(0) == ["idle"])
+        #expect(f(4) == ["install-fail"])
+        // 77 轮实案的新编码形态：callback + install-fail = 16|4
+        #expect(f(20) == ["install-fail", "callback"])
+        #expect(f(23) == ["uuid-mismatch", "prologue-mismatch", "install-fail", "callback"])
+        #expect(f(8) == ["armed"])
+        #expect(f(64) == ["func-id-mismatch"])
+        #expect(f(36) == ["install-fail", "scan-missed"])
+    }
+
+    @Test func markerStatusDecodeGatedByEncodingMarker() {
+        // 新编码（enc=2）：位域 + istep/ierr 齐读
+        let fresh = "loaded ts=1 mr2=marker-only status=20 enc=2 istep=2 ierr=13 fires=0 hits=0 zero=0"
+        let d1 = Wxkeep.RuntimeCommand.markerStatusDecode(fresh)
+        #expect(d1?.status == 20)
+        #expect(d1?.flags == ["install-fail", "callback"])
+        #expect(d1?.installStep == 2)
+        #expect(d1?.installErrno == 13)
+        // 旧编码（无 enc=2，77 轮前的 dylib 写出）：status 原值可读，位域不判读
+        let old = "loaded ts=1 mr2=marker-only status=11 fires=0 hits=0 zero=0"
+        let d2 = Wxkeep.RuntimeCommand.markerStatusDecode(old)
+        #expect(d2?.status == 11)
+        #expect(d2?.flags == nil, "11 在旧编码 = callback+install-fail，新判读会误读——不判读")
+        // 无 status 字段
+        #expect(Wxkeep.RuntimeCommand.markerStatusDecode("loaded ts=1") == nil)
+    }
 }
