@@ -169,6 +169,60 @@ errno，macOS 27 W^X 排障钥匙），CLI 判读只对 enc=2 marker 解位
 （runtimeStatusFlags/markerStatusDecode），旧编码 marker 展示原值不误读；
 武装态权威表达仍是 `mr2=` 字段，不受位形重编码影响。
 
+## hook 链全参透传（77 续⑨，2026-10-27）
+
+**问题（反汇编实锤）**：hook 函数原为 6 参 C 形态（`revoke_wrapper_hook
+(a0..a5)`）。对 T4 当时装机 的 Release dylib 反汇编：尾跳序列 `ldr x6,
+…; br x6` 把 **x6 当草稿寄存器清掉**——arm64 行挂的解析族函数（0x4bc4d34
+系）签名未知（77 续⑦已证其 x1 语义与 x64 行不同构），若它有第 7 个整型
+寄存器参，**每次调用该参数被静默替换为蹦床地址**；同时 hook 体调用
+memcpy（诊断快照）会清 **v0-v7（FP 参）**。这两者与「T4 hook 体纯
+no-op 仍渲染全占位」完全相容，是机制级头号候选（真机复核待 T5）。社区
+同类实证：Dobby #190（x8/sret 被清崩）、frida-gum 历史修复「Fix access
+to arguments 4 through 7 on arm64」。
+
+**修复（arm64 naked thunk，结构保证而非代码生成运气）**：
+`revoke_wrapper_hook` 改 `__attribute__((naked))` 纯 asm 蹦床——
+`x0-x8`（8 整型参 + sret 隐参）与 `q0-q7`（FP/SIMD 参）全量保存/恢复，
+尾跳 `g_real_wrapper` 前 sp 已复原（第 9+ 参的栈参原位可读）；x16/x17
+（IP 草稿，非参数位）承担转移。主体逻辑抽出 `revoke_hook_body(void
+*const *args)`（`__attribute__((used))`——静态函数只被内联 asm 引用，
+无标注会被当 dead code 删除，链接期 undefined symbol 实测）。**x64 保持
+C 形态**：整型参寄存器全集（rdi..r9）恰好 6 个，C 形态即完整；hook 行
+契约 = 目标函数无 FP 参（x64 行实弹多年，parse(rdi,rsi,&ok) 无 FP/栈参）。
+
+**帧布局（0xE0）**：[0x00]=x29/x30；[0x10..0x3F]=x0..x5（8B 槽，
+body 的 msg_arg 索引面）；[0x50]=x8；[0x60..0xCF]=q0..q7（**16B 槽**）。
+三类槽间距踩坑全部被透传测试当场抓出（见下），其中最危险的是 Q 槽按
+8B 排布时 `stp q6,q7,[sp,#0x90]` 的 q7 半段**溢出帧边界砸调用方栈参**
+——若无该测试，这是一个「只在特定 SIMD 残留值下偶发」的生产级栈腐败。
+
+**透传契约测试（`wxkeep_runtime_test_hook_transparency`，arm64 宿主）**：
+MAP_JIT 页内手工构造转储哨兵（入口 16B=4×NOP 可换址重放段；续段把
+x0-x7/[sp]/v0/v1/x30/sp 逐槽转储到独立 RW 页后 EOR 折叠返回），经生产
+同一蹦床/stub 公共路径（`prepare_trampoline`+`write_entry_stub`，77 续⑨
+从 install_hook 提出——测试驱动的是生产代码不是副本）挂钩后调用，
+全部参数逐位穿透返回 1。对修复前代码红（Debug 即红：memcpy 清 v0/v1）、
+修复后 Debug/Release 双绿。排障出口（diff 指纹/逐槽快照）留在测试缝，
+未来任何透传回归可逐槽指认。测试走 MAP_JIT 页的原因：本机（macOS 27）
+实测**无 entitlement 的进程连 vm_remap COW 后的 mprotect RW 也被拒**
+（vm_remap 本身 KERN_SUCCESS 但别名仍受 cs 只读强制）——文件页 W^X
+舞步只在带 allow-unsigned-executable-memory 的宿主（微信）内成立，
+测试只能在 MAP_JIT 页内驱动。
+
+**社区方案对照（2026-10-27 全网检索，frida-gum/substitute/ElleKit/
+Dobby 源码级）**：naked/asm thunk 全量保存是主流做法（frida 保
+q0-q31+x0-x28+NZCV 调试器级全量；Dobby instrument 桥 = q0-q7+x0-x30，
+与我们同级的「最小正确集」；我们多保 x8/sret 是 Dobby #190 的翻车点）。
+另两条未来可用增量：①入口 16B patch 的 scratch 寄存器（x17）对标准
+C/C++ ABI 安全，但 frida 2026-09 `9573d3ef` 证明 iOS 27 起系统库序言
+双用 x16/x17——若未来 hook 目标含手写 stub/非标准进入函数，需像
+ElleKit `findSafeRegister`/substitute `arm64_get_unwritten_temp_reg`
+那样按目标序言 liveness 选寄存器；②写页原语的社区最优解是
+substitute/frida 的「匿名补丁页 + `mach_vm_remap(VM_FLAGS_OVERWRITE)`
+整页盖回」——从不请求签名页可写，无 entitlement 进程也可行，作为
+vm_remap COW 舞步的备选记录在案（现路径在微信进程内实证可用，不换）。
+
 ## hook 行函数级身份门（77 续，2026-10-26）
 
 **为什么 UUID + 序言门不够**：10-03 微信自更新交付了**同构建号、同

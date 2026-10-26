@@ -45,5 +45,18 @@ int wxkeep_runtime_test_marker_dirs(const char *d1, const char *d2);
 // per-arch 串对象头布局缝（77 续⑧）：1=arm64 变体布局（flag=[0x17] 符号
 // /data@[0]/size@[8]），0=x64 标准布局（byte0 奇=长/size@[8]/ptr@[0x10]）。
 void wxkeep_runtime_test_set_arm64_layout(int arm64);
+// 透传契约端到端缝（77 续⑨，仅 arm64 宿主）：MAP_JIT 哨兵函数（8 整型
+// 寄存器参 + 1 栈参 + 2 FP 参）经生产蹦床/stub 公共路径挂钩后调用，参数
+// 逐位穿透返回 1；失配 0；装挂失败 -1；非 arm64 宿主 -2；哨兵自检失败
+// -3；hook 链未到达 -4。锁死「hook 链清参数寄存器」（x6 草稿/FP 参被
+// memcpy 清/sp 未复原）——T4 渲染破坏机制的回归防线。
+long wxkeep_runtime_test_hook_transparency(void);
+// 透传缝的排障出口：diff = 挂钩调用结果 ⊕ 期望的指纹（按位指认被破坏
+// 的参数槽）；got = 挂钩调用原样返回值。
+long wxkeep_runtime_test_transparency_diff(void);
+long wxkeep_runtime_test_transparency_got(void);
+// 转储哨兵逐槽出口（调试用）：idx 0..7=x0..x7，8=[sp] 栈参，9=d0，10=d1，
+// 11=x30，12=sp；hooked=1 挂钩调用 / 0 基线调用。
+long wxkeep_runtime_test_transparency_slot(int idx, int hooked);
 
 #endif

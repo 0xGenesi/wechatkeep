@@ -684,18 +684,24 @@ typedef struct {
 
 static hook_ctx_t g_hook;
 
-// 调用约定透传：x64 前六整型参 rdi..r9 / arm64 前八整型参 x0..x7——取六参
-// 足够还原 wrapper 的 (rdi=信息对象, rsi=消息结构) 形态（arm64 为 x0/x1）。
+// 调用约定透传：x64 前六整型参 rdi..r9 / arm64 前八整型参 x0..x7。arm64 走
+// naked thunk 全寄存器保存/恢复（77 续⑨，见 revoke_wrapper_hook 注释）；x64
+// 整型参寄存器全集恰好 6 个，C 形态即完整透传（hook 行契约 = 目标函数无 FP 参）。
 static void *(*g_real_wrapper)(void *, void *, void *, void *, void *, void *);
 
 static volatile int g_hook_calls;    // T4 排障：stub 调用计数（诊断）
 static uint8_t g_arg1_head[24];      // T4 排障：最近一次 x1 头 24B（参数语义取证）
 static volatile int g_arg1_valid;
-static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
-                                 void *a3, void *a4, void *a5) {
+
+/// hook 主体（与形态无关）：args = 目标函数整型参镜像（arm64 thunk 的
+/// x0-x5 栈帧槽 / x64 调用点的局部数组）。只读 args[g_hook.msg_arg] 与
+/// args[1]（诊断面）；一切改写只发生在 XML 缓冲内部。
+// used：静态函数只被 naked thunk 的内联 asm 引用（C 侧零引用），无此标
+// 注会被编译器当 dead code 删除 → 链接期 undefined symbol（实测）。
+__attribute__((used)) static void revoke_hook_body(void *const *args) {
     g_hook_calls++;
-    if (a1 > (void *)0x10000) {
-        memcpy((void *)g_arg1_head, a1, sizeof(g_arg1_head));
+    if (args[1] > (void *)0x10000) {
+        memcpy((void *)g_arg1_head, args[1], sizeof(g_arg1_head));
         g_arg1_valid = 1;
     }
     // g_hook.target 以 acquire 读，与 install_hook 的 release 存储配对
@@ -705,7 +711,6 @@ static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
     // 的弱序窗口（arm64 弱内存序下 C 语义无保证的路径）。
     if (__atomic_load_n(&g_hook.target, __ATOMIC_ACQUIRE)
         && (g_tip_len || g_keep_message)) {
-        void *args[6] = {a0, a1, a2, a3, a4, a5};
         uint8_t *msg = (uint8_t *)args[g_hook.msg_arg];
         if (msg > (uint8_t *)0x10000) {
             uint8_t *sso = msg + g_hook.xml_sso_off;
@@ -725,8 +730,64 @@ static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
             }
         }
     }
+}
+
+#if defined(__arm64__) || defined(__aarch64__)
+// AAPCS64 全参透传 thunk（77 续⑨）：x0-x8（8 整型参 + sret 隐参）与
+// q0-q7（FP/SIMD 参）全量保存/恢复；尾跳 g_real_wrapper 前 sp 已复原到
+// 入口值，第 9+ 参的栈参原位可读。x16/x17 是 IP 草稿寄存器（非参数位）。
+//
+// 取代 6 参 C 透传形态的动机（反汇编实锤 = T4 渲染破坏机制头号候选）：
+// ①Release 构建把 x6 当尾跳草稿寄存器（`ldr x6,…; br x6`）——目标函数
+//   若有第 7 个整型参，每次调用的该参数被静默替换为蹦床地址；
+// ②hook 体调用 memcpy（诊断快照）会清 v0-v7——FP 参同样不保。
+// arm64 hook 行挂的解析族函数签名未知（77 续⑦ 已证其 x1 语义与 x64 行
+// 不同构），透传必须是结构保证而不是代码生成运气。x64 切片的整型参
+// 寄存器全集恰好 6 个，C 形态对整型参完整（见下方 #else 分支）。
+__attribute__((naked)) static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
+                                                        void *a3, void *a4, void *a5) {
+    // 帧布局（0xE0）：[0x00]=x29/x30；[0x10..0x3F]=x0..x5（args[0..5]，8B 槽）；
+    // [0x50]=x8；[0x60..0xCF]=q0..q7（**16B 槽**）。槽间距三类踩坑都被透传
+    // 测试当场抓出：q 按 8B 排 → q7 溢出帧砸调用方栈参 + q1/q2 互踩；
+    // x8 放 0x48 → 撞 x6/x7 对的 x7 槽。
+    __asm__ volatile(
+        "stp x29, x30, [sp, #-0xe0]!\n"
+        "stp x0, x1, [sp, #0x10]\n"     // args[0..5]（body 的 msg_arg 索引面）
+        "stp x2, x3, [sp, #0x20]\n"
+        "stp x4, x5, [sp, #0x30]\n"
+        "stp x6, x7, [sp, #0x40]\n"
+        "str x8,      [sp, #0x50]\n"    // sret 隐参（C++ 按值返回大对象）
+        "stp q0, q1, [sp, #0x60]\n"     // FP/SIMD 参 v0-v7（body 会经 memcpy 清掉）
+        "stp q2, q3, [sp, #0x80]\n"
+        "stp q4, q5, [sp, #0xa0]\n"
+        "stp q6, q7, [sp, #0xc0]\n"
+        "add x0, sp, #0x10\n"           // body(void *const *args)
+        "bl _revoke_hook_body\n"
+        "ldp x0, x1, [sp, #0x10]\n"
+        "ldp x2, x3, [sp, #0x20]\n"
+        "ldp x4, x5, [sp, #0x30]\n"
+        "ldp x6, x7, [sp, #0x40]\n"
+        "ldr x8,      [sp, #0x50]\n"
+        "ldp q0, q1, [sp, #0x60]\n"
+        "ldp q2, q3, [sp, #0x80]\n"
+        "ldp q4, q5, [sp, #0xa0]\n"
+        "ldp q6, q7, [sp, #0xc0]\n"
+        "ldp x29, x30, [sp], #0xe0\n"   // sp 复原（栈参原位）
+        "adrp x16, _g_real_wrapper@PAGE\n"
+        "ldr x16, [x16, _g_real_wrapper@PAGEOFF]\n"
+        "br x16\n");
+}
+#else
+// x86_64：整型参寄存器全集 = rdi/rsi/rdx/rcx/r8/r9 恰好 6 个，C 形态即
+// 完整透传；栈参由编译器自然产生的尾跳保持 rsp 原值（x64 行实弹多年，
+// parse(rdi,rsi,&ok) 无 FP 参/栈参）。
+static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
+                                 void *a3, void *a4, void *a5) {
+    void *args[6] = {a0, a1, a2, a3, a4, a5};
+    revoke_hook_body(args);
     return g_real_wrapper(a0, a1, a2, a3, a4, a5);
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // 函数级身份核对（77 续）：install 期按镜像自身元数据（段表 +
@@ -927,6 +988,95 @@ static int anchor_matches(const image_layout_t *im, uint32_t anchor_va,
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// 蹦床/入口 stub 公共路径（77 续⑨从 install_hook 提出）：install 与透传
+// 契约测试缝（wxkeep_runtime_test_hook_transparency）经同一代码驱动——
+// 测到的就是生产路径，不是副本。
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    uint8_t *mem;          // 蹦床页（4096；调用方负责 munmap）
+    uint8_t stub[16];      // 入口 stub（写前构造；arm64 16B / x64 12B）
+    size_t stub_len;
+} hook_trampoline_t;
+
+/// 蹦床页创建 + 装填（原入口原像 + 跳回 target+len）。arm64 走 MAP_JIT
+/// （np 开写 → icache 失效 → np 关写），x64 走匿名 RWX。失败时 errno/step
+/// 已记录（g_install_step=1 = mmap）。
+static int prepare_trampoline(uintptr_t target, const uint8_t *prologue,
+                              size_t len, int is_arm64,
+                              hook_trampoline_t *out) {
+    memset(out, 0, sizeof(*out));
+    int jit = is_arm64;
+    uint8_t *mem = mmap(NULL, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                        MAP_ANON | MAP_PRIVATE | (jit ? MAP_JIT : 0), -1, 0);
+    if (mem == MAP_FAILED) { g_install_errno = errno; g_install_step = 1; return -1; }
+    if (jit) pthread_jit_write_protect_np(0);
+    memcpy(mem, prologue, len);
+    uint64_t back = target + len;
+    if (is_arm64) {
+        memcpy(mem + len, "\x51\x00\x00\x58", 4);        // ldr x17, #8
+        memcpy(mem + len + 4, "\x20\x02\x1f\xd6", 4);    // br x17
+        memcpy(mem + len + 8, &back, 8);
+        sys_icache_invalidate(mem, len + 16);
+        pthread_jit_write_protect_np(1);
+    } else {
+        memcpy(mem + 12, "\x49\xbb", 2);                 // movabs r11, imm64
+        memcpy(mem + 14, &back, 8);
+        memcpy(mem + 22, "\x41\xff\xe3", 3);             // jmp r11
+    }
+    out->mem = mem;
+    uint64_t hook = (uint64_t)&revoke_wrapper_hook;
+    if (is_arm64) {
+        memcpy(out->stub, "\x51\x00\x00\x58", 4);        // ldr x17, #8
+        memcpy(out->stub + 4, "\x20\x02\x1f\xd6", 4);    // br x17
+        memcpy(out->stub + 8, &hook, 8);
+        out->stub_len = 16;
+    } else {
+        memcpy(out->stub, "\x48\xb8", 2);                // movabs rax, imm64
+        memcpy(out->stub + 2, &hook, 8);
+        memcpy(out->stub + 10, "\xff\xe0", 2);           // jmp rax
+        out->stub_len = 12;
+    }
+    return 0;
+}
+
+/// 入口 stub 落写 + 写后读回（g_stub_alive）。page_already_writable=1：
+/// 目标页已是本线程 MAP_JIT 页（测试缝的哨兵页）——np(0) 窗口直写；
+/// 0 = 生产文件页：mprotect → vm_remap COW 舞步（语义见 install_hook 内
+/// 注释）。失败时 errno/step 已记录（step=2 = 目标页可写化）。
+static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_len,
+                            int is_arm64, int page_already_writable) {
+    uintptr_t page = target & ~(uintptr_t)0xfff;
+    if (page_already_writable) {
+        pthread_jit_write_protect_np(0);
+        memcpy((void *)target, stub, stub_len);
+        sys_icache_invalidate((void *)target, stub_len);
+        pthread_jit_write_protect_np(1);
+    } else {
+        int page_writable =
+            (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC) == 0);
+        if (!page_writable) {
+            vm_address_t rw = (vm_address_t)page;
+            vm_prot_t cur = 0, mx = 0;
+            kern_return_t kr = vm_remap(mach_task_self(), &rw, 0x2000, 0,
+                                        VM_FLAGS_OVERWRITE | VM_FLAGS_RETURN_DATA_ADDR,
+                                        mach_task_self(), (vm_address_t)page, FALSE,
+                                        &cur, &mx, VM_INHERIT_COPY);
+            page_writable = (kr == KERN_SUCCESS) &&
+                (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE) == 0);
+        }
+        if (!page_writable) { g_install_errno = errno; g_install_step = 2; return -1; }
+        memcpy((void *)target, stub, stub_len);
+        if (is_arm64) sys_icache_invalidate((void *)target, stub_len);
+        mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
+    }
+    // 写后读回：COW remap 写路径的直接验证（写丢失在此即现，不等撤回流量）
+    const uint8_t *now = (const uint8_t *)target;
+    g_stub_alive = (memcmp(now, stub, stub_len) == 0) ? 1 : 0;
+    return 0;
+}
+
 static int install_hook(const hook_target_t *t, uintptr_t base) {
     int32_t expected = 0;
     if (!__atomic_compare_exchange_n(&g_arm_done, &expected, 1, 0,
@@ -977,6 +1127,7 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
             return -1;
         }
     }
+    // ---- 蹦床与入口 stub（77 续⑨提为公共路径：测试缝经同一代码驱动）----
     // 蹦床：RWX 页内 = 原入口原像 + 跳回 target+len。
     // arm64（macOS 27 微信进程实测 2026-10-26）：匿名 RWX mmap 被 W^X 拒
     // （EACCES → kStInstallFail；旧编码下其值 3 与序言门位形重叠致误读，
@@ -984,23 +1135,10 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     // Verifier 65 轮同坑同解：MAP_JIT 是无 entitlement 的官方通道，写入用
     // np(0) 开写 + icache 失效；页装成后只执行不再写。x64 无 MAP_JIT 语义，
     // 维持 RWX。
-    int jit = t->is_arm64;
-    uint8_t *mem = mmap(NULL, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
-                        MAP_ANON | MAP_PRIVATE | (jit ? MAP_JIT : 0), -1, 0);
-    if (mem == MAP_FAILED) { g_hook_status |= kStInstallFail; g_install_errno = errno; g_install_step = 1; return -1; }
-    if (jit) pthread_jit_write_protect_np(0);
-    memcpy(mem, prologue, len);
-    uint64_t back = target + len;
-    if (t->is_arm64) {
-        memcpy(mem + len, "\x51\x00\x00\x58", 4);        // ldr x17, #8
-        memcpy(mem + len + 4, "\x20\x02\x1f\xd6", 4);    // br x17
-        memcpy(mem + len + 8, &back, 8);
-        sys_icache_invalidate(mem, len + 16);
-        pthread_jit_write_protect_np(1);
-    } else {
-        memcpy(mem + 12, "\x49\xbb", 2);                 // movabs r11, imm64
-        memcpy(mem + 14, &back, 8);
-        memcpy(mem + 22, "\x41\xff\xe3", 3);             // jmp r11
+    hook_trampoline_t tr;
+    if (prepare_trampoline(target, prologue, len, t->is_arm64, &tr) != 0) {
+        g_hook_status |= kStInstallFail;   // errno/step 已在公共路径内记录
+        return -1;
     }
 
     // 发布序（弱内存序防线，72·L3①）：依赖字段全部先写，g_hook.target
@@ -1016,32 +1154,22 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     g_hook.xml_sso_off = t->xml_sso_off;
     g_sso_layout_arm64 = t->is_arm64;   // 串对象头布局随行 arch（77 续⑧）
     memcpy(g_hook.saved, prologue, len);
-    g_hook.trampoline = mem;
-    g_real_wrapper = (void *(*)(void *, void *, void *, void *, void *, void *))mem;
+    g_hook.trampoline = tr.mem;
+    g_real_wrapper = (void *(*)(void *, void *, void *, void *, void *, void *))tr.mem;
     __atomic_store_n(&g_hook.target, target, __ATOMIC_RELEASE);
 
-    uintptr_t page = target & ~(uintptr_t)0xfff;
+    // 入口 stub 落写（最后一步：此刻 hook 侧上下文已完整发布）。
     // macOS 27 硬化（2026-10-26 实证 istep=2 errno=13）：entitlements 全在
     // （allow-jit / allow-unsigned-executable-memory），mprotect 给已签名
     // 镜像页加 W 仍 EACCES——27 的 W^X 只放行 MAP_JIT 区。合法通道 =
     // vm_remap COW：VM_INHERIT_COPY 让目标页获得私有副本（脱离 cs 只读
     // 强制），之后 mprotect RW 写 stub、恢复 R|X。9-25 的直接 mprotect
     // 成功是 macOS 26 语义（用户 10 月初升级 27——与 65 轮 Verifier
-    // MAP_JIT SIGBUS 大战同期同硬化）。
-    int page_writable =
-        (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC) == 0);
-    if (!page_writable) {
-        vm_address_t rw = (vm_address_t)page;
-        vm_prot_t cur = 0, mx = 0;
-        kern_return_t kr = vm_remap(mach_task_self(), &rw, 0x2000, 0,
-                                    VM_FLAGS_OVERWRITE | VM_FLAGS_RETURN_DATA_ADDR,
-                                    mach_task_self(), (vm_address_t)page, FALSE,
-                                    &cur, &mx, VM_INHERIT_COPY);
-        page_writable = (kr == KERN_SUCCESS) &&
-            (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE) == 0);
-    }
-    if (!page_writable) {
-        g_hook_status |= kStInstallFail; g_install_errno = errno; g_install_step = 2;
+    // MAP_JIT SIGBUS 大战同期同硬化）。无 entitlement 的进程（本机实测
+    // 2026-10-27）连 COW 后的 mprotect RW 也被拒——该舞步只在带
+    // allow-unsigned-executable-memory 的宿主（微信）内成立。
+    if (write_entry_stub(target, tr.stub, tr.stub_len, t->is_arm64, 0) != 0) {
+        g_hook_status |= kStInstallFail;   // errno/step 已在公共路径内记录
         // 失败清理：蹦床页归还 + 复位 g_hook（此刻 entry 尚未改写、hook 未
         // 到达，g_real_wrapper 不可能有调用者——g_arm_done 已置位不再重试，
         // 残留武装态字段只会误导诊断）。target=0 的 release 存储与 hook 侧
@@ -1049,29 +1177,8 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
         g_hook.trampoline = NULL;
         g_real_wrapper = NULL;
         __atomic_store_n(&g_hook.target, 0, __ATOMIC_RELEASE);
-        munmap(mem, 4096);
+        munmap(tr.mem, 4096);
         return -1;
-    }
-    uint8_t stub[16];
-    uint64_t hook = (uint64_t)&revoke_wrapper_hook;
-    if (t->is_arm64) {
-        memcpy(stub, "\x51\x00\x00\x58", 4);             // ldr x17, #8
-        memcpy(stub + 4, "\x20\x02\x1f\xd6", 4);         // br x17
-        memcpy(stub + 8, &hook, 8);
-        memcpy((void *)target, stub, 16);
-        sys_icache_invalidate((void *)target, 16);
-    } else {
-        memcpy(stub, "\x48\xb8", 2);                     // movabs rax, imm64
-        memcpy(stub + 2, &hook, 8);
-        memcpy(stub + 10, "\xff\xe0", 2);                // jmp rax
-        memcpy((void *)target, stub, 12);
-    }
-    mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
-    // 写后读回：COW remap 写路径的直接验证（写丢失在此即现，不等撤回流量）
-    {
-        const uint8_t *now = (const uint8_t *)target;
-        size_t slen = t->is_arm64 ? 16 : 12;
-        g_stub_alive = (memcmp(now, stub, slen) == 0) ? 1 : 0;
     }
     return 0;
 }
@@ -1299,7 +1406,7 @@ static void start_evidence_timer(void) {
     dispatch_resume(timer);
     // 刻意被静态引用持有、永不 cancel：source→handler→全局函数 无环，
     // 常驻即设计（进程内一次性安装）。
-    static dispatch_source_t keep;
+    static dispatch_source_t keep __attribute__((unused));
     keep = timer;
 }
 
@@ -1476,7 +1583,7 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
     [[NSNotificationCenter defaultCenter]
         addObserverForName:NSApplicationDidFinishLaunchingNotification
                     object:nil queue:nil
-                usingBlock:^(NSNotification *note){ arm_late(); }];
+                usingBlock:^(NSNotification *note){ (void)note; arm_late(); }];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
                    ^{ arm_late(); });
 
@@ -1628,6 +1735,155 @@ int wxkeep_runtime_test_load_config_file(const char *path) {
 /// 生产路径由 install_hook 按行 arch 置位。
 void wxkeep_runtime_test_set_arm64_layout(int arm64) {
     g_sso_layout_arm64 = arm64 ? 1 : 0;
+}
+
+// 透传缝的排障出口（双架构定义，非 arm64 宿主恒 0）
+long g_wxkeep_transparency_diff;
+long g_wxkeep_transparency_got;
+uint64_t g_wxkeep_transparency_base_dump[13];
+uint64_t g_wxkeep_transparency_hooked_dump[13];
+
+#if defined(__arm64__) || defined(__aarch64__)
+// ---------------------------------------------------------------------------
+// 透传契约端到端缝（77 续⑨，仅 arm64 宿主）
+//
+// MAP_JIT 页内手工构造哨兵函数：8 个整型寄存器参（x0-x7）+ 1 个栈参
+//（[sp]）+ 2 个 FP 参（v0/v1）全部 EOR 折进 x0 返回。经生产同一蹦床/
+// stub 代码路径（prepare_trampoline + write_entry_stub）挂钩后调用——
+// hook 链上任何参数面被破坏都让哨兵失配：
+//   · x6 被当草稿寄存器（Release 构建 6 参 C 形态的实测尾跳 `ldr x6,…;
+//     br x6`）→ 第 7 整型参失真；
+//   · hook 体调 memcpy 清 v0-v7 → FP 参失真；
+//   · 尾跳前 sp 未复原 → 栈参失真。
+// 这三者即 T4「hook 体 no-op 仍渲染全占位」的机制候选面（arm64 行挂的
+// 解析族函数签名未知）。
+// 哨兵 args[1] 传有效 32B 缓冲指针：hook 诊断面（24B 快照）与 sso_head
+// 读取范围（arm64 布局 ≤0x18B）都落在界内，短串门自然关断（确定性）。
+// 返回：1=全透传通过 0=参数失配 -1=装挂失败 -3=哨兵自检失败
+//       -4=hook 链未实际到达（计数未增）。
+// ---------------------------------------------------------------------------
+static uint8_t *g_sentinel_page;
+static uint8_t *g_dump_page;   // 转储哨兵的 RW 落页（RX 的哨兵页不可写）
+
+long wxkeep_runtime_test_hook_transparency(void) {
+    if (g_sentinel_page == NULL) {
+        g_sentinel_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                               MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0);
+        if (g_sentinel_page == MAP_FAILED) return -1;
+        // 哨兵 arm64 机器码（入口 16B = 蹦床重放段，纯寄存器运算无 PC 相对）：
+        //   eor x0,x0,x1..x4            ← 重放段（4 条 = 16B）
+        //   eor x0,x0,x5/x6/x7          ← 续段（+16 起）
+        //   ldr x9,[sp]; eor x0,x0,x9   ← 第 9 整型参 = 栈参（尾跳保 sp 才对）
+        //   fmov x9,d0/d1; eor x0,x0,x9 ← FP 参 v0/v1 位级折叠
+        //   ret
+        // 转储哨兵（排障形态；正式形态见 git 历史）：入口 16B=4×NOP（可换址
+        // 重放段），续段（+0x10 起，原址执行）先把 x0-x7/[sp]/v0/v1/x30/sp
+        // 原样转储到页 +0x90，再 EOR 折叠返回。逐槽比对定位破坏点。
+        static const uint32_t code[] = {
+            0xD503201Fu, 0xD503201Fu, 0xD503201Fu, 0xD503201Fu,  // nop ×4
+            0x58000709u,   // ldr x9, [pc→+0xf0]（转储区绝对地址 literal）
+            0xA9000520u,   // stp x0, x1, [x9]
+            0xA9010D22u,   // stp x2, x3, [x9, #0x10]
+            0xA9021524u,   // stp x4, x5, [x9, #0x20]
+            0xA9031D26u,   // stp x6, x7, [x9, #0x30]
+            0xF94003EAu,   // ldr x10, [sp]
+            0xF900212Au,   // str x10, [x9, #0x40]   槽8=[sp] 栈参
+            0x9E66000Au,   // fmov x10, d0
+            0xF900252Au,   // str x10, [x9, #0x48]   槽9=d0
+            0x9E66002Au,   // fmov x10, d1
+            0xF900292Au,   // str x10, [x9, #0x50]   槽10=d1
+            0xF9002D3Eu,   // str x30, [x9, #0x58]   槽11=x30
+            0x910003EAu,   // mov x10, sp
+            0xF900312Au,   // str x10, [x9, #0x60]   槽12=sp
+            0xCA010000u, 0xCA020000u, 0xCA030000u, 0xCA040000u,
+            0xCA050000u, 0xCA060000u, 0xCA070000u,
+            0xF94003EBu, 0xCA0B0000u,
+            0x9E66000Bu, 0xCA0B0000u,
+            0x9E66002Bu, 0xCA0B0000u,
+            0xD65F03C0u,
+        };
+        g_dump_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                           MAP_ANON | MAP_PRIVATE, -1, 0);
+        if (g_dump_page == MAP_FAILED) { g_sentinel_page = NULL; return -1; }
+        pthread_jit_write_protect_np(0);
+        memcpy(g_sentinel_page, code, sizeof(code));
+        uint64_t dump_addr = (uint64_t)(uintptr_t)g_dump_page;
+        memcpy(g_sentinel_page + 0xf0, &dump_addr, 8);   // literal 槽
+        sys_icache_invalidate(g_sentinel_page, sizeof(code));
+        pthread_jit_write_protect_np(1);
+    }
+    // 9 整型参 + 2 FP 参的 C 声明：arm64 ABI 恰好排进 x0-x7 + [sp] + v0/v1
+    typedef long (*sentinel_t)(long, long, long, long, long, long, long, long,
+                               long, double, double);
+    sentinel_t fn = (sentinel_t)(void *)g_sentinel_page;
+    uint8_t buf[32];
+    memset(buf, 0, sizeof(buf));   // buf[0x17]=0：arm64 短串门关断（确定性）
+    long v[9] = {0x1100000000000001L, 0, 0x3300000000000003L, 0x4400000000000004L,
+                 0x5500000000000005L, 0x6600000000000006L, 0x7700000000000007L,
+                 0x8800000000000008L, 0x9900000000000009L};
+    v[1] = (long)(intptr_t)buf;    // args[1] = 可读指针（hook 诊断面约束）
+    double d0 = 1.5, d1 = -2.25;
+    uint64_t db0, db1;
+    memcpy(&db0, &d0, 8);
+    memcpy(&db1, &d1, 8);
+    long expect = v[0];
+    for (int i = 1; i < 9; i++) expect ^= v[i];
+    expect ^= (long)db0 ^ (long)db1;
+    long base = fn(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], d0, d1);
+    if (base != expect) return -3;   // 哨兵自身或栈参读位不对（未挂钩就不对）
+    memcpy(g_wxkeep_transparency_base_dump, g_dump_page,
+           sizeof(g_wxkeep_transparency_base_dump));
+    // 挂钩：与 install_hook 同构（公共路径 + 发布序），目标页 = 本线程
+    // MAP_JIT 哨兵页（page_already_writable=1）
+    uint8_t prologue[16];
+    memcpy(prologue, g_sentinel_page, 16);
+    hook_trampoline_t tr;
+    if (prepare_trampoline((uintptr_t)g_sentinel_page, prologue, 16, 1, &tr) != 0) {
+        return -1;
+    }
+    g_hook.msg_arg = 1;
+    g_hook.xml_sso_off = 0;
+    g_sso_layout_arm64 = 1;
+    memcpy(g_hook.saved, prologue, 16);
+    g_hook.trampoline = tr.mem;
+    g_real_wrapper = (void *(*)(void *, void *, void *, void *, void *, void *))tr.mem;
+    __atomic_store_n(&g_hook.target, (uintptr_t)g_sentinel_page, __ATOMIC_RELEASE);
+    long calls_before = g_hook_calls;
+    int w = write_entry_stub((uintptr_t)g_sentinel_page, tr.stub, tr.stub_len, 1, 1);
+    long r = -100;
+    if (w == 0) {
+        r = fn(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], d0, d1);
+    }
+    // 清理：还原哨兵入口 + 复位武装态（与 install 失败清理同序），哨兵页
+    // 留存（复用），蹦床页归还。
+    pthread_jit_write_protect_np(0);
+    memcpy(g_sentinel_page, prologue, 16);
+    sys_icache_invalidate(g_sentinel_page, 16);
+    pthread_jit_write_protect_np(1);
+    g_hook.trampoline = NULL;
+    g_real_wrapper = NULL;
+    __atomic_store_n(&g_hook.target, 0, __ATOMIC_RELEASE);
+    munmap(tr.mem, 4096);
+    if (w != 0) return -1;
+    if (g_hook_calls != calls_before + 1) return -4;
+    memcpy(g_wxkeep_transparency_hooked_dump, g_dump_page,
+           sizeof(g_wxkeep_transparency_hooked_dump));
+    g_wxkeep_transparency_diff = r ^ expect;
+    g_wxkeep_transparency_got = r;
+    return (r == expect) ? 1 : 0;
+}
+#else
+long wxkeep_runtime_test_hook_transparency(void) { return -2; }   // 非 arm64 宿主
+#endif
+
+long wxkeep_runtime_test_transparency_diff(void) { return g_wxkeep_transparency_diff; }
+long wxkeep_runtime_test_transparency_got(void) { return g_wxkeep_transparency_got; }
+// 槽位：0..7=x0..x7，8=[sp] 栈参，9=d0，10=d1，11=x30，12=sp
+long wxkeep_runtime_test_transparency_slot(int idx, int hooked) {
+    if (idx < 0 || idx > 12) return 0;
+    uint64_t v = (hooked ? g_wxkeep_transparency_hooked_dump[idx]
+                         : g_wxkeep_transparency_base_dump[idx]);
+    return (long)v;
 }
 
 /// 当前生效文案的字节长度（load_config_file 缝的 tip 断言用）。

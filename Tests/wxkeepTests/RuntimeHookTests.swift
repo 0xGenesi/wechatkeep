@@ -709,4 +709,19 @@ extension RuntimeHookTests {
         }
         #expect(r == Array(inner.utf8).count)
     }
+
+    /// 77 续⑨：hook 链透传契约（arm64）——8 个整型寄存器参 + 1 个栈参 +
+    /// 2 个 FP 参经生产蹦床/stub 公共路径挂钩后必须逐位穿透。T4「hook 体
+    /// no-op 仍渲染全占位」机制候选的回归锁：Release 构建的 6 参 C 形态曾
+    /// 把 x6 当尾跳草稿寄存器清掉、hook 体调 memcpy 清 v0-v7——两者都会
+    /// 让本测试的哨兵失配。x86_64 宿主缝自报 -2（整型参寄存器全集恰好
+    /// 6 个，C 形态即完整）。
+    @Test func hookChainPassesAllArgumentRegistersThrough() {
+        let r = wxkeep_runtime_test_hook_transparency()
+        #if arch(arm64)
+        #expect(r == 1)
+        #else
+        #expect(r == -2)
+        #endif
+    }
 }

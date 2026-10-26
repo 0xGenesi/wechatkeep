@@ -944,3 +944,89 @@ arm64 = [0x17] 符号判长 / size@[8] / ptr@[0]；仅长串路径——XML ≥6
 ②per-arch 读取器的真机 T5 验证（runtime install 后 marker zero>0/fires>0
 即证）。数天级估计进一步下调：核心未验面只剩 hook 在 arm64 真机的行为
 等价性。
+
+### 77 续⑨·hook 链全参透传轮（2026-10-27：T4 渲染破坏机制级头号候选实锤 + naked thunk 落地 + GH Actions 权限 API 修正，192 测全绿）
+
+> 任务来源：用户指令「研究完善程序所有不足并检查，最后针对部分问题全网
+> 搜索是否有解决方案，有的话参考并测试」。核心产出 = T4 悬案「hook 体纯
+> no-op 仍渲染全占位」的机制级候选（反汇编实锤）+ 结构性修复 + 透传契约
+> 端到端回归锁 + 两条全网检索结论落地（GH Actions PR 权限 API / W^X 与
+> hook 框架社区实践对照）。
+
+**[T4 机制候选实锤（反汇编级）]**：T4 当时装机的 Release dylib
+（.build Release 产物）`revoke_wrapper_hook` 尾跳序列 = `ldr x6,[x8,
+#0x7a8]; br x6`——**x6 被当尾跳草稿寄存器清掉**（6 参 C 形态下合法但
+致命：arm64 行挂的解析族函数签名未知，第 7 整型参若在 x6，每次调用被
+静默替换为蹦床地址）；同时 hook 体调 memcpy（24B 诊断快照）清 **v0-v7**
+（FP 参）。Debug 构建透传测试当场红（v0/v1 被 memcpy 清）证明 FP 面
+在任意优化级都坏。两者与「no-op 仍破坏解析」完全相容——**机制级头号
+候选**（0x4bc4d34 是否真有第 7 参/FP 参仍属真机域，T5 复核）。
+
+**[naked thunk 修复]**：`revoke_wrapper_hook` arm64 分支改
+`__attribute__((naked))` 纯 asm（x0-x8 + q0-q7 全量保存/恢复 + sp 复原
+尾跳；主体抽出 `revoke_hook_body`，`__attribute__((used))`——静态函数
+只被内联 asm 引用，无标注被当 dead code 删，链接 undefined 实测）。
+x64 保持 C 形态（rdi..r9 恰为整型参全集）。设计细节与社区对照见
+RUNTIME-DESIGN「hook 链全参透传」节。
+
+**[帧布局三类踩坑实录（全被透传测试当场抓出）]**——手写 asm 帧排布的
+教训，未来同类代码必读：
+1. **Q 寄存器 16B 槽按 8B 排**：`stp q0,q1,[sp,#0x60]` 的 q1 落在
+   [0x70]（16B 对）而非想当然的 [0x68]——与后续 `stp q2,q3,[sp,#0x70]`
+   **槽重叠互踩**（保存即损坏，restored q1=q2 残留）；
+2. **Q 对溢出帧边界**：`stp q6,q7,[sp,#0x90]` 在 0xA0 帧内写
+   [0x90..0xAF]——**q7 半段砸出帧外，直接覆盖调用方栈参槽**（测试里
+   [sp] 读到 q7 残留值；若无测试，这是「特定 SIMD 残留下偶发」的生产
+   级调用方栈腐败）；
+3. **x8 撞 x6/x7 对的 x7 槽**：`str x8,[sp,#0x48]` 与
+   `stp x6,x7,[sp,#0x40]`（x7@[0x48]）重叠——x7 被 x8（调用方 scratch
+   残留，常为指针）覆盖。
+   终版布局（0xE0 帧）：[0x00]=x29/x30 / [0x10-0x3F]=x0-x5（8B 槽）/
+   [0x50]=x8 / [0x60-0xCF]=q0-q7（16B 槽）。**教训：手写保存/恢复帧
+   必须配透传端到端测试**（逐槽哨兵 + 转储页逐槽快照指认），肉眼审
+   三遍不如测试抓一轮。
+
+**[透传契约测试缝]**：`wxkeep_runtime_test_hook_transparency`——MAP_JIT
+页内手工构造转储哨兵（入口 16B=4×NOP 重放段；续段把 x0-x7/[sp]/v0/v1/
+x30/sp 逐槽转储到独立 RW 页——**哨兵页在 np(1) 下是 RX，自写会 SIGBUS，
+转储必须落外页**，literal 槽传绝对地址），经生产公共路径
+（`prepare_trampoline`+`write_entry_stub`，本轮从 install_hook 提出，
+测试驱动生产代码非副本）挂钩后调用，逐位断言。哨兵机器码一律
+`clang -arch arm64` 汇编器生成权威编码再回填（本轮 EOR 编码手写错一次
+——Rm 在 bit16 非 bit5，哨兵基线自检 -3 当场暴露）。排障出口
+（diff 指纹 = 结果⊕期望按位指认被破坏槽位/逐槽快照）留在缝里。
+x86_64 宿主返回 -2（整型参寄存器全集恰好 6 个，C 形态即完整）。
+
+**[W^X 本机补充实验]**：普通 ad-hoc 进程（无 entitlement）在 macOS 27
+上：`mprotect(自身 __TEXT, RWX)` EACCES；**vm_remap 同址 COW 本身
+KERN_SUCCESS 但其后 mprotect(RW) 仍 EACCES**（COW 别名仍受 cs 只读
+强制）——vm_remap COW 舞步只在带
+com.apple.security.cs.allow-unsigned-executable-memory 的宿主（微信）
+内成立。推论（社区检索互证）：测试缝只能在 MAP_JIT 页驱动；
+无 entitlement 场景的社区最优解 = substitute/frida 的「匿名补丁页 +
+mach_vm_remap(VM_FLAGS_OVERWRITE) 整页盖回」（从不请求签名页可写），
+记录为备选不改现路径。内核侧机制（XNU xnu-12377 vm_map_protect 的
+WX_FAIL 检查 + CODE_SIGNING_MONITOR 关联）见检索结论存档。
+
+**[GH Actions 权限结论修正（66 轮遗留关账）]**：66 轮「REST API 不暴露
+PR 创建权限开关、只能网页设置」**是端点搞混**——`GET/PUT /repos/{o}/{r}
+/actions/permissions/workflow`（带 `/workflow` 后缀）自 2022 末即可读写
+`can_approve_pull_request_reviews`（66 轮查的 `/actions/permissions`
+ 确实不含该字段，前提没错端点错了；AzOps #732 2022-12 实证）。
+本机 `gh api` 实测：GET 返回现态（false=watch PR 失败根因）→ PUT
+`-F can_approve_pull_request_reviews=true` → GET 复核 true。watch
+workflow 本就带 `pull-requests: write` 权限块——**下一个新构建日的
+pulls.create 将首次走通**（稳态手动 dispatch 已复核绿，2m10s）。
+GraphQL 无对应字段（负结果）；备选方案（GitHub App token 经
+actions/create-github-app-token 的 permission-pull-requests:write）入档
+不动用。
+
+**[回归]**：191→192 测（+hookChainPassesAllArgumentRegistersThrough，
+Debug/Release 双绿；修复前对旧 hook 红——Debug 即红，v0/v1 被 memcpy
+清）。全量 192 绿；runtime.m 双架构 `-Wall -Wextra` 零告警（顺手清了
+keep/note 两个旧告警）；ASan+UBSan fuzz 驱动重编 + 语料全过 +
+2 万次随机输入零报告（naked asm 与 sanitizer 共存正常）。
+
+**[边界遵守]**：/Applications 与微信全程未动；var/、keys/ 未动；无真机
+实验。GH Actions 仓库设置一处变更（PR 创建权限开启，可逆：
+`gh api -X PUT ... -F can_approve_pull_request_reviews=false`）。

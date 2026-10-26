@@ -1,32 +1,17 @@
-## 当前优先级队列（2026-10-26 重写；77 续四项收口后）
+## 当前优先级队列（2026-10-27 重写；77 续⑨透传轮收口后）
 
 > 决策依据更新：Windows spike 已完成且 GO 建议待批（75 轮报告）；76 轮
 > v2 P0 终审证伪 revokemessage 链（v2-as-designed 死亡，换道三案在册，
-> 建议 b）；77 轮修通 macOS 27 安装链但 hook 行对 10-03 世代失效定案
-> （同 UUID 新字节，catalog 级警示）——一切 runtime 线的前置变成
-> hook 点 re-derive。
+> 建议 b）；77 轮修通 macOS 27 安装链；77 续⑨把 T4「no-op 仍破坏渲染」
+> 的机制候选收口到反汇编实锤级（hook 链清 x6/清 FP 参）并结构性修复
+> （naked thunk）——一切 runtime 线的前置不变：真机 T5 复核。
 
-1. **hook 行 re-derive 工程（数天级独立时间盒，多线的前置）**：270100
-   arm64 优先——三线交会（newmsgid 字面量引用者 × isRevokemsg 调用者 ×
-   撤回 needle 函数归属）定位 parse 直挂点，产出带函数级身份门
-   （func_size/anchor，77 续 schema 已落地）的新行；随后 44 行全量重验
-   （arm64+x64，10-03 世代同 UUID 新字节风险适用全部 hook 行——补丁
-   位点不受影响）。工具链就绪：tools/arm64_index.py（全量引用索引，
-   首探负结果入档——引用者定位需扩展 adrp+ldr 远偏移窗口或 Ghidra 全量）
-   + derive_runtime_hooks（x64 面已自动携带 func_size）。**在此之前
-   runtime hook 对 10-03 世代微信 = 失效且有害（0x4bc4d34 破坏消息解析
-   = 渲染全占位，实测），不要在有日常使用价值的机器上武装。**
-   **二探进度（77 续，2026-10-26）**：首探三线悬案全解（MAINTAINING
-   「77 续·re-derive 二探」）——撤回串锚线死路（__DATA 嵌入数据）、XML
-   tag 锚线构造性不存在、newmsgid 真身 = 模型层字段名表且有直引；
-   世代判定 = 现行行对参考世代派生正确、T4 有害 = 10-03 函数起点漂移；
-   工具链完备（slotref/near/func_size 同源口径）。⑧字节同一性判定（只读比对）：
-   场代际 dylib arm64 切片 = 参考切片逐字节相同——drift 假说证伪，
-   hook_off/func_size/序言门对场字节全部有效，**无需重 derive**；x1 布局
-   = {data@0, size@8, cap|flag@0x10}（T4 取证逐字段吻合），runtime.m
-   per-arch 读取器（sso_head）已落地+单测。剩余 = T4 渲染破坏机制查明
-   （真机域，hook 体当时为 no-op，机制未解释）+ per-arch 读取器真机 T5
-   验证（marker zero>0/fires>0 即证）。
+1. **hook 链真机 T5 验证（前置 = 用户一次真机窗口）**：⑧已证
+   hook_off/func_size/序言门对场字节全部有效（**无需重 derive**）；
+   ⑨已把 hook 链透传做成结构保证（naked thunk + 端到端回归锁，x6/FP
+   破坏候选就地消除）。剩余 = ①真机武装复核渲染不再破坏（⑨候选装回
+   即测——若真机渲染正常即机制坐实）；②per-arch 读取器 + naked thunk
+   的 T5 证据（runtime install 后 marker zero>0/fires>0 即证）。
 2. **Windows 新仓立项动工**（75 轮 GO 建议待用户批）：Rust + mac/Win
    共用 catalog 数据层；Windows「原消息行删除点」为首个未 derive 项；
    xlog `\xa1` 帧破解立项后第一优先（多样本统计课题，帧格式已修正）。
@@ -39,13 +24,48 @@
    （b 需要 parse hook 手持完整 revokemsg XML）。
 5. **v0.2.12 发版（留最后，必做）**：内容 = 77 轮 macOS 27 安装链修复
    （MAP_JIT + vm_remap COW）+ zero_msgid/allow_runtime_prologue + 77 续
-   四项（函数级身份门 schema / marker 回落 / status 位形 / 工具入库）。
-   发版前真机 launch_soak（SOP 已固化）。
+   四项（函数级身份门 schema / marker 回落 / status 位形 / 工具入库）
+   + **77 续⑨ naked thunk 全参透传**（T4 修复，arm64 runtime hook 的
+   正确性前提）。发版前真机 launch_soak（SOP 已固化）。
 
-被动/事件触发项（不排期）：新构建日 watch PR 降级路径人工复核一次 run
-日志（66 轮遗留）；老构建 verify spec 有用户反馈再按需派生（SOP 已固化）；
-每次发版前真机 launch_soak；腾讯侧若出现对 runtime.json 的实际对抗实证
-（RUNTIME-DESIGN 加签评估的触发条件）→ hooks 行加签升 P0。
+被动/事件触发项（不排期）：新构建日 watch PR——**PR 创建权限已开**
+（77 续⑨经 `/actions/permissions/workflow` API 启用并复核，66 轮
+「只能网页设置」系端点搞混），首个新构建日的 pulls.create 首次真跑，
+run 日志人工复核一次（66 轮遗留就此关账）；老构建 verify spec 有用户
+反馈再按需派生（SOP 已固化）；每次发版前真机 launch_soak；腾讯侧若出现
+对 runtime.json 的实际对抗实证（RUNTIME-DESIGN 加签评估的触发条件）→
+hooks 行加签升 P0。
+
+## 77 续⑨·hook 链全参透传轮（2026-10-27：T4 机制候选实锤→结构性修复→端到端回归锁 + GH Actions 权限 API 修正，192 测全绿）
+
+1. **[T4 机制候选实锤]**：Release dylib 反汇编 = hook 尾跳 `ldr x6,…;
+   br x6` 清 x6（arm64 行挂的解析族函数签名未知，第 7 参被静默替换为
+   蹦床地址）+ hook 体 memcpy 清 v0-v7——与「hook 体 no-op 仍渲染全
+   占位」完全相容。社区同类：Dobby #190（x8/sret）、frida「Fix access
+   to arguments 4 through 7 on arm64」。真机复核待 T5。
+2. **[naked thunk 落地]**：arm64 hook 改纯 asm 全参透传（x0-x8+q0-q7
+   保存/恢复 + sp 复原尾跳；主体 `revoke_hook_body` 抽出，used 标注防
+   dead-code 删除）；x64 保持 C 形态（整型参寄存器全集恰好 6 个）。
+   蹦床/stub 写入提为公共路径（prepare_trampoline/write_entry_stub，
+   测试驱动生产代码非副本）。手写帧三类槽重叠踩坑（Q 槽 16B 间距/
+   Q 对溢出帧界砸调用方栈参/x8 撞 x7 槽）全被新测试当场抓出后修正
+   ——手写保存帧必须配透传端到端测试。
+3. **[透传契约测试]**：`wxkeep_runtime_test_hook_transparency`——
+   MAP_JIT 页转储哨兵（8 整型参+1 栈参+2 FP 参）经生产公共路径挂钩后
+   逐位断言（排障出口：diff 指纹/逐槽快照）。修复前红（Debug 即红）、
+   修复后 Debug/Release 双绿；哨兵机器码一律 clang 汇编器生成权威编码。
+4. **[W^X 补充实证]**：无 entitlement 进程 vm_remap COW 后 mprotect RW
+   仍 EACCES——COW 舞步只在微信（带 allow-unsigned-executable-memory）
+   内成立；社区备选（substitute/frida 匿名补丁页+OVERWRITE 整页盖回）
+   入档 RUNTIME-DESIGN。
+5. **[GH Actions 权限修正]**：66 轮「API 不暴露 PR 权限开关」系端点
+   搞混——`/actions/permissions/workflow` 的
+   `can_approve_pull_request_reviews` 可读写（2022 末起；AzOps #732
+   实证）。gh api GET→PUT→GET 实测启用；watch（自带 pull-requests:
+   write）稳态 dispatch 复核绿，下个新构建日 pulls.create 首跑。
+6. **[回归/边界]**：192 测全绿；runtime.m 双架构 -Wall -Wextra 零告警；
+   ASan/UBSan fuzz 重编全过 + 2 万随机输入零报告。/Applications 未动；
+   无真机实验；仓库设置一处可逆变更（PR 创建权限开启）。
 
 ## 77 续·收尾轮（2026-10-26：catalog 函数级身份门 + 两工程缺陷 + 工具入库 + 队列重写，185 测全绿）
 
