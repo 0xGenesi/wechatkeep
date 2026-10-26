@@ -806,3 +806,36 @@ promise 兑现原语：0x64eb294 [x64 0x6f3cb40]
 无效（真实身份 = 重新编辑资格记账）。上节「v2 落点新增候选」随之作废；
 v2 换道三案见 V2-PLAN P0。x64 侧同轮验证的补丁点（0x396afde/0x3951bd9/
 0x396b1ea）保留在案（Intel 面止步 macOS 27 的前提下价值有限）。
+
+### 77 续增补（2026-10-26：函数级身份门数据入库 + 工具正化 + 两处复查修缺陷）
+
+**hook 行函数级身份门数据**（schema 见 docs/RUNTIME-DESIGN「函数级身份门」；
+RuntimeConfig.knownHooks 注释有覆盖率全景）：
+
+- 16 行已带 `funcSize`：270100/101/102/131-135 × 双架构——本地 pristine
+  切片（var/ab 270100 双架构、var/wxarm 其余）三重校验派生（hook_off 必为
+  FUNCTION_STARTS 起点、切片 LC_UUID 与行全同、距离 = 到下一函数起点）。
+- **家族值恒定：x64=5216 / arm64=4380**（parse 直挂函数跨构建尺寸稳定）——
+  未来新构建派生行若 func_size 偏离该值，先怀疑切错函数再怀疑微信改版。
+- 270084-099 十四构建无本地切片（旧 dmg 已按清理策略删除），funcSize 待
+  CDN 重派生轮补齐；不带字段 = 门未启用，行为同 77 轮前。
+- **CodingKeys 教训（复发第二次）**：Codable 结构新增字段必须写显式
+  CodingKeys——Swift 合成键 camelCase（funcSize）与 dylib 侧 snake_case
+  （func_size）漂移 = 门静默失效。68 轮 verify_variants 同坑；本轮由
+  「funcSize 派生入库」复查抓出，hookRowWireKeysAreSnakeCase 测试锁死。
+  **入库即跑一次 wire-format 断言应成为新字段惯例。**
+
+**工具正化**（tools/ 新增 5 件，var/ 原件保留）：arm64re / arm64_index
+（CLI：`build <slice> <idx>` / `query <idx> <va>...`，显式路径无隐式缺省）/
+winre（--dll 或 WXKEEP_WIN_DLL，缺省 var/win 工件区 4.1.15.56）/
+win_profile（更名避让 stdlib profile）/ sign_manifest_openssl（钥型校验后
+直接 `-inkey` 原钥，源码不得含 PEM 头字面量——CI 私钥材料门会拦）。
+arm64_index 端到端复验：重建索引查询复现 76 轮台账 T2 站点
+（0x341cffc: bl caller 0x341c7c4）逐位一致。
+
+**marker 候选序契约**（读/写/清三侧必须同序）：Group 容器 → 微信沙盒容器
+legacy（~/Library/Containers/com.tencent.xinWeChat/Data/Library/Application
+Support/wxkeep）→ 真实 home legacy。Swift 侧唯一权威 =
+RuntimeConfig.markerURLs（readMarkerText/removeAllMarkers）；dylib 侧 =
+write_marker_first_writable。改任一侧必须同步另一侧（与 knownHooks 双侧
+同步惯例同构）。

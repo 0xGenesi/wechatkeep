@@ -60,6 +60,20 @@
    实验。排障实录中一处编译期转义陷阱（Edit 写 Swift 字符串 `\"` 丢失
    反斜杠 → 神秘 parse 错误，hexdump 定位）入档：含转义引号的测试代码
    一律用多行字符串字面量。
+6. **[续轮补遗（同日二次收口）]** ①marker 读/清侧对偶修复（写侧回落修好
+   后 CLI 仍只认 Group——RuntimeConfig.markerURLs 三级候选序共享，status/
+   doctor 探查、install/remove 全位清理）；②CodingKeys 键名漂移 bug 复查
+   抓出并修复（funcSize 合成键 vs dylib func_size——68 轮 verify_variants
+   同坑复发，显式 CodingKeys 编译期防御 + wire-format 测试锁）；③**16 行
+   funcSize 派生入库**（270100/101/102/131-135 × 双架构，本地 pristine
+   切片三重校验：hook_off 必为 FUNCTION_STARTS 起点、切片 UUID 与行全同、
+   距离=到下一函数起点；家族值恒定 x64=5216/arm64=4380——已证有害的
+   270100 arm64 行自此对 10-03 世代「拒装可诊断」而非破坏渲染；270084-099
+   无本地切片待重派生轮）；④入库工具深度验证（arm64_index 端到端复现
+   台账 T2 站点逐位一致；winre 阳性对照 17750 命中；derive_runtime_hooks
+   真切片端到端 func_size 与 machutil 逐位一致）；⑤CI 私钥材料门实历
+   （sign_manifest_openssl PEM 字面量被拦 → 改直用原钥，教训入记忆）。
+   189 测全绿。
 
 ## 77·v2 换道①执行轮（2026-10-25/26：T4 msgid 判读未达但 runtime 修通 macOS 27 安装链——MAP_JIT + vm_remap COW 两处硬化修复落地）
 

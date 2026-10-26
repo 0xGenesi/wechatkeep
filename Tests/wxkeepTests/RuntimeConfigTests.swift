@@ -97,6 +97,48 @@ struct RuntimeConfigTests {
         #expect(RuntimeConfig.readMarkerText(at: [miss]) == nil)
         #expect(RuntimeConfig.readMarkerText(at: []) == nil)
     }
+
+    /// HookRow wire format（77 续②补键名漂移修复锁）：mergeKnownHooks 经
+    /// JSONEncoder 写 runtime.json，新字段的 wire 键必须是 snake_case
+    /// （dylib hook_row_parse 读 func_size/anchor_va/anchor_bytes）——合成键
+    /// 会写成 camelCase 而门静默失效（68 轮 verify_variants 同坑）。
+    @Test func hookRowWireKeysAreSnakeCase() throws {
+        let row = RuntimeConfig.HookRow(
+            build: "270100", uuid: "0b9929bb-e55e-3513-b439-32375760bca2",
+            arch: "arm64", hook_off: "0x4bc4d34", msg_arg: 1, xml_sso_off: 0,
+            expected: "F85FBCA9F65701A9F44F02A9FD7B03A9",
+            func_size: 4380, anchor_va: "0x4bc4e00", anchor_bytes: "AABB")
+        let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(row)) as! [String: Any]
+        #expect(obj["func_size"] as? Int == 4380)
+        #expect(obj["anchor_va"] as? String == "0x4bc4e00")
+        #expect(obj["anchor_bytes"] as? String == "AABB")
+        #expect(obj["funcSize"] == nil, "合成键 camelCase 混入 wire format = dylib 读不到")
+        // 解码回读（update-data 旧数据含新键时的兼容面）
+        let back = try JSONDecoder().decode(RuntimeConfig.HookRow.self, from: JSONEncoder().encode(row))
+        #expect(back == row)
+    }
+
+    /// funcSize 数据契约（77 续②补 16 行派生入库）：带门行值域合法、
+    /// 家族值恒定（x64=5216/arm64=4380，8 构建 × 双架构 pristine 切片
+    /// 三重校验派生——hook_off 必为 FUNCTION_STARTS 起点、切片 UUID 与
+    /// 行一致、距离=到下一函数起点）。
+    @Test func knownHooksFuncSizeContract() {
+        let gated = RuntimeConfig.knownHooks.filter { $0.func_size != nil }
+        #expect(gated.count == 16, "本地有 pristine 切片的 8 构建 × 双架构应全带门")
+        let inRange = gated.allSatisfy { row in
+            let v = row.func_size!
+            return v > 0 && v <= 1 << 21
+        }
+        #expect(inRange, "C 侧 func_size 门值域（0, 2MB]")
+        let x64 = gated.filter { $0.arch == "x86_64" }
+        let arm64 = gated.filter { $0.arch == "arm64" }
+        #expect(x64.allSatisfy { $0.func_size == 5216 })
+        #expect(arm64.allSatisfy { $0.func_size == 4380 })
+        let builds = Set(gated.map { $0.build })
+        let want: Set<String> = ["270100", "270101", "270102",
+                                 "270131", "270132", "270133", "270134", "270135"]
+        #expect(builds == want)
+    }
 }
 
 /// 端到端格式回归：mergeKnownHooks 落盘的文件必须被 dylib 生产路径

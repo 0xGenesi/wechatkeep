@@ -34,6 +34,15 @@ enum RuntimeConfig {
         /// 锚点期望字节 hex（≤64B；建议取目标函数体内 distinctive 指令序列
         /// 或其引用的常量——重编译几乎必动的位置）。
         var anchor_bytes: String? = nil
+
+        /// 显式 CodingKeys：case 名与属性一致（本结构属性已是 snake_case，
+        /// 恰为 dylib 侧 wire 键），列出即把 wire 键名钉死——未来新增字段
+        /// 若忘登记，Decodable 合成直接编译失败（防御位而非装饰；68 轮
+        /// verify_variants「合成键漂移静默失效」同坑的编译期解）。
+        private enum CodingKeys: String, CodingKey {
+            case build, uuid, arch, hook_off, msg_arg, xml_sso_off, expected
+            case func_size, anchor_va, anchor_bytes
+        }
     }
 
     /// 编译期已知行（与 runtime.m 内置表同源——改任一侧必须同步另一侧）。
@@ -46,6 +55,17 @@ enum RuntimeConfig {
     /// CDN 归档补齐（同款拓扑 + 序言门，与 ㉒ parse 直挂口径一致）；270084-89
     /// 十行为同日一致性轮发现的家族前段（4.1.15.4-.9，.7 从未发布）——地址表
     /// 达 30 行 = 4.1.15 全家族（除未发布的 270087/270092）× 双架构。
+    ///
+    /// funcSize 覆盖率（77 续②补，2026-10-26）：8 构建 × 双架构
+    /// （270100/101/102/131-135——本地 pristine 切片在 var/ab + var/wxarm）
+    /// 已带函数级身份门字段；派生经三重校验（hook_off 必为
+    /// LC_FUNCTION_STARTS 起点、切片 LC_UUID 与行全同、距离 = 到下一函数
+    /// 起点），家族值恒定 x64=5216 / arm64=4380（parse 家族函数跨构建尺寸
+    /// 稳定的旁证）。270084-099 十四构建无本地切片，待 CDN 重派生轮补齐
+    /// （不带 funcSize = 门未启用，行为同 77 轮前；ROADMAP 顶部队列第 1 项
+    /// 覆盖全量重验）。已知实害案例：270100 arm64 行对 10-03 自更新世代
+    /// 失效且有害（同 UUID 新字节「同序言不同函数」）——funcSize 门使该
+    /// 场景从「破坏消息渲染」降级为「拒装 + kStFuncMismatch 可诊断」。
     static let knownHooks: [HookRow] = [
         HookRow(build: "270084", uuid: "94cd7862-7e56-3a22-a4b2-e75c45d2a9b4",
                 arch: "x86_64", hook_off: "0x5368c60", msg_arg: 1, xml_sso_off: 0,
@@ -91,17 +111,17 @@ enum RuntimeConfig {
                 expected: "554889E54157415641554154"),
         HookRow(build: "270100", uuid: "23350838-734b-3df6-a4ff-93cf2dd8c704",
                 arch: "x86_64", hook_off: "0x537dcd0", msg_arg: 1, xml_sso_off: 0,
-                expected: "554889E54157415641554154"),
+                expected: "554889E54157415641554154", func_size: 5216),
         // 270101/270102（4.1.15.21/.22，2026-10-20 补齐轮）：此前「无 dmg
         // 工件可派生」是 stale 结论——当日定点复核 CDN 两构建均在档（206；
         // 9-21 的「.21-.25 全 404」探测记录有误或其后上档）。x64 行照常
         // guard→parse 派生，序言门全过。
         HookRow(build: "270101", uuid: "b66498da-99d2-35de-b32a-3c757c7e1abd",
                 arch: "x86_64", hook_off: "0x537de80", msg_arg: 1, xml_sso_off: 0,
-                expected: "554889E54157415641554154"),
+                expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270102", uuid: "0d57fc3a-ed9c-3266-a1a8-cdf77b732c0f",
                 arch: "x86_64", hook_off: "0x537e070", msg_arg: 1, xml_sso_off: 0,
-                expected: "554889E54157415641554154"),
+                expected: "554889E54157415641554154", func_size: 5216),
         // 270131/270132（4.1.15.51/.52，2026-10-17 CDN 缺口补齐轮）：zsbai 漏
         // 归档、watch CI 因此从未发现的构建——官方 CDN 构建归档直链按线性
         // 探测（4.1.15.23-.50 全 404，.51/.52 在档）补入。派生与序言门同
@@ -109,23 +129,23 @@ enum RuntimeConfig {
         // arm64 = revoke 位点所在函数起点 + 切片 LC_UUID。
         HookRow(build: "270131", uuid: "255452e3-73fa-3682-8d06-6be7fe42352b",
                 arch: "x86_64", hook_off: "0x54f7160", msg_arg: 1, xml_sso_off: 0,
-                expected: "554889E54157415641554154"),
+                expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270132", uuid: "281a9644-2629-34cb-82ee-8e58dc5eb5e7",
                 arch: "x86_64", hook_off: "0x54f9340", msg_arg: 1, xml_sso_off: 0,
-                expected: "554889E54157415641554154"),
+                expected: "554889E54157415641554154", func_size: 5216),
         // 270133-270135（4.1.15.53-.55，2026-10-14 派生轮）：x64 行 =
         // locate_x64_parse_guard → derive_runtime_hooks（序言门全过）；
         // arm64 行 = revoke 位点所在函数起点（LC_FUNCTION_STARTS）+ 切片
         // LC_UUID + 家族序言门。270101/270102 尚无行（已知缺口，见 ROADMAP）。
         HookRow(build: "270133", uuid: "9a1ef201-c390-3412-a286-e629482602b2",
                 arch: "x86_64", hook_off: "0x54f9c10", msg_arg: 1, xml_sso_off: 0,
-                expected: "554889E54157415641554154"),
+                expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270134", uuid: "c32fa6ee-bc41-399d-ae83-ee81512d7b57",
                 arch: "x86_64", hook_off: "0x5502500", msg_arg: 1, xml_sso_off: 0,
-                expected: "554889E54157415641554154"),
+                expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270135", uuid: "661e436d-ae61-3413-a867-841f042ddc12",
                 arch: "x86_64", hook_off: "0x5503730", msg_arg: 1, xml_sso_off: 0,
-                expected: "554889E54157415641554154"),
+                expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270084", uuid: "a08e3e78-cc29-3927-9375-883c644d8ff8",
                 arch: "arm64", hook_off: "0x4bb380c", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
@@ -170,31 +190,31 @@ enum RuntimeConfig {
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
         HookRow(build: "270100", uuid: "0b9929bb-e55e-3513-b439-32375760bca2",
                 arch: "arm64", hook_off: "0x4bc4d34", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         // 270101/270102 arm64：函数起点 16B 序言门全过。270102 起点
         // 0x4bc5168 与 fzlzjerry 09-30 公布的 runtime-tip 解析器入口逐位
         // 一致（独立逆向互证；其 270100 入口 0x4bc4d34 亦与我们旧行同值）。
         HookRow(build: "270101", uuid: "d0729a8f-19af-3b62-b1c2-dd99ba580b83",
                 arch: "arm64", hook_off: "0x4bc4f68", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270102", uuid: "3b7b6abb-2c36-3e58-a384-cdef05a57aa5",
                 arch: "arm64", hook_off: "0x4bc5168", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270131", uuid: "825a26b5-c211-31d6-9e6f-9295865ae5c9",
                 arch: "arm64", hook_off: "0x4d12b50", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270132", uuid: "15884091-e6a6-34a4-afe0-36c207a1a58b",
                 arch: "arm64", hook_off: "0x4d16ce8", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270133", uuid: "ea1a57e3-4599-3365-9dc3-c69375798d73",
                 arch: "arm64", hook_off: "0x4d15438", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270134", uuid: "8acf7a2f-517c-32b4-9dfb-47e8849cd444",
                 arch: "arm64", hook_off: "0x4d1c880", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270135", uuid: "0c2f01c0-c197-3286-901d-70e1d007a1c0",
                 arch: "arm64", hook_off: "0x4d1f8d8", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
     ]
 
     /// 微信的 App Group（与其 entitlements application-groups 同源）。
