@@ -20,6 +20,16 @@ int wxkeep_runtime_test_parse_hooks(const char *json, unsigned long json_len);
 int wxkeep_runtime_test_hook_row(int idx, unsigned long *hook_off,
                                  unsigned long *msg_arg, unsigned long *xml_sso_off,
                                  int *is_arm64, int *expected_len);
+// 函数级身份门核对缝（77 续）：对伪镜像缓冲（段表 + LC_FUNCTION_STARTS）
+// 执行与 install_hook 同一的核对。1=匹配 0=失配 -1=元数据缺失。
+// func_size 语义 = 函数起点到下一函数起点的距离（与 machutil 派生同源）。
+int wxkeep_runtime_test_func_size_verify(const void *hdr, unsigned long avail,
+                                         unsigned long hook_off,
+                                         unsigned long func_size);
+// 同上：anchor 门核对（anchor_va 为切片内 VM 偏移；bytes ≤64B）。
+int wxkeep_runtime_test_anchor_verify(const void *hdr, unsigned long avail,
+                                      unsigned long anchor_va,
+                                      const unsigned char *bytes, unsigned long len);
 // 通用 keeptip 缝：对 XML 缓冲执行 <newmsgid> 数字清零，返回清零个数。
 int wxkeep_runtime_test_zero(unsigned char *data, unsigned long len);
 // T4 实验缝：对 XML 缓冲执行 <msgid> 数字清零（等长），返回清零个数。

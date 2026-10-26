@@ -51,7 +51,9 @@
 // 外部表是新构建 day-0 支持的数据通道——`wxkeep runtime install` 把已知
 // 行写进 runtime.json，研究产出新构建行后只需更新数据（update-data 或
 // 重跑 install），dylib 不必重编。行内全部字段过门（UUID 形制、hex、
-// expected 长度匹配 arch、arm64 序言无 PC 相对编码）才被接受。
+// expected 长度匹配 arch、arm64 序言无 PC 相对编码）才被接受；可选的
+// 函数级身份字段（func_size/anchor，77 续——见 hook_target_t 注释）
+// 带即启用安装期二次核对。
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -63,6 +65,19 @@ typedef struct {
     uint8_t is_arm64;
     char uuid[40];              // LC_UUID 标准连字符形（身份门）
     char build[16];             // 诊断标注
+    // 函数级身份门（77 续，2026-10-26）：序言门对「同序言不同函数」无分辨力
+    // ——10-03 自更新（同 UUID 新字节）把 270100 arm64 0x4bc4d34 换成了
+    // 另一个同家族序言的函数，hook 破坏消息解析（台账 T4 推进轮二实证）。
+    // 两字段均可选：旧行不带则不启用该门（向后兼容）；带则 install 期按
+    // 镜像自身元数据二次核对，不符即拒装（宁可不挂也不挂错）。
+    uint32_t func_size;         // 门①：目标函数起点到 LC_FUNCTION_STARTS 下一
+                                // 函数起点的距离（派生期布局指纹；与运行时
+                                // 镜像的同一距离比对——重编译挪动函数即失配）
+    uint8_t has_func_size;
+    uint32_t anchor_va;         // 门②：锚点在切片内的 VM 偏移（与 hook_off 同基准）
+    uint8_t anchor[64];         //     锚点期望字节（hex ≤64B；建议取目标函数
+                                //     体内 distinctive 指令序列或其引用常量）
+    uint8_t anchor_len;
 } hook_target_t;
 
 // 270099 x86_64 — hook 点 = parse 入口（drive25 地面真值：rsi 直挂 sysmsg
@@ -115,11 +130,13 @@ static char g_last_fired[96];      // 最后一次改写后的内文前 95B（�
 static char g_last_inner[96];      // 最后一次 needle 命中时的原始内文前 95B
 static int g_hook_installed;
 // 诊断（marker 回写）：0=未尝试 1=UUID 不匹配 2=序言不匹配
-// 3=mmap/mprotect 失败 4=已武装；bit8=回调已触发
+// 3=mmap/mprotect 失败 4=已武装；bit8=回调已触发；16=扫描未命中；
+// 64=函数身份门不符（func_size/anchor，77 续新增——独立 bit，不与
+// 1/2/3 的旧组合位形重叠）
 static int g_hook_status;
 enum { kStIdle = 0, kStUuidMismatch = 1, kStPrologueMismatch = 2,
        kStInstallFail = 3, kStArmed = 4, kStCallbackBit = 8,
-       kStScanMissed = 16 };
+       kStScanMissed = 16, kStFuncMismatch = 64 };
 static char g_probe_name[96];   // 构造器期匹配到的镜像名样本（诊断）
 static int uuid_matches(const struct mach_header_64 *hdr, const char *want,
                         size_t avail);
@@ -229,6 +246,22 @@ static size_t parse_hex(const char *s, uint8_t *out, size_t cap) {
     return n;
 }
 
+/// 严格 hex 整数（可选 0x 前缀，值域 ≤0xFFFFFFFF）——strtoull 会静默吞
+/// 尾部垃圾，身份门字段（anchor_va）不能接受半合法输入。非法返回 0。
+static int parse_hex_u32(const char *s, uint32_t *out) {
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) s += 2;
+    if (!s[0]) return 0;
+    uint64_t v = 0;
+    for (; *s; s++) {
+        int n = hex_nibble(*s);
+        if (n < 0) return 0;
+        v = (v << 4) | (uint64_t)n;
+        if (v > 0xFFFFFFFFULL) return 0;
+    }
+    *out = (uint32_t)v;
+    return 1;
+}
+
 /// 标准连字符 UUID 形制（36 字符，连字符位于 8/13/18/23，其余小写十六进制）
 /// —— 与 uuid_matches 的消费字符集一致（大写不接受）。
 static int uuid_str_valid(const char *s) {
@@ -313,6 +346,28 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
     }
     if (out->is_arm64 && !arm64_prologue_relocatable(out->expected, 16)) return 0;
     if (!out->is_arm64 && !x64_prologue_relocatable(out->expected, 12)) return 0;
+    // 函数级身份门字段（可选）：出现即解析并校验，坏值整行拒绝（与既有
+    // 门的哲学一致）——半合法的 func_size/anchor 比没有更糟（假身份门）。
+    // 旧行不带这些键 → 全部保持 0，install 期不启用该门（向后兼容）。
+    NSNumber *fsz = [row[@"func_size"] isKindOfClass:[NSNumber class]] ? row[@"func_size"] : nil;
+    if (fsz) {
+        unsigned long v = fsz.unsignedLongValue;
+        // 函数距离上界 2MB：wechat.dylib 最大函数 ~0x7e0B 量级，2MB 是
+        // 宽松界——防的是垃圾值（负数/越界）不是精确性
+        if (v == 0 || v > (1UL << 21)) return 0;
+        out->func_size = (uint32_t)v;
+        out->has_func_size = 1;
+    }
+    NSString *ava = [row[@"anchor_va"] isKindOfClass:[NSString class]] ? row[@"anchor_va"] : nil;
+    NSString *aby = [row[@"anchor_bytes"] isKindOfClass:[NSString class]] ? row[@"anchor_bytes"] : nil;
+    if (ava || aby) {
+        // 成对出现：半个锚点字段 = 行作者笔误，拒绝
+        if (!(ava && aby)) return 0;
+        if (!parse_hex_u32(ava.UTF8String, &out->anchor_va)) return 0;
+        size_t n = parse_hex(aby.UTF8String, out->anchor, sizeof(out->anchor));
+        if (n == 0) return 0;
+        out->anchor_len = (uint8_t)n;
+    }
     strlcpy(out->uuid, uuid.UTF8String, sizeof(out->uuid));
     NSString *build = [row[@"build"] isKindOfClass:[NSString class]] ? row[@"build"] : @"?";
     strlcpy(out->build, build.UTF8String, sizeof(out->build));
@@ -645,6 +700,205 @@ static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
     return g_real_wrapper(a0, a1, a2, a3, a4, a5);
 }
 
+// ---------------------------------------------------------------------------
+// 函数级身份核对（77 续）：install 期按镜像自身元数据（段表 +
+// LC_FUNCTION_STARTS）核对行携带的 func_size/anchor。语义与 tools/machutil.py
+// 同源（VA 换算走段表、function starts 基址 = __TEXT 段 vmaddr、0 增量条目
+// 跳过），保证「派生时算的值」与「安装时核的值」是同一个定义。
+//
+// 两种上下文：dyld 已装载镜像（avail == SIZE_MAX，段 VM 布局成立，
+// addr = hdr + (vmaddr - text_vmaddr) 即 slide 换算）/ 裸缓冲（测试缝；
+// 文件布局成立，addr = hdr + fileoff）。生产路径只有前者。
+// ---------------------------------------------------------------------------
+
+enum { kMaxSegs = 16 };   // wechat.dylib 实际 ~6 段；越界段忽略（核对失败兜底）
+
+typedef struct {
+    const struct mach_header_64 *hdr;
+    size_t avail;               // SIZE_MAX = 已装载镜像
+    uint64_t text_vmaddr;       // 含 fileoff==0 的段（__TEXT）vmaddr = 布局原点
+    int has_text;
+    struct { uint64_t vmaddr, vmsize, fileoff, filesize; } segs[kMaxSegs];
+    int nsegs;
+    const uint8_t *fs_blob;     // LC_FUNCTION_STARTS blob（裸缓冲=借指针；装载镜像=堆副本）
+    size_t fs_len;
+    uint8_t *fs_copy;           // 装载镜像上下文的 mach 读副本（free 归属本结构）
+} image_layout_t;
+
+static void image_layout_free(image_layout_t *im) {
+    free(im->fs_copy);
+    im->fs_copy = NULL;
+    im->fs_blob = NULL;
+}
+
+/// 命令区游走边界（与 uuid_matches 同规）：装载镜像信 dyld，裸缓冲信 avail。
+static const uint8_t *layout_cmd_end(const struct mach_header_64 *hdr, size_t avail) {
+    const uint8_t *end = (const uint8_t *)hdr + sizeof(struct mach_header_64)
+                         + hdr->sizeofcmds;
+    if (avail != (size_t)-1) {
+        const uint8_t *hard = (const uint8_t *)hdr + avail;
+        if (end > hard) end = hard;
+    }
+    return end;
+}
+
+/// 段表 + FUNCTION_STARTS 定位。返回 0 = 元数据不可用（缺 __TEXT 段 /
+/// 命令区损坏）——调用方按「无法核对」处理。
+static int image_layout(const struct mach_header_64 *hdr, size_t avail,
+                        image_layout_t *out) {
+    memset(out, 0, sizeof(*out));
+    out->hdr = hdr;
+    out->avail = avail;
+    const uint8_t *base = (const uint8_t *)hdr;
+    const uint8_t *p = base + sizeof(struct mach_header_64);
+    const uint8_t *end = layout_cmd_end(hdr, avail);
+    uint32_t fs_off = 0, fs_len = 0;
+    int has_fs = 0;
+    while (p + 8 <= end) {
+        uint32_t cmd, size;
+        memcpy(&cmd, p, 4); memcpy(&size, p + 4, 4);
+        if (cmd == LC_SEGMENT_64 && size >= 72 && (size_t)(end - p) >= size) {
+            uint64_t vmaddr, vmsize, fileoff, filesize;
+            memcpy(&vmaddr, p + 24, 8);
+            memcpy(&vmsize, p + 32, 8);
+            memcpy(&fileoff, p + 40, 8);
+            memcpy(&filesize, p + 48, 8);
+            if (fileoff == 0 && !out->has_text) {
+                out->text_vmaddr = vmaddr;
+                out->has_text = 1;
+            }
+            if (out->nsegs < kMaxSegs) {
+                out->segs[out->nsegs].vmaddr = vmaddr;
+                out->segs[out->nsegs].vmsize = vmsize;
+                out->segs[out->nsegs].fileoff = fileoff;
+                out->segs[out->nsegs].filesize = filesize;
+                out->nsegs++;
+            }
+        } else if (cmd == LC_FUNCTION_STARTS && size >= 16
+                   && (size_t)(end - p) >= size) {
+            memcpy(&fs_off, p + 8, 4);
+            memcpy(&fs_len, p + 12, 4);
+            has_fs = 1;
+        }
+        if (size < 8) break;   // 与 uuid_matches 同规：非法 cmdsize 停走
+        p += size;
+    }
+    if (!out->has_text) return 0;
+    if (has_fs && fs_len > 0 && fs_len <= (1u << 23)) {
+        for (int i = 0; i < out->nsegs; i++) {
+            uint64_t fo = out->segs[i].fileoff, fl = out->segs[i].filesize;
+            if (!(fo <= fs_off && fs_off + fs_len <= fo + fl)) continue;
+            if (avail == (size_t)-1) {
+                // 装载镜像：直解引用 linkedit 尾部有未映射风险（SIGSEGV = 杀
+                // 微信）——与 probe_match_target 同规走 mach 读探针，失败即
+                // 元数据不可用（fail closed），不崩。
+                mach_vm_address_t src = (mach_vm_address_t)base
+                    + (out->segs[i].vmaddr - out->text_vmaddr) + (fs_off - fo);
+                uint8_t *copy = malloc(fs_len);
+                mach_vm_size_t got = 0;
+                if (copy
+                    && mach_vm_read_overwrite(mach_task_self(), src, fs_len,
+                                              (mach_vm_address_t)(unsigned long)copy,
+                                              &got) == KERN_SUCCESS
+                    && got == fs_len) {
+                    out->fs_copy = copy;
+                    out->fs_blob = copy;
+                    out->fs_len = fs_len;
+                } else {
+                    free(copy);
+                }
+            } else {
+                // 裸缓冲 = 文件布局，blob 就在界内
+                if ((size_t)fs_off + fs_len <= avail) {
+                    out->fs_blob = base + fs_off;
+                    out->fs_len = fs_len;
+                }
+            }
+            break;
+        }
+    }
+    return 1;
+}
+
+/// 门①：hook_off 处函数的「到下一函数起点的距离」== func_size？
+/// 返回 1=匹配 0=失配（含 hook_off 非函数起点/是末条目无下一函数）。
+/// 缺 FUNCTION_STARTS 元数据 → -1（无法核对，调用方决定拒或放——生产
+/// install 路径按带字段即拒处理：宁可假阴性不可假阳性）。
+static int func_size_matches(const image_layout_t *im, uint64_t hook_off,
+                             uint32_t want) {
+    if (!im->fs_blob) return -1;
+    uint64_t want_va = im->text_vmaddr + hook_off;
+    uint64_t cur = im->text_vmaddr;
+    const uint8_t *p = im->fs_blob, *end = im->fs_blob + im->fs_len;
+    while (p < end) {
+        uint64_t delta = 0;
+        int shift = 0, complete = 0;
+        while (p < end) {
+            uint8_t b = *p++;
+            delta |= (uint64_t)(b & 0x7f) << shift;
+            shift += 7;
+            if (!(b & 0x80)) { complete = 1; break; }
+        }
+        if (!complete) break;             // 截断尾部：当作表尽
+        if (delta == 0) continue;         // 0 增量 = 重复地址（machutil 同规）
+        cur += delta;
+        if (cur == want_va) {
+            // 找到目标起点；下一非零增量条目给出大小
+            uint64_t next = cur;
+            while (p < end) {
+                uint64_t d2 = 0;
+                int sh2 = 0, ok = 0;
+                while (p < end) {
+                    uint8_t b = *p++;
+                    d2 |= (uint64_t)(b & 0x7f) << sh2;
+                    sh2 += 7;
+                    if (!(b & 0x80)) { ok = 1; break; }
+                }
+                if (!ok) return 0;        // 表在目标后截断：无下一函数 → 失配
+                if (d2 == 0) continue;
+                next = cur + d2;
+                break;
+            }
+            if (next == cur) return 0;    // 目标是末条目：无下一函数 → 失配
+            return ((next - cur) == (uint64_t)want) ? 1 : 0;
+        }
+        if (cur > want_va) return 0;      // 起点表越过 hook_off：非函数起点
+    }
+    return 0;                             // 表内无 hook_off 起点
+}
+
+/// 门②：anchor_va（切片内 VM 偏移，与 hook_off 同基准）处字节 == anchor？
+/// 返回 1=匹配 0=失配/越段（越段按失配处理——fail closed）。装载镜像走
+/// mach 读探针（段表说可读 ≠ 真可读，直解引用在保护空段上会 SIGSEGV——
+/// probe_match_target 的既有教训），裸缓冲直读。
+static int anchor_matches(const image_layout_t *im, uint32_t anchor_va,
+                          const uint8_t *bytes, uint8_t len) {
+    uint64_t va = im->text_vmaddr + anchor_va;
+    for (int i = 0; i < im->nsegs; i++) {
+        if (va < im->segs[i].vmaddr || va >= im->segs[i].vmaddr + im->segs[i].vmsize) {
+            continue;
+        }
+        uint8_t local[64];
+        const uint8_t *ptr;
+        if (im->avail == (size_t)-1) {
+            mach_vm_address_t src = (mach_vm_address_t)im->hdr + (va - im->text_vmaddr);
+            mach_vm_size_t got = 0;
+            if (mach_vm_read_overwrite(mach_task_self(), src, len,
+                                       (mach_vm_address_t)(unsigned long)local,
+                                       &got) != KERN_SUCCESS || got != len) {
+                return 0;
+            }
+            ptr = local;
+        } else {
+            uint64_t off = im->segs[i].fileoff + (va - im->segs[i].vmaddr);
+            if (off + len > im->avail) return 0;   // 裸缓冲：锚点须整体在界内
+            ptr = (const uint8_t *)im->hdr + off;
+        }
+        return memcmp(ptr, bytes, len) == 0 ? 1 : 0;
+    }
+    return 0;
+}
+
 static int install_hook(const hook_target_t *t, uintptr_t base) {
     int32_t expected = 0;
     if (!__atomic_compare_exchange_n(&g_arm_done, &expected, 1, 0,
@@ -675,6 +929,25 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     if (t->is_arm64 && !arm64_prologue_relocatable(prologue, len)) {
         g_hook_status |= kStPrologueMismatch;
         return -1;
+    }
+    // 函数级身份门（77 续）：序言只证明「该偏移处有一段长得像家族序言的
+    // 字节」，不证明「它是当初 derive 的那个函数」——10-03 自更新（同 UUID
+    // 新字节）后 0x4bc4d34 已是另一个同序言函数，hook 破坏消息解析。行带
+    // func_size/anchor 时按镜像元数据二次核对；元数据缺失（无法核对）也拒
+    // ——带身份字段的行宁可不挂（fail closed），旧行不带字段则不经过此门。
+    if (t->has_func_size || t->anchor_len) {
+        image_layout_t im;
+        int bad = !image_layout((const struct mach_header_64 *)base, (size_t)-1, &im);
+        if (!bad && t->has_func_size
+            && func_size_matches(&im, t->hook_off, t->func_size) != 1) bad = 1;
+        if (!bad && t->anchor_len
+            && anchor_matches(&im, t->anchor_va, t->anchor, t->anchor_len) != 1) bad = 1;
+        image_layout_free(&im);
+        if (bad) {
+            g_hook_status |= kStFuncMismatch;
+            os_log(OS_LOG_DEFAULT, "[wxkeep-runtime] func identity mismatch — hook skipped");
+            return -1;
+        }
     }
     // 蹦床：RWX 页内 = 原入口原像 + 跳回 target+len。
     // arm64（macOS 27 微信进程实测 2026-10-26）：匿名 RWX mmap 被 W^X 拒
@@ -1233,6 +1506,32 @@ int wxkeep_runtime_test_hook_row(int idx, unsigned long *hook_off,
     *is_arm64 = t->is_arm64;
     *expected_len = t->expected_len;
     return 0;
+}
+
+/// 函数级身份门核对缝（77 续）：对伪镜像缓冲（含段表 + LC_FUNCTION_
+/// STARTS）执行与 install_hook 同一的核对。返回 1=匹配 0=失配
+/// -1=元数据缺失。锁死「派生侧 machutil 语义 ≠ 安装侧核对语义」这类
+/// 两处实现漂移（func_size 算的是到下一函数起点的距离，不是函数字节数）。
+int wxkeep_runtime_test_func_size_verify(const void *hdr, unsigned long avail,
+                                         unsigned long hook_off,
+                                         unsigned long func_size) {
+    image_layout_t im;
+    if (!image_layout((const struct mach_header_64 *)hdr, avail, &im)) return -1;
+    int r = func_size_matches(&im, hook_off, (uint32_t)func_size);
+    image_layout_free(&im);
+    return r;
+}
+
+/// 同上：anchor 门核对（bytes ≤64B）。
+int wxkeep_runtime_test_anchor_verify(const void *hdr, unsigned long avail,
+                                      unsigned long anchor_va,
+                                      const unsigned char *bytes, unsigned long len) {
+    if (len == 0 || len > 64) return -1;
+    image_layout_t im;
+    if (!image_layout((const struct mach_header_64 *)hdr, avail, &im)) return -1;
+    int r = anchor_matches(&im, (uint32_t)anchor_va, bytes, (uint8_t)len);
+    image_layout_free(&im);
+    return r;
 }
 
 /// 通用 keeptip 缝：对 XML 缓冲执行 <newmsgid> 数字清零（等长），

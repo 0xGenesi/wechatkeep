@@ -23,6 +23,17 @@ enum RuntimeConfig {
         let xml_sso_off: Int
         /// 入口原像 hex（x64 12B / arm64 16B，防漂移门）
         let expected: String
+        /// 函数级身份门①（可选，77 续）：目标函数起点到 LC_FUNCTION_STARTS
+        /// 下一函数起点的距离（派生期布局指纹）。旧行不带 → 门不启用
+        /// （向后兼容）；带则 dylib 安装期与镜像元数据比对，不符拒装——
+        /// 序言门对「同序言不同函数」无分辨力（10-03 自更新实证）。
+        var func_size: Int? = nil
+        /// 函数级身份门②（可选）：锚点在切片内的 VM 偏移（与 hook_off 同基准，
+        /// 0x 前缀 hex）。与 anchor_bytes 成对出现，缺一整行拒绝。
+        var anchor_va: String? = nil
+        /// 锚点期望字节 hex（≤64B；建议取目标函数体内 distinctive 指令序列
+        /// 或其引用的常量——重编译几乎必动的位置）。
+        var anchor_bytes: String? = nil
     }
 
     /// 编译期已知行（与 runtime.m 内置表同源——改任一侧必须同步另一侧）。
@@ -361,7 +372,10 @@ enum RuntimeConfig {
                            hook_off: (row["hook_off"] as? String) ?? "0",
                            msg_arg: (row["msg_arg"] as? Int) ?? 1,
                            xml_sso_off: (row["xml_sso_off"] as? Int) ?? 0,
-                           expected: (row["expected"] as? String) ?? "")
+                           expected: (row["expected"] as? String) ?? "",
+                           func_size: row["func_size"] as? Int,
+                           anchor_va: row["anchor_va"] as? String,
+                           anchor_bytes: row["anchor_bytes"] as? String)
         }
     }
 }

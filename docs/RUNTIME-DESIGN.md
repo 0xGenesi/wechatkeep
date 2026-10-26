@@ -156,3 +156,45 @@ uuid-mismatch(1)+prologue(2) 位形重叠）。与 Verifier 的 MAP_JIT 硬化
 （x1 取证通道已备）。沙盒微信 App Group 写被拒（ad-hoc 签名无 team）→
 marker dir 选择在 Group 拒时不回落 legacy = 沙盒微信 marker 盲区（boot
 log 诊断通道已替代取证职能）。
+
+## hook 行函数级身份门（77 续，2026-10-26）
+
+**为什么 UUID + 序言门不够**：10-03 微信自更新交付了**同构建号、同
+LC_UUID、新字节**的 wechat.dylib——身份门（UUID）与入口门（expected
+序言）全部通过，但 9-18 derive 时的函数 0x4bc4d34 在新字节里已是另一个
+同家族序言的函数（x1 取证 = 对象字段非 XML SSO，hook 破坏消息解析 = 全
+会话渲染占位，台账 T4 推进轮二）。两道旧门对「同序言不同函数」零分辨力；
+44 行 hook 行（非补丁位点）对 10-03 世代全部存疑——补丁位点不受影响
+（65 轮 23/23 字节级核对 + v1 日常实弹持续有效）。
+
+**schema 扩展（可选字段，向后兼容）**：HookRow / hook_row_parse 新增
+`func_size`（门①）与 `anchor_va` + `anchor_bytes`（门②，成对出现）。
+旧行不带这些键 → 门不启用、行为与 77 轮前完全一致；带则坏值（0/超界/
+半对/垃圾 hex）在解析期整行拒绝（与既有门的哲学一致——半合法的身份
+字段比没有更糟）。`tools/derive_runtime_hooks.py` 派生新行时自动携带
+func_size。
+
+**门① func_size（布局距离指纹）**：值 = 目标函数起点到 LC_FUNCTION_
+STARTS 下一函数起点的**距离**（不是函数字节数——含对齐 padding；这个
+定义与派生侧 tools/machutil.py 同源，安装侧 runtime.m 的
+func_size_matches 同语义实现，测试缝锁两处不漂移）。安装期从**运行中
+镜像自身元数据**（段表 + FUNCTION_STARTS，mach 读探针取 blob，不直解
+引用——linkedit 尾部未映射段直读会 SIGSEGV 杀微信）重算该距离并比对：
+重编译挪动函数边界即失配。语义上这是「布局指纹」：同 UUID 同序言但函数
+重新排布的镜像会被拒。x64/arm64 同机制（两架构切片都带
+LC_FUNCTION_STARTS；PE 侧对应物 = .pdata，Windows 新仓复用本设计）。
+
+**门② anchor（字节锚）**：切片内固定 VM 偏移处的期望字节（≤64B）。
+建议取目标函数体内 distinctive 指令序列或其引用的常量——重编译几乎必动
+的位置。与门①互补：门①看边界布局，门②看内容字节；两者可独立携带。
+
+**fail-closed 边界**：行带任一身份字段但镜像元数据缺失（无
+FUNCTION_STARTS / blob 不可读）→ 拒装（kStFuncMismatch=64，独立诊断
+位）。带身份门的行宁可不挂；旧行（无字段）不经过此门——向后兼容与
+fail-closed 不矛盾：字段存在本身就是「行作者要求该门」的声明。
+
+**残余分辨力缺口（诚实边界）**：两个不同函数若序言相同、到下一函数
+距离相同、锚点字节也相同，仍会过门——概率上锚点选得 distinctive 即可
+忽略；根治 = 对 10-03 世代 re-derive hook 点（数天级工程，ROADMAP 顶部
+队列第一项）。本门的价值 = 把「重验后发现行失效」变成「装不上 + 可诊断
+（kStFuncMismatch）」，从有害（破坏消息解析）降级为无害（不武装）。

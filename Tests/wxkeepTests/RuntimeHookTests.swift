@@ -416,6 +416,134 @@ import Foundation
         #expect(arm == 1)
         #expect(elen == 16)
     }
+
+    // ---- 函数级身份门（77 续）：行字段解析 ----
+
+    /// 行带 func_size + anchor 对 → 接受；坏值（0/超界/半对/垃圾 hex）整行拒绝
+    @Test func hooksParseFuncIdentityFields() {
+        let good = """
+        {"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","arch":"x86_64",
+        "hook_off":"0x537d910","msg_arg":1,"xml_sso_off":0,
+        "expected":"554889E54157415641554154",
+        "func_size":560,"anchor_va":"0x537da00","anchor_bytes":"4889F0"}
+        """
+        #expect(parseHooks("""
+{"hooks":[\(good)]}
+""") == 1)
+        // func_size 坏值：0 / 超 2MB 界
+        #expect(parseHooks("{\"hooks\":[" + good.replacingOccurrences(
+            of: "\"func_size\":560", with: "\"func_size\":0") + "]}") == 0)
+        #expect(parseHooks("{\"hooks\":[" + good.replacingOccurrences(
+            of: "\"func_size\":560", with: "\"func_size\":3000000") + "]}") == 0)
+        // anchor 半对（缺 bytes / 缺 va）
+        #expect(parseHooks("{\"hooks\":[" + good.replacingOccurrences(
+            of: ",\"anchor_bytes\":\"4889F0\"", with: "") + "]}") == 0)
+        #expect(parseHooks("{\"hooks\":[" + good.replacingOccurrences(
+            of: "\"anchor_va\":\"0x537da00\",", with: "") + "]}") == 0)
+        // anchor_va 垃圾 hex（strtoull 会静默吞尾——严格门必须拒）
+        #expect(parseHooks("{\"hooks\":[" + good.replacingOccurrences(
+            of: "\"anchor_va\":\"0x537da00\"", with: "\"anchor_va\":\"zz\"") + "]}") == 0)
+        // anchor_bytes 坏 hex
+        #expect(parseHooks("{\"hooks\":[" + good.replacingOccurrences(
+            of: "\"anchor_bytes\":\"4889F0\"", with: "\"anchor_bytes\":\"XX\"") + "]}") == 0)
+    }
+
+    // ---- 函数级身份门：安装期核对（与 machutil 派生侧同语义锁） ----
+
+    /// 伪镜像构造：__TEXT 段（vmaddr 0）+ 可选 LC_FUNCTION_STARTS +
+    /// 可选锚点字节。deltas 为相邻函数起点间距（首项 = 布局原点到首函数）。
+    private func identityGateImage(deltas: [Int]?, anchorVa: Int = 0x3000,
+                                   anchorBytes: [UInt8]? = nil) -> [UInt8] {
+        var buf = [UInt8](repeating: 0, count: 0x3800)
+        func le32(_ v: UInt32, _ o: Int) {
+            buf[o] = UInt8(v & 0xFF); buf[o + 1] = UInt8((v >> 8) & 0xFF)
+            buf[o + 2] = UInt8((v >> 16) & 0xFF); buf[o + 3] = UInt8((v >> 24) & 0xFF)
+        }
+        func le64(_ v: UInt64, _ o: Int) {
+            le32(UInt32(truncatingIfNeeded: v), o)
+            le32(UInt32(truncatingIfNeeded: v >> 32), o + 4)
+        }
+        let blobOff = 0x100
+        var blob = [UInt8]()
+        if let deltas {
+            for d in deltas {
+                var v = d
+                repeat {
+                    var b = UInt8(v & 0x7F); v >>= 7
+                    if v != 0 { b |= 0x80 }
+                    blob.append(b)
+                } while v != 0
+            }
+        }
+        let ncmds: UInt32 = deltas == nil ? 1 : 2
+        let cmdsSize: UInt32 = deltas == nil ? 72 : 88
+        le32(0xFEEDFACF, 0)                 // MH_MAGIC_64
+        le32(0x01000007, 4)                 // cputype x86_64
+        le32(3, 8); le32(6, 12)             // cpusubtype / MH_DYLIB
+        le32(ncmds, 16); le32(cmdsSize, 20)
+        le32(0x19, 32); le32(72, 36)        // LC_SEGMENT_64
+        let segName = Array("__TEXT".utf8)
+        for (i, b) in segName.enumerated() where i < 16 { buf[40 + i] = b }
+        le64(0, 56)                         // vmaddr
+        le64(0x10000, 64)                   // vmsize
+        le64(0, 72)                         // fileoff（0 = __TEXT 即布局原点）
+        le64(0x10000, 80)                   // filesize
+        if deltas != nil {
+            le32(0x26, 104); le32(16, 108)  // LC_FUNCTION_STARTS
+            le32(UInt32(blobOff), 112); le32(UInt32(blob.count), 116)
+            for (i, b) in blob.enumerated() { buf[blobOff + i] = b }
+        }
+        if let anchorBytes {
+            for (i, b) in anchorBytes.enumerated() { buf[anchorVa + i] = b }
+        }
+        return buf
+    }
+
+    private func funcSizeVerify(_ img: [UInt8], hook: Int, size: Int) -> Int32 {
+        img.withUnsafeBufferPointer {
+            wxkeep_runtime_test_func_size_verify(
+                UnsafeRawPointer($0.baseAddress!), CUnsignedLong($0.count),
+                CUnsignedLong(hook), CUnsignedLong(size))
+        }
+    }
+
+    private func anchorVerify(_ img: [UInt8], va: Int, bytes: [UInt8]) -> Int32 {
+        img.withUnsafeBufferPointer { b in
+            bytes.withUnsafeBufferPointer { x in
+                wxkeep_runtime_test_anchor_verify(
+                    UnsafeRawPointer(b.baseAddress!), CUnsignedLong(b.count),
+                    CUnsignedLong(va), x.baseAddress, CUnsignedLong(x.count))
+            }
+        }
+    }
+
+    /// 门①语义锁：func_size = 函数起点到下一函数起点的距离（不是函数
+    /// 字节数）。派生侧（machutil）与安装侧必须同定义。
+    @Test func funcSizeVerifyMatchesNextStartDistance() {
+        // 函数起点 0x1000 / 0x2000 / 0x2800
+        let img = identityGateImage(deltas: [0x1000, 0x1000, 0x800])
+        #expect(funcSizeVerify(img, hook: 0x1000, size: 0x1000) == 1)   // 0x2000-0x1000
+        #expect(funcSizeVerify(img, hook: 0x1000, size: 0x800) == 0)
+        #expect(funcSizeVerify(img, hook: 0x2000, size: 0x800) == 1)    // 0x2800-0x2000
+        // 末条目无下一函数：无法定大小 → 失配（fail closed）
+        #expect(funcSizeVerify(img, hook: 0x2800, size: 0x800) == 0)
+        // 非函数起点 → 失配
+        #expect(funcSizeVerify(img, hook: 0x1500, size: 0x1000) == 0)
+        // 镜像缺 LC_FUNCTION_STARTS → -1（无法核对；生产路径带字段即拒）
+        let noFs = identityGateImage(deltas: nil)
+        #expect(funcSizeVerify(noFs, hook: 0x1000, size: 0x1000) == -1)
+    }
+
+    /// 门②：锚点字节比对 + 越段 fail closed
+    @Test func anchorVerifyMatchesBytes() {
+        let anchor: [UInt8] = [0xAA, 0xBB, 0xCC, 0xDD]
+        let img = identityGateImage(deltas: [0x1000], anchorBytes: anchor)
+        #expect(anchorVerify(img, va: 0x3000, bytes: anchor) == 1)
+        #expect(anchorVerify(img, va: 0x3000, bytes: [0xAA, 0xBB, 0xCC, 0xDE]) == 0)
+        #expect(anchorVerify(img, va: 0x3001, bytes: anchor) == 0)
+        // 越段（vmsize 0x10000 之外）→ 失配而非崩溃
+        #expect(anchorVerify(img, va: 0x20000, bytes: anchor) == 0)
+    }
 }
 
 /// 跨边界回归：RuntimeConfig.knownHooks（Swift 管理面）必须被 C 侧

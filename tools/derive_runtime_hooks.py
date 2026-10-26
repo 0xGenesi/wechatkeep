@@ -13,8 +13,11 @@ XML 裸 SSO，drive25 地面真值）。wrapper+0x130 旧口径已被真实撤�
 保留为 stderr 诊断与交叉验证。
 
 输出：runtime.json `hooks` 行 JSON（uuid/arch/hook_off/msg_arg/xml_sso_off/
-expected/build）。序言门：必须 == 554889E5 4157415641554154（纯栈操作序言，
-蹦床换址执行安全）——不符即拒绝并退出非零。
+expected/func_size/build）。序言门：必须 == 554889E5 4157415641554154（纯栈操作序言，
+蹦床换址执行安全）——不符即拒绝并退出非零。func_size（函数级身份门，77 续）=
+parse 入口到 LC_FUNCTION_STARTS 下一函数起点的距离——dylib 安装期与镜像
+元数据同语义比对（10-03 自更新「同序言不同函数」事故的 schema 级预防，
+见 docs/RUNTIME-DESIGN.md 函数级身份门节）。
 
 用法: python3 tools/derive_runtime_hooks.py <thin-x64.dylib> <guard-test-va-hex> [build]
 依赖 tools/machutil.py。
@@ -94,7 +97,12 @@ def main():
             f"parse {parse_entry:#x} 序言 {prologue.hex().upper()} != 纯栈操作门"
             f"（{EXPECTED_PROLOGUE.hex().upper()}）——蹦床换址不安全，拒绝派生")
 
-    # parse 直挂（㉒ 口径）：hook_off=parse 入口，rsi（msg_arg=1）即 XML SSO
+    # parse 直挂（㉒ 口径）：hook_off=parse 入口，rsi（msg_arg=1）即 XML SSO。
+    # func_size = 到下一函数起点的距离（布局指纹；dylib 侧 image_layout/
+    # func_size_matches 同语义核对——machutil 与 runtime.m 两处实现有
+    # knownHooksRowsAllPassCParser + func gate 缝测试锁同步）。
+    if nxt is None:
+        raise SystemExit("parse 入口是 FUNCTION_STARTS 末条目——无下一函数，func_size 不可派生")
     row = {
         "build": str(build),
         "uuid": uuid,
@@ -103,6 +111,7 @@ def main():
         "msg_arg": 1,
         "xml_sso_off": 0,
         "expected": prologue.hex().upper(),
+        "func_size": nxt - parse_entry,
     }
     print(json.dumps(row, ensure_ascii=False))
     print(f"# parse {parse_entry:#x} call {call_site:#x} wrapper {wrapper_entry:#x} "
