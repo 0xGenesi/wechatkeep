@@ -20,9 +20,11 @@
    「77 续·re-derive 二探」）——撤回串锚线死路（__DATA 嵌入数据）、XML
    tag 锚线构造性不存在、newmsgid 真身 = 模型层字段名表且有直引；
    世代判定 = 现行行对参考世代派生正确、T4 有害 = 10-03 函数起点漂移；
-   工具链完备（slotref/near/func_size 同源口径）。剩余 = 新代际切片获取
-   +「cbz 位点所在函数起点」重 derive + arm64 x1 语义验证（参考世代从未
-   实机验证过 parse 直挂签名——Ghidra 快路先行）+ 真机 T5。
+   工具链完备（slotref/near/func_size 同源口径）。x1 语义已静态裁决（capstone，77 续）：
+   arm64 串对象 = 变体布局（data@+0/flag@+0x17），现行 arm64 行的 SSO
+   模型自派生日起不同构（T4 hits=0 的机制级解释）——新行必须带 per-arch
+   SSO 模型且 runtime.m 读取器按 arch 分型。剩余 = 新代际切片获取 +
+   「cbz 位点所在函数起点」重 derive（含 per-arch SSO 模型）+ 真机 T5。
 2. **Windows 新仓立项动工**（75 轮 GO 建议待用户批）：Rust + mac/Win
    共用 catalog 数据层；Windows「原消息行删除点」为首个未 derive 项；
    xlog `\xa1` 帧破解立项后第一优先（多样本统计课题，帧格式已修正）。

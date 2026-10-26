@@ -205,6 +205,16 @@ FUNCTION_STARTS / blob 不可读）→ 拒装（kStFuncMismatch=64，独立诊�
 位）。带身份门的行宁可不挂；旧行（无字段）不经过此门——向后兼容与
 fail-closed 不矛盾：字段存在本身就是「行作者要求该门」的声明。
 
+**arm64 SSO 布局警示（77 续 x1 语义裁决，2026-10-26）**：参考切片静态
+实锤——arm64 串对象为**变体布局**（data@+0 / 长/短标志@+0x17 符号判长，
+0x4a7d6ac 反汇编 + T4 真机 x1 取证双证），与 x64 行继承的标准布局
+（tag@0/size@+8/ptr@+0x10、byte0 奇偶判长）不同构。**现行 44 行 arm64 行
+的 xml_sso_off 语义自派生日起不可用**（keep_message 恰好也不依赖 SSO 读
+——见下）；未来 arm64 新行必须带 per-arch SSO 模型，runtime.m 的 SSO
+读取器需按 arch 分型后再武装（细节见 MAINTAINING「77 续·x1 语义裁决」）。
+通用 keeptip（newmsgid 清零）按 XML 缓冲内容操作、不经 SSO 头，不受此
+布局问题影响。
+
 **残余分辨力缺口（诚实边界）**：两个不同函数若序言相同、到下一函数
 距离相同、锚点字节也相同，仍会过门——概率上锚点选得 distinctive 即可
 忽略；根治 = 对 10-03 世代 re-derive hook 点（数天级工程，ROADMAP 顶部
