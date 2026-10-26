@@ -146,6 +146,8 @@ static uint8_t g_saved_prologue[16];  // T4 排障：install_hook 序言比对�
 static int g_saved_prologue_valid;
 static int g_install_errno;          // T4 排障：install 失败的 errno 与步骤
 static int g_install_step;
+static volatile int g_stub_alive = -1;   // T4 排障：入口 stub 在位判定（-1=未知）
+                                     // 1=stub 在位 0=已被改写（壳吞 stub 的直接证据）
 static int g_cb_count;           // 回调触发计数
 static int g_scan_missed;
 
@@ -762,6 +764,12 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
         memcpy((void *)target, stub, 12);
     }
     mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
+    // 写后读回：COW remap 写路径的直接验证（写丢失在此即现，不等撤回流量）
+    {
+        const uint8_t *now = (const uint8_t *)target;
+        size_t slen = t->is_arm64 ? 16 : 12;
+        g_stub_alive = (memcmp(now, stub, slen) == 0) ? 1 : 0;
+    }
     return 0;
 }
 
@@ -939,8 +947,12 @@ static void start_evidence_timer(void) {
                               NSHomeDirectory()];
             NSMutableString *acc = [NSMutableString stringWithContentsOfFile:boot
                                                                     encoding:NSUTF8StringEncoding error:nil];
-            [acc appendFormat:@"tick installed=%d status=%d calls=%d fires=%d hits=%d zero=%d arg1=",
-                g_hook_installed, g_hook_status, g_hook_calls, g_rewrite_fires, g_rewrite_hits,
+            if (g_hook_installed && g_hook.trampoline) {
+                const uint8_t *now = (const uint8_t *)g_hook.target;
+                g_stub_alive = (now && memcmp(now, "\x51\x00\x00\x58\x20\x02\x1f\xd6", 8) == 0) ? 1 : 0;
+            }
+            [acc appendFormat:@"tick installed=%d status=%d alive=%d calls=%d fires=%d hits=%d zero=%d arg1=",
+                g_hook_installed, g_hook_status, g_stub_alive, g_hook_calls, g_rewrite_fires, g_rewrite_hits,
                 g_zero_fires];
             if (g_arg1_valid) {
                 for (int k = 0; k < 24; k++) [acc appendFormat:@"%02x", g_arg1_head[k]];
