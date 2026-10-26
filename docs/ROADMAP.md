@@ -20,11 +20,13 @@
    「77 续·re-derive 二探」）——撤回串锚线死路（__DATA 嵌入数据）、XML
    tag 锚线构造性不存在、newmsgid 真身 = 模型层字段名表且有直引；
    世代判定 = 现行行对参考世代派生正确、T4 有害 = 10-03 函数起点漂移；
-   工具链完备（slotref/near/func_size 同源口径）。x1 语义已静态裁决（capstone，77 续）：
-   arm64 串对象 = 变体布局（data@+0/flag@+0x17），现行 arm64 行的 SSO
-   模型自派生日起不同构（T4 hits=0 的机制级解释）——新行必须带 per-arch
-   SSO 模型且 runtime.m 读取器按 arch 分型。剩余 = 新代际切片获取 +
-   「cbz 位点所在函数起点」重 derive（含 per-arch SSO 模型）+ 真机 T5。
+   工具链完备（slotref/near/func_size 同源口径）。⑧字节同一性判定（只读比对）：
+   场代际 dylib arm64 切片 = 参考切片逐字节相同——drift 假说证伪，
+   hook_off/func_size/序言门对场字节全部有效，**无需重 derive**；x1 布局
+   = {data@0, size@8, cap|flag@0x10}（T4 取证逐字段吻合），runtime.m
+   per-arch 读取器（sso_head）已落地+单测。剩余 = T4 渲染破坏机制查明
+   （真机域，hook 体当时为 no-op，机制未解释）+ per-arch 读取器真机 T5
+   验证（marker zero>0/fires>0 即证）。
 2. **Windows 新仓立项动工**（75 轮 GO 建议待用户批）：Rust + mac/Win
    共用 catalog 数据层；Windows「原消息行删除点」为首个未 derive 项；
    xlog `\xa1` 帧破解立项后第一优先（多样本统计课题，帧格式已修正）。
@@ -83,6 +85,15 @@
    真切片端到端 func_size 与 machutil 逐位一致）；⑤CI 私钥材料门实历
    （sign_manifest_openssl PEM 字面量被拦 → 改直用原钥，教训入记忆）。
    189 测全绿。
+7. **[续轮补遗二（re-derive 静态收口 + 判定修正）]** ⑥re-derive 二探
+   （首探三线悬案全解：撤回串=__DATA 嵌入数据/XML tag 不存在/newmsgid
+   =模型字段名表有直引；chained-fixups 编码实证；工具 arm64_slotref +
+   near 模式入库）；⑦x1 语义裁决（0x4a7d6ac 形态 = flag@0x17 符号判长
+   + 't' 搜索原语）；⑧**字节同一性判定证伪 drift 叙事**（场代际 dylib
+   arm64 切片 = 参考切片逐字节同——hook_off/func_size 全部有效，无需重
+   derive）+ 布局破译（{data@0,size@8,cap|flag@0x10}，T4 取证 824B XML
+   逐字段吻合）+ runtime.m per-arch SSO 读取器（sso_head）落地 + 变体
+   布局单测。遗留：T4 渲染破坏机制（真机域）、T5 验证。
 
 ## 77·v2 换道①执行轮（2026-10-25/26：T4 msgid 判读未达但 runtime 修通 macOS 27 安装链——MAP_JIT + vm_remap COW 两处硬化修复落地）
 

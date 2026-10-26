@@ -663,4 +663,50 @@ extension RuntimeHookTests {
         #expect(n == 0)
         #expect(xml == Array("<newmsgid>123</newmsgid>".utf8))
     }
+
+    // ---- per-arch 串对象头布局（77 续⑧：arm64 变体布局 flag=[0x17] 符号/
+    //      data@[0]/size@[8]——T4 取证 + 参考切片反汇编双证）----
+
+    /// arm64 变体布局端到端：layout=1 时改写必须命中。判定器若读错
+    /// （x64 byte0&1 门 / ptr@0x10）会取到 cap|flag 常量当指针解引用
+    /// （崩溃或失败）——通过即证明门与 ptr 偏移都按变体布局读取。
+    @Test func arm64LayoutRewriteFires() {
+        defer { wxkeep_runtime_test_set_arm64_layout(0) }
+        wxkeep_runtime_test_set_arm64_layout(1)
+        let inner = "\"张三\" 撤回了一条消息"
+        let xml = Array(("<sysmsg type=\"revokemsg\"><revokemsg><content>"
+                        + inner + "</content></revokemsg></sysmsg>").utf8)
+        let tip = Array("🔒 arm64".utf8)
+        var data = xml
+        let innerLen: Int = data.withUnsafeMutableBufferPointer { d -> Int in
+            tip.withUnsafeBufferPointer { t -> Int in
+                wxkeep_runtime_test_rewrite(
+                    d.baseAddress, CUnsignedLong(d.count),
+                    UnsafeRawPointer(t.baseAddress!).assumingMemoryBound(to: CChar.self),
+                    CUnsignedLong(t.count))
+            }
+        }
+        #expect(innerLen == Array(inner.utf8).count)
+        let got = Array(data)
+        let openIdx = got.firstRange(of: Array("<content>".utf8))!.upperBound
+        #expect(Array(got[openIdx..<openIdx + tip.count]) == tip)
+    }
+
+    /// 布局复位回归：layout=0 恢复 x64 标准头读取（缝按布局构造头）。
+    @Test func x64LayoutStillFiresAfterLayoutReset() {
+        wxkeep_runtime_test_set_arm64_layout(0)
+        let inner = "\"李四\" 撤回了一条消息"
+        let xml = Array(("<revokemsg><replacemsg>" + inner + "</replacemsg></revokemsg>").utf8)
+        let tip = Array("ok".utf8)
+        var data = xml
+        let r: Int = data.withUnsafeMutableBufferPointer { d -> Int in
+            tip.withUnsafeBufferPointer { t -> Int in
+                wxkeep_runtime_test_rewrite(
+                    d.baseAddress, CUnsignedLong(d.count),
+                    UnsafeRawPointer(t.baseAddress!).assumingMemoryBound(to: CChar.self),
+                    CUnsignedLong(t.count))
+            }
+        }
+        #expect(r == Array(inner.utf8).count)
+    }
 }

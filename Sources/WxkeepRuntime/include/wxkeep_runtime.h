@@ -42,5 +42,8 @@ int wxkeep_runtime_test_tip_len(void);
 // marker 候选目录回落策略缝（77 续）：按序尝试两目录写 runtime.marker，
 // 返回首个成功序号（0/1），全败 -1。
 int wxkeep_runtime_test_marker_dirs(const char *d1, const char *d2);
+// per-arch 串对象头布局缝（77 续⑧）：1=arm64 变体布局（flag=[0x17] 符号
+// /data@[0]/size@[8]），0=x64 标准布局（byte0 奇=长/size@[8]/ptr@[0x10]）。
+void wxkeep_runtime_test_set_arm64_layout(int arm64);
 
 #endif

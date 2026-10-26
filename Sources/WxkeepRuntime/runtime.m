@@ -449,10 +449,11 @@ static void load_config(void) {
 }
 
 // ---------------------------------------------------------------------------
-// 微信 SSO 字符串（drive17/22 实测布局）：
-//   byte0 = len<<1 | isLong；短串数据在 +1；长串 size@+8 ptr@+0x10
-//   —— hook 只读头部（tag/size/ptr），改写发生在 SSO 指向的
-//      XML 缓冲内部（等长替换），SSO 结构与分配器零接触。
+// 微信串对象（77 续⑧ per-arch 布局，读取统一走 sso_head）：
+//   x86_64（drive17/22 实测）：byte0 奇 = 长串；size@+8；ptr@+0x10；短串数据在 +1
+//   arm64（77 续⑧ 静态实证 + T4 取证）：[0x17] 符号负 = 长串；size@+8；ptr@+0
+//   —— hook 只读头部（判长/size/ptr），改写发生在串指向的
+//      XML 缓冲内部（等长替换），串结构与分配器零接触。
 // ---------------------------------------------------------------------------
 
 static const char kRevokeNeedle[] = "\xe6\x92\xa4\xe5\x9b\x9e";  // “撤回” UTF-8
@@ -622,13 +623,38 @@ static int zero_newmsgid_digits(uint8_t *buf, uint64_t size) {
     return zero_tag_digits(buf, size, "<newmsgid>", sizeof("<newmsgid>") - 1);
 }
 
+// ---------------------------------------------------------------------------
+// 串对象头读取（per-arch 布局，77 续⑧——T4 x1 取证 + 参考切片反汇编双证）：
+//   x86_64（标准 libc++，drive17/22 实测）：byte0 奇 = 长串；size@+8；ptr@+0x10
+//   arm64（变体，0x4a7d6ac 形态 + 0x17=+0x10 qword MSB 实证）：
+//         [0x17] 符号负 = 长串；size@+8；ptr@+0（[0x10] = cap|flag）
+//   两架构 size 偏移相同、ptr 偏移与判长门不同——T4 实测 arm64 x1 =
+//   {data=0x79b72ded80, size=0x338(824B XML)} 与变体布局逐字段吻合；
+//   按 x64 模型读（ptr@+0x10 取到 cap）→ byte0 奇偶门永假 → hits=0。
+// 仅长串路径被实证钉死（撤回 XML ≥60B 必为长串，短串一律跳过——与既有
+// 语义一致）。短串 size 编码未验证，不做推断。
+// ---------------------------------------------------------------------------
+
+static int g_sso_layout_arm64;   // 安装时按行 arch 置位；测试缝可切换
+
+/// 从串对象头提取 (size, ptr)。返回 1 = 长串且字段已填；0 = 非长串/放弃。
+static int sso_head(const uint8_t *obj, uint64_t *size, uint8_t **ptr) {
+    if (g_sso_layout_arm64) {
+        if ((int8_t)obj[0x17] >= 0) return 0;   // 短串
+        memcpy(size, obj + 8, 8);
+        memcpy(ptr, obj, 8);
+    } else {
+        if (!(obj[0] & 1)) return 0;            // 短串
+        memcpy(size, obj + 8, 8);
+        memcpy(ptr, obj + 16, 8);
+    }
+    return 1;
+}
+
 static int rewrite_replacemsg_inner(uint8_t *sso) {
-    uint8_t tag = sso[0];
-    if (!(tag & 1)) return 0;   // 短串装不下完整撤回 XML（≥60B），必非撤回
     uint64_t size;
     uint8_t *ptr;
-    memcpy(&size, sso + 8, 8);
-    memcpy(&ptr, sso + 16, 8);
+    if (!sso_head(sso, &size, &ptr)) return 0;  // 短串装不下完整撤回 XML（≥60B）
     if (size < kNeedleLen || size > (1 << 20) || ptr < (uint8_t *)0x10000) return 0;
     if (!find_bytes(ptr, size, kRevokeNeedle, kNeedleLen)) return 0;  // 快速门
     if (rewrite_inner_with(ptr, size, kContentOpen, sizeof(kContentOpen) - 1,
@@ -683,11 +709,9 @@ static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
         uint8_t *msg = (uint8_t *)args[g_hook.msg_arg];
         if (msg > (uint8_t *)0x10000) {
             uint8_t *sso = msg + g_hook.xml_sso_off;
-            if (sso[0] & 1) {   // 长串形态（撤回 XML 必为长串）
-                uint64_t size;
-                uint8_t *ptr;
-                memcpy(&size, sso + 8, 8);
-                memcpy(&ptr, sso + 16, 8);
+            uint64_t size;
+            uint8_t *ptr;
+            if (sso_head(sso, &size, &ptr)) {   // per-arch 长串判定 + 字段提取
                 if (size >= 32 && size <= (1 << 20) && ptr >= (uint8_t *)0x10000) {
                     if (g_keep_message) {
                         if (zero_newmsgid_digits(ptr, size) > 0) g_zero_fires++;
@@ -990,6 +1014,7 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     // 对称；此刻 stub 未写、hook 无调用者，普通写本也安全）。
     g_hook.msg_arg = t->msg_arg;
     g_hook.xml_sso_off = t->xml_sso_off;
+    g_sso_layout_arm64 = t->is_arm64;   // 串对象头布局随行 arch（77 续⑧）
     memcpy(g_hook.saved, prologue, len);
     g_hook.trampoline = mem;
     g_real_wrapper = (void *(*)(void *, void *, void *, void *, void *, void *))mem;
@@ -1592,9 +1617,17 @@ int wxkeep_runtime_test_load_config_file(const char *path) {
         g_tip_text[0] = 0; g_tip_len = 0; g_rewrite_self = 0;
         memset(g_ext_hooks, 0, sizeof(g_ext_hooks));
         g_ext_hook_count = 0;
+        g_sso_layout_arm64 = 0;
         apply_config_dict(cfg);
         return g_ext_hook_count;
     }
+}
+
+/// per-arch 串对象头布局缝（77 续⑧）：1 = arm64 变体布局
+/// （flag=[0x17] 符号 / data@[0] / size@[8]），0 = x64 标准布局。
+/// 生产路径由 install_hook 按行 arch 置位。
+void wxkeep_runtime_test_set_arm64_layout(int arm64) {
+    g_sso_layout_arm64 = arm64 ? 1 : 0;
 }
 
 /// 当前生效文案的字节长度（load_config_file 缝的 tip 断言用）。
@@ -1617,11 +1650,20 @@ long wxkeep_runtime_test_rewrite(unsigned char *data, unsigned long data_len,
                                  const char *tip, unsigned long tip_len) {
     uint8_t sso[24];
     memset(sso, 0, sizeof(sso));
-    sso[0] = 1;                                   // 长串形态
     uint64_t size = data_len;
-    memcpy(sso + 8, &size, 8);
     uint8_t *ptr = data;
-    memcpy(sso + 16, &ptr, 8);
+    if (g_sso_layout_arm64) {
+        // arm64 变体布局头：{data@0, size@8, cap|flag@0x10（MSB=长）}
+        memcpy(sso, &ptr, 8);
+        memcpy(sso + 8, &size, 8);
+        uint64_t cap = 0x8000000000000000UL;
+        memcpy(sso + 16, &cap, 8);
+    } else {
+        // x64 标准布局头：{tag@0=1, size@8, ptr@0x10}
+        sso[0] = 1;
+        memcpy(sso + 8, &size, 8);
+        memcpy(sso + 16, &ptr, 8);
+    }
     char saved_buf[sizeof(g_tip_text)];
     size_t saved_len = g_tip_len;
     memcpy(saved_buf, g_tip_text, sizeof(saved_buf));

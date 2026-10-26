@@ -205,15 +205,25 @@ FUNCTION_STARTS / blob 不可读）→ 拒装（kStFuncMismatch=64，独立诊�
 位）。带身份门的行宁可不挂；旧行（无字段）不经过此门——向后兼容与
 fail-closed 不矛盾：字段存在本身就是「行作者要求该门」的声明。
 
-**arm64 SSO 布局警示（77 续 x1 语义裁决，2026-10-26）**：参考切片静态
-实锤——arm64 串对象为**变体布局**（data@+0 / 长/短标志@+0x17 符号判长，
-0x4a7d6ac 反汇编 + T4 真机 x1 取证双证），与 x64 行继承的标准布局
-（tag@0/size@+8/ptr@+0x10、byte0 奇偶判长）不同构。**现行 44 行 arm64 行
-的 xml_sso_off 语义自派生日起不可用**（keep_message 恰好也不依赖 SSO 读
-——见下）；未来 arm64 新行必须带 per-arch SSO 模型，runtime.m 的 SSO
-读取器需按 arch 分型后再武装（细节见 MAINTAINING「77 续·x1 语义裁决」）。
-通用 keeptip（newmsgid 清零）按 XML 缓冲内容操作、不经 SSO 头，不受此
-布局问题影响。
+**arm64 串对象布局与 per-arch 读取器（77 续⑧，2026-10-26）**：字节同一
+性判定先行——**场代际（/Applications 装机 dylib）的 arm64 切片与参考切片
+逐字节相同**（sha256 0902af60… 双向吻合；「10-03 自更新换 wechat.dylib
+字节」叙事证伪），因此参考切片上的全部静态结论直接适用于场字节。arm64
+串对象布局 = **{data@0, size@8, cap|flag@0x10}，长/短标志 = +0x10 qword
+的 MSB（即 [0x17] 符号判长）**——证据链：0x4a7d6ac 反汇编形态（ldrsb
+[0x17] 负=长 → csel data=[x0]/内联 → 't' 字符搜索）、41,334 处 flag 位点
+的共读直方图（data/0x10 共读 19,757 次居首）、T4 真机 x1 取证
+{0x79b72ded80, 0x338=824B} 逐字段吻合。与 x64 布局（byte0 奇=长 /
+size@+8 / ptr@+0x10）相比：**size 偏移相同，ptr 偏移与判长门不同**。
+
+后果与修复：**现行 44 行 arm64 行按 x64 模型读头 = ptr 取到 cap、byte0
+奇偶门永假**——arm64 行的 hook 效果（keep_message 与 tip 均经头取
+size/ptr）自派生日起从未生效（T4 hits=0 的机制级解释；x64 行不受影响）。
+修复已落地：runtime.m `sso_head()` per-arch 读取器（行 arch 置位，arm64 =
+[0x17] 符号判长 / size@[8] / ptr@[0]；仅长串路径，短串一律跳过——XML
+≥60B 必为长串），变体布局端到端单测锁定。**T4 渲染破坏机制仍未解释**
+（hook 体当时为纯 no-op，不推断）；arm64 hook 在真机的首次生效验证 =
+T5（ROADMAP 队列第 1 项收尾步）。
 
 **残余分辨力缺口（诚实边界）**：两个不同函数若序言相同、到下一函数
 距离相同、锚点字节也相同，仍会过门——概率上锚点选得 distinctive 即可

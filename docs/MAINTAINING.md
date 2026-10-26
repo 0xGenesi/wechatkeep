@@ -913,3 +913,34 @@ hook 的 `sso[0]&1` 奇偶门按 x64 布局读变体布局长串的数据指针�
 带 per-arch SSO 模型（arm64 = flag@0x17 符号判长 / data@[0] / size@
 [0x17]>>1 或 [x0+8] 待定）——runtime.m 的 SSO 读取器也要按 arch 分型，
 这是新代际切片上的硬前提，不是可选优化。
+
+### 77 续⑧·判定修正与 per-arch 读取器落地（2026-10-26：drift 假说证伪——字节同一性判定）
+
+**字节同一性判定（只读比对，与 doctor/status 同类操作）**：
+/Applications 装机 wechat.dylib（351MB fat，app sha c99d6d95… 与 76 轮台账
+吻合）的 **arm64 切片 sha256 = 0902af60… 与参考切片 var/ab/270100_arm64
+.dylib 完全一致**——「10-03 自更新换 wechat.dylib 字节」叙事证伪， drift
+假说死亡。修正本日早前两节的判定：
+- 「T4 有害 = 10-03 函数起点漂移」**撤销**：hook_off 0x4bc4d34 对真实场
+  字节就是正确函数起点（revoke cbz 位点在内）。
+- T4 hits=0 的机制 = **x64 SSO 模型错配**（唯一存活解释）：arm64 串对象
+  = {data@0, size@8, cap|flag@0x10}，flag = +0x10 qword 的 MSB（0x17 处
+  符号判长；41,334 位点共读直方图 data@0x10 19,757 居首）；T4 x1 取证
+  {0x79b72ded80, 0x338=824B XML} 逐字段吻合。按 x64 模型读：ptr@0x10
+  取到 cap、byte0 奇偶门永假 → keep_message/tip 在 arm64 上从未生效。
+- **T4 渲染破坏机制仍未解释**（hook 体当时纯 no-op；不推断）——真机域
+  遗留，T5 前必须查明。
+- 「10-03 自更新」实际改了什么（壳/主执行档/无 dylib 变化）待查；先前
+  「同 UUID 新字节」表述对 wechat.dylib 不成立。
+
+**修复落地**：runtime.m `sso_head()` per-arch 读取器（x64 布局不变；
+arm64 = [0x17] 符号判长 / size@[8] / ptr@[0]；仅长串路径——XML ≥60B 必
+长串，短串 size 编码未验证不做支持），install_hook 按行 arch 置位 +
+`wxkeep_runtime_test_set_arm64_layout` 缝 + 变体布局端到端单测（错误
+读取器会解引用 cap 常量即崩，通过即证明门/size/ptr 三者全对）。
+
+**re-derive 剩余工程（再收窄）**：hook_off/func_size/序言门对场字节全部
+有效——**不需要重 derive**！剩余 = ①T4 渲染破坏机制查明（真机域）；
+②per-arch 读取器的真机 T5 验证（runtime install 后 marker zero>0/fires>0
+即证）。数天级估计进一步下调：核心未验面只剩 hook 在 arm64 真机的行为
+等价性。
