@@ -69,6 +69,34 @@ struct RuntimeConfigTests {
         _ = try RuntimeConfig.mergeKnownHooks(into: url)
         #expect(try Data(contentsOf: url) == first)
     }
+
+    /// marker 候选序（77 续对偶修复）：序 = dylib 写序，第 2 位必须是微信
+    /// 沙盒容器的 legacy Application Support（沙盒 Group 写被拒时的回落位），
+    /// 第 3 位 = 真实 home 的 legacy 位（非沙盒宿主）。
+    @Test func markerURLsOrderMatchesDylibWriteOrder() {
+        let urls = RuntimeConfig.markerURLs
+        #expect(urls.count == 3)
+        #expect(urls[0].path.contains("Group Containers/\(RuntimeConfig.appGroupID)/wxkeep/runtime.marker"))
+        #expect(urls[1].path.contains(
+            "Containers/\(RuntimeConfig.wechatContainerBundleID)/Data/Library/Application Support/wxkeep/runtime.marker"))
+        #expect(urls[2].path == FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/wxkeep/runtime.marker").path)
+    }
+
+    /// readMarkerText 按候选序探查：首位缺失时必须落到次位——沙盒微信场景
+    /// （Group 无 marker、容器 legacy 位有）status/doctor 不再「无记录」。
+    @Test func readMarkerTextFallsThroughCandidates() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-mk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let miss = dir.appendingPathComponent("missing.marker")
+        let hit = dir.appendingPathComponent("hit.marker")
+        try "loaded ts=1 mr2=hook-armed status=8 enc=2".write(to: hit, atomically: true, encoding: .utf8)
+        #expect(RuntimeConfig.readMarkerText(at: [miss, hit]) == "loaded ts=1 mr2=hook-armed status=8 enc=2")
+        #expect(RuntimeConfig.readMarkerText(at: [miss]) == nil)
+        #expect(RuntimeConfig.readMarkerText(at: []) == nil)
+    }
 }
 
 /// 端到端格式回归：mergeKnownHooks 落盘的文件必须被 dylib 生产路径

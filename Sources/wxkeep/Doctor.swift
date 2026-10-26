@@ -201,9 +201,7 @@ struct Doctor {
             runtimeInjected = MachOInjector.isInjectedAnySlice(
                 data: mainData, path: Wxkeep.RuntimeCommand.lcPath)
         }
-        let runtimeMarkerURL = RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker")
-        let runtimeMarkerText = fm.fileExists(atPath: runtimeMarkerURL.path)
-            ? (try? String(contentsOf: runtimeMarkerURL, encoding: .utf8)) : nil
+        let runtimeMarkerText = RuntimeConfig.readMarkerText()
         let runtimeHookArmed: Bool? = runtimeMarkerText == nil
             ? nil
             : (runtimeMarkerText?.contains("mr2=hook-armed") == true)

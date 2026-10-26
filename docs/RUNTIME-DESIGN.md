@@ -158,7 +158,10 @@ uuid-mismatch(1)+prologue(2) 位形重叠）。与 Verifier 的 MAP_JIT 硬化
 ②沙盒微信 App Group 写被拒（ad-hoc 签名无 team）的 marker 盲区已修：
 `write_marker_ex` 改为「候选目录按序尝试，首个建目录+写成功者胜」——
 Group 拒写时回落 legacy（沙盒内展开 = 容器 Application Support，boot log
-同位面可达），不再只认 Group。③status 诊断位改为独立 bit
+同位面可达），不再只认 Group；**读/清侧对偶同步修复**（CLI 侧
+`RuntimeConfig.markerURLs` 共享同一候选序：Group → 微信沙盒容器 legacy →
+真实 home legacy，`runtime status`/doctor 按序探查、install/remove 全位
+清理——只修写侧会让回落 marker 对 CLI 依旧「无记录」）。③status 诊断位改为独立 bit
 （1/2/4/8/16/32/64，见 runtime.m g_hook_status 注释）——旧编码
 kStInstallFail=3 与 uuid(1)+prologue(2) 位形同形是 77 轮误判排障方向的
 根因；marker 新增 `enc=2` 编码标记 + `istep/ierr`（安装失败步骤与

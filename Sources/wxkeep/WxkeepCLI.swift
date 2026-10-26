@@ -595,9 +595,7 @@ extension Wxkeep {
                 let injected = MachOInjector.isInjectedAnySlice(data: data, path: lcPath)
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 let dylibExists = FileManager.default.fileExists(atPath: dylib.path)
-                let marker = RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker")
-                let markerText = FileManager.default.fileExists(atPath: marker.path)
-                    ? (try? String(contentsOf: marker, encoding: .utf8)) : nil
+                let markerText = RuntimeConfig.readMarkerText()
                 let markerExists = markerText != nil
                 let active = injected && dylibExists
                 print("LC_LOAD_DYLIB 注入: \(injected ? "是" : "否")")
@@ -770,8 +768,8 @@ extension Wxkeep {
                 // 清掉上一次安装期的 marker：它是 dylib 启动回写的历史证据，
                 // 留着会让 `runtime status` 在本次安装尚未启动微信时展示上一
                 // 代的「已加载/已武装/fires」快照——新装周期从「无记录」起算。
-                try? FileManager.default.removeItem(
-                    at: RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker"))
+                // 全候选位清（含沙盒回落位，77 续对偶修复）。
+                RuntimeConfig.removeAllMarkers()
                 // hooks 地址表随装写入 runtime.json（新构建 day-0 数据通道，
                 // 详见 RuntimeConfig 注释）；tip_text/rewrite_self 不在管理面，
                 // 用户手写的值原样保留。
@@ -835,9 +833,9 @@ extension Wxkeep {
                 try? FileManager.default.removeItem(at: dylib)
                 // marker 一并清掉：它声称「runtime 已加载」——组件移除后留着
                 // 是过期证据（doctor 侧已按 dylib 在位性忽略它，但 runtime
-                // status 与后续 install 前的观察都会被它污染）。
-                try? FileManager.default.removeItem(
-                    at: RuntimeConfig.groupContainerURL().appendingPathComponent("runtime.marker"))
+                // status 与后续 install 前的观察都会被它污染）。全候选位清
+                // （含沙盒回落位，77 续对偶修复）。
+                RuntimeConfig.removeAllMarkers()
                 if lcWasPresent {
                     try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat"])
                 }

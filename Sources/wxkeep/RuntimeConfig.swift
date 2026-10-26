@@ -203,10 +203,50 @@ enum RuntimeConfig {
     /// CLI 写的文件 dylib 读不到（2026-09-19 实证）。
     static let appGroupID = "5A4RE8SF68.com.tencent.xinWeChat"
 
+    /// 微信沙盒容器的 bundle id（appGroupID 去团队前缀；与 appGroupID 同为
+    /// 稳定常量的既有先例）。marker 读/清侧用它推容器 legacy 路径。
+    static let wechatContainerBundleID = "com.tencent.xinWeChat"
+
     static func groupContainerURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Group Containers/\(appGroupID)/wxkeep",
                                     isDirectory: true)
+    }
+
+    /// runtime marker 的候选路径（读/写/清三侧共用，77 续对偶修复）。
+    /// 序 = dylib write_marker_ex 的写序（首个可写者胜）：
+    /// 1. Group 容器（正常装机双端可达的正位）
+    /// 2. 微信沙盒容器的 legacy Application Support——沙盒微信 Group 写
+    ///    被拒（containermanagerd 拒 ad-hoc 无 team）时 dylib 的回落位；
+    ///    容器路径对同用户 CLI 可读，不是盲区
+    /// 3. 真实 home 的 Application Support（非沙盒宿主的 legacy 位）
+    static var markerURLs: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            groupContainerURL().appendingPathComponent("runtime.marker"),
+            home.appendingPathComponent(
+                "Library/Containers/\(wechatContainerBundleID)/Data/Library/Application Support/wxkeep/runtime.marker"),
+            home.appendingPathComponent(
+                "Library/Application Support/wxkeep/runtime.marker"),
+        ]
+    }
+
+    /// 首个存在的 marker 文本（候选序探查；全都缺失返回 nil）。
+    static func readMarkerText(at candidates: [URL] = markerURLs) -> String? {
+        for url in candidates {
+            if let text = try? String(contentsOf: url, encoding: .utf8) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    /// 清掉全部候选位的 marker（install/remove 的「新装周期从无记录起算」
+    /// 用——只清 Group 会漏掉沙盒回落位的过期证据）。
+    static func removeAllMarkers(at candidates: [URL] = markerURLs) {
+        for url in candidates {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     /// runtime.json 现行位置（Group 容器）。
