@@ -1,26 +1,65 @@
-## 当前优先级队列（2026-10-24 用户定案；同日修订：发版留最后）
+## 当前优先级队列（2026-10-26 重写；77 续四项收口后）
 
-> 决策依据：Windows 生态已由 BetterWX 覆盖 4.1.15.53（原位提示已实现、更新随机、
-> 无备份/还原承诺；RevokeMsgPatcher 停在 3.x）——本仓差异化在安全契约与 macOS
-> Intel 空白，Windows 立项排后。
+> 决策依据更新：Windows spike 已完成且 GO 建议待批（75 轮报告）；76 轮
+> v2 P0 终审证伪 revokemessage 链（v2-as-designed 死亡，换道三案在册，
+> 建议 b）；77 轮修通 macOS 27 安装链但 hook 行对 10-03 世代失效定案
+> （同 UUID 新字节，catalog 级警示）——一切 runtime 线的前置变成
+> hook 点 re-derive。
 
-1. **v2 外科式补丁（群聊原位提示）**：V2-PLAN 既定方案——撤销 newmsgid 清零 +
-   NOP 下游删除调用 + 配套放行规则；Windows BetterWX 已实证该路线完整效果
-   （提示插原消息下方），macOS 双架构落地。P0 = 一次性补丁对照实验定位删除点
-   （V2-PLAN 已备方案），不做 lldb 陪跑。
-2. **密钥轮换预案成文**（文档债，约半小时）：Ed25519 发布密钥的轮换 SOP
-   （V3-DEPTH §5 承诺项）。
-3. **（可选）Windows spike**（3 天时间盒）：新仓库 Rust + mac/Win 共用 catalog
-   数据层设计；拿 Windows 4.1.15.53 官方原版用现有 capstone 方法论独立重 derive
-   撤回链位点（不抄 BetterWX），spike 结论再决定立项与否。
-4. **v0.2.11 发版（留最后，必做）**：tag → release 流水线（universal 双资产 +
-   签名数据四件套）→ tap formula 0.2.11 同步。内容 = 72 轮 runtime.m 五缺陷修复 +
-   hook 弱序修复 + 73 轮深度四件套（WAL journal / L6 / 负控 / 性质）+ CI 修复。
-   发版前真机 launch_soak（2026-10-24 首跑已全绿）。
+1. **hook 行 re-derive 工程（数天级独立时间盒，多线的前置）**：270100
+   arm64 优先——三线交会（newmsgid 字面量引用者 × isRevokemsg 调用者 ×
+   撤回 needle 函数归属）定位 parse 直挂点，产出带函数级身份门
+   （func_size/anchor，77 续 schema 已落地）的新行；随后 44 行全量重验
+   （arm64+x64，10-03 世代同 UUID 新字节风险适用全部 hook 行——补丁
+   位点不受影响）。工具链就绪：tools/arm64_index.py（全量引用索引，
+   首探负结果入档——引用者定位需扩展 adrp+ldr 远偏移窗口或 Ghidra 全量）
+   + derive_runtime_hooks（x64 面已自动携带 func_size）。**在此之前
+   runtime hook 对 10-03 世代微信 = 失效且有害（0x4bc4d34 破坏消息解析
+   = 渲染全占位，实测），不要在有日常使用价值的机器上武装。**
+2. **Windows 新仓立项动工**（75 轮 GO 建议待用户批）：Rust + mac/Win
+   共用 catalog 数据层；Windows「原消息行删除点」为首个未 derive 项；
+   xlog `\xa1` 帧破解立项后第一优先（多样本统计课题，帧格式已修正）。
+3. **T4 msgid 判读（悬置，前置 = 第 1 项完成）**：清 <msgid> 保 newmsgid
+   裁决删除键是否双字段。runtime.m 缝与配置键已备（77 轮），只欠正确
+   hook 点 + 参数 re-derive。newmsgid 单键结论由 v1 历史实弹独立支撑，
+   不受悬置影响。
+4. **v2 换道②决策落地（用户窗口）**：换道三案（a WCDB 继续追 / b
+   runtime 合成群聊 tip / c 接受现状）76 轮建议 b——前置同第 1 项
+   （b 需要 parse hook 手持完整 revokemsg XML）。
+5. **v0.2.12 发版（留最后，必做）**：内容 = 77 轮 macOS 27 安装链修复
+   （MAP_JIT + vm_remap COW）+ zero_msgid/allow_runtime_prologue + 77 续
+   四项（函数级身份门 schema / marker 回落 / status 位形 / 工具入库）。
+   发版前真机 launch_soak（SOP 已固化）。
 
-被动/事件触发项（不排期）：新构建日 watch PR 降级路径人工复核一次 run 日志；
-老构建 verify spec 有用户反馈再按需派生（SOP 已固化）；每次发版前真机
-launch_soak。
+被动/事件触发项（不排期）：新构建日 watch PR 降级路径人工复核一次 run
+日志（66 轮遗留）；老构建 verify spec 有用户反馈再按需派生（SOP 已固化）；
+每次发版前真机 launch_soak；腾讯侧若出现对 runtime.json 的实际对抗实证
+（RUNTIME-DESIGN 加签评估的触发条件）→ hooks 行加签升 P0。
+
+## 77 续·收尾轮（2026-10-26：catalog 函数级身份门 + 两工程缺陷 + 工具入库 + 队列重写，185 测全绿）
+
+1. **[函数级身份门]** HookRow/hook_row_parse 新增可选 `func_size`
+   （LC_FUNCTION_STARTS 布局距离指纹，machutil 同语义）+ `anchor_va/
+   anchor_bytes`（字节锚）；install_hook 序言门后按镜像自身元数据二次
+   核对（mach 读探针防 linkedit 尾 SIGSEGV），不符/元数据缺失拒装
+   （fail closed，kStFuncMismatch=64）；旧行无字段不启用（向后兼容）；
+   derive_runtime_hooks 自动携带 func_size。10-03「同 UUID 新字节换函数」
+   事故的 schema 级预防——失效行从「有害」（破坏消息解析）降级为「无害
+   + 可诊断」。设计取舍 RUNTIME-DESIGN 新节。
+2. **[两缺陷收口]** ①write_marker_ex 候选目录按序尝试（Group 拒写回落
+   legacy——沙盒微信 marker 盲区修复，台账 T4）；②status 诊断位改独立
+   bit（1/2/4/8/16/32/64；旧 kStInstallFail=3 与 uuid+prologue 同形 =
+   77 轮误判根因），marker 增 enc=2 + istep/ierr，CLI 判读只对 enc=2
+   解位（旧编码不误读）。
+3. **[工具入库 5 件]** tools/{arm64re,arm64_index,winre,win_profile,
+   sign_manifest_openssl}.py（var/ 原工件保留）；真工件冒烟 + Ed25519
+   签署验签往返全过。
+4. **[队列重写]** Windows spike GO 待批 / hook 行 re-derive 升第一优先
+   （多线前置）/ T4 悬置 / v0.2.12 发版留最后。
+5. **[边界遵守]** /Applications 与微信全程未动；var/、keys/ 未动；无真机
+   实验。排障实录中一处编译期转义陷阱（Edit 写 Swift 字符串 `\"` 丢失
+   反斜杠 → 神秘 parse 错误，hexdump 定位）入档：含转义引号的测试代码
+   一律用多行字符串字面量。
 
 ## 77·v2 换道①执行轮（2026-10-25/26：T4 msgid 判读未达但 runtime 修通 macOS 27 安装链——MAP_JIT + vm_remap COW 两处硬化修复落地）
 
