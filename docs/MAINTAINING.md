@@ -839,3 +839,45 @@ Support/wxkeep）→ 真实 home legacy。Swift 侧唯一权威 =
 RuntimeConfig.markerURLs（readMarkerText/removeAllMarkers）；dylib 侧 =
 write_marker_first_writable。改任一侧必须同步另一侧（与 knownHooks 双侧
 同步惯例同构）。
+
+### 77 续·re-derive 二探（2026-10-26：首探三线悬案全解 + 工具链完备化——静态地基收口）
+
+> 纯静态（var/ 工件），零真机动作。二探把首探「needle 零 adrp 直引」的
+> 三条候选解释逐一证实/证伪，re-derive 剩余工程因此可精确界定。
+
+**首探负结果根因链（全部实证）**：
+1. 「撤回」35 处/「你撤回了一条消息」1 处命中全部落在 **__DATA/__data**
+   （嵌入配置数据，非代码可引用字面量）——以 UI 串为锚的收敛线死路
+   （灰条文案由服务端 replacemsg 下发渲染，客户端字面量只在窄路径）。
+2. **XML 标签字面量不存在**（<newmsgid>/<msgid>/<replacemsg>/type=
+   "revokemsg" 全零命中）——原生侧是通用 XML 解析 + 字段分发，tag 搜串
+   锚线从构造上不成立；「撤回」needle 在 XML 缓冲内搜串是 wxkeep runtime
+   的语义，不是原生的。
+3. newmsgid 真身 = **__TEXT/__const 字段名表**（模型层 serialization 键，
+   与 "messageuuid"/"from"/"sec_msg_bubble" 等连排）且有直引——引用者：
+   **0x4bc4d34 本尊** + 0x308953c/0x308b1f0/0x308c154。
+4. 槽间接/chained-fixups 形态：切片带 LC_DYLD_CHAINED_FIXUPS，实测编码 =
+   目标 VA | 0x0020_0000_0000_0000（__cfstring char* 实证，槽 0x9e32ed0 →
+   0x96950de）；但**代码对字面量全部直接 adrp**（AddRevokeMessage 真值
+   对照 + needle 直引均在），槽层无命中属真实属性。
+5. movz/movk 立即数构造与 UTF-16 常量：全零（排除）。
+
+**决定性世代判定**：catalog 270100 arm64 revoke cbz 位点 = **0x4bc4fa4**
+（expected 40100034），落在 0x4bc4d34 函数内（下一函数起点 0x4bc5e50）——
+**现行 hook 行对参考世代派生正确**（含 76 轮 fzlzjerry 独立互证）。真机
+T4 的有害装挂 = **10-03 同 UUID 新字节世代函数起点漂移**（字节位点仍在
+原函数内→v1 补丁持续有效；函数起点已非 0x4bc4d34→hook 错挂）。func_size
+门（77 续①入库，本行值 4380）把该场景从「破坏渲染」降级为「拒装可诊断」。
+
+**二探新增工具**（tools/）：arm64_slotref.py（fixup 感知槽引用，
+MASK36 谓词端到端验证）；arm64_index.py 增 `near` 模式（[va-w, va] 窗内
+已索引目标 + delta + 函数归属——长表基址形态的求解器）。
+
+**re-derive 剩余工程（数天级部分的精确界定）**：静态锚线只剩一条可靠路
+=「含 revoke cbz 位点的函数起点」（recipe 位点在 10-03 字节上仍逐位吻合
+——strict verify 过）。剩余 = ①获取 10-03 代际切片（CDN 现行 dmg 下载或
+真机 dylib 拉取——注意 CDN 可能仍是旧代际，需以位点周边字节比对判代）；
+②新切片上 FUNCTION_STARTS 定位点所在函数起点 → 新 hook_off + func_size +
+序言门；③arm64 x1 参数语义验证（Ghidra 快路读签名——参考世代从未实机
+验证过 parse 直挂语义，x1 非 SSO 的实测可能意味签名与 x64 不同构）；
+④真机 T5 回归。②的工具与口径本轮全部就绪。

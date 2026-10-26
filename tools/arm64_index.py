@@ -15,6 +15,9 @@
 用法（显式路径，无隐式缺省——索引与切片配对是调用方责任）:
   var/venv/bin/python tools/arm64_index.py build <slice.dylib> <out.idx>
   var/venv/bin/python tools/arm64_index.py query <idx> <va-hex>...
+  var/venv/bin/python tools/arm64_index.py near <idx> <va-hex> <window>
+  # near：[va-window, va] 内已索引目标（77 续二探——长表基址+偏移形态下
+  # needle VA 本身无直引，但表基址在窗内；含 delta 与引用函数归属）
 依赖 capstone（var/venv）+ tools/machutil.py。
 """
 import bisect
@@ -113,6 +116,18 @@ def main():
                 print(f'{site:#x}: {kind}  func {func_of(site):#x}')
             for site, f in ix['calls'].get(va, []):
                 print(f'{site:#x}: bl  caller {f:#x}')
+    elif len(argv) >= 3 and argv[0] == 'near':
+        ix, func_of = load(argv[1])
+        va = int(argv[2], 16)
+        window = int(argv[3], 16)
+        targets = sorted(ix['refs'].keys())
+        lo = bisect.bisect_left(targets, va - window)
+        hi = bisect.bisect_right(targets, va)
+        for t in targets[lo:hi]:
+            refs = ix['refs'][t]
+            fs = sorted(set(func_of(s) for s, _ in refs))
+            print(f'{t:#x} (delta -{va - t:#x}) refs {len(refs)} '
+                  f'funcs {" ".join(hex(f) for f in fs[:8])}')
     else:
         raise SystemExit(__doc__)
 
