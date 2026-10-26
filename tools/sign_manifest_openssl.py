@@ -50,21 +50,13 @@ def main():
     manifest = {'schema': 1, 'generated_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                 'files': files}
     canonical = json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode()
-    seed = pem_seed(args.key)
-    # openssl pkeyutl 需要 PEM 载体：SEED 重组 PKCS8 DER → 临时 PEM（用后即删）
-    priv_pem = os.path.join(root, '.priv.pem')
-    with open(priv_pem, 'w') as f:
-        f.write('-----BEGIN PRIVATE KEY-----\n')
-        der = PKCS8_PREFIX + seed
-        b = base64.b64encode(der).decode()
-        f.write('\n'.join(b[i:i + 64] for i in range(0, len(b), 64)))
-        f.write('\n-----END PRIVATE KEY-----\n')
-    try:
-        p = subprocess.run(['openssl', 'pkeyutl', '-sign', '-inkey', priv_pem,
-                            '-rawin', '-in', '/dev/stdin'],
-                           input=canonical, capture_output=True, check=True)
-    finally:
-        os.remove(priv_pem)
+    # 钥型校验（错钥早失败，防静默垃圾签名）——openssl 3/4 的 pkeyutl 支持
+    # -rawin Ed25519，直接用原钥签名；不重建临时 PEM（源文件也不得出现
+    # PEM 头字面量——CI 的私钥材料防泄漏门会拦，2026-10-26 实历）。
+    pem_seed(args.key)
+    p = subprocess.run(['openssl', 'pkeyutl', '-sign', '-inkey', args.key,
+                        '-rawin', '-in', '/dev/stdin'],
+                       input=canonical, capture_output=True, check=True)
     sig = base64.b64encode(p.stdout).decode()
     with open(os.path.join(root, 'manifest.json'), 'w') as f:
         json.dump(manifest, f, indent=1)
