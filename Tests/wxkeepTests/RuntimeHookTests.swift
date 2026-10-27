@@ -711,17 +711,56 @@ extension RuntimeHookTests {
     }
 
     /// 77 续⑨：hook 链透传契约（arm64）——8 个整型寄存器参 + 1 个栈参 +
-    /// 2 个 FP 参经生产蹦床/stub 公共路径挂钩后必须逐位穿透。T4「hook 体
-    /// no-op 仍渲染全占位」机制候选的回归锁：Release 构建的 6 参 C 形态曾
-    /// 把 x6 当尾跳草稿寄存器清掉、hook 体调 memcpy 清 v0-v7——两者都会
-    /// 让本测试的哨兵失配。x86_64 宿主缝自报 -2（整型参寄存器全集恰好
-    /// 6 个，C 形态即完整）。
+    /// 2 个 FP 参经生产蹦床/stub 公共路径挂钩后必须逐位穿透。定位 =
+    /// 对「签名未知的目标行」的结构保证（77 续⑩ 静态裁决：现行 270100
+    /// arm64 目标只消费 x0-x2，寄存器清坏不是 T4 的机制；但 6 参 C 形态
+    /// 的草稿寄存器清坏与手写帧槽重叠都是真实 bug 类——本测试两者都
+    /// 抓出过）。x86_64 宿主缝自报 -2（整型参寄存器全集恰好 6 个）。
     @Test func hookChainPassesAllArgumentRegistersThrough() {
         let r = wxkeep_runtime_test_hook_transparency()
         #if arch(arm64)
         #expect(r == 1)
         #else
         #expect(r == -2)
+        #endif
+    }
+
+    /// 77 续⑩：线程静默写窗的生命线回归——安装（含挂起全部线程的写窗）
+    /// 之后并发线程必须仍在推进（resume 全恢复，无停摆）。顺带断言静默
+    /// 机制真实运行（枚举成功而非退化直写）。
+    @Test func quiescedInstallResumesAllThreads() {
+        #if arch(arm64)
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = 0
+            private var stopped = false
+            func run() {
+                while true {
+                    lock.lock()
+                    if stopped { lock.unlock(); return }
+                    value += 1
+                    lock.unlock()
+                    sched_yield()
+                }
+            }
+            func sample() -> Int { lock.lock(); defer { lock.unlock() }; return value }
+            func stop() { lock.lock(); stopped = true; lock.unlock() }
+        }
+        let counter = Counter()
+        let probe = Thread { counter.run() }
+        probe.name = "wxkeep-liveness-probe"
+        probe.start()
+        Thread.sleep(forTimeInterval: 0.1)
+        let before = counter.sample()
+        let r = wxkeep_runtime_test_hook_transparency()
+        Thread.sleep(forTimeInterval: 0.2)
+        let after = counter.sample()
+        counter.stop()
+        #expect(r == 1)
+        #expect(after > before)   // 静默窗后探针线程仍在推进 = resume 全恢复
+        #expect(wxkeep_runtime_test_quiesce_count() >= 0)   // 枚举成功，非退化直写
+        #else
+        #expect(wxkeep_runtime_test_hook_transparency() == -2)
         #endif
     }
 }

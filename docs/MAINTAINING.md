@@ -1030,3 +1030,55 @@ keep/note 两个旧告警）；ASan+UBSan fuzz 驱动重编 + 语料全过 +
 **[边界遵守]**：/Applications 与微信全程未动；var/、keys/ 未动；无真机
 实验。GH Actions 仓库设置一处变更（PR 创建权限开启，可逆：
 `gh api -X PUT ... -F can_approve_pull_request_reviews=false`）。
+
+### 77 续⑩·T4 静态裁决修正 + 线程静默写窗（2026-10-27 同日二次收口，193 测全绿）
+
+> 上一轮（⑨）把「hook 链清 x6/FP 参」列为 T4 渲染破坏的机制级头号候选
+> 并注明「真机复核待 T5」。本轮在烧真机窗口之前先把该候选做纯静态裁决
+> ——结果否决了它，同时把 T4 存活候选收敛到安装侧并落地了工程消除。
+
+**[静态裁决（纯 capstone，参考切片）]**：0x4bc4d34 函数全量（4380B /
+1095 条指令）线性首触数据流扫描：**目标只消费 x0/x1/x2**（`mov
+x19/x21/x20, x0/x1/x2` @+0x18-0x20，与 x64 孪生 parse(rdi,rsi,&ok) 三参
+同构）；x3-x8 首触全为自身写（x8 第一处 = adrp 目的 = 非 sret；x6/x7
+深处 mov 初始化）；v0 = movi 0xaa 栈填充先写后读（capstone 对 movi 立数
+形式漏报 write 位，需人工复核——教训入档）；v1-v7 无入参读。**裁决 =
+寄存器清坏不可能是 T4 渲染破坏的机制**（caller-saved 清坏对不消费它们
+的函数是 ABI 合法行为）。⑨的「x6 候选」撤销；x8-sret 候选同时否决。
+naked thunk 的价值改判为「未来行（签名未知）的结构前提 + 透传测试抓真
+bug 的载体」，RUNTIME-DESIGN/code 注释已同步改口径。
+
+**[hook 体 no-op 第三重复核]**：x64 模型门在 arm64 对象上的全形态关闭
+再证——长串 byte0=堆指针低字节（16B 对齐恒偶）门关；短串 '<'/CJK 引导
+字节恒偶门关；奇字符短串被 size@[8] 界拒（内联字符 LE 整数 >1MB 或 0）。
+T4 hook 体纯 no-op 判定稳固。
+
+**[T4 存活候选收敛 + 候选①工程消除]**：收敛到安装/执行环境两侧——
+①安装撕裂窗（16B stub memcpy 非原子 × 并发执行流；撕裂取指 = 半截序言
++ stub 混合 → 蹦床重放完整序言 = 双重 prologue → 帧腐坏静默传播，可不
+崩；T4 期登录历史批扫对本 parse 族海量并发）；②壳重写器交互（10-03 壳
+对 parse 入口运行时字节有重写行为，可覆盖 stub = T4「calls 22→0」吻合）。
+**本轮落地线程静默写窗消除候选①**：`quiesce_begin/end`（task_threads
+枚举 → 除自身全 suspend → store → icache 广播失效 → resume；ElleKit
+stopAllThreads 同款）；生产 stub 写与透传测试缝同路；liveness 回归
+（`quiescedInstallResumesAllThreads`：探针线程穿越静默窗后仍在推进 =
+resume 全恢复；`wxkeep_runtime_test_quiesce_count()` 断言枚举成功非退化
+直写）；boot log tick 新增 `qz=` 字段。残余风险记录不修：枚举后新建
+线程不在静默集（窗微秒级）；被挂起线程恰持 vm 锁时 icache 可能等锁
+（业界同款接受）。x64 维持直写（实弹多年，本轮不动）。
+
+**[T5 预期修正（重要）]**：装 77 续⑧+⑨+⑩ runtime 不承诺修复渲染——
+keep_message/tip 的 arm64 生效（SSO 读取器 + 透传 + 静默安装）与渲染
+破坏是独立问题面。T5 判别设计：渲染正常 → 候选①（撕裂窗）即机制；
+渲染仍破坏 → 候选②（壳交互域）升头号。**教训：机制候选在烧真机窗口
+前先做可做的静态裁决——本轮一次扫描就省掉一次可能得出错误归因的 T5。**
+
+**[capstone 陷阱入档]**：`movi v0.16b, #0xaa` 的 write 位在 capstone
+detail 模式下漏报（立数形式 SIMD 操作普遍如此）——首触数据流扫描会把
+「写后读」误判为「入口读」。本轮靠人工看 `movi` 后的 `stp q0,q0` 读的
+是自值纠偏。同类工具（arm64_index/arm64re）未来做寄存器数据流时必须
+特判立数形式。
+
+**[回归]**：192→193 测（+quiescedInstallResumesAllThreads，0.31s）；
+全量 193 绿；runtime.m 双架构 -Wall -Wextra 零告警；ASan/UBSan fuzz
+驱动 + 2 万随机输入零报告。边界遵守：/Applications 未动；无真机实验。

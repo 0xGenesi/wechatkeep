@@ -58,5 +58,8 @@ long wxkeep_runtime_test_transparency_got(void);
 // 转储哨兵逐槽出口（调试用）：idx 0..7=x0..x7，8=[sp] 栈参，9=d0，10=d1，
 // 11=x30，12=sp；hooked=1 挂钩调用 / 0 基线调用。
 long wxkeep_runtime_test_transparency_slot(int idx, int hooked);
+// 线程静默写窗诊断（77 续⑩）：上次安装静默的线程数（-1 = task_threads
+// 枚举失败，退化为无静默直写）。
+int wxkeep_runtime_test_quiesce_count(void);
 
 #endif

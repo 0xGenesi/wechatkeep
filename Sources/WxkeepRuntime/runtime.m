@@ -3,6 +3,7 @@
 #import <mach-o/dyld.h>
 #import <mach/mach.h>
 #import <mach/mach_vm.h>
+#import <mach/thread_act.h>
 #import <mach-o/loader.h>
 #import <sys/mman.h>
 #import <pthread.h>
@@ -737,13 +738,16 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
 // q0-q7（FP/SIMD 参）全量保存/恢复；尾跳 g_real_wrapper 前 sp 已复原到
 // 入口值，第 9+ 参的栈参原位可读。x16/x17 是 IP 草稿寄存器（非参数位）。
 //
-// 取代 6 参 C 透传形态的动机（反汇编实锤 = T4 渲染破坏机制头号候选）：
-// ①Release 构建把 x6 当尾跳草稿寄存器（`ldr x6,…; br x6`）——目标函数
-//   若有第 7 个整型参，每次调用的该参数被静默替换为蹦床地址；
-// ②hook 体调用 memcpy（诊断快照）会清 v0-v7——FP 参同样不保。
-// arm64 hook 行挂的解析族函数签名未知（77 续⑦ 已证其 x1 语义与 x64 行
-// 不同构），透传必须是结构保证而不是代码生成运气。x64 切片的整型参
-// 寄存器全集恰好 6 个，C 形态对整型参完整（见下方 #else 分支）。
+// 取代 6 参 C 透传形态的动机（结构保证，不是代码生成运气）：hook 行挂
+// 的目标函数签名未知（77 续⑦ 已证 arm64 行的 x1 语义与 x64 行不同构），
+// 6 参 C 形态下编译器可把 x6/x7/x8 当草稿寄存器清掉（Release 尾跳
+// `ldr x6,…; br x6` 实测）、hook 体调用 memcpy 清 v0-v7——目标函数若有
+// 更多整型参/FP 参即被破坏。77 续⑩ 静态裁决：现行 270100 arm64 目标
+// 只消费 x0-x2（x3-x8 首触全为自身写、v0-v7 无入参读）——寄存器清坏
+// 不是 T4 渲染破坏的机制，但透传仍是未来行（签名未知）的结构前提，
+// 且透传契约测试抓出过手写帧三类槽重叠真 bug（见 MAINTAINING 77 续⑨）。
+// x64 切片的整型参寄存器全集恰好 6 个，C 形态对整型参完整（见下方
+// #else 分支）。
 __attribute__((naked)) static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
                                                         void *a3, void *a4, void *a5) {
     // 帧布局（0xE0）：[0x00]=x29/x30；[0x10..0x3F]=x0..x5（args[0..5]，8B 槽）；
@@ -1041,17 +1045,65 @@ static int prepare_trampoline(uintptr_t target, const uint8_t *prologue,
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// 线程静默写窗（77 续⑩，仅 arm64）：入口 stub 的 16B memcpy 是非原子
+// 写，与并发执行流存在撕裂窗——T4 渲染破坏的存活候选①（77 续⑩ 静态
+// 裁决已否决寄存器清坏候选：目标函数只消费 x0-x2，见 RUNTIME-DESIGN；
+// 撕裂取指 = 半截序言 + stub 混合执行 → hook 带坏 sp 进场 → 蹦床重放
+// 完整序言 = 双重 prologue → 帧腐坏静默传播为解析损坏，可不崩）。
+// 写窗收窄 = suspend 全部同任务线程（除自身）→ store → icache 失效
+// （广播到内共享域）→ resume。与 ElleKit stopAllThreads/frida 同一做法。
+// 已知残余风险（记录不修）：task_threads 枚举后新建的线程不在静默集
+// （窗微秒级，接受）；被挂起线程若恰持 vm 锁，icache 系统调用可能等锁
+// （同窗微秒级，业界同款接受）。x64 维持直写（12B、实弹多年、本轮不动）。
+// ---------------------------------------------------------------------------
+
+static thread_act_array_t g_quiesce_list;
+static mach_msg_type_number_t g_quiesce_n;
+static int g_quiesce_threads;   // 诊断：上次安装静默的线程数（-1=枚举失败）
+
+static void quiesce_begin(void) {
+    g_quiesce_list = NULL;
+    g_quiesce_n = 0;
+    g_quiesce_threads = -1;
+    if (task_threads(mach_task_self(), &g_quiesce_list, &g_quiesce_n) != KERN_SUCCESS) {
+        g_quiesce_list = NULL;
+        return;
+    }
+    thread_t self = mach_thread_self();
+    int ok = 0;
+    for (mach_msg_type_number_t i = 0; i < g_quiesce_n; i++) {
+        if (g_quiesce_list[i] == self) continue;
+        if (thread_suspend(g_quiesce_list[i]) == KERN_SUCCESS) ok++;
+    }
+    mach_port_deallocate(mach_task_self(), self);
+    g_quiesce_threads = ok;
+}
+
+static void quiesce_end(void) {
+    if (!g_quiesce_list) return;
+    for (mach_msg_type_number_t i = 0; i < g_quiesce_n; i++)
+        thread_resume(g_quiesce_list[i]);   // 未被我们挂起的线程 resume 报错，无害
+    vm_deallocate(mach_task_self(), (vm_address_t)g_quiesce_list,
+                  g_quiesce_n * sizeof(thread_act_t));
+    g_quiesce_list = NULL;
+    g_quiesce_n = 0;
+}
+
 /// 入口 stub 落写 + 写后读回（g_stub_alive）。page_already_writable=1：
 /// 目标页已是本线程 MAP_JIT 页（测试缝的哨兵页）——np(0) 窗口直写；
 /// 0 = 生产文件页：mprotect → vm_remap COW 舞步（语义见 install_hook 内
 /// 注释）。失败时 errno/step 已记录（step=2 = 目标页可写化）。
+/// arm64 的 store+icache 在线程静默窗内执行（77 续⑩，见上方块注释）。
 static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_len,
                             int is_arm64, int page_already_writable) {
     uintptr_t page = target & ~(uintptr_t)0xfff;
     if (page_already_writable) {
         pthread_jit_write_protect_np(0);
+        if (is_arm64) quiesce_begin();
         memcpy((void *)target, stub, stub_len);
         sys_icache_invalidate((void *)target, stub_len);
+        if (is_arm64) quiesce_end();
         pthread_jit_write_protect_np(1);
     } else {
         int page_writable =
@@ -1067,8 +1119,10 @@ static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_l
                 (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE) == 0);
         }
         if (!page_writable) { g_install_errno = errno; g_install_step = 2; return -1; }
+        if (is_arm64) quiesce_begin();
         memcpy((void *)target, stub, stub_len);
         if (is_arm64) sys_icache_invalidate((void *)target, stub_len);
+        if (is_arm64) quiesce_end();
         mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
     }
     // 写后读回：COW remap 写路径的直接验证（写丢失在此即现，不等撤回流量）
@@ -1389,9 +1443,9 @@ static void start_evidence_timer(void) {
                 const uint8_t *now = (const uint8_t *)g_hook.target;
                 g_stub_alive = (now && memcmp(now, "\x51\x00\x00\x58\x20\x02\x1f\xd6", 8) == 0) ? 1 : 0;
             }
-            [acc appendFormat:@"tick installed=%d status=%d alive=%d calls=%d fires=%d hits=%d zero=%d arg1=",
+            [acc appendFormat:@"tick installed=%d status=%d alive=%d calls=%d fires=%d hits=%d zero=%d qz=%d arg1=",
                 g_hook_installed, g_hook_status, g_stub_alive, g_hook_calls, g_rewrite_fires, g_rewrite_hits,
-                g_zero_fires];
+                g_zero_fires, g_quiesce_threads];
             if (g_arg1_valid) {
                 for (int k = 0; k < 24; k++) [acc appendFormat:@"%02x", g_arg1_head[k]];
             } else {
@@ -1749,14 +1803,11 @@ uint64_t g_wxkeep_transparency_hooked_dump[13];
 //
 // MAP_JIT 页内手工构造哨兵函数：8 个整型寄存器参（x0-x7）+ 1 个栈参
 //（[sp]）+ 2 个 FP 参（v0/v1）全部 EOR 折进 x0 返回。经生产同一蹦床/
-// stub 代码路径（prepare_trampoline + write_entry_stub）挂钩后调用——
-// hook 链上任何参数面被破坏都让哨兵失配：
-//   · x6 被当草稿寄存器（Release 构建 6 参 C 形态的实测尾跳 `ldr x6,…;
-//     br x6`）→ 第 7 整型参失真；
-//   · hook 体调 memcpy 清 v0-v7 → FP 参失真；
-//   · 尾跳前 sp 未复原 → 栈参失真。
-// 这三者即 T4「hook 体 no-op 仍渲染全占位」的机制候选面（arm64 行挂的
-// 解析族函数签名未知）。
+// stub 代码路径（prepare_trampoline + write_entry_stub，含 77 续⑩ 线程
+// 静默写窗）挂钩后调用——hook 链上任何参数面被破坏都让哨兵失配：
+// x6/x7 被当草稿寄存器、hook 体 memcpy 清 v0-v7、尾跳前 sp 未复原。
+// 定位 = 对「签名未知的目标行」的结构保证（对现行 270100 行是超集：
+// 77 续⑩ 已静态裁决其只消费 x0-x2——见 RUNTIME-DESIGN）。
 // 哨兵 args[1] 传有效 32B 缓冲指针：hook 诊断面（24B 快照）与 sso_head
 // 读取范围（arm64 布局 ≤0x18B）都落在界内，短串门自然关断（确定性）。
 // 返回：1=全透传通过 0=参数失配 -1=装挂失败 -3=哨兵自检失败
@@ -1876,6 +1927,7 @@ long wxkeep_runtime_test_hook_transparency(void) {
 long wxkeep_runtime_test_hook_transparency(void) { return -2; }   // 非 arm64 宿主
 #endif
 
+int wxkeep_runtime_test_quiesce_count(void) { return g_quiesce_threads; }
 long wxkeep_runtime_test_transparency_diff(void) { return g_wxkeep_transparency_diff; }
 long wxkeep_runtime_test_transparency_got(void) { return g_wxkeep_transparency_got; }
 // 槽位：0..7=x0..x7，8=[sp] 栈参，9=d0，10=d1，11=x30，12=sp

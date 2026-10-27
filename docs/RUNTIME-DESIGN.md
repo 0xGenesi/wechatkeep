@@ -169,17 +169,23 @@ errno，macOS 27 W^X 排障钥匙），CLI 判读只对 enc=2 marker 解位
 （runtimeStatusFlags/markerStatusDecode），旧编码 marker 展示原值不误读；
 武装态权威表达仍是 `mr2=` 字段，不受位形重编码影响。
 
-## hook 链全参透传（77 续⑨，2026-10-27）
+## hook 链全参透传（77 续⑨，2026-10-27；⑩ 静态裁决修正同日）
 
-**问题（反汇编实锤）**：hook 函数原为 6 参 C 形态（`revoke_wrapper_hook
-(a0..a5)`）。对 T4 当时装机 的 Release dylib 反汇编：尾跳序列 `ldr x6,
-…; br x6` 把 **x6 当草稿寄存器清掉**——arm64 行挂的解析族函数（0x4bc4d34
-系）签名未知（77 续⑦已证其 x1 语义与 x64 行不同构），若它有第 7 个整型
-寄存器参，**每次调用该参数被静默替换为蹦床地址**；同时 hook 体调用
-memcpy（诊断快照）会清 **v0-v7（FP 参）**。这两者与「T4 hook 体纯
-no-op 仍渲染全占位」完全相容，是机制级头号候选（真机复核待 T5）。社区
-同类实证：Dobby #190（x8/sret 被清崩）、frida-gum 历史修复「Fix access
-to arguments 4 through 7 on arm64」。
+**问题（反汇编实锤 → ⑩ 静态裁决否决其为 T4 机制）**：hook 函数原为
+6 参 C 形态（`revoke_wrapper_hook(a0..a5)`）。对 T4 当时装机的 Release
+dylib 反汇编：尾跳序列 `ldr x6,…; br x6` 把 **x6 当草稿寄存器清掉**，
+且 hook 体调用 memcpy（诊断快照）会清 **v0-v7（FP 参）**。⑨曾将此列为
+T4「hook 体纯 no-op 仍渲染全占位」的机制级头号候选；**⑩对参考切片
+0x4bc4d34 函数（4380B 全量）做首触数据流扫描后否决**：目标函数只消费
+x0/x1/x2（与 x64 孪生 parse(rdi,rsi,&ok) 三参同构），x3-x8 首次触碰全是
+函数自身的写（x8 第一处 = `adrp x8` 目的，非 sret 消费；x6/x7 深处
+`mov` 初始化），v0 由 `movi v0.16b,#0xaa` 先写后读（栈填充模式，非入参）。
+caller-saved 清坏对不消费它们的函数是 ABI 合法行为——**寄存器清坏不是
+T4 渲染破坏的机制**。naked thunk 的价值改判为：对未来行（签名未知）的
+结构前提 + 透传契约测试抓出过手写帧三类槽重叠真 bug（见下）。社区同类
+实证仍有效：Dobby #190（x8/sret 被清崩）、frida-gum 历史修复「Fix access
+to arguments 4 through 7 on arm64」——该 bug 类真实存在，只是不落在
+本例目标上。
 
 **修复（arm64 naked thunk，结构保证而非代码生成运气）**：
 `revoke_wrapper_hook` 改 `__attribute__((naked))` 纯 asm 蹦床——
@@ -222,6 +228,51 @@ ElleKit `findSafeRegister`/substitute `arm64_get_unwritten_temp_reg`
 substitute/frida 的「匿名补丁页 + `mach_vm_remap(VM_FLAGS_OVERWRITE)`
 整页盖回」——从不请求签名页可写，无 entitlement 进程也可行，作为
 vm_remap COW 舞步的备选记录在案（现路径在微信进程内实证可用，不换）。
+
+## T4 渲染破坏·候选收敛与线程静默写窗（77 续⑩，2026-10-27）
+
+**静态裁决（纯 capstone，参考切片 var/ab/270100_arm64.dylib）**：对
+0x4bc4d34 函数（func_size=4380，1095 条指令）做线性首触数据流扫描——
+每个寄存器的第一次出现是读（= 消费入口值）还是写（= 函数自初始化）：
+
+| 寄存器 | 首触 | 证据 |
+|---|---|---|
+| x0/x1/x2 | READ @+0x18..0x20 | `mov x19/x21/x20, x0/x1/x2` —— 仅有的三个整型入参 |
+| x3/x4/x5 | WRITE @深处 | `adrp x3/x4`、`mov w5,#0x5e` —— 非入参 |
+| x6/x7 | WRITE @+0x3bc/0x3c0 | `mov w6,#0; mov x7,#0` —— 非入参 |
+| x8 | WRITE @+0x24 | `adrp x8,#0x998a000` —— 非 sret（首用作 scratch） |
+| v0 | WRITE @+0x38 | `movi v0.16b,#0xaa`（栈填充）后 `stp q0,q0` 读的是自值 |
+| v1-v7 | WRITE/NEVER | 非入参 |
+
+**裁决**：①⑨的「x6 被清 = T4 机制候选」**否决**（撤销）；x8-sret 候选
+同时否决（x8 首用作 scratch 非 sret 消费）。旧 6 参 C hook 清
+caller-saved 寄存器对本目标完全 ABI 合法，**寄存器清坏不可能是 T4 渲染
+破坏的机制**。②hook 体 no-op 判定再加一层独立复核：x64 模型门在 arm64
+对象上——长串 byte0（data 指针低字节，16B 对齐堆指针恒偶）门关、短串
+byte0（首字符）偶字符（'<'=0x3C、CJK 引导字节 0xE0-0xEF 全偶）门关、
+奇字符短串被 size@[8]（内联字符的 LE 整数，>1MB 或 0）界拒——**全形态
+no-op 稳固**。③**T4 存活候选收敛到安装/执行环境两侧**：
+
+- **候选①安装撕裂窗（⑩已工程消除）**：入口 stub 16B memcpy 非原子，
+  与并发执行流存在撕裂取指窗——半截序言 + stub 混合执行 → hook 带坏
+  sp 进场 → 蹦床重放完整序言 = 双重 prologue → 帧腐坏静默传播为解析
+  结果损坏（可不崩，与「渲染全占位」相容）。T4 期间登录历史批扫对本
+  parse 族有海量并发流量，窗口虽微秒级但样本量巨大。**⑩修复 =
+  arm64 线程静默写窗**（`quiesce_begin/end`：task_threads 枚举 →
+  除自身全 suspend → store → icache 失效广播 → resume；ElleKit
+  stopAllThreads 同款），生产 stub 写与透传测试缝同路。liveness 回归
+  （`quiescedInstallResumesAllThreads`）证明静默窗后并发线程仍在推进；
+  boot log tick 新增 `qz=`（静默线程数，-1=枚举失败退化直写）。已知
+  残余风险记录不修：枚举后新建线程不在静默集（窗微秒级）；被挂起线程
+  恰持 vm 锁时 icache 系统调用可能等锁（业界同款接受）。x64 维持直写。
+- **候选②壳重写器交互（真机域，T5 判别）**：10-03 壳对 parse 入口
+  运行时字节有重写行为（allow_runtime_prologue 实证）；若其重写器在
+  我方安装后运行，会覆盖 stub（与 T4「calls 22→0 stub 会话内失效」
+  吻合），其与我方 COW 页的交互窗口可能瞬时破坏入口区。**T5 判别设计**：
+  ⑩态安装后若渲染正常 → 候选①即机制（撕裂窗）；若渲染仍破坏 → 候选②
+  升头号（壳交互域）。**T5 预期修正：装 77 续⑧+⑨+⑩ runtime 不承诺
+  修复渲染**——keep_message/tip 的 arm64 生效（SSO 读取器 + 透传）与
+  渲染破坏是两个独立问题面。
 
 ## hook 行函数级身份门（77 续，2026-10-26）
 
