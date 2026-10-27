@@ -32,7 +32,10 @@
    prologue + 77 续四项（函数级身份门 schema / marker 回落 / status
    位形 / 工具入库）+ ⑧ per-arch SSO 读取器 + **⑨ naked thunk 全参
    透传** + ⑩线程静默写窗 + ⑪ boot log host 门修复。⑪已完成：版本
-   常量 0.2.12、launch_soak --plan 预检过、内容全项在树。发版门 = 真机
+   常量 0.2.12、launch_soak --plan 预检过、内容全项在树；**⑬发版门审计
+   预演全绿**（2026-10-27：sweep 145 OK/0 失配 + derivations 7×5/5 +
+   staging 7 构建全组——台账 var/logs/prerelease-audit-20261027.txt；
+   270102 一组为构建抖动假红，两连重跑全绿）。剩余发版门 = 真机
    launch_soak 真跑（SOP 已固化，需用户窗口）→ tag → release CI →
    Formula 六哈希复算 → tap 推送（待用户）。
 

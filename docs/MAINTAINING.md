@@ -1164,3 +1164,14 @@ hook_off 做三重校验（FUNCTION_STARTS 起点/UUID 同/序言门同）后取
 
 **[边界]**：/Applications 未动；manifest/签名面未触碰（hook 行在 Swift
 源，不经 config.json 供应链）；var/、keys/ 未动；dmg 校验后即删。
+
+### 77 续⑬·v0.2.12 发版门审计预演（2026-10-27 同日五次收口：72 轮审计工具全量复跑，全绿）
+
+发版前 SOP（72 轮证据化审计工具）预演：`sweep_ground_truth`（全目录
+145 条 OK / MISMATCH=0；48 条无 expected=已知隔离区、1076 条本地无切片
+=按设计跳过）+ `verify_derivations`（7 本地构建 × 5/5 PASS）+
+`verify_staging`（7 构建全组通过）。一台假红入档：270102 首轮 1 组
+「重试 4/4 耗尽后失败」——单独重跑**两连全绿**（6/6 PASS 零 ✘），
+即 66 轮「重跑即过」构建抖动同款，非数据问题。台账
+var/logs/prerelease-audit-20261027.txt。至此 v0.2.12 发版门仅剩真机
+launch_soak 真跑（用户窗口）。
