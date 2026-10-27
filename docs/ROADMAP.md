@@ -20,10 +20,13 @@
 2. **Windows 新仓立项动工**（75 轮 GO 建议待用户批）：Rust + mac/Win
    共用 catalog 数据层；Windows「原消息行删除点」为首个未 derive 项；
    xlog `\xa1` 帧破解立项后第一优先（多样本统计课题，帧格式已修正）。
-3. **T4 msgid 判读（悬置，前置 = 第 1 项完成）**：清 <msgid> 保 newmsgid
-   裁决删除键是否双字段。runtime.m 缝与配置键已备（77 轮），只欠正确
-   hook 点 + 参数 re-derive。newmsgid 单键结论由 v1 历史实弹独立支撑，
-   不受悬置影响。
+3. **T4 msgid 判读 → ✅ 静态裁决（77 续⑰，2026-10-28 REA/idx 轮）**：
+   arm64 parse（0x4bc4d34）键集全图实证删除键**单字段化**——newmsgid 是
+   唯一数值键（struct+0x1C8 → 簇 svrid 查找），`<msgid>` needle 不存在、
+   独立 msgid 字面量引用全在 revoke 链外；revoke_climsgid 为并列字符串
+   字段非查找键。zero_msgid 实验必要性消解（配置键保留为诊断面）；
+   runtime.m 缝不动。残余：revoke_climsgid 消费端未逐函数追完（不影响
+   keep_message 结论）。详见 RUNTIME-DESIGN 77 续⑰节。
 4. **v2 换道②决策落地（用户窗口）**：换道三案（a WCDB 继续追 / b
    runtime 合成群聊 tip / c 接受现状）76 轮建议 b——前置同第 1 项
    （b 需要 parse hook 手持完整 revokemsg XML）。

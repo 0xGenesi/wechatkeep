@@ -1297,3 +1297,33 @@ launch_soak 真跑 → tag（待用户窗口）。
    同源测试代码在 64f82bd 双 job 绿、本提交仅 Formula 数据+文档）。队列
    恢复后 `gh run rerun 40534400034 --failed` 即可补绿；不阻塞发版结论
    （v0.2.13 release 从 64f82bd 全绿提交切出）。
+
+### 77 续⑰·REA 辅助逆向深挖轮（2026-10-28：arm64 撤回链键集全图，队列第 3 项静态裁决收口）
+
+> 指令「使用 rea 辅助逆向，完整分析并继续深入」。目标 = var/ab/
+> 270100_arm64.dylib pristine 切片；工具 = REA 6.7.0（Ghidra 12.1.4
+> provider）+ arm64_index.py + DumpTargets.java 快路。全部结论与证据链
+> 见 RUNTIME-DESIGN「REA 辅助深挖轮」节（77 续⑰）。
+
+1. **parse 键集全图**：0x4bc4d34 的 144 条 adrp 引用全提取——newmsgid
+   （8B 定长 needle，数值化入 struct+0x1C8，唯一数值键）/ replacemsg
+   （10B 双段拼装，修正「arm64 无 replacemsg」旧判）/ revoke_climsgid
+   （15B 带 NUL 整键，非 revoke_cli+msgid 拆分）/ revoketip 系 /
+   revokemsg_node is empty / TryParseMessage 错误面。T4「非 parse 直挂
+   点」疑论获得正面反证。
+2. **删除键单字段化裁决（队列第 3 项 ✅）**：newmsgid 全切片恰 4 引用者
+   （parse+簇三函数），簇经 svrid 查本地（含 chatroom 分支），无第二数值
+   键；独立 msgid 引用全在链外；`<msgid>` needle 不存在。zero_msgid 实验
+   必要性消解（配置键保留为诊断面，runtime.m 不动）。
+3. **候选③邻页清册**：COW 两页 12 函数全名单（11 邻函数皆小型 C++ 方法
+   /stub，无锁/ObjC/渲染敏感符号），嫌疑面从「整页未知」收窄为「已知
+   小函数页的 COW 身份变化」。
+4. **派发形态**：parse 零直接 BL/零取址引用——纯虚表派发，hook 挂入口
+   不受影响。
+5. **REA 工具链入档**：CLI 无 open-binary（经 function/decompile 直传
+   绑定）；GHIDRA_INSTALL_DIR + REA_GHIDRA_STARTUP_TIMEOUT_MS（169MB
+   切片默认 330s 必超）；全量分析后台进行中，快照落地后补第三只眼
+   FUNCTION_STARTS 核对与函数级档案（后续轮）。
+
+**[回归/边界]**：无代码改动（文档+var/ab 分析工件）；/Applications 未动；
+无真机实验；.idx/.c 产物为既有工具输出，未入库（var/ gitignored 口径）。

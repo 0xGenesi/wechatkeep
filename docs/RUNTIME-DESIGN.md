@@ -347,3 +347,78 @@ T5（ROADMAP 队列第 1 项收尾步）。
 忽略；根治 = 对 10-03 世代 re-derive hook 点（数天级工程，ROADMAP 顶部
 队列第一项）。本门的价值 = 把「重验后发现行失效」变成「装不上 + 可诊断
 （kStFuncMismatch）」，从有害（破坏消息解析）降级为无害（不武装）。
+
+## REA 辅助深挖轮（77 续⑰，2026-10-28：arm64 撤回链键集全图 + COW 邻页清册 + T4 msgid 判读的静态裁决）
+
+> 工具：REA 6.7.0（Ghidra 12.1.4 provider，`GHIDRA_INSTALL_DIR` 环境变量 +
+> `REA_GHIDRA_STARTUP_TIMEOUT_MS` 调大启动期限）+ 本仓 arm64_index.py 索引 +
+> 74 轮 DumpTargets.java 快路（-noanalysis 定点反编译）。目标 =
+> var/ab/270100_arm64.dylib（pristine thin 切片，sha256 0902af60…）。
+
+### 1. parse 函数（0x4bc4d34，4380B）键集全图（idx 全引用提取，144 条 adrp 引用）
+
+parse 的完整键提取面（全部经「池基址 lazy-init → std::string → 0x499c33c
+在位查 → 0x4a7d700 字符串提取 / 0x4a7d960 数值提取」的同一模式）：
+
+| 键 | 证据 | 产物去向 |
+|---|---|---|
+| `type`/`subtype`/`content`/`sysmsg`/`session`/`chat_id` | 0x4bc4e14-0x4bc51cc 各 adrp_ldr | 结构体各字段 |
+| **`newmsgid`**（8B+NUL，0x4bc56fc） | `ldr d0,[x9,#0xae0]`+`strb wzr,#8` 定长 | **数值化(0x4a7d960) → struct+0x1C8（唯一数值键）** |
+| **`replacemsg`**（10B 双段拼装，0x4bc575c） | `ldr d0,#0xe8`("replacem")+`movz "sg"`+NUL | 字符串 → struct+0x1D0 |
+| **`revoke_climsgid`**（15B 带 NUL，0x4bc5250） | 池字节 `…climsgid\00` 实证整键 | 字符串 → struct+0x2E0 区 |
+| `revoketip` 系（0x4bc52d4 池 `replacem/revoketip/msg`） | 同款双段拼装 | 模板域 |
+| 错误路径 | `revokemsg_node is empty` / `TryParseMessage` / `unknown subtype:…` | 日志 |
+
+**对 T4 时代「0x4bc4d34 非 parse 直挂点」疑论的正面反证**：该函数引用的
+`revokemsg_node is empty`、`TryParseMessage`、`GetRevokeMessage`（池在
+0x89390xx）与 newmsgid/replacemsg/revoke_climsgid 三键提取链，共同把
+0x4bc4d34 钉死为 sysmsg/revokemsg 解析函数本体（与 fzlzjerry 270100 入口
+互证一致）。候选②（壳改写入口）在此证据面前再降一级。
+
+### 2. 消费簇（0x308xxxx 三函数，0x44541bc 统一调用）与删除键静态裁决
+
+`newmsgid` 全切片恰 4 个引用者 = parse 本尊 + 簇三函数
+（0x308953c/0x308b1f0/0x308c154；全部由 0x44541bc 调用）。簇内日志/键面：
+`HandleSendTe…svrid:%…`、`sg notice with:%_,%_ has no local ms(g)`、
+` newmsgi d nu(ll)`、`leChatRoomTo pMsg`——**本地消息查找键 = svrid
+（= newmsgid 数值）**，含 chatroom 分支，无第二个数值 msgid。
+独立 `msgid` 字面量的全部引用（0x5a36c48 / 0x6423240）都在 revoke 链之外
+（其他子系统）。`<msgid>` 带括号 needle 在切片中不存在。
+
+**队列第 3 项（T4 msgid 判读）的静态裁决**：arm64 删除键单字段化——
+parse 提取的数值键只有 newmsgid；`revoke_climsgid` 是并列的字符串字段
+（自发/客户端撤回域），非本地查找键。结合 v1 x64 实弹（清 newmsgid 单键
+即保留），zero_msgid（清 `<msgid>`）实验的必要性消解：keep_message 单清
+newmsgid 的语义在双架构成立。悬置残余：revoke_climsgid 字段的消费端未逐
+函数追完（不影响 keep_message 结论）。
+
+### 3. 候选③（安装机械动作 × 宿主完整性）的邻页清册
+
+arm64 stub 写窗的 vm_remap COW 覆盖 [0x4bc4000, 0x4bc6000) 两页，页内
+占有者（FUNCTION_STARTS 全 383268 起点清册）：11 个邻函数 + 目标本体——
+0x4bc31d0（3944B，仅尾部 312B 入页）、0x4bc4138（240B）、0x4bc4228
+（1632B，引用 0x4a7d6ac SSO 助手族）、8 个 ≤164B 小函数（0x4bc4888-
+0x4bc4b1c）、0x4bc4b20（532B，自递归）、目标后继 0x4bc5e50（548B）。
+形状全为小型 C++ 方法/stub（调用分配器 0x888b8 与 SSO/字符串助手族），
+无锁原语/ObjC 方法区/渲染管线符号在页。写路径只动目标 16B，邻页字节
+恒等——候选③的具体嫌疑面从「整页未知」收窄为「11 个已知小函数所在页的
+COW 身份变化」，且静态无任何一员携带完整性敏感特征。T5 若仍破坏渲染，
+二分设计不变（只 COW 不挂 stub / 只挂 stub 不 COW）。
+
+### 4. parse 的派发形态
+
+idx calls 全图：0x4bc4d34 零直接 BL 调用者、零 adrp_add 取址——纯虚表/
+重定位派发（__DATA_CONST 静态填充，无指令面引用）。hook 行以函数起点
+挂入口不受派发形态影响；「无直接调用者」与 ⑧⑤ 的家族序言稳定性互证。
+
+### 5. REA 工具链事实（复用注意）
+
+- REA CLI（6.7.0）无 `open-binary` 子命令：目标经
+  `rea function/decompile <path> --procedure <va>` 直传绑定；Ghidra
+  provider 需 `GHIDRA_INSTALL_DIR`，169MB 切片默认 330s 启动期限必超，
+  须 `REA_GHIDRA_STARTUP_TIMEOUT_MS=7200000`（全量自动分析以几十分钟计，
+  进行中——本节静态结论先由 idx/快路承载，REA 快照落地后补函数级档案）。
+- idx/快路与 REA 的分工：全引用提取与 needle 定长判读用本仓 capstone 索引
+  （分钟级）；REA/Ghidra 的增量价值 = 全量分析后的函数命名/交叉引用/
+  value-flow 档案与第三只眼 FUNCTION_STARTS 核对，快照（close-binary
+  --snapshot）一次付清后秒级复用。
