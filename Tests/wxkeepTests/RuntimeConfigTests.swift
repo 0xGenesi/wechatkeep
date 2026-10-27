@@ -140,6 +140,45 @@ struct RuntimeConfigTests {
                                  "270131", "270132", "270133", "270134", "270135"]
         #expect(builds == want)
     }
+
+    /// knownHooks 表结构契约（77 续⑮）：编译期表是 runtime.json hooks 行的
+    /// 唯一来源（install/hooks 全量写入），表自身的形态错误会让 dylib 侧
+    /// hook_row_parse **静默丢行**（宁可不挂也不挂错）——丢行 = 该构建 hook
+    /// 永不武装且无任何报错。把 dylib 侧接受域镜像成 Swift 侧断言，行加错
+    /// 在编译期测试即红，而不是装机后「未武装」排障：
+    /// - 44 行 = 22 构建 × {x86_64, arm64} 对称（每构建恰一行/架构）
+    /// - UUID 全表唯一（身份门键）；hook_off 合法 hex 且 ∈ (0, 2^32)
+    /// - msg_arg ≤ 5、xml_sso_off ≤ 0x1000（hook_row_parse 的行拒绝界）
+    /// - expected 长度匹配架构（x64 12B / arm64 16B）
+    /// - anchor 字段成对出现（半个锚点 = 行拒绝）
+    @Test func knownHooksTableContract() {
+        let rows = RuntimeConfig.knownHooks
+        #expect(rows.count == 44, "4.1.15 全家族（除未发布 270087/092）+ 270131-135 × 双架构")
+        // 每构建恰好双架构各一行
+        var byBuild: [String: Set<String>] = [:]
+        for row in rows { byBuild[row.build, default: []].insert(row.arch) }
+        #expect(byBuild.count == 22)
+        #expect(byBuild.values.allSatisfy { $0 == ["x86_64", "arm64"] })
+        // UUID 唯一 + 形制（dylib uuid_str_valid：36 字符连字符小写 hex）
+        let uuids = rows.map(\.uuid)
+        #expect(Set(uuids).count == rows.count, "UUID 重复 = 身份门歧义")
+        #expect(uuids.allSatisfy { $0.count == 36 && $0.allSatisfy { c in
+            c == "-" || c.isHexDigit && !c.isUppercase } })
+        // hook_row_parse 的行拒绝界（越界行被静默丢弃）
+        #expect(rows.allSatisfy { row in
+            guard row.hook_off.hasPrefix("0x"),
+                  let va = UInt64(row.hook_off.dropFirst(2), radix: 16)
+            else { return false }
+            return va > 0 && va < (1 << 32)
+        }, "hook_off 必须是 (0, 2^32) 内的 0x hex——strtoull 解析失败的行 dylib 侧整行丢弃")
+        #expect(rows.allSatisfy { $0.msg_arg >= 1 && $0.msg_arg <= 5 && $0.xml_sso_off <= 0x1000 })
+        #expect(rows.allSatisfy { row in
+            let want = row.arch == "arm64" ? 32 : 24   // hex 字符数 = 16B / 12B
+            return row.expected.count == want && row.expected.allSatisfy(\.isHexDigit)
+        }, "expected 长度/字符必须匹配架构——parse_hex 产出长度不符即整行拒绝")
+        #expect(rows.allSatisfy { ($0.anchor_va != nil) == ($0.anchor_bytes != nil) },
+                "anchor_va/anchor_bytes 必须成对——半个锚点字段整行拒绝")
+    }
 }
 
 /// 端到端格式回归：mergeKnownHooks 落盘的文件必须被 dylib 生产路径

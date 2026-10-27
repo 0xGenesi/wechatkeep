@@ -5,7 +5,7 @@ struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
-        version: "0.2.12",
+        version: "0.2.13",
         subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self, RuntimeCommand.self]
     )
 
@@ -620,9 +620,10 @@ extension Wxkeep {
                 } else {
                     // 无 hooks 行 = runtime.json 从未写入（install/hooks 都没跑过）
                     // 或被清空——dylib 回落内置表（仅 270099 x64 兜底）。给出
-                    // 实际修复动作而不是陈述现状。
+                    // 实际修复动作而不是陈述现状。行数从 knownHooks 派生：
+                    // 表会随新构建派生轮增长，硬编码数字必然漂移成谎报。
                     print("hooks 地址表:      无（dylib 回落内置表，仅 270099 x64 兜底）")
-                    print("                   → 跑 `wxkeep runtime hooks` 写入全量 44 行地址表")
+                    print("                   → 跑 `wxkeep runtime hooks` 写入全量 \(RuntimeConfig.knownHooks.count) 行地址表")
                 }
                 if let tip = cfg?["tip_text"] as? String, !tip.isEmpty {
                     print("自定义文案:        \(tip)")

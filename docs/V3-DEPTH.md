@@ -17,7 +17,7 @@
 | D4 | **性质测试（property-based）**：不变量在随机化输入族上成立，而非单个 fixture 上碰巧成立（QuickCheck 学派） | 注入器 round-trip 只在 1 个零填充 fixture 上验证 | 500 次随机化变体（路径长 8-97/镜像 4K-36K/头填充随机）：**逼出精确契约**——往返唯一允许差异=临时命令窗口归零（73 轮 I5） |
 | D5 | **端到端启动浸泡（soak）**：唯一用户可感的客观标准是「打完补丁的 app 能启动、活着、零新崩溃」——自动化为对照实验（DiagnosticReports 前后差集） | 真机行为验证为手工动作；ips 巡检为事后人工检查 | `tools/launch_soak.py`：隔离副本→patch→浸泡→存活断言→.ips 零新增（73 轮 I3） |
 | D6 | **双实现复式记账**：每个关键结论由两条独立代码路径（Swift 引擎 / Python 工具）各自得出且必须一致 | 事实存在（verify_derivations × verify_staging）但属惯例不属 SOP | 已有惯例在 MAINTAINING 固化；L1-L6 台账统一为「证据目录」 |
-| D7 | **供应链纵深**：签名、密钥仪式、轮换预案 | Ed25519 manifest + openssl 三方互证 + CI 泄漏门禁已在位；密钥轮换预案未成文 | keys/ 卫生复核（release.key 不入库 ✓）；轮换预案列 §5 待办 |
+| D7 | **供应链纵深**：签名、密钥仪式、轮换预案 | Ed25519 manifest + openssl 三方互证 + CI 泄漏门禁已在位；密钥轮换预案已成文（2026-10-24，见 §5 收录行） | keys/ 卫生复核（release.key 不入库 ✓） |
 
 ## 2. 专家使用的原始数据与工具（本仓对照）
 

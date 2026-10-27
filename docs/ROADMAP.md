@@ -34,8 +34,12 @@
    透传** + ⑩线程静默写窗 + ⑪ boot log host 门修复。全链完成：soak 全绿 → tag → release
    run 绿（六资产）→ 资产复验（双架构+openssl 三方验签）→ Formula 六哈希
    复算（主仓 d6cf3d6 + tap 7d9c0bb）→ brew 7.0.11 trust 后 install 端到端
-   （Cellar 0.2.12，供应链门 ✓ verified）。遗留=release 页 notes 可选补写
-   （--generate-notes 已有基础）。
+   （Cellar 0.2.12，供应链门 ✓ verified）。release 页 notes 已补写
+   （77 续⑮，macOS 27 适配 + hook 三项修复 + funcSize 22 行 + 诚实边界）。
+   **v0.2.13 发版准备（77 续⑮）**：版本常量已先行（70 轮先例：Formula
+   随 release 资产复算）；内容 = ⑮维护批（hooks 提示行数派生化 + 表结构
+   契约测试 194 测 + 文档同步）；发版门 = 真机 launch_soak 真跑 → tag
+   （均待用户窗口）。
 
 被动/事件触发项（不排期）：新构建日 watch PR——**PR 创建权限已开**
 （77 续⑨经 `/actions/permissions/workflow` API 启用并复核，66 轮

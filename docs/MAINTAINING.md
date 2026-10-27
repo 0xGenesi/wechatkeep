@@ -1198,3 +1198,51 @@ launch_soak 真跑（用户窗口）。
 6. 发版说明（release 页 --generate-notes 基础上可补）：macOS 27 适配 +
    arm64 runtime hook 三项正确性修复 + 函数级身份门 22 行；诚实边界=
    arm64 keep_message/tip 语义修复经静态+测试缝验证，真机 T5 随下版。
+
+### 77 续⑮·维护收尾轮（2026-10-27：源码全量复审 + 遗留项清账 + v0.2.13 发版准备，194 测全绿）
+
+> 指令「仔细阅读源码，完成无需确认的未完成项与不足，优化测试并升级」。
+> 队列 1-4 项前置均在用户侧（真机 T5 / Windows GO 批 / msgid 判读 / 换道
+> 决策），本轮收口 = 第 5 项的 release notes 遗留 + 全源码复审发现的
+> 注释/文档漂移 + 一处硬编码防漂移改造 + 表结构契约测试。
+
+**[release 页 notes 补写（⑭ 遗留第 6 条）]**：v0.2.12 release 页由
+--generate-notes 的裸 Full Changelog 补写为结构化说明（重点变更 =
+macOS 27 安装链 / hook 三项正确性修复 / funcSize 22 行 / boot log 门 /
+新配置键；诚实边界 = arm64 语义修复静态+测试缝验证、真机 T5 随下版，
+funcSize 11 构建永久缺口；安装指引含 brew 7.0.11 trust 新行为）。
+
+**[源码复审三处注释漂移收口]**：RuntimeConfig.knownHooks 注释群落后于
+数据三代——①「地址表达 30 行」实为 44 行（270101/102/131-135 派生轮
+后未更新）；②funcSize 覆盖「8 构建、270084-099 十四构建待 CDN 重派生」
+实为 11 构建（⑫ zsbai 三构建回填后）、余 11 构建**永久缺口**（CDN 404
+定案 + zsbai 仅四件在档，「待补齐」叙事失真）；③270133-135 注释段残留
+「270101/270102 尚无行（已知缺口）」与下方 119-124/197-202 行直接矛盾
+（2026-10-20 补齐后忘删）。stale 注释在地址表这种安全敏感数据旁会误导
+下一位维护者按错误覆盖面做判断。
+
+**[硬编码防漂移]**：`runtime status` 的「写入全量 44 行地址表」提示改从
+`RuntimeConfig.knownHooks.count` 派生——表随新构建派生轮增长，硬编码
+数字必然在下一次补行后变成谎报（本轮正是 30→44 漂移的同一位置）。
+
+**[表结构契约测试]**：`knownHooksTableContract`（193→194 测）——把
+dylib 侧 hook_row_parse 的行拒绝域镜像成 Swift 侧断言：44 行 = 22 构建
+× 双架构对称、UUID 全表唯一且形制合法、hook_off ∈ (0,2^32) 的 0x hex、
+msg_arg≤5/xml_sso_off≤0x1000、expected 长度匹配架构、anchor 字段成对。
+动机：knownHooks 行在 dylib 侧被静默丢弃（宁可不挂也不挂错）无任何
+报错——行加错在编译期测试即红，而不是装机后「hook 未武装」排障。
+
+**[文档同步]**：related-tools-analysis 待办清单勾销两件已落地项（发布
+清单签名 = Manifest 三验体系；DSL expected 通配/掩码 = ExpectedPattern
+43 处在役），archive_index 告警项标注悬置理由（索引无逐切片哈希，全量
+白名单需整套 dmg 派生管线）；V3-DEPTH D7 行「轮换预案未成文」与 §5
+收录行矛盾修正。
+
+**[v0.2.13 发版准备]**：版本常量 0.2.12→0.2.13（70 轮先例：常量先行，
+Formula 随 release 资产六哈希复算）。内容 = 本维护批。发版门 = 真机
+launch_soak 真跑 → tag（待用户窗口）。
+
+**[回归/边界]**：194 测全绿（TestingMacros 楔死按记忆既定解显式装载
+插件库绕过）；release 构建 `--version`=0.2.13；tools py_compile 全量
+零失败；/Applications 未动；无真机实验；对外仅 release 页 notes 补写
+（在案遗留项）。

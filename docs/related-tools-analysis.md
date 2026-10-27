@@ -74,9 +74,11 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 
 ## 待办采纳清单（按价值排序）
 
-1. [ ] 发布清单签名（RecallKeeper 模式）：CI 对 config/signatures 出 sha256+签名，
+1. [x] 发布清单签名（RecallKeeper 模式）：CI 对 config/signatures 出 sha256+签名，
       doctor 消费前校验——配合 auto-PR 的供应链闭环
+      （✅ 已落地：Ed25519 manifest 三验 + openssl 三方互证 + update-data 硬门，见 Manifest.swift / KEY-ROTATION.md）
 2. [ ] doctor 加「dylib 切片哈希不在 archive_index」告警（PoJie 白名单思路）
+      （悬置：archive_index.json 现只记 zsbai release 清单无逐切片哈希；全量哈希白名单需整套 dmg 派生管线，价值/成本待议）
 3. [ ] V2-PLAN v3 节：配置通道改微信偏好域前缀键（X1a0He 思路）；通知加登录态门控
       （RecallKeeper 思路）
 
@@ -147,7 +149,8 @@ archive_index 的哈希数据，可在 doctor 加「未知/被改 dylib」告警
 ### 行动项
 - [x] 本表存档
 - [ ] （可选，需用户批准）向 fzlzjerry #55 贡献 269602 x64 已验证数据
-- [ ] （DSL 扩展项）expected 通配/掩码 → branch-flip 配方化（未来构建冗余 silent）
+- [x] （DSL 扩展项）expected 通配/掩码 → branch-flip 配方化（未来构建冗余 silent）
+      （✅ 已落地：ExpectedPattern 支持 `?` 半字节通配 + `:maskHEX` 后缀，config.json 43 处 parse-guard 通配条目在役）
 - [ ] 新构建（269631+/270090 x64）出现时：watch-wechat 自动定位 + 本文档位点族作起点
 
 ### 第二轮：fzlzjerry patches.json 全量解析 + 重定位脚本 + WeChatTweak
