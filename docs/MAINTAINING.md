@@ -1175,3 +1175,26 @@ hook_off 做三重校验（FUNCTION_STARTS 起点/UUID 同/序言门同）后取
 即 66 轮「重跑即过」构建抖动同款，非数据问题。台账
 var/logs/prerelease-audit-20261027.txt。至此 v0.2.12 发版门仅剩真机
 launch_soak 真跑（用户窗口）。
+
+### 77 续⑭·v0.2.12 发版全链（2026-10-27：soak→tag→release→复验→Formula→tap→brew 端到端，队列第 5 项关账）
+
+1. **soak 全绿**：装机微信优雅退出后跑 `launch_soak --seconds 45`——副本
+   silent 补丁（revoke 2 written + 1 already-patched + update 16 already-
+   patched，switch-restore 语义正常）+ 重签 50 objects strict verify OK →
+   5 进程 45s 存活 → 零新崩溃 → TERM 收场；日常微信随后拉起恢复。台账
+   var/logs/launch-soak-20261027-180305.txt。
+2. **tag→release**：v0.2.12 tag → release run 绿（macos-15 交叉编译
+   universal 双件）→ 六资产齐（wxkeep 3.17MB / dylib 200KB / 数据四件套）。
+3. **资产复验**：ghfast 下载六件 → `--version`=0.2.12 双架构 →
+   verify_manifest_openssl.sh 三方互证过（Ed25519 独立验签 + 受保护文件
+   哈希吻合；数据四件哈希与 0.2.11 同值=目录未动的预期）。
+4. **Formula**：主仓六哈希复算入库（d6cf3d6，双二进制新哈希）；tap 仓
+   首次本地克隆（ghfast 快路径 + push 走真实远端——镜像只读）同步
+   （7d9c0bb）。
+5. **brew 端到端**：brew 7.0.11 新行为=**tap 默认不可信**，需
+   `brew trust 0xgenesi/tap` 一次性放行（新环境事实）；install 端到端
+   Cellar/wxkeep/0.2.12 九文件 → `--version`=0.2.12 → brew 布局供应链门
+   **manifest ✓ verified**。
+6. 发版说明（release 页 --generate-notes 基础上可补）：macOS 27 适配 +
+   arm64 runtime hook 三项正确性修复 + 函数级身份门 22 行；诚实边界=
+   arm64 keep_message/tip 语义修复经静态+测试缝验证，真机 T5 随下版。
