@@ -416,8 +416,11 @@ idx calls 全图：0x4bc4d34 零直接 BL 调用者、零 adrp_add 取址——�
 - REA CLI（6.7.0）无 `open-binary` 子命令：目标经
   `rea function/decompile <path> --procedure <va>` 直传绑定；Ghidra
   provider 需 `GHIDRA_INSTALL_DIR`，169MB 切片默认 330s 启动期限必超，
-  须 `REA_GHIDRA_STARTUP_TIMEOUT_MS=7200000`（全量自动分析以几十分钟计，
-  进行中——本节静态结论先由 idx/快路承载，REA 快照落地后补函数级档案）。
+  须 `REA_GHIDRA_STARTUP_TIMEOUT_MS=7200000`。**负结果定案（后续实测）**：
+  全量自动分析 2 小时期限仍不收敛（38 万函数的签名反编译阶段，CPU 158
+  分钟零产出），且 CLI 一次性命令 -deleteProject 使完成也不落库——本节
+  静态结论由 idx/快路完整承载，REA/Ghidra 全量路线对本切片**不可行**
+  （反编译对照已由快路 Ghidra 伪代码覆盖）。
 - idx/快路与 REA 的分工：全引用提取与 needle 定长判读用本仓 capstone 索引
   （分钟级）；REA/Ghidra 的增量价值 = 全量分析后的函数命名/交叉引用/
   value-flow 档案，快照（close-binary --snapshot）一次付清后秒级复用。
