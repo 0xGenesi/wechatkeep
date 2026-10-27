@@ -118,13 +118,13 @@ struct RuntimeConfigTests {
         #expect(back == row)
     }
 
-    /// funcSize 数据契约（77 续②补 16 行派生入库）：带门行值域合法、
-    /// 家族值恒定（x64=5216/arm64=4380，8 构建 × 双架构 pristine 切片
-    /// 三重校验派生——hook_off 必为 FUNCTION_STARTS 起点、切片 UUID 与
-    /// 行一致、距离=到下一函数起点）。
+    /// funcSize 数据契约（77 续②补 16 行；⑫zsbai 三构建回填至 22 行）：
+    /// 带门行值域合法、家族值恒定（x64=5216/arm64=4380，11 构建 × 双架构
+    /// pristine 切片三重校验派生——hook_off 必为 FUNCTION_STARTS 起点、
+    /// 切片 UUID 与行一致、距离=到下一函数起点）。
     @Test func knownHooksFuncSizeContract() {
         let gated = RuntimeConfig.knownHooks.filter { $0.func_size != nil }
-        #expect(gated.count == 16, "本地有 pristine 切片的 8 构建 × 双架构应全带门")
+        #expect(gated.count == 22, "本地有 pristine 切片的 11 构建 × 双架构应全带门")
         let inRange = gated.allSatisfy { row in
             let v = row.func_size!
             return v > 0 && v <= 1 << 21
@@ -135,7 +135,8 @@ struct RuntimeConfigTests {
         #expect(x64.allSatisfy { $0.func_size == 5216 })
         #expect(arm64.allSatisfy { $0.func_size == 4380 })
         let builds = Set(gated.map { $0.build })
-        let want: Set<String> = ["270100", "270101", "270102",
+        let want: Set<String> = ["270094", "270097", "270099",
+                                 "270100", "270101", "270102",
                                  "270131", "270132", "270133", "270134", "270135"]
         #expect(builds == want)
     }

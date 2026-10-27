@@ -1132,3 +1132,35 @@ zero_msgid+allow_runtime_prologue / 函数级身份门 schema / marker 三级
 **[回归/边界]**：193 测全绿（boot log 次序变更无测试依赖，回归确认）；
 /Applications、var/、keys/ 未动；无真机实验（读容器 boot log 与
 runtime status 同类）。
+
+### 77 续⑫·funcSize 回填轮（2026-10-27 同日四次收口：zsbai 三构建 6 行派生入库，22 行/11 构建，193 测全绿）
+
+> 77 续⑤遗留「270084-099 无本地切片待重派生轮」的可做部分收口。
+
+**[可用性探测定案]**：13 个缺失构建（270084-093/095-096/098，除已完成的
+094/097/099/100）官方 CDN 直链全量 404（probe_cdn_line 同款探测，与既有
+「4.1.15 早期热修构建永久缺口」定案一致）——zsbai 索引仅 4.1.15.14/.17/
+.19/.20 在档，本轮取 .14/.17/.19 三件（.20=270100 已完成）。
+
+**[下载通道]**：zsbai 直链与 gh release 通道在本机均弱网失败（curl 52/
+500KBs——59 轮已知脆弱点的新形态实证）；**ghfast 镜像 2MB/s 可用**
+（`https://ghfast.top/https://github.com/...`，4 倍速），三 dmg 全部
+sha256 与 zsbai 侧车逐位互证（78e27c3a…/fc2e4b80…/29108a53…；侧车自证
+来源=官方 CDN 滚动链接快照）。
+
+**[dmg 布局新知]**：4.1.15 官方 dmg 的真身 wechat.dylib（351-354MB fat）
+在 **Contents/Resources/**，Frameworks/ 下是 84KB 同名桩（loader 垫片）
+——按旧路径 cp 会拿到桩（首次实历）；装机布局（Resources → Frameworks
+重定位）由安装器完成。**未来任何「从 dmg 取 wechat.dylib」的操作取
+Resources 路径。**
+
+**[派生入库]**：`tools/backfill_funcsize.py`（新工具，37 行）——对已知
+hook_off 做三重校验（FUNCTION_STARTS 起点/UUID 同/序言门同）后取到下一
+函数起点的距离；270100 双架构正控逐位命中（4380/5216）后投入使用。
+三构建 × 双架构全部命中家族恒定值（x64=5216/arm64=4380）——与 77 续⑤
+「家族值恒定」结论跨 5 构建再证。RuntimeConfig 6 行 func_size 入库 +
+契约测试 16→22 行/8→11 构建（契约如实拦截后按新库存更新）；README
+「8 个近期构建」同步 11。
+
+**[边界]**：/Applications 未动；manifest/签名面未触碰（hook 行在 Swift
+源，不经 config.json 供应链）；var/、keys/ 未动；dmg 校验后即删。
