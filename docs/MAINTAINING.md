@@ -1246,3 +1246,48 @@ launch_soak 真跑 → tag（待用户窗口）。
 插件库绕过）；release 构建 `--version`=0.2.13；tools py_compile 全量
 零失败；/Applications 未动；无真机实验；对外仅 release 页 notes 补写
 （在案遗留项）。
+
+### 77 续⑯·v0.2.13 发版全链（2026-10-27：soak→CI→tag→release→资产复验→Formula→brew 端到端；含一次 sha256 转录笔误的发现-定位-修复全档）
+
+1. **soak 全绿**：微信未运行（理想条件），`launch_soak --seconds 45`——
+   副本 silent 补丁（revoke 2 written + 1 already-patched + update 16
+   already-patched + switch-restore 正常）+ 重签 50 objects strict verify
+   OK → 5 进程 45s 存活 → .ips 零新增。台账
+   var/logs/launch-soak-20261027-210545.txt。
+2. **CI→tag→release**：64f82bd 推送 CI 绿（双 job）→ tag v0.2.13 →
+   release run 绿 → 六资产齐（wxkeep 3.17MB 新哈希 c6848acb…；dylib 与
+   0.2.12 **逐位同**（runtime.m 未动 + CI 构建确定性）cdbd53d7…；数据四件
+   同值=目录未动预期）。
+3. **资产复验**：ghfast 六件下载 → 双架构 `--version`=0.2.13 →
+   verify_manifest_openssl.sh 三方互证过（Ed25519 独立验签 + 哈希吻合；
+   注意脚本须传**绝对路径**——内部 cd 后相对路径失效）。v0.2.12 release
+   notes 同轮补写（macOS 27 适配 + hook 三项修复 + funcSize 22 行 +
+   诚实边界）。
+4. **[事故]Formula dylib sha256 转录笔误（62 位）**：六哈希复算脚本里
+   dylib 值被手工打漏两字符（"5c5c"→"5c"），主仓+tap 双双入库 → brew
+   资源校验拦死 install。三层迷雾依次剥开：
+   - 报错展示无分辨力：「reports different checksum: X / SHA-256 of
+     downloaded file: Y」两行并排，62 与 64 位近似串在终端**不可目辨**，
+     首读误判为「值相等仍报错=brew bug」；
+   - 排除法收窄：GitHub API 资产摘要 ✓、ghfast 副本 openssl 验签 ✓、
+     预置 brew 缓存绕开下载仍拦、`brew ruby` 直驱 verify 通过——锁定
+     问题在 formula 侧值本身；
+   - 定位：临时插桩 /opt/homebrew/Library/Homebrew/downloadable.rb
+     （用户可写，字节级 dump expected/actual）→ `exp.len=62 act.len=64`
+     实锤；git 历史（tap 7d9c0bb）对照确认 0.2.12 原值正确、污染在本轮。
+   - 修复：值改为**程序化取值**（git show 历史值 = 新资产 shasum 双证）
+     主仓+tap 双修（tap fd2648d），插桩还原零残留，brew install 端到端
+     绿（Cellar 0.2.13 + manifest ✓ verified）。
+   - 教训入档：①**哈希永不手工转录**——一律管道直传（shasum/git show →
+     变量 → sed/python），终端目验 64 位 hex 不可靠；②brew 该报错第一行
+     是 expected、第二行是 actual，近似串必须程序化比长度；③brew 插桩
+     诊断路径（/opt/homebrew 用户可写、用后还原）+ 缓存预置法（缓存名 =
+     sha256(URL)+"--"+basename，verbose 日志可拿全名）均为有效排障工具。
+5. **弱网插曲**：发版窗口本机 GitHub 直连断续（curl 56 连接重置 / curl 92
+   HTTP/2 协议错 / formulae.brew.sh API 拉取失败回落缓存），一度叠加
+   「wedged brew fetch 后台进程持 .incomplete 锁 180s」假象——kill 残留
+   进程 + 清 *.incomplete 后排除。资产下载全程 ghfast 正常（记忆在案的
+   通道分工再证）。
+6. **回归/边界**：194 测全绿（⑮批）；brew 布局九文件与 0.2.12 同构；
+   /Applications 未动；无真机实验（soak 为隔离副本）。brew 源码还原后
+   `brew ruby` 自检过。

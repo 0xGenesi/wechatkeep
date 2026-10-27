@@ -27,19 +27,15 @@
 4. **v2 换道②决策落地（用户窗口）**：换道三案（a WCDB 继续追 / b
    runtime 合成群聊 tip / c 接受现状）76 轮建议 b——前置同第 1 项
    （b 需要 parse hook 手持完整 revokemsg XML）。
-5. **v0.2.12 发版 ✅（2026-10-27 全链关账，77 续⑭）**：内容 = 77 轮 macOS 27
-   安装链修复（MAP_JIT + vm_remap COW）+ zero_msgid/allow_runtime_
-   prologue + 77 续四项（函数级身份门 schema / marker 回落 / status
-   位形 / 工具入库）+ ⑧ per-arch SSO 读取器 + **⑨ naked thunk 全参
-   透传** + ⑩线程静默写窗 + ⑪ boot log host 门修复。全链完成：soak 全绿 → tag → release
-   run 绿（六资产）→ 资产复验（双架构+openssl 三方验签）→ Formula 六哈希
-   复算（主仓 d6cf3d6 + tap 7d9c0bb）→ brew 7.0.11 trust 后 install 端到端
-   （Cellar 0.2.12，供应链门 ✓ verified）。release 页 notes 已补写
-   （77 续⑮，macOS 27 适配 + hook 三项修复 + funcSize 22 行 + 诚实边界）。
-   **v0.2.13 发版准备（77 续⑮）**：版本常量已先行（70 轮先例：Formula
-   随 release 资产复算）；内容 = ⑮维护批（hooks 提示行数派生化 + 表结构
-   契约测试 194 测 + 文档同步）；发版门 = 真机 launch_soak 真跑 → tag
-   （均待用户窗口）。
+5. **v0.2.13 发版 ✅（2026-10-27 全链关账，77 续⑯）**：内容 = ⑮维护批
+   （hooks 提示行数派生化 + knownHooksTableContract 表结构契约测试 194 测
+   + 注释/文档漂移收口）。全链：soak 全绿（台账 var/logs/launch-soak-
+   20261027-210545.txt）→ push CI 绿 → tag v0.2.13 → release run 绿（六资产）
+   → 资产复验（双架构 --version + openssl 三方互证过）→ release notes 补写
+   → Formula 主仓+tap 复算（含一次 sha256 转录笔误事故的发现-定位-修复，
+   见 MAINTAINING 77 续⑯）→ brew 端到端（Cellar 0.2.13 + manifest
+   ✓ verified）。**上一代 v0.2.12（77 续⑭）内容 = macOS 27 安装链修复 +
+   arm64 hook 三项正确性修复 + funcSize 22 行**，其 release notes 已补写。
 
 被动/事件触发项（不排期）：新构建日 watch PR——**PR 创建权限已开**
 （77 续⑨经 `/actions/permissions/workflow` API 启用并复核，66 轮
