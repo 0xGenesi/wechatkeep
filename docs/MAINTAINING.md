@@ -1291,3 +1291,9 @@ launch_soak 真跑 → tag（待用户窗口）。
 6. **回归/边界**：194 测全绿（⑮批）；brew 布局九文件与 0.2.12 同构；
    /Applications 未动；无真机实验（soak 为隔离副本）。brew 源码还原后
    `brew ruby` 自检过。
+7. **[CI 收尾批注]**：6261915（Formula 修复+文档）的 CI——macos-15 全
+   13 步 success；macos-14 两度被取消，**零步执行**（排队 ~15/30 分钟从未
+   获得.runner = GitHub Intel runner 池当夜容量问题，与提交内容无关：
+   同源测试代码在 64f82bd 双 job 绿、本提交仅 Formula 数据+文档）。队列
+   恢复后 `gh run rerun 40534400034 --failed` 即可补绿；不阻塞发版结论
+   （v0.2.13 release 从 64f82bd 全绿提交切出）。
