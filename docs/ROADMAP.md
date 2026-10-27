@@ -9,11 +9,14 @@
 1. **hook 链真机 T5 验证（前置 = 用户一次真机窗口）**：⑧已证
    hook_off/func_size/序言门对场字节全部有效（**无需重 derive**）；
    ⑨透传结构保证落地；**⑩静态裁决否决寄存器清坏候选（目标只消费
-   x0-x2）+ 线程静默写窗消除安装撕裂候选**。T5 判别设计：⑩态安装后
-   渲染正常 → 撕裂窗即 T4 机制；渲染仍破坏 → 壳重写器交互升头号
-   （真机域）。**T5 预期：不承诺修复渲染**（keep_message/tip 生效与
-   渲染破坏是独立问题面）；keep_message/tip 证据 = marker zero>0/
-   fires>0 即证。
+   x0-x2）+ 线程静默写窗消除安装撕裂候选**；**⑪T4 时代 boot log 取证
+   降级壳重写器候选（安装时序言==expected 逐字节同、stub 全程存活）
+   ——渲染破坏机制现存候选 = 撕裂窗（⑩已消除为变量）与安装机械动作
+   × 宿主完整性交互（③，无证据面）**。T5 判别设计：渲染正常 → 撕裂窗
+   即机制；仍破坏 → 候选③域（T5 内二分：只 COW 不挂 stub / 只挂 stub
+   不 COW）。**T5 预期：不承诺修复渲染**（keep_message/tip 生效与渲染
+   破坏是独立问题面）；keep_message/tip 证据 = marker zero>0/fires>0
+   即证。
 2. **Windows 新仓立项动工**（75 轮 GO 建议待用户批）：Rust + mac/Win
    共用 catalog 数据层；Windows「原消息行删除点」为首个未 derive 项；
    xlog `\xa1` 帧破解立项后第一优先（多样本统计课题，帧格式已修正）。
@@ -24,11 +27,14 @@
 4. **v2 换道②决策落地（用户窗口）**：换道三案（a WCDB 继续追 / b
    runtime 合成群聊 tip / c 接受现状）76 轮建议 b——前置同第 1 项
    （b 需要 parse hook 手持完整 revokemsg XML）。
-5. **v0.2.12 发版（留最后，必做）**：内容 = 77 轮 macOS 27 安装链修复
-   （MAP_JIT + vm_remap COW）+ zero_msgid/allow_runtime_prologue + 77 续
-   四项（函数级身份门 schema / marker 回落 / status 位形 / 工具入库）
-   + **77 续⑨ naked thunk 全参透传**（T4 修复，arm64 runtime hook 的
-   正确性前提）。发版前真机 launch_soak（SOP 已固化）。
+5. **v0.2.12 发版（准备完毕，tag 待用户指令）**：内容 = 77 轮 macOS 27
+   安装链修复（MAP_JIT + vm_remap COW）+ zero_msgid/allow_runtime_
+   prologue + 77 续四项（函数级身份门 schema / marker 回落 / status
+   位形 / 工具入库）+ ⑧ per-arch SSO 读取器 + **⑨ naked thunk 全参
+   透传** + ⑩线程静默写窗 + ⑪ boot log host 门修复。⑪已完成：版本
+   常量 0.2.12、launch_soak --plan 预检过、内容全项在树。发版门 = 真机
+   launch_soak 真跑（SOP 已固化，需用户窗口）→ tag → release CI →
+   Formula 六哈希复算 → tap 推送（待用户）。
 
 被动/事件触发项（不排期）：新构建日 watch PR——**PR 创建权限已开**
 （77 续⑨经 `/actions/permissions/workflow` API 启用并复核，66 轮
@@ -37,6 +43,21 @@ run 日志人工复核一次（66 轮遗留就此关账）；老构建 verify sp
 反馈再按需派生（SOP 已固化）；每次发版前真机 launch_soak；腾讯侧若出现
 对 runtime.json 的实际对抗实证（RUNTIME-DESIGN 加签评估的触发条件）→
 hooks 行加签升 P0。
+
+## 77 续⑪·T4 boot log 取证 + v0.2.12 发版准备轮（2026-10-27 同日三次收口：候选②降级 + 候选③登记 + 发版准备完毕，193 测全绿）
+
+1. **[T4 boot log 取证]**：沙盒容器 T4 时代日志在案——安装时序言==
+   expected（壳改写叙事失去最后支撑，候选②降级）；alive=1 全程 +
+   calls 停滞=流量安静；两条活体 arg1 = 变体长串（⑧活体互证）；候选③
+   登记（安装机械动作×宿主完整性交互，无证据面，T5 内可二分拆解）。
+2. **[boot log host 门修复]**：enter 行移到 host_is_wechat() 之后——
+   测试 runner/fuzz 不再覆写根目录取证日志（T4 根目录连续性即被测试
+   运行破坏的实历）；微信侧 T5 取证通道保留。
+3. **[v0.2.12 发版准备]**：版本常量 0.2.12；launch_soak --plan 预检过；
+   内容全项在树（⑧⑨⑩⑪ 全含）。发版门 = 真机 soak 真跑 → tag（均待
+   用户）。Formula 不动（随 release 资产复算）。
+4. **[清扫/回归]**：71 个 tools/**/*.py py_compile 零失败；193 测全绿；
+   /Applications 未动；无真机实验。
 
 ## 77 续⑩·T4 静态裁决修正 + 线程静默写窗轮（2026-10-27 同日：寄存器候选否决 + 安装撕裂候选工程消除，193 测全绿）
 

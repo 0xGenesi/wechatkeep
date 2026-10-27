@@ -1082,3 +1082,53 @@ detail 模式下漏报（立数形式 SIMD 操作普遍如此）——首触数�
 **[回归]**：192→193 测（+quiescedInstallResumesAllThreads，0.31s）；
 全量 193 绿；runtime.m 双架构 -Wall -Wextra 零告警；ASan/UBSan fuzz
 驱动 + 2 万随机输入零报告。边界遵守：/Applications 未动；无真机实验。
+
+### 77 续⑪·T4 boot log 取证轮 + v0.2.12 发版准备（2026-10-27 同日三次收口，193 测全绿）
+
+> 指令「继续」。两条线：①候选②（壳重写器交互）在本机有可挖的取证面
+> ——T4 时代沙盒容器 boot log 完好在案，取证结果**降级了候选②**；
+> ②队列第 5 项 v0.2.12 的发版准备面（tag 仍待用户指令）。
+
+**[T4 boot log 取证（读盘，与 runtime status 同类操作）]**：沙盒容器
+`~/Library/Containers/com.tencent.xinWeChat/Data/tmp/wxkeep-boot.log`
+存有 T4 时代会话完整轨迹（enter/done/late20s/tick 四类行全在）。四个
+新事实：
+1. **安装时运行时序言 == expected 逐字节同**
+   （`prologue=f85fbca9f65701a9f44f02a9fd7b03a9`）——「壳改写 parse 入口
+   运行时字节」叙事失去最后支撑（其唯一依据 = 已被纠偏的 status=11
+   位形误读），**候选②降级为无正面证据**；allow_runtime_prologue 开关
+   保留（防御性、无成本）。
+2. **alive=1 全程稳定 + calls 24→45 后停滞**——stub 未被吞；停滞 =
+   该 parse 族只吃 sysmsg 流量、会话安静后归零（77 续「采样缺陷」结论
+   的独立再确认）。
+3. 两条活体 arg1 采样 = arm64 变体长串（{0x79b72ded80, 0x338=824B} /
+   {0x79b715ebc0, 0x1a7=423B}，byte0=0x80/0xc0、cap=size|0x8000...）——
+   ⑧布局裁决的活体互证。
+4. **候选③登记（无证据面，诚实悬置）**：body no-op、安装干净、stub
+   存活之后，安装 delta 只剩蹦床 mmap + stub 写 + 2 页 vm_remap COW
+   （目标函数 4380B 跨页，remap 覆盖前后邻函数所在页）+ hook 执行——
+   渲染破坏机制在这三动作与微信完整性/渲染管线的交互域里**未附着到
+   具体嫌疑**。T5 判别设计扩展：仍破坏时可在 T5 中二分安装步骤
+   （只 COW 不挂 stub / 只挂 stub 不 COW）。
+
+**[boot log host 门次序修复]**：构造器「enter」行原写在 host_is_wechat()
+门**之前**——任何加载 dylib 的非微信宿主（测试 runner/fuzz 驱动）都
+覆写 ~/tmp/wxkeep-boot.log，T4 时代根目录取证连续性即被测试运行破坏
+（本轮实历：fuzz 一跑根目录日志只剩一行）。移到门后：微信侧（沙盒容器
+tmp）T5 取证通道保留，非微信宿主零副作用。注释自带的「实验后回退」
+计划就此以更优形态收口。
+
+**[工具面清扫]**：71 个 tools/**/*.py 全量 py_compile 零失败。
+
+**[v0.2.12 发版准备（tag 待用户指令）]**：①版本常量 0.2.11→0.2.12
+（70 轮先例：常量先行、Formula 随 release 资产六哈希复算——Formula 现不动）；
+②`launch_soak.py --plan` 前置检查通过（release CLI 在位）；③发布内容
+盘点（队列第 5 项全项在树）：77 轮 MAP_JIT+vm_remap 安装链 /
+zero_msgid+allow_runtime_prologue / 函数级身份门 schema / marker 三级
+回落 / status 独立位形 / 工具入库五件 / 77 续⑧ per-arch SSO 读取器 /
+⑨ naked thunk 全参透传 + 透传契约测试 / ⑩线程静默写窗 + liveness 回归 /
+⑪ boot log 门次序修复。发版门（真机 launch_soak 真跑）待用户窗口。
+
+**[回归/边界]**：193 测全绿（boot log 次序变更无测试依赖，回归确认）；
+/Applications、var/、keys/ 未动；无真机实验（读容器 boot log 与
+runtime status 同类）。

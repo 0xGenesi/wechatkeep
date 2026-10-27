@@ -1596,8 +1596,14 @@ static int host_is_wechat(void) {
 }
 
 __attribute__((constructor)) static void wxkeep_runtime_init(void) {
-    // 诊断通道（2026-10-26 T4 排障，实验后回退）：构造器最早期写沙盒容器
-    // tmp——微信进程里 NSLog/marker 双失联时，这里是唯一保证可达的证据面。
+    // 诊断通道（2026-10-26 T4 排障引入）：写沙盒容器 tmp——微信进程里
+    // NSLog/marker 双失联时，这里是唯一保证可达的证据面。enter 行必须在
+    // host 门**之后**（77 续⑪）：门前的写入让任何加载本 dylib 的非微信
+    // 宿主（测试 runner/fuzz 驱动）都覆写 ~/tmp/wxkeep-boot.log——T4 时代
+    // 的根目录取证连续性即被测试运行破坏（实证），微信侧（沙盒容器 tmp）
+    // 与非微信宿主（真实 home tmp）本就走不同 NSHomeDirectory，门后写入
+    // 两不相扰。
+    if (!host_is_wechat()) return;   // 非微信宿主：零副作用（测试缝为直接函数调用，不受影响）
     @autoreleasepool {
         NSString *boot = [NSString stringWithFormat:@"%@/tmp/wxkeep-boot.log",
                           NSHomeDirectory()];
@@ -1612,7 +1618,6 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
         }
         [line writeToFile:boot atomically:YES encoding:NSUTF8StringEncoding error:nil];
     }
-    if (!host_is_wechat()) return;   // 非微信宿主：零副作用（测试缝为直接函数调用，不受影响）
     load_config();
     // 既有镜像线性扫描（wechat.dylib 可能早于本 dylib 加载）——按地址表直查
     {
