@@ -420,5 +420,10 @@ idx calls 全图：0x4bc4d34 零直接 BL 调用者、零 adrp_add 取址——�
   进行中——本节静态结论先由 idx/快路承载，REA 快照落地后补函数级档案）。
 - idx/快路与 REA 的分工：全引用提取与 needle 定长判读用本仓 capstone 索引
   （分钟级）；REA/Ghidra 的增量价值 = 全量分析后的函数命名/交叉引用/
-  value-flow 档案与第三只眼 FUNCTION_STARTS 核对，快照（close-binary
-  --snapshot）一次付清后秒级复用。
+  value-flow 档案，快照（close-binary --snapshot）一次付清后秒级复用。
+- **第三只眼 FUNCTION_STARTS 核对（本轮落地，双架构 ✓）**：手写 LEB128
+  解码器（raw struct 直读，不经 machutil）——arm64 0x4bc4d34 是函数起点
+  且到下一函数 0x4bc5e50 距离恰 4380；x64 0x537dcd0 起点 + 5216 ✓。
+  诚实注记：首跑曾误判「NOT a start」——根因是核对者把 LC_FUNCTION_
+  STARTS（0x26）误记为 0x1d（LC_SEGMENT_SPLIT_INFO，编码不同解码出未
+  对齐垃圾）；machutil/runtime.m/手写三方现一致。
