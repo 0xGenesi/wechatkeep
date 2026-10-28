@@ -1190,9 +1190,47 @@ static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_l
                 // 2=KERN_PROTECTION_FAILURE 4=INVALID_ADDRESS 26=KERN_INVALID_OBJECT…）
                 g_install_errno = 100 + (int)kr; g_install_step = 2; return -1;
             }
+            // 270135 实战（77 续㊱ 诊断变体 21:15）：kr=SUCCESS，原地址
+            // mprotect(RW) EINVAL——macOS 27.1 收紧。RETURN_DATA_ADDR 的
+            // 输出 rw = COW 副本的 data address：对副本地址 mprotect，
+            // 命中可写则写副本（原 VA 经重映射后指向同一物理副本时的
+            // 语义分支），不行再回落原地址。
+            if (mprotect((void *)rw, 0x2000, PROT_READ | PROT_WRITE) == 0) {
+                page_writable = 1;
+                memcpy((void *)target, stub, stub_len);
+                if (is_arm64) sys_icache_invalidate((void *)target, stub_len);
+                mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
+                const uint8_t *now1 = (const uint8_t *)target;
+                g_stub_alive = (memcmp(now1, stub, stub_len) == 0) ? 1 : 0;
+                return g_stub_alive == 1 ? 0 : -1;
+            }
             if (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE) != 0) {
-                // 诊断编码 200+errno：remap 后的 mprotect(RW) 失败
-                g_install_errno = 200 + errno; g_install_step = 2; return -1;
+                // 诊断编码 200+errno：remap 后两条 mprotect 路径全拒
+                // —— 第四层（77 续㊱：substitute 路线，RUNTIME-DESIGN 社区
+                // 备选入档项）：匿名页 MAP_FIXED 盖回。allow-unsigned-
+                // executable-memory 容忍匿名可执行页；先存原内容再盖，
+                // 内容逐字节保全，仅入口 stub 落上去。
+                int saved_errno = errno;
+                uint8_t *saved = (uint8_t *)malloc(0x2000);
+                if (saved) {
+                    memcpy(saved, (void *)page, 0x2000);
+                    void *m = mmap((void *)page, 0x2000,
+                                   PROT_READ | PROT_WRITE,
+                                   MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
+                    if (m == MAP_FAILED) {
+                        g_install_errno = 300 + errno; g_install_step = 2;
+                        free(saved); return -1;
+                    }
+                    memcpy((void *)page, saved, 0x2000);
+                    free(saved);
+                    memcpy((void *)target, stub, stub_len);
+                    if (is_arm64) sys_icache_invalidate((void *)target, stub_len);
+                    mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
+                    const uint8_t *now2 = (const uint8_t *)target;
+                    g_stub_alive = (memcmp(now2, stub, stub_len) == 0) ? 1 : 0;
+                    return g_stub_alive == 1 ? 0 : -1;
+                }
+                g_install_errno = 200 + saved_errno; g_install_step = 2; return -1;
             }
             page_writable = 1;
             (void)mp1_errno;
