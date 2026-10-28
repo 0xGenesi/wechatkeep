@@ -38,18 +38,26 @@
 
 每步重启微信生效。2c 若仍破坏渲染 → hook 存在本身即机制 → Phase 3。
 
-## Phase 3 — 安装级二分（约 15 分钟，现场构建变体）
+## Phase 3 — 安装级二分（约 10 分钟，**变体已预构建**）
 
-候选③（安装机械动作×宿主完整性，⑪ 登记）的二分。现场从 runtime.m
-做两行级变体（各自重编 dylib + `runtime install`）：
+候选③（安装机械动作×宿主完整性，⑪ 登记）的二分。两个变体 dylib 已
+预构建并二进制级验证（var/t5/，77 续㉕）：
 
-- **变体 A（只 COW 不挂 stub）**：`write_entry_stub` 开头直接 `return 0`
-  （跳过 stub 写，保留 vm_remap COW）——若破坏消失 → 机制=stub 写入路径；
-- **变体 B（只挂 stub 不 COW）**：`page_already_writable` 强制走
-  mprotect 直写路径（macOS 27 预期 EACCES 拒装=kStInstallFail——**拒装即
-  归因 COW 必要性**，渲染自然正常）。
+- **变体 A** `var/t5/libwxkeep_runtime_T5A_cow_only.dylib`
+  （只 COW 不挂 stub——`write_entry_stub` 入口即返，实锚 `mov w0,#0; ret`
+  @0x3848）：`wxkeep runtime install --dylib var/t5/libwxkeep_runtime_T5A_cow_only.dylib`
+  ——渲染破坏消失 → 机制=stub 写入路径；
+- **变体 B** `var/t5/libwxkeep_runtime_T5B_stub_nocow.dylib`
+  （只挂 stub 不 COW——vm_remap 块编译期删除（`nm -u` 零引用），mprotect
+  直写在 macOS 27 预期 EACCES 拒装=kStInstallFail）：`wxkeep runtime install
+  --dylib var/t5/libwxkeep_runtime_T5B_stub_nocow.dylib`——**拒装即归因
+  COW 必要性**（归因表 R5），渲染自然正常。
 
-采集同 Phase 1。两变体均不破坏 → 机制在 hook 执行面（回到 Phase 2 深化）。
+每个变体装后重启微信采集同 Phase 1；**换回正式件** =
+`wxkeep runtime install`（默认搜索序回 BASE）。两变体均不破坏 → 机制在
+hook 执行面（回到 Phase 2 深化）。重建变体：源级补丁见
+/var/t5 生成脚本口径（write_entry_stub 入口 return 0 / mprotect 失败直连），
+`swift build -c release` 后还原 runtime.m。
 
 ## Phase 4 — 群聊自定义提示终验（约 10 分钟）
 
