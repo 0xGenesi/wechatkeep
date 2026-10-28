@@ -294,6 +294,12 @@ extension RuntimeConfigTests {
     @Test func tipWriteReadRoundTripPreservesHooks() throws {
         let url = tmpConfigPath()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        // 目标文件必须预建：mergeKnownHooks 对缺失目标会以真 home 配置为
+        // 迁移种子（by design），策略键（keep_message 等）会随之渗入——
+        // 本用例断言的是缺省值语义，与环境配置解耦（2026-10-28 实弹暴露）。
+        let seed = try PropertyListSerialization.data(fromPropertyList: ["hooks": []],
+                                                      format: .xml, options: 0)
+        try seed.write(to: url)
         _ = try RuntimeConfig.mergeKnownHooks(into: url)   // 预置 hooks 管理段
 
         try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: true, at: url)

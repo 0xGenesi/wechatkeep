@@ -10,6 +10,11 @@ import Foundation
 ///   - replacemsg：24B 变体串 @struct+0x1D0（0x4bc57dc `str q0,[x19,#0x1d0]`；
 ///     arm64 变体布局：长串 ptr@[0]/size@+8/cap|flag@+0x10，flag=[0x17] 符号负）
 ///   - ok：x2 指向字节，成功路径置 1；返回值 x0∈{0,1}
+/// ⚠️ L7 第二轮实证：上两位点所在的嵌套提取块（0x4bc4fa8-0x4bc5604，
+/// find `<revokemsg>` 子节点→newmsgid/replacemsg）在 270100 arm64 是
+/// **零前驱死代码**（全镜像分支扫描）；0x4bc4d34 对嵌套语料的活路径只
+/// 提取 type 属性（+0x1a8）与 sysmsg 直下子级。断言面待迁嵌套解析器
+/// 0x4bd26a8（find "revokemsg" 子节点的活代码，引用索引实证）。
 /// 断言矩阵（他人/自发 × 群/私）与变异负控在 ParseOracleTests——本文件只做
 /// 机械：映射、宿主面构造、语料喂入、观测输出。
 ///
@@ -173,6 +178,9 @@ enum ParseOracle {
         if map.segs.isEmpty == false { fixupsApplied = applyChainedFixups(data: data, map: map) }
         redirectAllStubs(data: data, map: map, resolved: &resolved, unresolved: &unresolved)
         patchStackGuardSlot(map: map, fnVA: parseVA)
+        // 0x9f6fe78（运行时等级，文件值 6）不需要模拟：全语料 A/B（写 0 vs
+        // 保持 6）输出逐字节一致——0x5ca448c(4)/(3) 两处门只守"decode fail"
+        // 日志路径，不影响提取语义（L7 第二轮实证）。
         // 调试面：patchsite <va-hex> 把 4B 指令换成 NOP（写态内、seal 前）
         if args.count >= 5, args[3] == "patchsite", let siteVA = UInt64(args[4], radix: 16),
            let site = map.ptr(siteVA) {
@@ -221,6 +229,118 @@ enum ParseOracle {
                     _ = convFn(raw.baseAddress!, obj)
                 }
                 FileHandle.standardError.write(Data("countnew \(file.lastPathComponent): allocs=\(oracleNewCount - before)\n".utf8))
+            }
+        }
+        // walktree：按 pugixml 布局走查树（doc 解引用 [tree+0]；子链 +0x20/
+        // 兄弟链 +0x30；名字 ptr@[node+8] C 串）——地面真值，不经 0x55a3974。
+        if args.count >= 4, args[3] == "walktree",
+           let ctor = map.ptr(0x55a7c1c), let conv = map.ptr(0x4a7d6ac) {
+            let files = ((try? FileManager.default.contentsOfDirectory(
+                at: URL(fileURLWithPath: args[2]), includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "xml" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            let ctorFn: @convention(c) (UnsafeMutableRawPointer) -> Void =
+                unsafeBitCast(ctor, to: (@convention(c) (UnsafeMutableRawPointer) -> Void).self)
+            let convFn: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64 =
+                unsafeBitCast(conv, to: (@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64).self)
+            func cstrAt(_ p: UnsafeMutableRawPointer, _ off: Int) -> String {
+                var ptr = p.load(fromByteOffset: off, as: UInt64.self)
+                guard ptr > 0x10000 else { return "" }
+                let cp = UnsafeMutableRawPointer(bitPattern: UInt(ptr))!
+                var out = [UInt8](); var i = 0
+                while i < 64 { let b = cp.load(fromByteOffset: i, as: UInt8.self); if b == 0 { break }; out.append(b); i += 1 }
+                return String(bytes: out, encoding: .utf8) ?? "?"
+            }
+            func walk(_ node: UnsafeMutableRawPointer, _ depth: Int, _ out: inout String) {
+                var child = node.load(fromByteOffset: 0x20, as: UInt64.self)
+                var seen = 0
+                while child > 0x10000, seen < 12 {
+                    let c = UnsafeMutableRawPointer(bitPattern: UInt(child))!
+                    out += String(repeating: " ", count: depth * 2) + "<" + cstrAt(c, 8)
+                    let value = cstrAt(c, 0x10)
+                    if !value.isEmpty { out += "=" + value }
+                    out += "\n"
+                    walk(c, depth + 1, &out)
+                    child = c.load(fromByteOffset: 0x30, as: UInt64.self)
+                    seen += 1
+                }
+            }
+            for file in files.prefix(2) {
+                guard let xml = try? Data(contentsOf: file) else { continue }
+                let buf = malloc(xml.count + 1)!
+                xml.copyBytes(to: buf.assumingMemoryBound(to: UInt8.self), count: xml.count)
+                (buf + xml.count).assumingMemoryBound(to: UInt8.self).pointee = 0
+                var vstr = [UInt8](repeating: 0, count: 24)
+                vstr.replaceSubrange(0..<8, with: withUnsafeBytes(of: UInt(bitPattern: buf)) { Array($0) })
+                vstr.replaceSubrange(8..<16, with: withUnsafeBytes(of: UInt64(xml.count)) { Array($0) })
+                vstr.replaceSubrange(16..<24, with: withUnsafeBytes(of: UInt64(xml.count) | 1 << 63) { Array($0) })
+                let obj = calloc(1, 0xC0)!
+                var tree = ""
+                vstr.withUnsafeMutableBytes { raw in
+                    ctorFn(obj)
+                    _ = convFn(raw.baseAddress!, obj)
+                    let impl = obj.load(fromByteOffset: 0, as: UInt64.self)
+                    if let doc = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: impl)), impl > 0x10000 {
+                        walk(doc, 0, &tree)
+                    } else { tree = "(no impl)" }
+                }
+                FileHandle.standardError.write(Data("walktree \(file.lastPathComponent):\n\(tree)\n".utf8))
+            }
+        }
+        // probe2（排障）：sysmsg 层 find 逐键实探——名字回读 + 匹配节点身份
+        if args.count >= 4, args[3] == "probe2",
+           let ctor = map.ptr(0x55a7c1c), let conv = map.ptr(0x4a7d6ac), let find = map.ptr(0x55a3974) {
+            let files = ((try? FileManager.default.contentsOfDirectory(
+                at: URL(fileURLWithPath: args[2]), includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "xml" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            let ctorFn: @convention(c) (UnsafeMutableRawPointer) -> Void =
+                unsafeBitCast(ctor, to: (@convention(c) (UnsafeMutableRawPointer) -> Void).self)
+            let convFn: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64 =
+                unsafeBitCast(conv, to: (@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64).self)
+            let findFn: @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<CChar>) -> UnsafeMutableRawPointer? =
+                unsafeBitCast(find, to: (@convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<CChar>) -> UnsafeMutableRawPointer?).self)
+            func cstrAt(_ p: UnsafeMutableRawPointer, _ off: Int) -> String {
+                let ptr = p.load(fromByteOffset: off, as: UInt64.self)
+                guard ptr > 0x10000 else { return "" }
+                let cp = UnsafeMutableRawPointer(bitPattern: UInt(ptr))!
+                var out = [UInt8](); var i = 0
+                while i < 64 { let b = cp.load(fromByteOffset: i, as: UInt8.self); if b == 0 { break }; out.append(b); i += 1 }
+                return String(bytes: out, encoding: .utf8) ?? "?"
+            }
+            for file in files.prefix(2) {
+                guard let xml = try? Data(contentsOf: file) else { continue }
+                let buf = malloc(xml.count + 1)!
+                xml.copyBytes(to: buf.assumingMemoryBound(to: UInt8.self), count: xml.count)
+                (buf + xml.count).assumingMemoryBound(to: UInt8.self).pointee = 0
+                var vstr = [UInt8](repeating: 0, count: 24)
+                vstr.replaceSubrange(0..<8, with: withUnsafeBytes(of: UInt(bitPattern: buf)) { Array($0) })
+                vstr.replaceSubrange(8..<16, with: withUnsafeBytes(of: UInt64(xml.count)) { Array($0) })
+                vstr.replaceSubrange(16..<24, with: withUnsafeBytes(of: UInt64(xml.count) | 1 << 63) { Array($0) })
+                let obj = calloc(1, 0xC0)!
+                var line = "probe2 \(file.lastPathComponent):"
+                vstr.withUnsafeMutableBytes { raw in
+                    ctorFn(obj)
+                    _ = convFn(raw.baseAddress!, obj)
+                    line += " treeName=\(cstrAt(obj, 0x10).isEmpty ? "(none)" : "?")"
+                    var sysSlot = UnsafeMutableRawPointer(bitPattern: 0)
+                    "sysmsg".withCString { ks in
+                        if let n = findFn(obj, UnsafeMutablePointer(mutating: ks)) { sysSlot = n }
+                    }
+                    line += " sysPtr=\(UInt(bitPattern: sysSlot))"
+                    if let sys = sysSlot, UInt(bitPattern: sys) > 0x10000 {
+                        line += " sysName=<\(cstrAt(sys, 8))>"
+                        var holder = sys
+                        for key in ["subtype", "revokemsg", "replacemsg", "newmsgid", "content", "session"] {
+                            let hit: String = key.withCString { ks in
+                                guard let n = findFn(&holder, UnsafeMutablePointer(mutating: ks)) else { return "-" }
+                                return "<\(cstrAt(n, 8))>@\(String(UInt(bitPattern: n), radix: 16))"
+                            }
+                            line += " \(key)=\(hit)"
+                        }
+                    }
+                }
+                FileHandle.standardError.write(Data((line + "\n").utf8))
             }
         }
         if args.count >= 4, args[3] == "probe1",
@@ -300,6 +420,21 @@ enum ParseOracle {
                 out += runOnce(parse: parse, file: file.lastPathComponent, mode: mode, xml: bytes)
             }
         }
+        // 分派比较器键池（0xa2b1ad8 起，懒初始化后可读）——语料跑完后 dump
+        do {
+            var dump = ""
+            if let poolBase = map.ptr(0xa2b1ad8) {
+                for row in 0..<10 {
+                    var line = ""
+                    for col in 0..<16 {
+                        let b = poolBase.load(fromByteOffset: row * 16 + col, as: UInt8.self)
+                        line += (32...126).contains(b) ? String(UnicodeScalar(b)) : (b == 0 ? "·" : "?")
+                    }
+                    dump += "0x\(String(0xa2b1ad8 + row * 16, radix: 16)): \(line)\n"
+                }
+            }
+            FileHandle.standardError.write(Data(("pool:\n" + dump).utf8))
+        }
         FileHandle.standardOutput.write(out.data(using: .utf8)!)
         exit(0)
         #else
@@ -331,6 +466,13 @@ enum ParseOracle {
         vstr.replaceSubrange(16..<24, with: withUnsafeBytes(of: UInt64(xml.count) | 1 << 63) { Array($0) })
 
         let msg = calloc(1, Struct.size)!
+        // 调用方契约（77 续㉞ 实证）：+0x1c4 subtype 必须预填 1（消息已被
+        // 上游路由为 revokemsg——parse 的 0x216e90 门 = (subtype==1)）。
+        // 零值=未分类 → parse 走特殊类型字符串链（qy_revoke_msg/sysmsgtemplate
+        // /revokehistoryinjoinroommsg/mmchatroomtopmsg/SendMsgFailed/
+        // delchatroommember/paymsg——运行时键池 dump 全量实证，无 revokemsg
+        // 本尊）→ 全 miss → 兜底路径 exit 0。
+        msg.assumingMemoryBound(to: UInt32.self).advanced(by: 0x1c4 / 4).pointee = 1
         let okPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
         okPtr.pointee = 0
         defer { free(buf); free(msg); okPtr.deallocate() }
@@ -346,6 +488,30 @@ enum ParseOracle {
             for i in 0..<24 { raw.append(msg.load(fromByteOffset: 0x1a8 + i, as: UInt8.self)) }
             let hx = raw.map { String(format: "%02x", $0) }.joined(separator: " ")
             FileHandle.standardError.write(Data("oracle: +0x1a8 raw=\(hx)\n".utf8))
+            FileHandle.standardError.write(Data("oracle: +0x1c4 subtype=\(msg.load(fromByteOffset: 0x1c4, as: UInt32.self))\n".utf8))
+            // 变体串字段群（arm 落点巡检）：+0x1e8/+0x218/+0x230/+0x2c8/+0x2e0/+0x310
+            for off in [0x1e8, 0x218, 0x230, 0x288, 0x2c8, 0x2e0, 0x310] {
+                var s = ""
+                if off == 0x288 {
+                    s = String(msg.load(fromByteOffset: off, as: UInt32.self))
+                } else {
+                    let flag = Int8(bitPattern: msg.load(fromByteOffset: off + 0x17, as: UInt8.self))
+                    if flag < 0 {
+                        let ptr = msg.load(fromByteOffset: off, as: UInt64.self)
+                        let size = msg.load(fromByteOffset: off + 8, as: UInt64.self)
+                        if ptr > 0x10000, size <= 1 << 14, let p = UnsafeRawPointer(bitPattern: UInt(truncatingIfNeeded: ptr)) {
+                            s = String(data: Data(bytes: p, count: Int(size)), encoding: .utf8) ?? "<bin>"
+                        } else { s = "<ptr?>" }
+                    } else {
+                        let len = Int(msg.load(fromByteOffset: off + 0x17, as: UInt8.self))
+                        if len > 0, len < 24 {
+                            var b = [UInt8](); for i in 0..<len { b.append(msg.load(fromByteOffset: off + i, as: UInt8.self)) }
+                            s = String(bytes: b, encoding: .utf8) ?? "<bin>"
+                        }
+                    }
+                }
+                if !s.isEmpty { FileHandle.standardError.write(Data("oracle: +0x\(String(off, radix: 16)) = \(s)\n".utf8)) }
+            }
         }
         let hex = rep.map { String(format: "%02x", $0) }.joined()
         return "run|\(file)|\(mode)|ret=\(ret)|ok=\(okPtr.pointee)|newmsgid=\(newmsgid)|rep=\(hex)\n"
@@ -395,7 +561,10 @@ enum ParseOracle {
     /// 结构（本镜像实测）：header 7×u32 → imports 表 u32[count]{lib:8,
     /// weak:1, name_offset:23(=v>>9)}×2381 → 串池；starts_in_image →
     /// 每 EXEC 外段 {page_size=0x4000, ptr_fmt=6(ARM64E), page_start[]}。
-    /// 链条目 u64：bit63=1 bind（ordinal:16 → 宿主符号），bit63=0 rebase
+    /// 链条目 u64：bit63=1 bind（ordinal:16 → imports 表 **0 基下标** →
+    /// 宿主符号——第一轮曾按 1 基解 `names[ordinal-1]`，全体错绑字母序
+    /// 邻居（strcmp→strchr），树构造器子级随堆地址彩票丢弃，L7 第二轮
+    /// 以槽 2086 调用形状实证修正），bit63=0 rebase
     /// （target:32 → mapped+target-base）；next:11(bits51-61,×4)，0=链尾。
     /// 返回应用条数。宿主解析不出的 bind 原样保留（GUI 框架符号不在
     /// parse 路径上；rebase 全可应用——目标恒在镜像内）。
@@ -458,9 +627,13 @@ enum ParseOracle {
                         let v = map.mapped.assumingMemoryBound(to: UInt64.self)[off / 8]
                         let next = (v >> 51) & 0x7FF
                         if v >> 63 == 1 {   // bind
+                            // ordinal 是 imports 数组的 0 基下标（L7 第二轮实证：
+                            // 槽 2086 的调用形状 f(key,name)→cmp 结果只匹配
+                            // names[2086]=_strcmp；差一会绑到字母序邻居
+                            // _strchr——树构造器子级彩票的根源）
                             let ordinal = Int(v & 0xFFFF)
-                            if ordinal > 0, ordinal <= names.count,
-                               let fn = resolveHostSymbol(names[ordinal - 1]) {
+                            if ordinal < names.count,
+                               let fn = resolveHostSymbol(names[ordinal]) {
                                 (map.mapped + off).assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee = fn
                                 applied += 1
                             }

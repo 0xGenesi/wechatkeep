@@ -181,6 +181,91 @@ hooks 行加签升 P0。
    master 同败，双平台编译由 CI 承担）；runtime.m 未动（fuzz 三重验证
    不适用）；装机件/配置/进程零触碰（T5 对照轮锁定态保持）。
 
+## 77 续㉟·T5 全案终裁（2026-10-28 晚：四轮混杂链闭合 → pristine 终控 + 手机交叉验证 → 270100 Mac 客户端原生不处理他人撤回）
+
+> T5 的问题今晚全部问完，答案出乎全部既有假设：**这台 Mac 上的 270100
+> 客户端对他人的撤回，原生既不删除消息、也不渲染灰条**——与 wxkeep 无关，
+> 且从未有关。用户在第四轮亲自提出「补丁假说」并驱动了终控实验。
+
+1. **[配置三路陷阱（第 2/3 轮混杂根因）]** 驻留 runtime 的配置真身 =
+   **沙盒容器内** `~/Library/Containers/com.tencent.xinWeChat/.../wxkeep/
+   runtime.json`（10-26 T4 遗留，keep=true）：group 容器路径读写双失败
+   （marker idx=1 回落铁证），沙盒内 "legacy" 解析也落在容器内。此前
+   14:46 改 Group、19:29 改真 home legacy 全都不是进程读的那份。0.2.13
+   规则键缺失默认 keep=1。19:38 修容器真身后 zero=0 铁证（19:40/19:50
+   两进程）。
+2. **[zero=0 干净轮（第 3 轮）]** 干预确凿关闭下，小号实时撤回：新消息
+   不消失、无灰条；parse 计数 cb 冻结=实时撤回不走挂钩的 sysmsg 解析
+   通道。重启触发离线同步重放后：新旧的撤回消息**全部保留**、无灰条。
+3. **[pristine 终控（第 4 轮，用户补丁假说驱动）]** `wxkeep runtime
+   remove` 完全移除（注入清零/引用清零/重签验证 OK，备份×2）——100%
+   原版微信上同样**不删+无灰条**。补丁假说证伪（含武装蹦床/COW 全部
+   机械）。
+4. **[手机交叉验证]** 同一条撤回，手机端（大号）**正常删除+灰条出现**
+   ——服务器与撤回事件广播一切正常，排除账号/服务器侧。
+5. **[终裁与改写]**：**R1「他人撤回→消息保留」= 原生行为**（keep/
+   zeroing 从未起作用——zero=11/3/0 各轮同果的真相；x64 v1 时代清零
+   有效=那个世代删除确实发生，arm64 270100 世代基线从未测过直到今晚）；
+   **R2「无灰条」= 原生无渲染**，b2 前提证伪不立项；**T4「渲染破坏」
+   = 不存在**（历史观察即原生行为，T4 之谜关账）。wxkeep 在 270100 上
+   的防撤回/tip 价值=0（剩余：诊断面/marker + 跨构建机械 + L7 oracle
+   对语义回归的防御价值）。
+6. **[机器现状]** pristine（runtime 已移除）；恢复任一状态=一条命令
+   （备份 WeChat.wxkeep-bak-20261028-195334/195413）。
+7. **[悬置]** Mac 不处理的机制（构建回归 vs 本机长期实验状态损伤）——
+   干净账户/干净 Mac 分叉待做；V4-REQUIREMENTS R1-R7 契约表按终裁
+   重写（队列）。
+
+## 77 续㉞·L7 第二轮（2026-10-28：悬案收口——bind ordinal 差一为根因；嵌套提取块判死代码，断言面迁移目标锁定 0x4bd26a8）
+
+> 续㉝ 悬案「树构造器只建根+属性」**根因收口**：不是树构造器的运行时
+> 依赖，而是**迷你加载器自己的 bind 解码差一**。同时把 parse 语义面
+> 钉死到指令级，为断言面迁移铺路。
+
+1. **[根因：chained-fixups bind ordinal 0 基]** `applyChainedFixups` 第一轮
+   按 1 基解 `names[ordinal-1]`，**全部 bind 错绑到 imports 表字母序邻居**。
+   决定性证据链：find 的比较器桩 0x6fd288c（GOT 槽 0x998c1a0）调用形状
+   `f(key, name)→cmp 结果` 只匹配 `names[2086]=_strcmp`；差一拿到
+   `names[2085]=_strchr` → **find 的名字比较退化为"堆地址低字节彩票"**
+   （strchr(key, (int)name_ptr)）。树构造器（conv 链）的 tag 匹配同理
+   随堆地址丢弃/保留子节点——这就是「子级全缺、输入形态无关」的机制。
+   三槽交叉验证：1162=`string::assign(char const*)`（0x6fd06fc 用法
+   吻合）、1373=sized `operator delete`（释放不崩的解释）。修正为
+   0 基后 lldb 实测槽 0x998c1a0 = 宿主 strcmp（0x193b94050）；应用条数
+   589,349→603,710。probe2（新增排障面：sysmsg 层逐键 find+名字回读）
+   实证比较器语义恢复正常（subtype/replacemsg/newmsgid 直下=NULL、
+   revokemsg 命中）。
+2. **[tier 门裁决：不需要模拟]** 0x9f6fe78（文件值 6）全语料 A/B（写 0
+   vs 保持 6）输出**逐字节一致**——0x5ca448c(4)/(3) 两处门只守
+   "decode fail" 类日志路径，不影响提取语义。第一轮的 tier patch 移除
+   （镜像零篡改原则恢复）。
+3. **[parse 语义面钉死（0x4bc4d34，270100 arm64）]** 调用方契约：
+   **+0x1c4 subtype 必须预填 1**（上游已路由为 revokemsg；0x216e90 门
+   =(subtype==1)）。subtype==1 → content 路径：find(sysmsg 直下
+   `<content>`) → +0x1D0（drive25 x64 270099 真机 XML 为嵌套形态，此
+   路径在 270100 对嵌套语料不提取）；subtype==0 → 型别串链
+   （qy_revoke_msg（扁平形态：chat_id/revoke_climsgid/replacemsg→
+   +0x310/brand_username）/sysmsgtemplaet/revokehistoryinjoinr/
+   mmchatroomtopmsg/SendMsgFailed/delchatroommember/paymsg——运行时
+   键池实证，**无 revokemsg 本尊**）→ 全 miss → ret=0。
+4. **[嵌套提取块=死代码]** 0x4bc4fa8-0x4bc5604（find `<revokemsg>` 子
+   节点 → revoketime→+0x288 / session→+0x1e8 / **newmsgid→+0x1C8** /
+   **replacemsg→+0x1D0**——续⑰键集全图的位点）**全镜像直接分支扫描
+   零前驱**（b/bl/cbz/cbnz/tbz/tbnz 全 __TEXT；0x4bc4fa4 为无条件 b，
+   无 fall-through 边；NOP 0x4bc4fa4 对照无输出变化；键池零初始化佐证
+   未达）。残余不确定性：间接跳转表（br+数据表）未穷尽——但经验上
+   16 语料 ×3 模式从未触发。**活嵌套解析器 = 0x4bd26a8**（引用索引：
+   "revokemsg"/"newmsgid" 常量的第 4 引用者，find "revokemsg" 子节点 +
+   type 判定 + sret 返回）——断言面迁移目标（下一轮 L7 第三轮入口）。
+5. **[排障面沉淀]** worker 新模式 probe2（sysmsg 层 find 逐键实探）+
+   walktree（pugixml 布局直走：doc 解引用、子链+0x20/兄弟链+0x30、
+   名字 ptr@[node+8]）+ 运行时键池 dump（0xa2b1ad8 起，判型别链触达）。
+   方法论：MAP_JIT 页上 lldb 软件断点不触发（marker 断点可用、读内存
+   可用、写断点无效）——JIT 区内的控制流实证改用 NOP 对照 + 键池状态。
+6. **[测试]** corpusGreenMatrix 维持 disabled，理由更新为断言面待迁
+   （树子级根因已收口）；变异负控/语义面绿。全量见当轮 CI/本机记录。
+   装机件/配置/进程零触碰（T5 锁定态保持）。
+
 ## 77 续㉜·L7/L8 立项获批（2026-10-28 用户批准；执行=独立轮）
 
 - **L7 合成 parse oracle**：mini-loader 进程外调用 parse（270100 arm64

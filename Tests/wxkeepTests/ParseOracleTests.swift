@@ -93,12 +93,13 @@ struct ParseOracleTests {
 
     /// 语料全绿：16 条 × (orig/zero/zmsgid) 的完整断言（他人 newmsgid
     /// 提取+replacemsg 透传+keep-zero 复合；自发零干预）。
-    /// **当前强制 disabled**：迷你加载器 bring-up 已全通（映射/fixups/全桩/
-    /// 语料喂入/parse 门全过/type 提取逐字节正确），但树构造器只建根+属性、
-    /// 子元素永不出现（输入形态无关），newmsgid/replacemsg 无从提取 →
-    /// ret=0。根因隔离见 ROADMAP 77 续㉝（L7 进行态）。行为收口后改回
+    /// **当前强制 disabled**：映射机械全通（ordinal 差一修复后树构造/喂入/
+    /// ret=1/+0x1a8 type 全对），但 0x4bc4d34 内嵌套提取块（find
+    /// `<revokemsg>` 子节点→newmsgid/replacemsg）是**零前驱死代码**——
+    /// 语料嵌套形态经此函数全空提取。断言面需迁往嵌套解析器 0x4bd26a8
+    /// （引用索引实证：find "revokemsg" 子节点的活代码），语义收口后改回
     /// assetsPresent 门。
-    @Test(.disabled(if: true, "L7 进行态：树构造器子级缺失未收口（ROADMAP 77 续㉝）"))
+    @Test(.disabled(if: true, "L7 进行态：断言面待迁 0x4bd26a8（0x4bc4d34 嵌套提取块为死代码）"))
     func corpusGreenMatrix() throws {
         let outcomes = try ParseOracle.run(binary: ParseOracleTests.binary,
                                            parseVA: ParseOracleTests.parseVA,
@@ -147,6 +148,9 @@ struct ParseOracleTests {
 
     /// 变异负控：翻转 tag 字节 → 对应变体断言必红（oracle 灵敏度证明，
     /// 防空转绿灯）。每语料至少一个变异体，断言其与原始期望分歧。
+    /// ⚠️ 提取面待迁 0x4bd26a8 前，分歧判据 `m.newmsgid != expected` 对
+    /// "oracle 什么都提取不出"也成立——本测当前为**空洞绿**（灵敏度
+    /// 证明力要等断言面迁移后恢复；见 corpusGreenMatrix 注）。
     @Test(.disabled(if: !ParseOracleTests.assetsPresent,
                     "实弹语料/pristine 切片不在场（CI）——空过"))
     func mutationNegativeControls() throws {
