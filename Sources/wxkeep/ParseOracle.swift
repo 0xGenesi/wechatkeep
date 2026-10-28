@@ -127,6 +127,24 @@ enum ParseOracle {
         return outcomes
     }
 
+
+    /// <tag> 数字等长清零（'1'-'9' → '0'）——runtime.m zero_tag_digits 的
+    /// 同语义移植（keep/zero 门的 XML 改写）；非数字即停，等长保证 XML
+    /// 结构与其余字节不动。测试层负控也用它构造变异体。
+    static func zeroTagDigits(_ buf: inout Data, tag: String) {
+        let tagBytes = Array(tag.utf8)
+        guard let first = buf.range(of: Data(tagBytes)) else { return }
+        var i = first.upperBound
+        while i < buf.count, buf[i] != UInt8(ascii: "<") {
+            if buf[i] >= UInt8(ascii: "1"), buf[i] <= UInt8(ascii: "9") {
+                buf[i] = UInt8(ascii: "0")
+            } else if buf[i] != UInt8(ascii: "0") {
+                break
+            }
+            i += 1
+        }
+    }
+
     // MARK: - Tree-dump surface（77 续㊰：断言面=parse 树而非深提取臂）
 
     /// 单次 conv 的树扁平化（保序 (tag, value) 序列）。
@@ -655,22 +673,6 @@ enum ParseOracle {
         return Data(bytes: obj + base, count: len)
     }
 
-    /// <tag> 数字等长清零（'1'-'9' → '0'）——runtime.m zero_tag_digits 的
-    /// 同语义移植（keep/zero 门的 XML 改写）；非数字即停，等长保证 XML
-    /// 结构与其余字节不动。测试层负控也用它构造变异体。
-    static func zeroTagDigits(_ buf: inout Data, tag: String) {
-        let tagBytes = Array(tag.utf8)
-        guard let first = buf.range(of: Data(tagBytes)) else { return }
-        var i = first.upperBound
-        while i < buf.count, buf[i] != UInt8(ascii: "<") {
-            if buf[i] >= UInt8(ascii: "1"), buf[i] <= UInt8(ascii: "9") {
-                buf[i] = UInt8(ascii: "0")
-            } else if buf[i] != UInt8(ascii: "0") {
-                break
-            }
-            i += 1
-        }
-    }
 
     // MARK: 映射 setup（JIT 写态内执行）
 
