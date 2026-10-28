@@ -55,9 +55,16 @@
 
 每个变体装后重启微信采集同 Phase 1；**换回正式件** =
 `wxkeep runtime install`（默认搜索序回 BASE）。两变体均不破坏 → 机制在
-hook 执行面（回到 Phase 2 深化）。重建变体：源级补丁见
-/var/t5 生成脚本口径（write_entry_stub 入口 return 0 / mprotect 失败直连），
-`swift build -c release` 后还原 runtime.m。
+hook 执行面（回到 Phase 2 深化）。
+
+**Pre-flight 已通过（2026-10-28，隔离副本全循环）**：clone → T5A 装/
+卸 → T5B 装/卸 → BASE 装，每步 LC 注入 ✓ + strict verify ✓ + hooks 表
+44 行 ✓，三件装机 sha 互异（管线无混装）。**装机件身份判别法**：整文件
+sha 必然 ≠ 源件（install 管线做 ad-hoc 重签；实测重签仅改 4 字节 header
+签名尺寸字段 + 尾部签名 blob，代码区逐位不变）——判别看代码区比对或
+安装次序，勿用整文件 sha。重建变体：源级补丁（write_entry_stub 入口
+`return 0` / mprotect 失败直连 EACCES）→ `swift build -c release` →
+还原 runtime.m → 再 build 恢复正式件。预演副本与备份已清理。
 
 ## Phase 4 — 群聊自定义提示终验（约 10 分钟）
 
