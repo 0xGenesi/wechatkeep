@@ -181,6 +181,31 @@ hooks 行加签升 P0。
    master 同败，双平台编译由 CI 承担）；runtime.m 未动（fuzz 三重验证
    不适用）；装机件/配置/进程零触碰（T5 对照轮锁定态保持）。
 
+## 77 续㊵·SQLCipher 密钥侦察轮（2026-10-28 深夜：五路全探——密钥在进程内存；数据层仪器待用户拍板第三方工具）
+
+> 目标：message DB（SQLCipher，36 库 424MB+）读权限 = 数据层验证仪器
+> （写模型已静态裁决，此为面向未来语义回归的 L 级断言面 + v3 前置）。
+
+1. **[key_info.db 明文可读]** all_users/login/<user>/key_info.db =
+   普通 SQLite，LoginKeyInfoTable（user_name_md5/key_md5(空)/
+   key_info_md5×26/key_info_data BLOB×180B）。**26 行 = 26 个登录会话
+   记录，非 26 库密钥**：protobuf（field1 len168），payload 内
+   blob[0x11-0x1d] 13B 会话标识 + blob[0x43-0xaa] 103B **加密态**逐行
+   变化 + blob[0xaf-0xb2] 校验。真密钥需 master key 解出——master key
+   不在盘上任何明文处。
+2. **[四路排除]** ①文件名/路径/变体 md5 映射 key_info_md5（484 变体
+   零命中——带盐）；②MMKV/账号目录 64-hex 扫描（零命中，仅 bubble 缓存
+   巧合）；③Keychain CLI（login 链无任何 tencent/wechat 条目——4.x 走
+   数据保护链，security CLI 不可达）；④候选键暴力试解 104 候选 ×4
+   参数组（默认/WCDB 经典 4096+64000+SHA1/1024/no-hmac）全灭。
+3. **[残余路线=进程内存]** 社区现成工具（wechat-dump-rs 系列——原仓
+   DMCA'd，fork 存续；chatlog 明确支持 4.x macOS；wechat-decipher-macos
+   DTrace 路线）。**引入决策留用户**：第三方灰区工具（腾讯 2026-01 批量
+   投诉背景下）非自主可拍板项。自研内存扫描（task_for_pid+区域扫描）
+   为无第三方依赖的自营路线，工作量小时级。
+4. **[快照]** /tmp/rel0214（v0.2.14 资产+哈希）；解密实验脚本即本轮
+   入档代码（无仓库文件改动）。
+
 ## 77 续㊴·v0.2.14 发版准备（2026-10-28 深夜：soak 门槛通过，版本常量 bump，notes 待发版页；tag 待用户拍板）
 
 1. **[发版门]** 真机 soak 通过（隔离副本全链：clonefile→patch→重签→
