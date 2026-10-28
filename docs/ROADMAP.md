@@ -201,8 +201,10 @@ hooks 行加签升 P0。
    - 语义注记（T5 终裁）：防撤回=字节补丁层（识别器中性化→消息保留，
      灰条不显示=同一操作的固有代价，写模型见 77 续㊳）；runtime keep/tip
      为实验层
-4. **[tag 流程]** 按惯例 tag 待用户拍板；发版页 CI universal 产物 +
-   --generate-notes 基础上按上条补写。
+4. **[发版完成]** v0.2.14 已 tag+推送（用户「继续」拍板）→ release
+   workflow 绿（1m54s）→ 发布页上线（universal wxkeep + runtime dylib +
+   签名 manifest 五资产）→ release notes 补写完成（变更面+语义注记全量）。
+   https://github.com/0xGenesi/wechatkeep/releases/tag/v0.2.14
 
 ## 77 续㊳·消费端补丁终审（2026-10-28 深夜：灰条=被撤回的消息本身——写模型裁决，三选二在补丁层面无解；B 收敛为 A 的等价安全形态，shellcode 克隆路线记档）
 
