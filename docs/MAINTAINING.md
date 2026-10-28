@@ -1577,3 +1577,14 @@ var/wxarm/SeedFunctionStarts.java 入库（复现入口）；无代码改动；/
 3. **[L7 评估定案]**：合成 parse oracle 为多小时级工程（parse 调用图
    需宿主 new/delete/map-构造全套），独立轮立项，本轮不硬上。
 4. **[回归]**：198 测全绿；装机件未动（今晚对照轮零污染不变）。
+
+
+### 77 续㉛·深化终检轮（2026-10-28：fuzz 20 万输入零报告；自主面全部收口）
+
+> A1/A2 触及 hook 改写核心（tip 读取改走双缓冲、body 增判别门）——
+> ASan/UBSan fuzz 回归补跑：runtime_random **20 万次随机输入零 sanitizer
+> 报告** + Swift 解析面畸形注入绿（台账 var/logs/fuzz-20261028）。
+> 叠加此前：198 测本地绿 + CI 双平台绿（x86_64 经 macos-14 原生编译覆盖）
+> ——新 C 代码三重验证（单测/双平台编译/fuzz）齐。
+> 自主可做项至此全部收口；剩余 = 今晚对照轮（用户窗口，协议在
+> t5-live-session-state 记忆）+ L7/L8 独立轮 + v0.2.14（T5 收口后）。
