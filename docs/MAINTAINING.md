@@ -1327,3 +1327,30 @@ launch_soak 真跑 → tag（待用户窗口）。
 
 **[回归/边界]**：无代码改动（文档+var/ab 分析工件）；/Applications 未动；
 无真机实验；.idx/.c 产物为既有工具输出，未入库（var/ gitignored 口径）。
+
+
+### 77 续⑱·REA 验证程序轮（2026-10-28：发布件第三方复核 + 宿主门 LLDB 运行时实证）
+
+> 指令「继续使用 rea 验证程序」。全量反编译负结果（⑰）之后的 REA 正解面
+> 验证：native-macos provider（免 Ghidra）——Mach-O 布局/签名/LLDB 观测。
+
+1. **v0.2.13 发布件第三方复核（brew Cellar）**：`rea inspect-macho`——
+   universal 双架构 ✓、15 依赖全系统/Swift、**无 wxkeep_runtime 加载命令**
+   （未装 runtime 的正确形态）、SDK 15.5；`rea inspect-signature` 双件——
+   signed/ad-hoc（team=null）/cdhash DR/sha256，与 release 资产 digest 逐位
+   同（c6848acb…）。Evidence-backed（subject digest 在证据内）。
+2. **宿主门 LLDB 运行时实证（77 续⑪修复的行为级闭环）**：自建 dlopen
+   harness（/tmp/rea-host-gate，非微信宿主）+ `rea observe-native-calls`
+   断点 {wxkeep_runtime_init, write_marker, write_marker_ex}——两次独立
+   运行一致：**唯构造器命中一次**（coverage=complete、无未解析断点），
+   两个 marker 写入函数 15s 观测窗**零命中**；文件级断言同绿——boot log
+   md5/mtime 逐位未动（T4 时代原样 1d193d46…/Oct 27 10:49）、三个 marker
+   候选位零落地、harness cwd 零写入。非微信宿主 dlopen = 零副作用，在
+   调试器层面正面实证（此前的缺陷形态=任何宿主覆写 ~/tmp/wxkeep-boot.log）。
+3. **REA 调用面补充**：observe-native-calls 断点 schema =
+   {kind: "function"|"objc-method", name: "..."}（symbol 字段会被拒）；
+   观测仅捕获 entry（返回值/FP/栈参不采集）；coverage.status=complete
+   表示窗跑满（零命中结论的前提）。
+
+**[回归/边界]**：无代码改动；harness 为 /tmp 临时件未入库；/Applications
+未动；无真机实验（dlopen 本仓 dylib 于裸宿主 = 测试缝同类操作）。

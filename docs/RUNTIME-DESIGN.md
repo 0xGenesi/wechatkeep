@@ -411,6 +411,15 @@ idx calls 全图：0x4bc4d34 零直接 BL 调用者、零 adrp_add 取址——�
 重定位派发（__DATA_CONST 静态填充，无指令面引用）。hook 行以函数起点
 挂入口不受派发形态影响；「无直接调用者」与 ⑧⑤ 的家族序言稳定性互证。
 
+### 5.5 宿主门运行时实证（77 续⑱，2026-10-28）
+
+非微信宿主 dlopen 本 dylib 的零副作用声明经 REA observe-native-calls
+（LLDB）行为级实证：断点 {wxkeep_runtime_init, write_marker, write_marker_ex}
+两次独立运行一致——唯构造器命中、两个 marker 写入函数零命中（15s 窗，
+coverage=complete），boot log/md5 与全部 marker 候选位逐位未动。77 续⑪
+的「enter 行移到 host 门后」修复至此具备静态（代码序）+ 动态（调试器
+观测）双证明。
+
 ### 5. REA 工具链事实（复用注意）
 
 - REA CLI（6.7.0）无 `open-binary` 子命令：目标经
