@@ -467,12 +467,25 @@ static void apply_config_dict(NSDictionary *cfg) {
     load_hooks_from(cfg);
 }
 
-static double g_cfg_stamp;   // 已应用配置文件的 mtime（热重载变更探测）
+static double g_cfg_stamp;   // 已应用配置文件的双路径 mtime 之和（热重载探测）
 
+// 双路径戳（77 续㉘补丁）：生产装载序 = group 优先、legacy（沙盒容器内
+// 展开）回落——只盯 group 会让回落位的变更永远探测不到（T4 在案场景：
+// 沙盒 group 写被拒，marker/配置全走 legacy）。两路径 mtime 求和即可：
+// 任一变更都会改变和值；重读仍走 read_runtime_config 的正式选径。
 static double config_stamp(NSString *path) {
     NSDictionary *attr = [[NSFileManager defaultManager]
         attributesOfItemAtPath:path error:nil];
     return [attr fileModificationDate].timeIntervalSince1970;
+}
+
+static double config_stamps_both(void) {
+    double sum = 0;
+    NSString *g = groupContainerConfigPath();
+    if (g) sum += config_stamp(g);
+    NSString *l = runtimeConfigPath();
+    if (l) sum += config_stamp(l);
+    return sum;
 }
 
 // 热重载（77 续㉘，T5 对照轮教训：配置只在进程启动读一次，改键必须重启
@@ -485,24 +498,18 @@ static void maybe_reload_config(void) {
         NSString *p = groupContainerConfigPath();
         if (!p) p = runtimeConfigPath();
         if (!p) return;
-        double st = config_stamp(p);
+        double st = config_stamps_both();
         if (st == g_cfg_stamp) return;
-        NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:p];
-        if (![cfg isKindOfClass:[NSDictionary class]]) {
-            g_cfg_stamp = st;
-            return;
-        }
-        apply_policy_dict(cfg);
-        g_cfg_stamp = st;
+        NSDictionary *cfg = read_runtime_config();   // 正式选径（group 优先/legacy 回落）
+        g_cfg_stamp = st;                             // 先立戳：坏文件不再每 tick 重读
+        if ([cfg isKindOfClass:[NSDictionary class]]) apply_policy_dict(cfg);
     }
 }
 
 static void load_config(void) {
     NSDictionary *cfg = read_runtime_config();
     if ([cfg isKindOfClass:[NSDictionary class]]) apply_config_dict(cfg);
-    NSString *p = groupContainerConfigPath();
-    if (!p) p = runtimeConfigPath();
-    if (p) g_cfg_stamp = config_stamp(p);
+    g_cfg_stamp = config_stamps_both();
 }
 
 // ---------------------------------------------------------------------------
