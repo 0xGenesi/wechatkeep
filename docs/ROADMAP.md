@@ -205,6 +205,17 @@ hooks 行加签升 P0。
    为无第三方依赖的自营路线，工作量小时级。
 4. **[快照]** /tmp/rel0214（v0.2.14 资产+哈希）；解密实验脚本即本轮
    入档代码（无仓库文件改动）。
+5. **[第二轮增补：自营扫描器 bring-up 遇 brew sqlcipher 4.19 格式疑案]**
+   自营扫描器（/tmp/scan_dbkey.c，task_for_pid+区域遍历+32B 窗口+
+   页首 AES 验证——盐偏移修正后 836MB/2.19 亿窗口零误报）仪器验证卡在
+   **brew "sqlcipher 4.19.0 community" 的格式反常**：compat=4 建库后
+   经典几何（PBKDF2-SHA512/256000/盐@0:16/密文@16:32/全页 IV 滑窗）
+   仍不中；PRAGMA cipher_page_size=4096/kdf_iter=256000/SHA512 自报
+   经典参数。疑似非标准 fork 或新默认格式——**经典格式参照物缺失**。
+   下轮：①从 WCDB 源码/编译经典 sqlcipher 做参照库；②或直接对真
+   WeChat 库跑扫描器（WCDB 内嵌 sqlcipher 是经典 4.x——扫描器几何
+   若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
+   task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
 ## 77 续㊴·v0.2.14 发版准备（2026-10-28 深夜：soak 门槛通过，版本常量 bump，notes 待发版页；tag 待用户拍板）
 
