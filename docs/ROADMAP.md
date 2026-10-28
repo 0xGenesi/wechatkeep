@@ -121,6 +121,15 @@ hooks 行加签升 P0。
    ASan/UBSan fuzz 重编全过 + 2 万随机输入零报告。/Applications 未动；
    无真机实验；仓库设置一处可逆变更（PR 创建权限开启）。
 
+## 77 续㉜·L7/L8 立项获批（2026-10-28 用户批准；执行=独立轮）
+
+- **L7 合成 parse oracle**：mini-loader 进程外调用 parse（270100 arm64
+  0x4bc4d34），16 条实弹捕获为语料，断言输出 struct 不变量（newmsgid
+  提取/replacemsg 透传/自发判别门）；需宿主 new/delete/map 构造全套，
+  多小时级。通过标准=语料全绿+变异必红（V4-REQUIREMENTS §3）。
+- **L8 UI 端到端断言**：AX API 对微信 Qt 界面覆盖度探测 →（可行则）灰条
+  文本/消息在场的机器断言，替代肉眼。
+
 ## 77 续·收尾轮（2026-10-26：catalog 函数级身份门 + 两工程缺陷 + 工具入库 + 队列重写，185 测全绿）
 
 1. **[函数级身份门]** HookRow/hook_row_parse 新增可选 `func_size`
