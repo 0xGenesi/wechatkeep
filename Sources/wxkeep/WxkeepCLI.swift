@@ -581,7 +581,7 @@ extension Wxkeep {
                 print("✓ tip_text = \(normalized)")
                 let selfOn = rewriteSelf.map { $0 == .on } ?? RuntimeConfig.readTip().rewriteSelf
                 print("  rewrite_self: \(selfOn ? "on" : "off")")
-                print("  \(RuntimeConfig.url().path)（dylib 启动时读取——微信下次启动生效，运行中可改）")
+                print("  \(RuntimeConfig.url().path)（策略键 ≤30s 热生效——含 tip/开关；hooks 地址表仍需重启微信）")
             }
         }
 

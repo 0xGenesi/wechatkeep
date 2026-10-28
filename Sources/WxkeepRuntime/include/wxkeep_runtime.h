@@ -63,3 +63,12 @@ long wxkeep_runtime_test_transparency_slot(int idx, int hooked);
 int wxkeep_runtime_test_quiesce_count(void);
 
 #endif
+// 自发撤回判别缝（77 续㉘）：1=keep/zero 门放行（非自发 XML）；0=自发
+// （「你撤回」命中——原生删除+原生提示，零干预）。T5 F1 修复的判别器锁。
+int wxkeep_runtime_test_keep_gate(const unsigned char *xml, unsigned long len);
+// 热重载缝（77 续㉘）：按生产热重载应用面（仅策略键，hooks 不动）装载
+// 指定路径配置。0=应用成功且 hooks 未动；1=hooks 被触碰（契约破坏）；
+// -1=文件不可解析。
+int wxkeep_runtime_test_reload_config(const char *path);
+// 当前外部 hooks 表行数（热重载契约断言用）。
+int wxkeep_runtime_test_ext_hooks_count(void);

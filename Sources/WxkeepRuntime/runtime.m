@@ -111,8 +111,26 @@ static int g_ext_hook_count;
 // 配置（Application Support/wxkeep/runtime.json）
 // ---------------------------------------------------------------------------
 
-static char g_tip_text[128];       // 固定文案（NUL 结尾，UTF-8）
-static size_t g_tip_len;
+// tip 双缓冲（77 续㉘ 热重载）：写方填非活动槽后原子翻转，读方取槽即用
+// ——槽内容写完才可见，热重载撕裂窗为零。写频=配置变更，读频=撤回命中。
+static char g_tip_store[2][128];
+static size_t g_tip_store_len[2];
+static volatile int g_tip_which;
+static const char *tip_text_active(void) { return g_tip_store[g_tip_which]; }
+static size_t tip_len_active(void) { return g_tip_store_len[g_tip_which]; }
+static void tip_store_write(const char *src, size_t len) {
+    if (len > sizeof(g_tip_store[0]) - 1) len = sizeof(g_tip_store[0]) - 1;
+    int nxt = 1 - g_tip_which;
+    memcpy(g_tip_store[nxt], src, len);
+    g_tip_store[nxt][len] = 0;
+    g_tip_store_len[nxt] = len;
+    __atomic_store_n(&g_tip_which, nxt, __ATOMIC_RELEASE);
+}
+// 自发撤回判别（77 续㉘，T5 F1 修复）：撤回 XML 的提示内文以「你撤回」
+// 起头 = 本机自发——keep/zero 门对其放行原生行为（本地删除+原生提示），
+// 不再误伤（T5 实测：清零自发 XML 使提示落「暂不支持该内容」占位）。
+static const char kSelfNeedle[] = "\xe4\xbd\xa0\xe6\x92\xa4\xe5\x9b\x9e";  // “你撤回”
+static int g_self_skips;
 static int g_rewrite_self;         // 自发撤回提示是否也改写（默认 0=不改）
 static int g_rewrite_hits;         // 撤回 needle 命中计数（含自发跳过/超长放弃）
 static int g_rewrite_fires;        // 实际完成改写的计数（验证肉眼化的证据面）
@@ -409,23 +427,25 @@ static const hook_target_t *match_target(const struct mach_header_64 *hdr,
     return NULL;
 }
 
-static void apply_config_dict(NSDictionary *cfg) {
+// 策略键应用（77 续㉘ 从 apply_config_dict 拆出）：tip 双缓冲写入 + 四个
+// 开关。可被热重载安全调用（见 maybe_reload_config）——不触碰 hooks 表。
+static void apply_policy_dict(NSDictionary *cfg) {
     NSString *text = cfg[@"tip_text"];
     if ([text isKindOfClass:[NSString class]] && text.length > 0) {
         NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
-        if (data.length > 0 && data.length < sizeof(g_tip_text)) {
+        if (data.length > 0 && data.length < sizeof(g_tip_store[0])) {
             // 文案最终嵌入 XML 文本节点：剥掉会破坏标签/实体的 < > & 三种
             // 字符（长度随之收缩），其余（含 emoji/引号）原样保留。
             // 服务端 replacemsg 含昵称，内文普遍 ≥30B，128B 上限足够。
             const uint8_t *src = data.bytes;
+            char staged[sizeof(g_tip_store[0])];
             size_t o = 0;
             for (size_t i = 0; i < data.length; i++) {
                 if (src[i] == '<' || src[i] == '>' || src[i] == '&') continue;
-                if (o >= sizeof(g_tip_text) - 1) break;
-                g_tip_text[o++] = src[i];
+                if (o >= sizeof(staged) - 1) break;
+                staged[o++] = (char)src[i];
             }
-            g_tip_text[o] = 0;
-            g_tip_len = o;
+            tip_store_write(staged, o);
         }
     }
     // 自发撤回（“你撤回了一条消息”）默认不改写——自己的撤回保持诚实反馈；
@@ -434,19 +454,55 @@ static void apply_config_dict(NSDictionary *cfg) {
     // keep_message 缺省即开（runtime hook 的核心价值）；显式 false 关闭
     id km = cfg[@"keep_message"];
     g_keep_message = (km == nil) ? 1 : [km boolValue];
-    // zero_msgid：T4 实验键（默认关）。与 keep_message 互斥使用——
-    // 实验配置 = keep_message:false + zero_msgid:true（清 <msgid> 保 newmsgid）
+    // zero_msgid：T4 实验键（默认关，77 续㉑ 后仅为诊断面）
     id zm = cfg[@"zero_msgid"];
     g_zero_msgid = (zm == nil) ? 0 : [zm boolValue];
     // allow_runtime_prologue：壳改写入口后的自适应开关（默认关，见全局注释）
     id ar = cfg[@"allow_runtime_prologue"];
     g_allow_runtime_prologue = (ar == nil) ? 0 : [ar boolValue];
+}
+
+static void apply_config_dict(NSDictionary *cfg) {
+    apply_policy_dict(cfg);
     load_hooks_from(cfg);
+}
+
+static double g_cfg_stamp;   // 已应用配置文件的 mtime（热重载变更探测）
+
+static double config_stamp(NSString *path) {
+    NSDictionary *attr = [[NSFileManager defaultManager]
+        attributesOfItemAtPath:path error:nil];
+    return [attr fileModificationDate].timeIntervalSince1970;
+}
+
+// 热重载（77 续㉘，T5 对照轮教训：配置只在进程启动读一次，改键必须重启
+// 进程才能生效——账号切换不重启进程的实测踩坑）。30s 证据定时器顺带探测
+// mtime：变化则重读并热应用**策略键**（tip/四开关）；hooks 表不热换
+// （换表仍需重启——武装中的地址行换血没有安全序）。坏文件也先立戳，
+// 不再每 tick 重读。
+static void maybe_reload_config(void) {
+    @autoreleasepool {
+        NSString *p = groupContainerConfigPath();
+        if (!p) p = runtimeConfigPath();
+        if (!p) return;
+        double st = config_stamp(p);
+        if (st == g_cfg_stamp) return;
+        NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:p];
+        if (![cfg isKindOfClass:[NSDictionary class]]) {
+            g_cfg_stamp = st;
+            return;
+        }
+        apply_policy_dict(cfg);
+        g_cfg_stamp = st;
+    }
 }
 
 static void load_config(void) {
     NSDictionary *cfg = read_runtime_config();
     if ([cfg isKindOfClass:[NSDictionary class]]) apply_config_dict(cfg);
+    NSString *p = groupContainerConfigPath();
+    if (!p) p = runtimeConfigPath();
+    if (p) g_cfg_stamp = config_stamp(p);
 }
 
 // ---------------------------------------------------------------------------
@@ -579,16 +635,18 @@ static int rewrite_inner_with(uint8_t *ptr, uint64_t size,
     if (!g_rewrite_self && inner_len >= 9
         && memcmp(inner, "\xe4\xbd\xa0\xe6\x92\xa4\xe5\x9b\x9e", 9) == 0) return 0;
     // {from} 展开（仅当文案里真的写了占位符）
-    char eff[sizeof(g_tip_text) + 64];
+    char eff[128 + 64];
     size_t eff_len;
-    if (bytes_contain(g_tip_text, g_tip_len, kFromPh, kFromPhLen)) {
+    const char *tip_now = tip_text_active();
+    size_t tip_now_len = tip_len_active();
+    if (bytes_contain(tip_now, tip_now_len, kFromPh, kFromPhLen)) {
         const uint8_t *from = NULL;
         size_t from_len = extract_from(inner, inner_len, &from);
-        eff_len = expand_tip(g_tip_text, g_tip_len, from, from_len,
+        eff_len = expand_tip(tip_now, tip_now_len, from, from_len,
                              eff, sizeof(eff));
     } else {
-        memcpy(eff, g_tip_text, g_tip_len);
-        eff_len = g_tip_len;
+        memcpy(eff, tip_now, tip_now_len);
+        eff_len = tip_now_len;
     }
     if (eff_len == 0 || eff_len > inner_len) return 0;
     memcpy(inner, eff, eff_len);
@@ -711,7 +769,7 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
     // 杜绝「他核已见入口 stub 却读到陈旧 g_real_wrapper=NULL → 跳 0」
     // 的弱序窗口（arm64 弱内存序下 C 语义无保证的路径）。
     if (__atomic_load_n(&g_hook.target, __ATOMIC_ACQUIRE)
-        && (g_tip_len || g_keep_message)) {
+        && (tip_len_active() > 0 || g_keep_message)) {
         uint8_t *msg = (uint8_t *)args[g_hook.msg_arg];
         if (msg > (uint8_t *)0x10000) {
             uint8_t *sso = msg + g_hook.xml_sso_off;
@@ -719,14 +777,18 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
             uint8_t *ptr;
             if (sso_head(sso, &size, &ptr)) {   // per-arch 长串判定 + 字段提取
                 if (size >= 32 && size <= (1 << 20) && ptr >= (uint8_t *)0x10000) {
-                    if (g_keep_message) {
-                        if (zero_newmsgid_digits(ptr, size) > 0) g_zero_fires++;
+                    if (find_bytes(ptr, size, kSelfNeedle, sizeof(kSelfNeedle) - 1)) {
+                        g_self_skips++;   // 自发撤回：放行原生删除+原生提示（T5 F1）
+                    } else {
+                        if (g_keep_message) {
+                            if (zero_newmsgid_digits(ptr, size) > 0) g_zero_fires++;
+                        }
+                        if (g_zero_msgid) {
+                            if (zero_tag_digits(ptr, size, "<msgid>", sizeof("<msgid>") - 1) > 0)
+                                g_zero_fires++;
+                        }
                     }
-                    if (g_zero_msgid) {
-                        if (zero_tag_digits(ptr, size, "<msgid>", sizeof("<msgid>") - 1) > 0)
-                            g_zero_fires++;
-                    }
-                    if (g_tip_len) rewrite_replacemsg_inner(sso);
+                    if (tip_len_active() > 0) rewrite_replacemsg_inner(sso);
                 }
             }
         }
@@ -1431,6 +1493,7 @@ static void start_evidence_timer(void) {
                               dispatch_walltime(NULL, (int64_t)30 * NSEC_PER_SEC),
                               (int64_t)30 * NSEC_PER_SEC, 0);
     dispatch_source_set_event_handler(timer, ^{
+        maybe_reload_config();   // 策略键热重载（≤30s 生效；hooks 除外）
         write_marker_ex(0);
         // T4 排障：marker 通道在沙盒微信里写不出（Group 拒+不回落），计数器
         // 改走 boot log 通道（构造器诊断同款，沙盒 tmp 必可达）。
@@ -1443,9 +1506,9 @@ static void start_evidence_timer(void) {
                 const uint8_t *now = (const uint8_t *)g_hook.target;
                 g_stub_alive = (now && memcmp(now, "\x51\x00\x00\x58\x20\x02\x1f\xd6", 8) == 0) ? 1 : 0;
             }
-            [acc appendFormat:@"tick installed=%d status=%d alive=%d calls=%d fires=%d hits=%d zero=%d qz=%d arg1=",
+            [acc appendFormat:@"tick installed=%d status=%d alive=%d calls=%d fires=%d hits=%d zero=%d selfskip=%d qz=%d arg1=",
                 g_hook_installed, g_hook_status, g_stub_alive, g_hook_calls, g_rewrite_fires, g_rewrite_hits,
-                g_zero_fires, g_quiesce_threads];
+                g_zero_fires, g_self_skips, g_quiesce_threads];
             if (g_arg1_valid) {
                 for (int k = 0; k < 24; k++) [acc appendFormat:@"%02x", g_arg1_head[k]];
             } else {
@@ -1780,7 +1843,7 @@ int wxkeep_runtime_test_load_config_file(const char *path) {
         NSString *p = [NSString stringWithUTF8String:path];
         NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:p];
         if (![cfg isKindOfClass:[NSDictionary class]]) return -1;
-        g_tip_text[0] = 0; g_tip_len = 0; g_rewrite_self = 0;
+        tip_store_write("", 0); g_rewrite_self = 0;
         memset(g_ext_hooks, 0, sizeof(g_ext_hooks));
         g_ext_hook_count = 0;
         g_sso_layout_arm64 = 0;
@@ -1945,8 +2008,32 @@ long wxkeep_runtime_test_transparency_slot(int idx, int hooked) {
 
 /// 当前生效文案的字节长度（load_config_file 缝的 tip 断言用）。
 int wxkeep_runtime_test_tip_len(void) {
-    return (int)g_tip_len;
+    return (int)tip_len_active();
 }
+
+/// 自发撤回判别缝（77 续㉘）：1=改写/清零门放行（非自发 XML），0=自发
+/// （「你撤回」needle 命中，原生行为）。锁死 F1 修复的判别器本体。
+int wxkeep_runtime_test_keep_gate(const unsigned char *xml, unsigned long len) {
+    return find_bytes((uint8_t *)xml, len, kSelfNeedle, sizeof(kSelfNeedle) - 1) ? 0 : 1;
+}
+
+/// 热重载缝（77 续㉘）：按生产 maybe_reload_config 的应用面（仅策略键）
+/// 装载指定路径配置。返回 0=应用且 hooks 表未动；1=hooks 表被意外触碰
+/// （契约破坏）；-1=文件不可解析。
+int wxkeep_runtime_test_reload_config(const char *path) {
+    if (!path) return -1;
+    @autoreleasepool {
+        NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:
+                                       [NSString stringWithUTF8String:path]];
+        if (![cfg isKindOfClass:[NSDictionary class]]) return -1;
+        int before = g_ext_hook_count;
+        apply_policy_dict(cfg);
+        return (g_ext_hook_count == before) ? 0 : 1;
+    }
+}
+
+/// 当前外部 hooks 表行数（热重载契约断言用）。
+int wxkeep_runtime_test_ext_hooks_count(void) { return g_ext_hook_count; }
 
 /// marker 候选目录回落策略缝（77 续）：按序尝试两目录，返回首个「建目录
 /// +写 marker」成功的序号（0/1），全败 -1。锁死「Group 写被拒时不回落
@@ -1977,16 +2064,13 @@ long wxkeep_runtime_test_rewrite(unsigned char *data, unsigned long data_len,
         memcpy(sso + 8, &size, 8);
         memcpy(sso + 16, &ptr, 8);
     }
-    char saved_buf[sizeof(g_tip_text)];
-    size_t saved_len = g_tip_len;
-    memcpy(saved_buf, g_tip_text, sizeof(saved_buf));
-    if (tip_len >= sizeof(g_tip_text)) return -1;
-    memcpy(g_tip_text, tip, tip_len);
-    g_tip_text[tip_len] = 0;
-    g_tip_len = tip_len;
+    char saved_buf[128];
+    size_t saved_len = tip_len_active();
+    memcpy(saved_buf, tip_text_active(), sizeof(saved_buf));
+    if (tip_len >= 128) return -1;
+    tip_store_write(tip, tip_len);
     int r = rewrite_replacemsg_inner(sso);
-    g_tip_len = saved_len;
-    memcpy(g_tip_text, saved_buf, sizeof(saved_buf));
+    tip_store_write(saved_buf, saved_len);
     if (r != 1) return -1;
     // 返回命中标签的内文长度（改写后前 tip_len 字节 = 文案，其余为空格填充）
     for (int t = 0; t < 2; t++) {
