@@ -34,9 +34,12 @@
    字段非查找键。zero_msgid 实验必要性消解（配置键保留为诊断面）；
    runtime.m 缝不动。残余：revoke_climsgid 消费端未逐函数追完（不影响
    keep_message 结论）。详见 RUNTIME-DESIGN 77 续⑰节。
-4. **v2 换道②决策落地（用户窗口）**：换道三案（a WCDB 继续追 / b
-   runtime 合成群聊 tip / c 接受现状）76 轮建议 b——前置同第 1 项
-   （b 需要 parse hook 手持完整 revokemsg XML）。
+4. **v2 换道决策 — 已压缩为决策规则（77 续㉖，docs/V2-PIVOT-DECISION.md）**：
+   三案重评后 (a) 关闭（原生删除执行体 8 簇排除面+Windows 孪生证据=无底
+   洞）；b 拆三层且 **b0（现状 keep_message）静态预测群 tip 已显示**
+   （handler absent-key 早退不触发于数值 0，「no local msg」分支即 notice
+   构造流）；决策规则 = T5 Phase 4 一个观测加一条 if（群 tip 显示→c；
+   不显示→b2 静态核→b1 评审）。76 轮「建议 b」被本备忘录取代。
 5. **v0.2.13 发版 ✅（2026-10-27 全链关账，77 续⑯）**：内容 = ⑮维护批
    （hooks 提示行数派生化 + knownHooksTableContract 表结构契约测试 194 测
    + 注释/文档漂移收口）。全链：soak 全绿（台账 var/logs/launch-soak-
