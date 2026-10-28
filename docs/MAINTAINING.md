@@ -1497,3 +1497,27 @@ var/wxarm/SeedFunctionStarts.java 入库（复现入口）；无代码改动；/
 
 **[回归/边界]**：无代码改动；arm64_strings_all.json（2513 串）等中间产物
 在 var/ 未入库；无真机实验；未动 WeChat.app。
+
+
+### 77 续㉓·群聊提示裁决轮（2026-10-28：d34 实弹捕获定案——群聊 tip 文本同为服务端下发，数据层与私聊同构）
+
+> ⑳/㉒ 把群聊问题收窄到「服务端群撤回负载是否带提示文本」。答案就在
+> 库里：var/wxarm/d34_parse_*.xml（drive34 的 parse 入口 arg1 实弹采样，
+> T4 时代落盘）。
+
+1. **群撤回捕获**（d34_parse_1/3.xml）：session=`45845756908@chatroom`，
+   负载含 `<msgid>`/`<newmsgid>`/`<replacemsg><![CDATA["Jennifer" 撤回了
+   一条消息]]></replacemsg>`——**群聊提示文本（含昵称）= 服务端原文**，
+   与私聊同构；私聊形态（d34_parse_2.xml）走 `<content>` 单元素——
+   runtime.m 双标签改写序（content→replacemsg）的出处即这两代捕获。
+2. **产品含义**：①keep_message（清 newmsgid）对群聊数据层成立（群负载
+   带 newmsgid）；②自定义 tip 改写对群聊数据层成立（replacemsg 在改写
+   面内）——「群聊自定义提示全生态未解」的旧判断针对的是 str xzr
+   newmsgid 清零方案（tip 整个消失），对本仓 runtime 改写方案不成立；
+   数据层之后只剩渲染校验一个共享未知（canonical 形态私聊已过，0.2.0）。
+   **群聊自定义提示从「未解」升级为「数据层已证同构，T5 顺手终验」。**
+3. **方法教训**：裁决性证据（d34 捕获）在库中沉睡了三个版本——⑳/㉑ 追
+   渲染层之前应先盘点既有实弹捕获。已把「实弹捕获索引」列为 T5 前置
+   检查项。
+
+**[回归/边界]**：无代码改动；无真机实验（读既有捕获文件）。
