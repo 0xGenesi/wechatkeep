@@ -1178,14 +1178,24 @@ static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_l
         int page_writable =
             (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC) == 0);
         if (!page_writable) {
+            int mp1_errno = errno;   // 诊断编码 300+：首个 mprotect(RWX) 的 errno
             vm_address_t rw = (vm_address_t)page;
             vm_prot_t cur = 0, mx = 0;
             kern_return_t kr = vm_remap(mach_task_self(), &rw, 0x2000, 0,
                                         VM_FLAGS_OVERWRITE | VM_FLAGS_RETURN_DATA_ADDR,
                                         mach_task_self(), (vm_address_t)page, FALSE,
                                         &cur, &mx, VM_INHERIT_COPY);
-            page_writable = (kr == KERN_SUCCESS) &&
-                (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE) == 0);
+            if (kr != KERN_SUCCESS) {
+                // 诊断编码 100+kr：remap 失败（kern_return_t 值直接可读，
+                // 2=KERN_PROTECTION_FAILURE 4=INVALID_ADDRESS 26=KERN_INVALID_OBJECT…）
+                g_install_errno = 100 + (int)kr; g_install_step = 2; return -1;
+            }
+            if (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE) != 0) {
+                // 诊断编码 200+errno：remap 后的 mprotect(RW) 失败
+                g_install_errno = 200 + errno; g_install_step = 2; return -1;
+            }
+            page_writable = 1;
+            (void)mp1_errno;
         }
         if (!page_writable) { g_install_errno = errno; g_install_step = 2; return -1; }
         if (is_arm64) quiesce_begin();

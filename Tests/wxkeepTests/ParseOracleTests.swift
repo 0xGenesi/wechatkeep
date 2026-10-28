@@ -91,56 +91,68 @@ struct ParseOracleTests {
 
     // MARK: - 断言矩阵
 
-    /// 语料全绿：16 条 × (orig/zero/zmsgid) 的完整断言（他人 newmsgid
-    /// 提取+replacemsg 透传+keep-zero 复合；自发零干预）。
-    /// **当前强制 disabled**：映射机械全通（ordinal 差一修复后树构造/喂入/
-    /// ret=1/+0x1a8 type 全对），但 0x4bc4d34 内嵌套提取块（find
-    /// `<revokemsg>` 子节点→newmsgid/replacemsg）是**零前驱死代码**——
-    /// 语料嵌套形态经此函数全空提取。断言面需迁往嵌套解析器 0x4bd26a8
-    /// （引用索引实证：find "revokemsg" 子节点的活代码），语义收口后改回
-    /// assetsPresent 门。
-    @Test(.disabled(if: true, "L7 进行态：断言面待迁 0x4bd26a8（0x4bc4d34 嵌套提取块为死代码）"))
+    /// 语料全绿（77 续㊰ 树级断言面）：16 条 × (orig/zero/zmsgid)。
+    ///
+    /// 断言面 = **parse 树**（treedump——conv 后 pugixml 布局扁平化）而非
+    /// 深提取臂：0x4bc4d34 的嵌套提取块是零前驱死代码（77 续㉞ 裁定），
+    /// 树级断言锁住的契约才是 runtime 改写真正依赖的——「我们的 XML
+    /// 变体（newmsgid/msgid 等长清零）在真实 parse 面上：
+    /// ① 树结构与其余节点值逐字节不变；② 被清零字段的值=等长零串；
+    /// ③ 未清零字段（replacemsg/newmsgid）不受影响」。parse 接受性
+    /// （ret=1，subtype=1 调用方契约）一并断言。
+    @Test(.disabled(if: !ParseOracleTests.assetsPresent,
+                    "实弹语料/pristine 切片不在场（CI）——空过"))
     func corpusGreenMatrix() throws {
+        let corpusDir = ParseOracleTests.repoRoot.appendingPathComponent("var/wxarm")
+        // —— parse 接受性：三模式全 ret=1 ——
         let outcomes = try ParseOracle.run(binary: ParseOracleTests.binary,
                                            parseVA: ParseOracleTests.parseVA,
-                                           corpusDir: ParseOracleTests.repoRoot.appendingPathComponent("var/wxarm"),
+                                           corpusDir: corpusDir,
                                            executable: ParseOracleTests.wxkeepBinary)
-        let byKey = Dictionary(uniqueKeysWithValues: outcomes.map { ("\($0.file)|\($0.mode)", $0) })
+        for o in outcomes {
+            #expect(o.ret == 1, "\(o.file)|\(o.mode): parse 应接受（ret=\(o.ret)）")
+        }
+        // —— 树级契约 ——
+        let dumps = try ParseOracle.runTreeDumps(binary: ParseOracleTests.binary,
+                                                 corpusDir: corpusDir,
+                                                 executable: ParseOracleTests.wxkeepBinary)
+        func value(_ kvs: [ParseOracle.TreeKV], _ tag: String) -> String? {
+            kvs.first { $0.tag == tag }?.value
+        }
         for url in ParseOracleTests.corpusFiles {
             let fact = ParseOracleTests.facts(from: try Data(contentsOf: url), file: url.lastPathComponent)
-            let orig = byKey["\(fact.file)|orig"]
-            let zero = byKey["\(fact.file)|zero"]
-            let zmsgid = byKey["\(fact.file)|zmsgid"]
-            #expect(orig != nil && zero != nil && zmsgid != nil, "\(fact.file): 三模式齐全")
-
-            guard let o = orig, let z = zero, let zm = zmsgid else { continue }
-
-            if !fact.isSelf {
-                // 他人：parse 成功、newmsgid 数值提取正确、replacemsg 逐字节透传
-                #expect(o.ret == 1 && o.ok == 1, "\(fact.file): parse 成功 (ret=\(o.ret) ok=\(o.ok))")
-                if let expected = fact.newmsgid {
-                    #expect(o.newmsgid == expected,
-                            "\(fact.file): newmsgid 提取 (got \(o.newmsgid), want \(expected))")
+            guard let orig = dumps["\(fact.file)|orig"],
+                  let zero = dumps["\(fact.file)|zero"],
+                  let zmsgid = dumps["\(fact.file)|zmsgid"] else {
+            Issue.record("\(fact.file): treedump 三模式齐全")
+                continue
+            }
+            // 树结构（tag 序列）三模式恒等
+            #expect(orig.map(\.tag) == zero.map(\.tag) && orig.map(\.tag) == zmsgid.map(\.tag),
+                    "\(fact.file): 清零不改树结构")
+            if let expected = fact.newmsgid {
+                let zeros = String(repeating: "0", count: String(expected).count)
+                #expect(value(orig, "newmsgid") == String(expected),
+                        "\(fact.file): orig newmsgid 原样")
+                #expect(value(zero, "newmsgid") == zeros,
+                        "\(fact.file): zero 后 newmsgid=等长零串")
+                #expect(value(zmsgid, "newmsgid") == String(expected),
+                        "\(fact.file): zmsgid 后 newmsgid 不变（删除键单字段化）")
+                // tip 前提（R2 契约的树级形式）：replacemsg 逐字节不受清零影响
+                if let repData = fact.replacemsg, !repData.isEmpty,
+                   let rep = String(data: repData, encoding: .utf8) {
+                    let r0 = value(orig, "replacemsg"), r1 = value(zero, "replacemsg")
+                    #expect(r0 == rep, "\(fact.file): orig replacemsg 透传")
+                    #expect(r1 == rep, "\(fact.file): zero 后 replacemsg 不变（tip 保留前提）")
                 }
-                if let expected = fact.replacemsg, !expected.isEmpty {
-                    #expect(o.replacemsg == expected, "\(fact.file): replacemsg 逐字节透传")
-                }
-                // keep/zero 门=配置：newmsgid 清零后 parse 提取 0（消息保留机制）
-                if fact.newmsgid != nil {
-                    #expect(z.newmsgid == 0, "\(fact.file): zero 后 newmsgid=0（keep 机制生效）")
-                    // tip 不受清零影响（R2 前提：清零只动 <newmsgid>）
-                    if let expected = fact.replacemsg, !expected.isEmpty {
-                        #expect(z.replacemsg == expected, "\(fact.file): zero 后 replacemsg 不变（tip 保留前提）")
-                    }
-                }
-                // 删除键单字段化：清 <msgid> 不动 newmsgid（zero_msgid 无必要的行为级证明）
-                if let expected = fact.newmsgid {
-                    #expect(zm.newmsgid == expected, "\(fact.file): zmsgid 后 newmsgid 不变（msgid 非删除键）")
-                }
-            } else {
-                // 自发：零干预——parse 输入原样，newmsgid（若在）原样可提取
-                if let expected = fact.newmsgid {
-                    #expect(o.newmsgid == expected, "\(fact.file): 自发 newmsgid 原样（零干预）")
+            } else if let content = value(orig, "content"), !content.isEmpty {
+                // 私形态（content 简式）：无 newmsgid/msgid 可清——三模式 content 恒等
+                #expect(value(zero, "content") == content && value(zmsgid, "content") == content,
+                        "\(fact.file): content 形态清零不动 content")
+                // 自发判别门前提：内文含「你撤回」needle（他人私形态同样走此断言，
+                // needle 在场与否则是捕获形态学事实）
+                if fact.isSelf {
+                    #expect(content.contains("你撤回"), "\(fact.file): 自发捕获形态自洽")
                 }
             }
         }
@@ -181,26 +193,34 @@ struct ParseOracleTests {
         }
         guard mutated > 0 else { return }
 
-        let outcomes = try ParseOracle.run(binary: ParseOracleTests.binary,
-                                           parseVA: ParseOracleTests.parseVA, corpusDir: dir,
-                                           executable: ParseOracleTests.wxkeepBinary)
-        let byFile = Dictionary(uniqueKeysWithValues: outcomes.filter { $0.mode == "orig" }
-            .map { ($0.file, $0) })
+        // 树级负控（77 续㊰）：变异体经 treedump 与原始期望比对——
+        // tag 改名 → 对应节点消失；内容字节翻转 → 对应节点值改变。
+        // （旧实现用 run() 的 struct 提取判分歧——0x4bc4d34 提取臂是死代码，
+        // 恒真绿；树级判定无此空洞。）
+        let dumps = try ParseOracle.runTreeDumps(binary: ParseOracleTests.binary,
+                                                 corpusDir: dir,
+                                                 executable: ParseOracleTests.wxkeepBinary)
+        func value(_ kvs: [ParseOracle.TreeKV], _ tag: String) -> String? {
+            kvs.first { $0.tag == tag }?.value
+        }
         for url in ParseOracleTests.corpusFiles {
-            guard let m = byFile[url.lastPathComponent] else { continue }
+            guard let m = dumps["\(url.lastPathComponent)|orig"] else { continue }
             let original = ParseOracleTests.facts(from: try Data(contentsOf: url),
                                                   file: url.lastPathComponent)
             guard original.newmsgid != nil || (original.replacemsg?.isEmpty == false) else { continue }
-            // 变异体必须让 oracle 检出分歧：提取值 != 原始期望（或 parse 拒收）
-            let diverged: Bool
-            if let expected = original.newmsgid, expected != 0 {
-                diverged = m.newmsgid != expected
-            } else if let expected = original.replacemsg, !expected.isEmpty {
-                diverged = m.replacemsg != expected
-            } else {
-                diverged = m.ret == 0   // 无可断言面的语料：parse 拒收也算红
+            var diverged = false
+            if original.newmsgid != nil {
+                // <newmsgie> 变异 → newmsgid 节点从树中消失
+                diverged = value(m, "newmsgid") == nil
+            } else if let repData = original.replacemsg, !repData.isEmpty,
+                      let rep = String(data: repData, encoding: .utf8) {
+                // 内容字节翻转 → replacemsg/content 节点值 != 原文
+                if let mv = value(m, "replacemsg") { diverged = mv != rep }
+                else if let cv = value(m, "content"), let oc = String(data: repData, encoding: .utf8) {
+                    diverged = cv != oc
+                } else { diverged = true }
             }
-            #expect(diverged, "\(url.lastPathComponent): 变异体应使断言变红（oracle 灵敏度）")
+            #expect(diverged, "\(url.lastPathComponent): 变异体应使树级断言变红（oracle 灵敏度）")
         }
     }
 

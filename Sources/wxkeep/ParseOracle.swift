@@ -127,6 +127,54 @@ enum ParseOracle {
         return outcomes
     }
 
+    // MARK: - Tree-dump surface（77 续㊰：断言面=parse 树而非深提取臂）
+
+    /// 单次 conv 的树扁平化（保序 (tag, value) 序列）。
+    struct TreeKV: Equatable { let tag: String; let value: String }
+
+    /// 全语料 × orig/zero/zmsgid 的树扁平 dump。键 = (file, mode)。
+    /// worker 崩溃/环境拒绝语义同 run()。
+    static func runTreeDumps(binary: URL, corpusDir: URL,
+                             executable: URL? = nil) throws -> [String: [TreeKV]] {
+        guard Verifier.ImageArch.host == .arm64 else {
+            throw OracleError.archMismatch(image: "any", host: "x86_64")
+        }
+        let head = (try? Data(contentsOf: binary, options: .alwaysMapped).prefix(8)) ?? Data()
+        guard head.count >= 8,
+              UInt32(head[4]) | UInt32(head[5]) << 8 | UInt32(head[6]) << 16 | UInt32(head[7]) << 24
+              == 0x0100_000C else {
+            throw OracleError.archMismatch(image: "not thin arm64", host: "arm64")
+        }
+        let exe = executable ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        let result = Shell.run(exe.path, [
+            "__parse-oracle-worker", binary.path, "4a7d6ac", corpusDir.path, "treedump",
+        ])
+        if result.signalled { throw OracleError.workerCrashed(signal: result.status) }
+        switch result.status {
+        case 0: break
+        case 126, 129: throw OracleError.environmentBlocked(result.stderr)
+        case 5: throw OracleError.emptyCorpus(corpusDir.path)
+        case 2, 3: throw OracleError.badWorkerOutput("worker rejected arguments: \(result.stderr)")
+        default: throw OracleError.workerCrashed(signal: result.status)
+        }
+        var dumps: [String: [TreeKV]] = [:]
+        for line in result.stdout.split(separator: "\n") {
+            guard line.hasPrefix("tree|") else { continue }
+            let parts = line.split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count == 4 else { throw OracleError.badWorkerOutput(String(line)) }
+            let kvs = parts[3].split(separator: "\u{1f}", omittingEmptySubsequences: false)
+                .map(String.init)
+            guard kvs.count % 2 == 0 else { throw OracleError.badWorkerOutput(String(line)) }
+            var pairs: [TreeKV] = []
+            for i in stride(from: 0, to: kvs.count, by: 2) {
+                pairs.append(TreeKV(tag: kvs[i], value: kvs[i + 1]))
+            }
+            dumps["\(parts[1])|\(parts[2])"] = pairs
+        }
+        if dumps.isEmpty { throw OracleError.emptyCorpus(corpusDir.path) }
+        return dumps
+    }
+
     // MARK: - Worker side (runs in the forked copy of this executable)
 
     /// 未解析导入的陷阱：parse 触达宿主给不出的符号时，干净退出留名
@@ -286,6 +334,80 @@ enum ParseOracle {
                 }
                 FileHandle.standardError.write(Data("walktree \(file.lastPathComponent):\n\(tree)\n".utf8))
             }
+        }
+        // treedump（L7 断言面，77 续㊰）：walktree 的机器可读版——全语料 ×
+        // orig/zero/zmsgid 三模式，stdout 行 `tree|<file>|<mode>|<tag>\x1f<value>…`
+        // （\x1f 单元分隔，树序扁平化；值内不含控制字符）。断言契约：zero 后
+        // newmsgid 值=等长零串、replacemsg 逐字节不变（tip 前提）；zmsgid 后
+        // newmsgid 不变（删除键单字段化）；type 属性值恒 revokemsg。
+        if args.count >= 4, args[3] == "treedump",
+           let ctor = map.ptr(0x55a7c1c), let conv = map.ptr(0x4a7d6ac) {
+            let files = ((try? FileManager.default.contentsOfDirectory(
+                at: URL(fileURLWithPath: args[2]), includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "xml" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            guard !files.isEmpty else {
+                FileHandle.standardError.write(Data("parse-oracle: corpus dir empty: \(args[2])\n".utf8))
+                exit(5)
+            }
+            let ctorFn: @convention(c) (UnsafeMutableRawPointer) -> Void =
+                unsafeBitCast(ctor, to: (@convention(c) (UnsafeMutableRawPointer) -> Void).self)
+            let convFn: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64 =
+                unsafeBitCast(conv, to: (@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64).self)
+            func cstrAt(_ p: UnsafeMutableRawPointer, _ off: Int) -> String {
+                var ptr = p.load(fromByteOffset: off, as: UInt64.self)
+                guard ptr > 0x10000, let cp = UnsafeMutableRawPointer(bitPattern: UInt(ptr)) else { return "" }
+                var out = [UInt8](); var i = 0
+                while i < 4096 { let b = cp.load(fromByteOffset: i, as: UInt8.self); if b == 0 { break }; out.append(b); i += 1 }
+                return String(bytes: out, encoding: .utf8) ?? ""
+            }
+            var flat = ""
+            func walk(_ node: UnsafeMutableRawPointer) {
+                var child = node.load(fromByteOffset: 0x20, as: UInt64.self)
+                var seen = 0
+                while child > 0x10000, seen < 24 {
+                    let c = UnsafeMutableRawPointer(bitPattern: UInt(child))!
+                    let tag = cstrAt(c, 8)
+                    let value = cstrAt(c, 0x10)
+                    if !tag.isEmpty {
+                        if !flat.isEmpty { flat += "\u{1f}" }
+                        flat += tag + "\u{1f}" + value
+                    }
+                    walk(c)
+                    child = c.load(fromByteOffset: 0x30, as: UInt64.self)
+                    seen += 1
+                }
+            }
+            var out = ""
+            for file in files {
+                guard let xml = try? Data(contentsOf: file) else { continue }
+                for mode in ["orig", "zero", "zmsgid"] {
+                    var bytes = xml
+                    if mode == "zero" { zeroTagDigits(&bytes, tag: "<newmsgid>") }
+                    if mode == "zmsgid" { zeroTagDigits(&bytes, tag: "<msgid>") }
+                    let buf = malloc(bytes.count + 1)!
+                    bytes.copyBytes(to: buf.assumingMemoryBound(to: UInt8.self), count: bytes.count)
+                    (buf + bytes.count).assumingMemoryBound(to: UInt8.self).pointee = 0
+                    var vstr = [UInt8](repeating: 0, count: 24)
+                    vstr.replaceSubrange(0..<8, with: withUnsafeBytes(of: UInt(bitPattern: buf)) { Array($0) })
+                    vstr.replaceSubrange(8..<16, with: withUnsafeBytes(of: UInt64(bytes.count)) { Array($0) })
+                    vstr.replaceSubrange(16..<24, with: withUnsafeBytes(of: UInt64(bytes.count) | 1 << 63) { Array($0) })
+                    let obj = calloc(1, 0xC0)!
+                    flat = ""
+                    vstr.withUnsafeMutableBytes { raw in
+                        ctorFn(obj)
+                        _ = convFn(raw.baseAddress!, obj)
+                        let impl = obj.load(fromByteOffset: 0, as: UInt64.self)
+                        if let doc = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: impl)), impl > 0x10000 {
+                            walk(doc)
+                        }
+                    }
+                    free(buf); free(obj)
+                    out += "tree|\(file.lastPathComponent)|\(mode)|\(flat)\n"
+                }
+            }
+            FileHandle.standardOutput.write(out.data(using: .utf8)!)
+            exit(0)
         }
         // probe2（排障）：sysmsg 层 find 逐键实探——名字回读 + 匹配节点身份
         if args.count >= 4, args[3] == "probe2",
