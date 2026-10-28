@@ -1354,3 +1354,45 @@ launch_soak 真跑 → tag（待用户窗口）。
 
 **[回归/边界]**：无代码改动；harness 为 /tmp 临时件未入库；/Applications
 未动；无真机实验（dlopen 本仓 dylib 于裸宿主 = 测试缝同类操作）。
+
+
+### 77 续⑲·Ghidra 持久工程轮（2026-10-28：383268 函数全播种，定点反编译进入分钟级；revoke_climsgid 结构体落点钉死）
+
+> 指令「用 ghidra 呢，不是有安装嘛」——对 ⑰ 负结果的正确纠正：REA 的
+> *全量自动分析*路线不可行 ≠ Ghidra 不可用。本轮把项目快路升级为
+> **持久化预播种工程**（var/ghidra-wx/wx270100arm，gitignored）：
+> FUNCTION_STARTS 全量播种函数体 → 此后任何定点反编译 ≈1-2 分钟
+> （-process 复用，零导入/零分析）——⑰ 里 REA 快照给不了的「一次付清」
+> 由直驱 Ghidra 交付。
+
+1. **播种工艺（三版迭代，坑全入档）**：
+   - Ghidra 的 MemoryBlock 名是**节名**：头块叫 `__TEXT`（r-x!）而代码节
+     是小写 `__text`——按 contains("__TEXT") 选边界会命中 86KB 头块；
+     正解 = 取全部可执行块的最大末址。
+   - `-noanalysis` 下 CreateFunctionCmd 只能建 **1 字节函数体**（无指令可
+     跟流）——38 万个空壳 ≠ 播种；v2 按**地址降序** `setBody` 扩体（降序
+     保证扩体永不与已扩者重叠），单事务 383267/383268 全成。
+   - Ghidra 脚本编译器源级偏低：`var`/`isBlank()` 编译失败；函数地址用
+     `toAddr(long)`；块枚举用显式数组循环。
+2. **Q3 第三只眼正面闭合**：Ghidra 函数体 = parse 0x4bc4d34 **恰 4380B**
+   （与 funcSize 派生逐位同）；x64 侧手写解码已核（0x537dcd0+5216 ✓）。
+   三实现（machutil/runtime.m/手写 LEB128）+ Ghidra 四方一致。
+3. **parse 输出结构体布局钉死**（真体伪代码，惰性 needle 常量内联可见）：
+   newmsgid(u64)@+0x1C8、replacemsg@+0x1D0、chat_id@+0x2C8、
+   **revoke_climsgid@+0x2E0**、replacemsg(模板域)@+0x310。派发链形态 =
+   parse → 派发者 0x44541bc（8672B）→ 按 subtype 选簇处理函数（已提取值
+   传参）；上游唯一 = 0x4446744（2900B）。
+4. **候选③邻函数身份精化**（neighbors.c 全伪代码）：11 个邻居 = SSO/XML
+   串处理同类（0x4bc31d0/0x4bc4228 与 parse 同族——0x499c33c 键查 +
+   0x4a7d6ac/0x55a3974 SSO 助手）、微型访问器（4B=`ret`）、小查找
+   （0x4bc4b20 memcmp+loop）——**零锁原语/零 ObjC 派发热点/零渲染符号**。
+   若 COW 页身份变化有语义效应，机制必为页级（VM 机械）而非代码级，且
+   与 parse 同页同现——T5 二分设计（只 COW 不挂 stub / 只挂 stub 不 COW）
+   的预期判据不变。
+5. **悬置（不影响主结论）**：revoke_climsgid@+0x2E0 的直接读者在派发者
+   20+ 下游中未逐个追完（簇函数收已提取值，读体面在更下游）；工具/时间
+   盒到此，留待后续轮用持久工程秒级增量追查。
+
+**[回归/边界]**：var/ghidra-wx/（工程 ~GB 级）gitignored 未入库；脚本
+var/wxarm/SeedFunctionStarts.java 入库（复现入口）；无代码改动；/Applications
+未动；无真机实验。

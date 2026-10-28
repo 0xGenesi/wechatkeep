@@ -439,3 +439,17 @@ coverage=complete），boot log/md5 与全部 marker 候选位逐位未动。77 
   诚实注记：首跑曾误判「NOT a start」——根因是核对者把 LC_FUNCTION_
   STARTS（0x26）误记为 0x1d（LC_SEGMENT_SPLIT_INFO，编码不同解码出未
   对齐垃圾）；machutil/runtime.m/手写三方现一致。
+
+
+## Ghidra 持久工程（77 续⑲，2026-10-28）
+
+var/ghidra-wx/wx270100arm：270100 arm64 切片 + FUNCTION_STARTS 全量播种
+（383267 函数真体，降序 setBody 工艺）。复用：
+
+    analyzeHeadless var/ghidra-wx wx270100arm -process 270100_arm64.dylib \
+      -noanalysis -scriptPath var/wxarm \
+      -postScript DumpTargets.java <out.c> <hexaddr...>
+
+≈1-2 分钟出多函数伪代码（对照 ⑰：REA 全量分析 2h 不收敛）。工程产物
+gitignored；重建 = 三命令（starts 导出 → import+SeedFunctionStarts →
+setBody 扩体），全过程见 var/ghidra-wx/*.log 与 MAINTAINING 77 续⑲。
