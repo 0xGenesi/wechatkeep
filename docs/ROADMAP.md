@@ -205,6 +205,10 @@ hooks 行加签升 P0。
    workflow 绿（1m54s）→ 发布页上线（universal wxkeep + runtime dylib +
    签名 manifest 五资产）→ release notes 补写完成（变更面+语义注记全量）。
    https://github.com/0xGenesi/wechatkeep/releases/tag/v0.2.14
+5. **[brew 端到端]** Formula 0.2.14（六哈希下载管道直传，wxkeep/runtime
+   变更、三数据件同值）→ tap 34da077 → `brew info`=stable 0.2.14 →
+   `brew upgrade` Cellar 0.2.14 + manifest verified + overall protected。
+   发版全链关账。
 
 ## 77 续㊳·消费端补丁终审（2026-10-28 深夜：灰条=被撤回的消息本身——写模型裁决，三选二在补丁层面无解；B 收敛为 A 的等价安全形态，shellcode 克隆路线记档）
 
