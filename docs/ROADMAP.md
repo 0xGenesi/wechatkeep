@@ -181,6 +181,29 @@ hooks 行加签升 P0。
    master 同败，双平台编译由 CI 承担）；runtime.m 未动（fuzz 三重验证
    不适用）；装机件/配置/进程零触碰（T5 对照轮锁定态保持）。
 
+## 77 续㊴·v0.2.14 发版准备（2026-10-28 深夜：soak 门槛通过，版本常量 bump，notes 待发版页；tag 待用户拍板）
+
+1. **[发版门]** 真机 soak 通过（隔离副本全链：clonefile→patch→重签→
+   strict verify→启动→45s 存活→DiagnosticReports 零新增）——当前构建
+   270135+新补丁链全绿。
+2. **[版本常量]** 0.2.13→0.2.14（WxkeepCLI CommandConfiguration；
+   `wxkeep --version` 实测 0.2.14）。
+3. **[0.2.13→0.2.14 变更面（release notes 素材）]**：
+   - A1 配置热重载（策略键 ≤30s 生效，tip 双缓冲原子翻转；hooks 表不热
+     换已文档化）——77 续㉘
+   - A2 自发撤回判别门（「你撤回」needle，自发撤回零误伤=原生放行）——
+     T5 F1 修复
+   - marker 诊断面扩展（selfskip/cfg 戳+CLI status 判读）
+   - write_entry_stub 四层写入阶梯+失败面诊断编码（100+kr/200+300+errno
+     ，270135 实战淬炼；270100 及以前在役路径零变化）——77 续㊱
+   - L7 parse oracle（treedump 树级断言面，16 实弹语料+变异负控全绿）——
+     测试资产，工具质量项
+   - 语义注记（T5 终裁）：防撤回=字节补丁层（识别器中性化→消息保留，
+     灰条不显示=同一操作的固有代价，写模型见 77 续㊳）；runtime keep/tip
+     为实验层
+4. **[tag 流程]** 按惯例 tag 待用户拍板；发版页 CI universal 产物 +
+   --generate-notes 基础上按上条补写。
+
 ## 77 续㊳·消费端补丁终审（2026-10-28 深夜：灰条=被撤回的消息本身——写模型裁决，三选二在补丁层面无解；B 收敛为 A 的等价安全形态，shellcode 克隆路线记档）
 
 > 主消费者 0x31a96d8 全流程反汇编完成（第二轮）。裁决实验设计（WCDB）被
