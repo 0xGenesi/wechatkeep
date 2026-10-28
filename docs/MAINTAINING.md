@@ -1560,3 +1560,20 @@ var/wxarm/SeedFunctionStarts.java 入库（复现入口）；无代码改动；/
    仍无灰条→离线同步原生无 tip，R2 文档化）。
 3. **[回归]**：198 测全绿；runtime.m 零新告警；装机件未动（今晚对照轮
    使用的仍是旧 dylib+双关配置进程，零污染）。
+
+
+### 77 续㉚·深化第二轮（2026-10-28：marker 诊断面扩展 selfskip/cfg 戳；198 测全绿）
+
+1. **[marker/CLI 证据面]**：marker 行新增 `selfskip=%d`（自发判别门计数，
+   T5 F1 修复的效果面）与 `cfg=%.0f`（热重载已应用的 runtime.json mtime
+   戳——远端诊断「改配置到底生效没有」的直接证据，无需碰机器）；
+   `runtime status` 的 hook 证据行展示 selfskip + 配置戳（可读时间）。
+   marker 键为纯增量，markerStatusDecode 等既有判读不受影响。
+2. **[第三遍逻辑复查（A1/A2）]**：热重载双路径戳与 read_runtime_config
+   选径一致性复核（legacy 变更+group 有效 → 无害空重读）；self 门与
+   rewrite_self 语义正交复核（门管清零侧、rewrite_self 管改写侧，自发
+   XML 在 tip 改写路径已有独立 你撤回 跳过）；tip 双缓冲槽宽 128 与
+   strip 循环上界一致性复核。无新发现。
+3. **[L7 评估定案]**：合成 parse oracle 为多小时级工程（parse 调用图
+   需宿主 new/delete/map-构造全套），独立轮立项，本轮不硬上。
+4. **[回归]**：198 测全绿；装机件未动（今晚对照轮零污染不变）。

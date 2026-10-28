@@ -643,13 +643,23 @@ extension Wxkeep {
                 // fires=完成改写次数、hits=「撤回」needle 命中（含自发跳过/
                 // 超长放弃）、zero=newmsgid 清零次数（消息保留动作）。
                 if active, let markerText {
+                    func markerDigits(_ key: String) -> String? {
+                        guard let r = markerText.range(of: "\(key)=") else { return nil }
+                        let digits = markerText[r.upperBound...].prefix(while: \.isNumber)
+                        return digits.isEmpty ? nil : String(digits)
+                    }
                     func markerInt(_ key: String) -> String {
                         guard let r = markerText.range(of: "\(key)=") else { return "?" }
                         let digits = markerText[r.upperBound...].prefix(while: \.isNumber)
                         return digits.isEmpty ? "?" : String(digits)
                     }
                     print("hook 证据:         fires=\(markerInt("fires")) hits=\(markerInt("hits")) "
-                        + "zero=\(markerInt("zero"))（本次启动累计，30s 粒度回写）")
+                        + "zero=\(markerInt("zero")) selfskip=\(markerInt("selfskip"))（本次启动累计，30s 粒度回写）")
+                    if let cfg = markerDigits("cfg").flatMap({ Int($0) }), cfg > 0 {
+                        let t = Date(timeIntervalSince1970: TimeInterval(cfg))
+                        let df = DateFormatter(); df.dateFormat = "HH:mm:ss"
+                        print("配置戳:            \(df.string(from: t))（热重载已应用的 runtime.json mtime）")
+                    }
                     // 诊断位判读（77 续）：install-fail 时 istep/ierr 指明
                     // mmap(1)/页改写(2) 与 errno——macOS 27 W^X 排障的钥匙。
                     if let decode = RuntimeCommand.markerStatusDecode(markerText) {

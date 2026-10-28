@@ -1462,11 +1462,12 @@ static void write_marker_ex(int loud) {
             groupDir = nil;
         }
         NSString *content = [NSString stringWithFormat:
-            @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d last=%@ inner=%@ probe=%@\n",
+            @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d cfg=%.0f last=%@ inner=%@ probe=%@\n",
             [NSDate date].timeIntervalSince1970,
             g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
             g_install_step, g_install_errno,
             g_rewrite_fires, g_rewrite_hits, g_zero_fires,
+            g_self_skips, g_cfg_stamp,
             g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
             g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
             [NSString stringWithFormat:@"cb=%d last=%@ scanmiss=%d probe=%@",
