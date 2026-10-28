@@ -74,9 +74,10 @@ struct HotReloadTests {
 
     /// 16 条实弹捕获全量回归：他人捕获全过门（判别器对真实负载零误伤）。
     @Test func keepGateAgainstAllLiveCaptures() throws {
-        let urls = try FileManager.default.contentsOfDirectory(
-            at: URL(fileURLWithPath: "var/wxarm"), includingPropertiesForKeys: nil)
-            .filter { $0.lastPathComponent.hasPrefix("d") && $0.pathExtension == "xml" }
+        // var/wxarm 是 gitignored 的本机实弹捕获（CI 不在场）：目录缺失 = 空过
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: URL(fileURLWithPath: "var/wxarm"), includingPropertiesForKeys: nil))?
+            .filter { $0.lastPathComponent.hasPrefix("d") && $0.pathExtension == "xml" } ?? []
         if urls.isEmpty {
             print("ℹ︎ 实弹捕获不在场（CI 环境）——本用例空过")
             return

@@ -18,7 +18,7 @@
   （mr2=hook-armed，status=8；若 func-id-mismatch → 见归因表 R6）。
 2. 启动微信，等 30s（boot log late20s 行落盘）。
 3. **私聊**对方撤回一条文字消息 → 30s 内采集：
-   - `wxkeep runtime status`（fires/hits/zero 计数）
+   - `wxkeep runtime status`（fires/hits/zero/selfskip 计数 + 配置戳行）
    - `~/Library/Containers/com.tencent.xinWeChat/Data/tmp/wxkeep-boot.log` 尾部
    - 截图（tip 显示形态 + 原消息是否保留）
 4. **群聊**同上一次。
@@ -36,7 +36,11 @@
 | 2b | `tip_text` 清空（`wxkeep runtime tip --clear`，keep_message=true） | 只 newmsgid 清零 | 同 Phase 1 |
 | 2c | 两者都关 | **纯武装 no-op** | 同 Phase 1 |
 
-每步重启微信生效。2c 若仍破坏渲染 → hook 存在本身即机制 → Phase 3。
+**热重载时代（77 续㉘后）**：以上各步**无需重启微信**——直接改 runtime.json
+（plist），≤30s 生效；确认手段 = `wxkeep runtime status` 的「配置戳」行
+（marker cfg= mtime 变化即已热应用）。注意：Phase 2 与 Phase 1 必须在不同
+进程会话（Phase 1 基线在旧 dylib/旧配置进程里完成）。2c 若仍破坏渲染 →
+hook 存在本身即机制 → Phase 3。
 
 ## Phase 3 — 安装级二分（约 10 分钟，**变体已预构建**）
 
