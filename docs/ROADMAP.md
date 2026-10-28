@@ -121,6 +121,66 @@ hooks 行加签升 P0。
    ASan/UBSan fuzz 重编全过 + 2 万随机输入零报告。/Applications 未动；
    无真机实验；仓库设置一处可逆变更（PR 创建权限开启）。
 
+## 77 续㉝·L7 第一轮（2026-10-28：oracle 机械全套落地——映射/fixups/全桩/语料喂入全通；树构造器子级缺失为唯一悬案）
+
+> 按续㉜ 执行序，L7 独立轮开工。**基础设施 100% 落地并验证，一个 RE
+> 悬案（树构造器只建根+属性）挡在语义断言前**——隔离已到指令级，入档
+> 供下一轮直接续。
+
+1. **[Verifier worker 扩展]** `__parse-oracle-worker` 新模式（main.swift
+   分发，parse 行为验证与既有 `__verify-worker` 谓词探针并列）：
+   - **映射机械抽取共享**：workerMain 内联的段表解析+MAP_JIT 拆分+W^X
+     态管理抽为 `Verifier.execMap/ExecMap`（两 worker 同源；行为逐行等
+     价，VerifierTests 双架构 e2e 锁定，198→201 测全绿）。
+   - **chained fixups 应用（dyld 语义补齐，谓词探针时代不需要的一步）**：
+     ARM64E 链式（ptr_fmt=6）解码——bind(bit63=1)：ordinal:16→imports
+     表→dlsym；rebase：target:32→mapped+target。imports 表 u32×2381 打包
+     实证 `{lib:8, weak:1, name_offset:23(=v>>9)}`。**首跑故障地址
+     0x300000055AAA38 = 未应用的 rebase 原值**（target 0x55AAA38=镜像内
+     operator new + diversity 0x3000 位域）——定位链：lldb 帧 → 0x55a47fc
+     `blr x8` ← GOT 0x9f6b6a0 → 页 76 链含该槽 → Swift 页计数读错
+     （`u32(b+20)>>16` 拿到 page_start[0]，应 `&0xFFFF`）→ 修正后
+     **589,349 条全应用**，parse 全程不再崩。
+   - **全桩重定向**：遍历 __stubs 1745 条 ×间接符号表对名 → dlsym
+     （RTLD_DEFAULT→libc++→libc++abi 兜底）逐槽覆写；未解析 418 条指向
+     诊断陷阱（命中 exit(150) 留名）。parse 直接导入仅 5 个
+     （_Unwind_Resume/std::string::assign/copy-assign/operator delete/
+     __stack_chk_fail，间接符号表对名实证）；传递闭包由此一次兜住。
+   - **栈哨兵**：序言 `adrp;ldr x8,[x8,#imm];ldr x8,[x8]` 三连机械识别 →
+     GOT 槽指向 worker 自备 canary（不依赖宿主 __stack_chk_guard）。
+   - **懒池**：0xa2ed000 池群在 __DATA bss 尾区（fileoff 0x9e38000+
+     filesize 0x264000 < 0xa2ed000），anon 映射零填充即运行时初始态，
+     函数自跑懒初始化——无需 zero_regions。
+2. **[parse 调用面钉死]** 签名 `parse(x0=msg struct, x1=变体串, x2=ok*)`
+   全程验证；输出 struct：**+0x1C8 newmsgid u64**（0x4bc5744）、
+   **+0x1D0 变体串 replacemsg**（0x4bc57dc）、+0x1a8 变体串 type 值。
+   零初始化 struct 即合法（libc++ 串零=空串；变体串 flag@+0x17=0=短串
+   安全）——无需显式构造器。
+3. **[喂入结果]** 16 语料 ×3 模式（orig/zero/zmsgid）全跑通零崩溃。
+   **type 提取逐字节正确**（`type="revokemsg"` → +0x1a8 变体串
+   `72 65 76 6f 6b 65 6d 73 67 00` + len=9@0x17——根+属性解析成立）。
+   **但树构造器（0x55a7c1c ctor → 0x4a7d6ac → 0x55a7d68 → 0x55a4704）
+   只建根+属性、子元素永不出现**：find(tree,"sysmsg")=根自身，find 任何
+   子级=null；operator new 仅 2 次分配（ctor+0x55a47e8 的 len+1 缓冲
+   拷贝），子节点实际从第三方分配区（0x75dcc***，非 new-GOT 路径）出；
+   parse 全部门通过（12 个 fail 位点 lldb 断点零命中）、按 type 正确
+   分派、终值提取因无子级全空 → ret=0。**输入形态无关**（wxid 前缀/
+   无前缀/<?xml?> 声明/纯 ASCII/无 't' 字符/自闭合——全同）。
+4. **[测试资产]** ParseOracleTests 三件：变异负控（tag 字节翻转→断言必
+   红，**绿**——oracle 灵敏度成立）；zero_tag_digits 移植语义（**绿**）；
+   语料全绿矩阵（**disabled**——树子级悬案收口前不启，启用即全断言）。
+   独立期望计算（CDATA 剥壳/newmsgid 数值/你撤回判据）与 HotReloadTests
+   同判据。CI 空过（var/ 资产不在场）。
+5. **[悬案与下轮入口]** 子级缺失疑指向 0x55a4704 主体（0x55a4970 起）
+   的迭代循环条件依赖某个 bss 零态即退化的全局（构造器无 M 分配但
+   节点存储已就位）；静态深挖子代理进行中（结论落地后续轮）。排障面
+   全在：probe1（树探测）/countnew（分配计数）/patchsite（NOP 对照）/
+   WXORACLE_DEBUG（struct 落点 dump）/lldb 锚 wxkeep_oracle_marker
+   （x0=映射基址）。
+6. **[验证]** 201 测全绿；x86_64 本机链接失败系存量环境问题（干净
+   master 同败，双平台编译由 CI 承担）；runtime.m 未动（fuzz 三重验证
+   不适用）；装机件/配置/进程零触碰（T5 对照轮锁定态保持）。
+
 ## 77 续㉜·L7/L8 立项获批（2026-10-28 用户批准；执行=独立轮）
 
 - **L7 合成 parse oracle**：mini-loader 进程外调用 parse（270100 arm64

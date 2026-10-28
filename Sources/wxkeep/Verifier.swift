@@ -351,35 +351,61 @@ enum Verifier {
         return String(data: data, encoding: .utf8)
     }
 
-    // MARK: - Worker side (runs in the forked copy of this executable)
+    // MARK: - 共享映射底座（verify worker 与 parse-oracle worker 同源）
 
-    /// Entry for `wxkeep __verify-worker <dylib> <va> <stubs> <zeros> <probes>`.
-    /// Prints `probe|<text>|<0|1>` lines and exits 0; crashes on bad state.
-    static func workerMain(_ args: [String]) -> Never {
-        #if arch(arm64)
-        // 硬件异常捕获：macOS 27 真机实测 SIGBUS（CI macos-15 全绿）——头号
-        // 嫌疑是 MAP_JIT 写保护开关语义变化（开关失效时对 JIT 区首笔写即
-        // SIGBUS）。裸 crash 无法判读，捕获后以 exit 129 交出干净信息。
-        signal(SIGBUS, { _ in
-            _ = write(2, "wxkeep-verify: SIGBUS — MAP_JIT 写开关在此 macOS 版本失效（写 JIT 区即总线错误）；请回报 sw_vers 与芯片型号\n", 120)
-            _exit(129)
-        })
-        signal(SIGSEGV, { _ in
-            _ = write(2, "wxkeep-verify: SIGSEGV in worker — 请回报 sw_vers 与芯片型号\n", 76)
-            _exit(129)
-        })
-        #endif
-        guard args.count >= 5,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: args[0])),
-              let va = UInt64(args[1], radix: 16),
-              let stubs = try? JSONDecoder().decode([String: String].self, from: Data(args[2].utf8)),
-              let zeros = try? JSONDecoder().decode([[String]].self, from: Data(args[3].utf8)),
-              let probes = try? JSONDecoder().decode([[String]].self, from: Data(args[4].utf8))
-        else { exit(2) }
+    /// 分段忠实映射 + arm64 MAP_JIT 拆分 + W^X 态管理。与旧 workerMain
+    /// 内联实现逐行等价（VerifierTests 双架构 e2e 锁定行为）：
+    /// - 裸 blob（无 Mach-O 头）→ 恒等单区映射（测试 fixture 路径）
+    /// - 镜像 → 段表解析；arm64 按 EXEC 前缀段拆「JIT + 普通 RW」双区
+    /// - arm64 在 mmap 后即装懒修复处理器并 np(0) 开写（macOS 27 语义）
+    /// - setup 写入由调用方执行；执行前必须 sealForExecution()（icache +
+    ///   np(1) 回保护态）
+    /// - mmap 拒绝时已写诊断信息并返回 nil（调用方 exit(126)——环境门）
+    struct ExecMap {
+        let mapped: UnsafeMutableRawPointer
+        /// __TEXT vmaddr（dylib=0；PIE 主程序=0x1_0000_0000）
+        let base: UInt64
+        /// 映射总跨度（top - base；blob = 文件长度）
+        let mappedSize: Int
+        /// arm64 拆分路径下 JIT（可执行）子区；nil = 单区布局
+        let jitSpan: (addr: UInt, size: Int)?
+        /// 有内容的段（__PAGEZERO 类空段已剔除）；空 = 裸 blob
+        let segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64, exec: Bool)]
+        /// 头字节判定的镜像架构（anon mmap 零填充——必须读文件字节）
+        let isARM64: Bool
 
-        // Map the whole thin image RWX. Image base = __TEXT vmaddr: dylibs
-        // link at 0 (VA == file offset) but PIE main executables link at
-        // 0x100000000 — every spec VA must be rebased by it.
+        /// 镜像内 VA → 映射地址（越界 nil）。
+        func ptr(_ vmaddr: UInt64) -> UnsafeMutableRawPointer? {
+            guard vmaddr >= base else { return nil }
+            let off = Int(vmaddr - base)
+            return off >= 0 && off < mappedSize ? mapped + off : nil
+        }
+
+        /// setup 写入收尾：icache 失效（arm64 手写可执行内存的文档化契约）
+        /// + np(1) 回保护态（np(0) 写态 RW 无 X，执行即 SIGBUS——27 实证）。
+        func sealForExecution() {
+            #if arch(arm64)
+            sys_icache_invalidate(mapped, jitSpan?.size ?? mappedSize)
+            pthread_jit_write_protect_np(1)
+            #endif
+        }
+    }
+
+    /// Map the whole thin image RWX. Image base = __TEXT vmaddr: dylibs
+    /// link at 0 (VA == file offset) but PIE main executables link at
+    /// 0x100000000 — every spec VA must be rebased by it.
+    ///
+    /// Segment-faithful mapping: some images (PIE executables) have
+    /// fileoff != vmaddr - base for later segments; copy each segment to
+    /// its vmaddr slot so every spec VA indexes uniformly. anon memory is
+    /// zero-filled, covering __bss tails beyond filesize.
+    ///
+    /// arm64: plain RWX mmap is refused by AMFI on stock machines (exit
+    /// 126), and the unsigned-executable-memory entitlement is restricted
+    /// — ad-hoc signatures don't earn it (CI-verified 2026-09-21). MAP_JIT
+    /// is the entitlement-free official route for non-hardened processes;
+    /// writes are bracketed by the per-thread W^X toggle.
+    static func execMap(data: Data) -> ExecMap? {
         let base = data.withUnsafeBytes { raw -> UInt64 in
             // bare synthetic blobs (test fixtures) carry no Mach-O header
             guard raw.count >= 32,
@@ -405,19 +431,9 @@ enum Verifier {
             }
             return minVM == .max ? 0 : minVM
         }
-        // Segment-faithful mapping: some images (PIE executables) have
-        // fileoff != vmaddr - base for later segments; copy each segment to
-        // its vmaddr slot so every spec VA indexes uniformly. anon memory is
-        // zero-filled, covering __bss tails beyond filesize.
-        //
-        // arm64: plain RWX mmap is refused by AMFI on stock machines (exit
-        // 126), and the unsigned-executable-memory entitlement is restricted
-        // — ad-hoc signatures don't earn it (CI-verified 2026-09-21). MAP_JIT
-        // is the entitlement-free official route for non-hardened processes;
-        // writes are bracketed by the per-thread W^X toggle.
         #if arch(arm64)
         let mapFlags = MAP_PRIVATE | MAP_ANON | MAP_JIT
-        // 写入走 np(0) 开写 + 懒修复处理器兜底（上方 sigaction 安装处）——
+        // 写入走 np(0) 开写 + 懒修复处理器兜底（sigaction 安装处）——
         // macOS 27 实测 np 开关/回调语义随版本漂移，处理器是最终兜底
         #else
         let mapFlags = MAP_PRIVATE | MAP_ANON
@@ -458,7 +474,7 @@ enum Verifier {
             mapped = mmap(nil, data.count, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
             guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else {
                 FileHandle.standardError.write(Data("wxkeep-verify: mmap MAP_JIT 失败 errno=\(errno)（\(String(cString: strerror(errno)))）\n".utf8))
-                exit(126)
+                return nil
             }
         } else {
             let top = segs.filter { $0.vmaddr >= base }.map { $0.vmaddr + $0.vmsize }.max() ?? 0
@@ -506,14 +522,14 @@ enum Verifier {
                 mapped = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
                 guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else {
                     FileHandle.standardError.write(Data("wxkeep-verify: mmap MAP_JIT 失败 errno=\(errno)（\(String(cString: strerror(errno)))）\n".utf8))
-                    exit(126)
+                    return nil
                 }
             }
             #else
             mapped = mmap(nil, total, PROT_READ | PROT_WRITE | PROT_EXEC, mapFlags, -1, 0)
             guard mapped != UnsafeMutableRawPointer(bitPattern: -1) else {
                 FileHandle.standardError.write(Data("wxkeep-verify: mmap 失败 errno=\(errno)（\(String(cString: strerror(errno)))）\n".utf8))
-                exit(126)
+                return nil
             }
             #endif
         }
@@ -532,6 +548,51 @@ enum Verifier {
         sigaction(SIGSEGV, &act, nil)
         pthread_jit_write_protect_np(0)   // ≤15 通道；27 上为 no-op，兜底靠处理器
         #endif
+        // 架构从【文件字节】判定（ anon mmap 零填充，读 mapped 恒得 0——
+        // v0.2.9 回调式重构踩坑，本机 270100 实测复现）。
+        let isARM64 = data.withUnsafeBytes { raw -> Bool in
+            raw.count >= 8 &&
+            raw.loadUnaligned(fromByteOffset: 0, as: UInt32.self) == 0xFEED_FACF &&
+            raw.loadUnaligned(fromByteOffset: 4, as: UInt32.self) == 0x0100_000C
+        }
+        return ExecMap(mapped: mapped, base: base, mappedSize: mappedSize,
+                       jitSpan: jitSpan, segs: segs, isARM64: isARM64)
+    }
+
+    // MARK: - Worker side (runs in the forked copy of this executable)
+
+    /// Entry for `wxkeep __verify-worker <dylib> <va> <stubs> <zeros> <probes>`.
+    /// Prints `probe|<text>|<0|1>` lines and exits 0; crashes on bad state.
+    static func workerMain(_ args: [String]) -> Never {
+        #if arch(arm64)
+        // 硬件异常捕获：macOS 27 真机实测 SIGBUS（CI macos-15 全绿）——头号
+        // 嫌疑是 MAP_JIT 写保护开关语义变化（开关失效时对 JIT 区首笔写即
+        // SIGBUS）。裸 crash 无法判读，捕获后以 exit 129 交出干净信息。
+        signal(SIGBUS, { _ in
+            _ = write(2, "wxkeep-verify: SIGBUS — MAP_JIT 写开关在此 macOS 版本失效（写 JIT 区即总线错误）；请回报 sw_vers 与芯片型号\n", 120)
+            _exit(129)
+        })
+        signal(SIGSEGV, { _ in
+            _ = write(2, "wxkeep-verify: SIGSEGV in worker — 请回报 sw_vers 与芯片型号\n", 76)
+            _exit(129)
+        })
+        #endif
+        guard args.count >= 5,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: args[0])),
+              let va = UInt64(args[1], radix: 16),
+              let stubs = try? JSONDecoder().decode([String: String].self, from: Data(args[2].utf8)),
+              let zeros = try? JSONDecoder().decode([[String]].self, from: Data(args[3].utf8)),
+              let probes = try? JSONDecoder().decode([[String]].self, from: Data(args[4].utf8))
+        else { exit(2) }
+
+        // Map the whole thin image RWX. 映射机械（段表解析 + arm64 MAP_JIT
+        // 拆分 + W^X 态管理）已抽取为共享底座 execMap（parse-oracle worker
+        // 同源复用）；mmap 拒绝时 execMap 已写诊断信息——126 语义不变。
+        guard let map = execMap(data: data) else { exit(126) }
+        let mapped = map.mapped
+        let base = map.base
+        let mappedSize = map.mappedSize
+        let isARM64 = map.isARM64
 
         // Phase B（全部 JIT 区写入）：段拷贝 + magic-static 清零 + GOT 重定向。
         // arm64：np(0) 开写 + 懒修复处理器兜底（macOS 27）；x64 无 MAP_JIT 直写。
@@ -539,20 +600,15 @@ enum Verifier {
         // 段拷贝发生前读 mapped 恒得 0 → isARM64 恒 false → arm64 镜像全部
         // 误走 x64 ff25 解码 exit(4)（v0.2.9 回调式重构把拷贝挪进闭包后，
         // 头读取留在了调用点之前——本机 270100 实测复现）。
-        let isARM64 = data.withUnsafeBytes { raw -> Bool in
-            raw.count >= 8 &&
-            raw.loadUnaligned(fromByteOffset: 0, as: UInt32.self) == 0xFEED_FACF &&
-            raw.loadUnaligned(fromByteOffset: 4, as: UInt32.self) == 0x0100_000C
-        }
         let performSetupWrites: () -> Void = {
             data.withUnsafeBytes { raw in
-                if segs.isEmpty {
+                if map.segs.isEmpty {
                     memcpy(mapped, raw.baseAddress, data.count)
                 } else {
-                    for seg in segs where seg.vmaddr >= base {
+                    for seg in map.segs where seg.vmaddr >= base {
                         let dst = Int(seg.vmaddr - base)
                         let src = raw.baseAddress! + seg.fileoff
-                        let n = min(Int(seg.filesize), totalCount - dst)
+                        let n = min(Int(seg.filesize), mappedSize - dst)
                         if n > 0, dst >= 0 { memcpy(mapped + dst, src, n) }
                     }
                 }
@@ -639,15 +695,12 @@ enum Verifier {
             }
         }
         performSetupWrites()
-        #if arch(arm64)
         // macOS 27 执行语义（2026-10-14 最小探针实证 /tmp/jittest 模式对比）：
         // MAP_JIT 页在写态（np(0) 后）= RW 无 X，执行首条指令即 SIGBUS；
         // np(1) 关写回保护态 = RX 可执行。旧判断「np 开关在 27 上 no-op」
         // 不成立——开关一直有效，是写态可执行性被收紧。icache 失效是
         // arm64 手写可执行内存的文档化契约，一并补上（范围只覆盖 JIT 子区）。
-        sys_icache_invalidate(mapped, jitSpan?.size ?? totalCount)
-        pthread_jit_write_protect_np(1)
-        #endif
+        map.sealForExecution()
 
         // WeChat SSO string ABI: pass 24 CONTIGUOUS bytes. Array's own
         // withUnsafeMutableBytes yields the element buffer — never &array
