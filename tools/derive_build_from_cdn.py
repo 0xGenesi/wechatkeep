@@ -65,6 +65,14 @@ KEEPTIP_STORE_ASM = "4831C06690488983C8010000"
 STORE_TAIL = b"\x48\x89\x83\xc8\x01\x00\x00"  # mov [rbx+0x1C8],rax
 
 
+# locate_update* 依赖 capstone——系统 python 无此模块时 ImportError 会被
+# "not found" 分支误吞成「类不存在」假阴性（2026-10-29 实证：4.2.0 全部
+# update 条目被漏）。优先 venv 解释器。
+PY = ("/Users/0xgenesi/dev/github/wechatkeep/var/venv/bin/python3"
+      if os.path.exists("/Users/0xgenesi/dev/github/wechatkeep/var/venv/bin/python3")
+      else sys.executable)
+
+
 def sh(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
@@ -169,7 +177,7 @@ def run_locate(build, x64thin, armthin, staging):
 
 # ---------------------------------------------------------------- guard + keeptip x64
 def derive_guard_and_keeptip(x64thin, rev_x64_site):
-    r = sh([sys.executable, os.path.join(HERE, "locate_x64_parse_guard.py"), x64thin])
+    r = sh([PY, os.path.join(HERE, "locate_x64_parse_guard.py"), x64thin])
     m = re.search(r"条目: addr=([0-9a-f]+)\s+expected=(\S+)\s+asm=(\S+)", r.stdout)
     if not m:
         return None, None, r.stdout[-400:]
@@ -218,7 +226,7 @@ def check_rev_x64_bytes(x64thin, site):
 
 # ---------------------------------------------------------------- update
 def derive_update(x64thin, build):
-    r = sh([sys.executable, os.path.join(HERE, "locate_update_x64.py"), x64thin])
+    r = sh([PY, os.path.join(HERE, "locate_update_x64.py"), x64thin])
     if "not found" in (r.stdout + r.stderr):
         return None, "XAppUpdateManager 不存在（该构建更新器走 C++/其他类）"
     entries = []
@@ -246,7 +254,7 @@ def derive_update_arm64(armthin, build):
     """update 目标的 arm64 面（65/66 两轮手工跑 locate_update_arm64 + 手工
     拼 JSON，2026-10-19 并进脚本）。策略与 x64 面同构：JSON 段优先，工具因
     problems 退出时只收形态良好的 ret 方法行，类不存在诚实跳过。"""
-    r = sh([sys.executable, os.path.join(HERE, "locate_update_arm64.py"), armthin])
+    r = sh([PY, os.path.join(HERE, "locate_update_arm64.py"), armthin])
     if "not found" in (r.stdout + r.stderr):
         return None, "XAppUpdateManager（arm64）不存在"
     entries = []
