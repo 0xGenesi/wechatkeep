@@ -267,6 +267,53 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 77 续㊶·SQLCipher 密钥战役翻案终局（2026-10-29：全网调研定路→PBKDF 断点捕获→36/36 逐库 HMAC 全绿→实弹开库读消息——数据层仪器到手）
+
+> 用户令「有需要就全网和 github 都调研下再继续」。调研直接翻案第五轮的
+> 「密钥材料白盒化/Keychain」终判：密钥不在内存**驻留**是真的，但
+> **派生瞬间可截获**——LLDB 断 `CCKeyDerivationPBKDF`（CommonCrypto 导出
+> 符号）读寄存器即可。战役从「五路全灭」翻为「全胜」。
+
+1. **[调研定路]** ①chatlog issue #185：微信 ≥4.0.6.21 调整内存布局，
+   密钥不再驻留内存——与四轮扫描 0 命中吻合（仪器没坏，是路没了）；
+   ②acmerfight 公开 gist（Arvin isarvin.com 博客引用的方法论源）：
+   实测 Apple Silicon+微信 4.1.15（同版本）26/26 库成功——临时副本重签
+   +LLDB 断 `CCKeyDerivationPBKDF`，arm64 寄存器读参数（x1=secret,
+   x3=盐, x4=盐长16, x5=PRF=5/SHA512, x6=轮数256000），密钥=
+   PBKDF2-SHA512(secret, file[0:16], 256000, 32B)；页 HMAC 验证公式：
+   mac_key=PBKDF2-SHA512(key, 盐^0x3a, 2轮, 32B)，
+   HMAC-SHA512(mac_key, page[16:4032]+LE32页号) vs page[4032:4096]；
+   ③nalzok DTrace 路线已 DMCA（2026-01）；test1213145/wechat-export、
+   BoXu1225 仓均 Windows 专用不适用。**同时推翻我方「dylib 只有
+   4000/64000 常量→v≤3/SHA1 系」推断**：256000 是运行期参数传入，
+   不以立即数躺在指令流——实测（26/26+本次 36/36）压倒常量扫描。
+2. **[捕获]** /tmp/capture_keys_lldb.py：条件断点 `$x6>32000`（只停
+   开库级调用，逐页 HMAC 的 2 轮调用原生条件过滤不掉速）+回调读
+   x0-x6+双缓冲区内存，JSONL 落盘。lldb 批模式四连 -o（import/add/
+   hkstart/launch+continue）。**登录风暴 56 次开库级调用全部
+   PRF=5/256000/pwLen=32**。lldb 坑：`command script import` 不自动
+   注册命令，须 `command script add -f <mod>.<fn> <name>`。
+3. **[验证]** /tmp/verify_keys.py：56 hit × 36 加密库，盐精确匹配
+   （捕获盐==file[0:16]，零猜测）→ PBKDF2 派生 → 页 1 HMAC 判等。
+   **36/36 全绿**（contact/message_0-4/sns/general/head_image/...全部
+   命中，且多库共用同一 hit=**账号级 master secret 仅 1 枚**派生全部
+   库密钥）。
+4. **[实弹]** var/dbkeys/keys.json（gitignored+0600）：36 库 raw key
+   图谱+1 枚 master secret。经典几何 sqlcipher 4.5.6 源码构建 CLI
+   只读开 message_0.db 成功：表结构（WCDB 按会话分表 `Msg_<md5>`，
+   列 local_id/server_id/local_type/sort_seq/real_sender_id/
+   create_time/source/**message_content/compress_content**）、63 行
+   计数、`x'key'` raw key 形态即开。**message_content 前四字节
+   `28B52FFD`=zstd magic——WCDB 压缩层确认**，解压即明文（数据级
+   最后一层，与密钥无关，zstd 标准格式）。
+5. **[敏感纪律]** /tmp/pbkdf_hits.jsonl 含 master secret——移入
+   var/dbkeys/hits.jsonl（gitignored+0600）；keys.json 同级。密钥
+   图谱=本机仪器资产，永不入仓库。聊天内容零打印（只取证 length/
+   magic/时间戳）。
+6. **[机器状态]** 微信当前在 lldb 托管下运行（捕获会话存续）；下次
+   自然重启即回归常态（get-task-allow 重签态不变）。capture/verify
+   脚本 ephemeral 在 /tmp，方法论已入档本条目。
+
 ## 77 续㊴·v0.2.14 发版准备（2026-10-28 深夜：soak 门槛通过，版本常量 bump，notes 待发版页；tag 待用户拍板）
 
 1. **[发版门]** 真机 soak 通过（隔离副本全链：clonefile→patch→重签→
