@@ -228,6 +228,25 @@ hooks 行加签升 P0。
      ④数据保护 Keychain（非 CLI 可达）。
    - **机器状态注意**：微信当前带 get-task-allow 重签（可调试态）——还原
      =去该键重签一条命令。
+   - **第四轮：lldb 倾倒管线 + WCDB 源码情报 + 页大小全变量排除**：
+     sudo 路（root 无 task-ports 特权仍拒）→ **lldb 路（苹果签名）成功**：
+     /tmp/dump_mem.py 附进程倾倒 7.86GB/1149 区域。WCDB 源码（Tencent/wcdb
+     HEAD）情报：①密钥传递=99 字节串 `x'<64hex key><32hex salt>''
+     （CipherHandle.cpp setCipherKey size==99 分支）；②cipher 版本表
+     （CommonCore setDefaultCipherConfiguration）：v1=SHA1/4000/无hmac、
+     v2=SHA1/4000/hmac、v3=SHA1/64000/hmac、default=SHA512/256000——
+     **微信 dylib 只有 4000/64000 常量（无 256000）= 4.1.15 用 v≤3 →
+     KDF=PBKDF2-SHA1、hmac-sha1 布局 iv@ps-36**。收割+验证：24,835 条
+     HEX96（HEX64 零——96 连 hex 形态压倒性）× {AES/SM4} × {iv 4016/
+     4032/4060/4064/4076/4080} × 5 分片 ≈ 99 万次全灭；fastdump（低级
+     AES 去 EVP 开销）页大小全变量 {1024/2048/4096/8192}×reserve{80/48/
+     36/16} 亦 0。**终态结论：登录态进程内存中不存在以任何已测形态
+     （raw AES-256/SM4/hex 文本）+ 任何已测几何存在的 biz_message 库
+     密钥。**残余假设：WCDB 4.x 专有格式（HEAD 的 sqlcipher 为构建期
+     拉取，格式须按微信实际嵌入版本 RE）；密钥包裹/白盒化；数据保护
+     Keychain。
+   - **敏感物清理**：7.86GB 内存转储+harvest 串+全部测试库已删除（转储
+     含聊天数据不入档）。扫描器源码 /tmp/*.c（ephemeral，不仓库化）。
 
 5. **[第二轮增补：自营扫描器 bring-up 遇 brew sqlcipher 4.19 格式疑案]**
    自营扫描器（/tmp/scan_dbkey.c，task_for_pid+区域遍历+32B 窗口+
