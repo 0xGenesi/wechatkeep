@@ -43,8 +43,10 @@ from backfill_expected import decompress_if_xz, run  # noqa: E402
 ASSET_FMT = ("https://github.com/zsbai/wechat-versions/releases/download/"
              "{tag}/WeChatMac-{tag}.dmg")   # 仅适用于无前缀点分 tag；其余走 API 真实 URL
 GHFAST = "https://ghfast.top/"
+MIRRORS = [(GHFAST, 8 << 20),               # 快但间歇截断/全灭
+           ("https://gh-proxy.com/", 1 << 20)]  # 2026-10-29 实测可用 ~480KB/s 聚合
 CHUNK_WORKERS = 16
-CHUNK = 8 << 20  # 8MiB
+CHUNK = 8 << 20  # 8MiB（ghfast 档；gh-proxy 档各自带块大小）
 
 # 优先级序：前瞻价值（4.2.0）→ 4.1.15 缺口 → 3.x 全线（新到老）→
 # 4.x 早期（dated tag 可能互为重复构建，挂载后构建号去重）
@@ -90,38 +92,28 @@ def _fetch_range(url, start, end, dest, tries=3):
 
 
 def download(tag, dest):
-    """16 路并行分块（ghfast 前缀）→ 直连整文件回落。sha256+size 双校验。"""
+    """多镜像分块（ghfast 8MiB → gh-proxy 1MiB）→ 直连整文件回落。
+    sha256+size 双校验。2026-10-29：ghfast 进入长发作期全灭（0 字节/
+    截断），gh-proxy.com 实测可用但吞吐 ~60KB/s/路——1MiB 块 + 16 路聚
+    合 ~480KB/s，300MB 构建 ~10min。镜像按序试，全败才走直连。"""
     want_len, digest, url = asset_meta(tag)
     if not want_len or not url:
         print("    API 无 asset 元数据，跳过")
         return False
 
-    # 并行分块（ghfast）
-    chunks = [(i, min(i + CHUNK, want_len) - 1)
-              for i in range(0, want_len, CHUNK)]
-    tmpdir = tempfile.mkdtemp(prefix="wxkeep-chunks-")
-    try:
-        with ThreadPoolExecutor(max_workers=CHUNK_WORKERS) as ex:
-            futs = {ex.submit(_fetch_range, GHFAST + url, s, e,
-                              os.path.join(tmpdir, f"c{i}")): i
-                    for i, (s, e) in enumerate(chunks)}
-            ok = all(f.result() for f in futs)
-        if ok:
-            h = hashlib.sha256()
-            with open(dest, "wb") as out:
-                for i, _ in enumerate(chunks):
-                    b = open(os.path.join(tmpdir, f"c{i}"), "rb").read()
-                    out.write(b)
-                    h.update(b)
-            if os.path.getsize(dest) == want_len and \
-                    (not digest or h.hexdigest() == digest):
+    for prefix, chunk in MIRRORS:
+        if _chunked_download(prefix + url, want_len, dest, chunk) \
+                and os.path.getsize(dest) == want_len:
+            if not digest:
                 return True
-            print(f"    分块拼装校验失败（size={os.path.getsize(dest)}/{want_len}）")
+            h = hashlib.sha256()
+            with open(dest, "rb") as f:
+                for b in iter(lambda: f.read(1 << 20), b""):
+                    h.update(b)
+            if h.hexdigest() == digest:
+                return True
+            print(f"    {prefix} 分块拼装 sha256 不符")
             os.unlink(dest)
-        else:
-            print("    ghfast 分块有失败块")
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
 
     # 直连整文件回落
     r = subprocess.run(["curl", "-sL", "--retry", "2", "--speed-time", "60",
@@ -141,6 +133,26 @@ def download(tag, dest):
         except FileNotFoundError:
             pass
     return ok
+
+
+def _chunked_download(url, want_len, dest, chunk_size):
+    chunks = [(i, min(i + chunk_size, want_len) - 1)
+              for i in range(0, want_len, chunk_size)]
+    tmpdir = tempfile.mkdtemp(prefix="wxkeep-chunks-")
+    try:
+        with ThreadPoolExecutor(max_workers=CHUNK_WORKERS) as ex:
+            futs = {ex.submit(_fetch_range, url, s, e,
+                              os.path.join(tmpdir, f"c{i}")): i
+                    for i, (s, e) in enumerate(chunks)}
+            ok = all(f.result() for f in futs)
+        if ok:
+            with open(dest, "wb") as out:
+                for i, _ in enumerate(chunks):
+                    out.write(open(os.path.join(tmpdir, f"c{i}"), "rb").read())
+            return os.path.getsize(dest) == want_len
+        return False
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def read_plist_defaults(plist, key):

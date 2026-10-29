@@ -357,6 +357,14 @@ def main():
     if rev_t:
         for e in rev_t["entries"]:
             e["expected"] = [e["expected"]] if isinstance(e["expected"], str) else e["expected"]
+        # x64 序言按实读校正：locate 产物带配方常量 expected，序言换代构建
+        # （如 270152 SSO 前移）重派生时会回退成通用形态 → 引擎门 FAIL。
+        # 白名单门已在 check_rev_x64_bytes 保证形态可信，实读即权威。
+        dx = machutil.load_slice(x64thin, X64)
+        for e in rev_t["entries"]:
+            if e.get("arch") == X64 and e.get("asm") == REV_X64_ASM:
+                off = machutil.va2off(dx, int(e["addr"], 16))
+                e["expected"] = [dx[off:off + 9].hex().upper()]
         targets.append(rev_t)
     else:
         rev_t = None
@@ -374,7 +382,7 @@ def main():
             guard.update({
                 "arch": "x86_64",
                 "source": (f"wxkeep:parse-guard test→xor 翻转（{args.build} 冗余 silent，"
-                           "2026-09-19 4.1.13 全线回捞轮）")})
+                           "locate_x64_parse_guard 几何派生）")})
             rev_t["entries"].append(guard)
         else:
             report["notes"].append(f"guard/keeptip 未派生: {err}")

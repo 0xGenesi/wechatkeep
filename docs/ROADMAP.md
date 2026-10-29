@@ -1,5 +1,18 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-10-29 深夜 79 轮后状态修订**：①「适配 3 和 4 所有版本」推进到
+> **104 构建**（4.2.0 中段 .4-.10 六构建 + 今日新发 4.2.0.13/270349；
+> update 面 82 构建全配齐）；②78 轮侦查点④**关账翻案：XAppUpdateManager
+> 未改名未消失**——otool ObjC 元数据实证类在位（91 方法、四选择子 imp
+> 全对上），78 轮「类已移除」= capstone ImportError 假阴性的连带误判
+> （venv 修复已入工具）；③270152 序言换代孤例的重派生回退被验证门抓住
+> → revoke_x64 expected **实读校正**入工具（根因修复）；④3.x 拉取换
+> 镜像破局：ghfast 长发作期全灭 → **gh-proxy.com 1MiB 分块 ~480KB/s
+> 聚合可用**（镜像列表化入 fetch 工具），15 tag 全线拉取已启动（后台）；
+> ⑤社区互证：WeChatTweak PR#1044（10-29 当天）4.2.0 补丁点 x86_64
+> `0x516B6D0` 与我们 revoke_x64 **逐位一致**；⑥**3.8.10 存在**
+> （Rodert/cntrump 归档）——「3.x 止于 3.8.9.17」假设修正，待补拉。
+
 > **2026-10-29 晚 78 轮后状态修订**：①「适配 3 和 4 所有版本」推进到
 > **97 构建**（4.2.0.9/.12 发布次日全点位、4.0.3.93、4.1.7 双序列、
 > 269xxx 缺口全补——见 78 节）；3.x（3.5.5-3.8.9.17）素材=zsbai 唯一源，
@@ -277,6 +290,85 @@ hooks 行加签升 P0。
    WeChat 库跑扫描器（WCDB 内嵌 sqlcipher 是经典 4.x——扫描器几何
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
+
+## 79·4.2.0 中段收编 + update 面全量补齐 + 3.x 换镜像破局轮（2026-10-29 深夜：97→104 构建 + 宿主类误判翻案 + 110 组验证全绿 + 社区当日互证，216 测全绿）
+
+> 用户令「继续阅读源码，全网和 github 都调研下再继续完善和深入，然后继续
+> 完成所有未完成的项，最后测试并优化完善软件，尽量适配微信3和4所有版本，
+> 向完美对齐」。78 轮 venv 修复的连锁收账 + 新构建当日适配 + 双路全网
+> 调研。
+
+1. **[7 新构建入库（97→104）]**：CDN 4.2.0 线整线探查（base=270336，
+   N=点分尾号，9/65 在档）→ 中段 **270340-270344/270346（4.2.0.4-.8/
+   .10）** 六构建全点位（revoke 3+keeptip 4+update 16）+ **270349
+   （4.2.0.13，10-29 当日新发）** 全点位当日适配；270347（4.2.0.11）
+   404 缺口定案。4.2.0.12 仍为 stable 指针（.13 超前在档——canc3s/
+   Rodert 双追踪器互证）。
+2. **[update 面全量补齐（82 构建）]**：venv 修复后 13 构建重派生 update
+   16 条/双架构（选择子定位法 `wxkeep:objc:*`）。**78 轮「XAppUpdateManager
+   不在 4.2.0」翻案**：otool -oV ObjC 元数据实证类在位（name XAppUpdate
+   Manager、baseMethods 91 条、startUpdater/checkForUpdates: 等 imp 与
+   派生条目逐一对上；270345/270346/270348 双架构交叉确认）——「类已移除/
+   更名」判断作废，系 capstone ImportError 被工具 not-found 分支误吞的
+   连带误判。**优先队列侦查点④就此关账，无需再找新宿主类**。
+3. **[270152 重派生回退→根因修复]**：验证门抓住 update_rederive 批把
+   270152（序言换代孤例）revoke expected 回退成配方常量（554889E5
+   535048 89FB ≠ 实读 554889E5 0FB607 A801）→ 工具修复：**revoke x64
+   expected 按 pristine 实读校正**（读回 locate 产物后覆盖；白名单门已
+   保证形态）+ staging/per-family 就地修正 → 重验过。序言换代构建从此
+   重派生幂等。
+4. **[110 组引擎级往返验证全过]**：新驱动 verify_staging_batch.py 入库
+   （per-family 分组消费 var/wxarm 产物 + TestingMacros 解药参数 + 防缓存
+   回放三件套）。**教训：revoke 与 revoke-keeptip 是同位点互斥变体，合组
+   验证必在幂等步互翻**（本驱动第一版实证）——按族分组是唯一正确分组。
+5. **[merge+重签+矩阵]**：97→104 版本、1760 条目、82 update 面；manifest
+   Ed25519 重签 + openssl 三方互证过；COMPATIBILITY.md 重生（104 builds）；
+   216 测全绿（目录结构契约含新构建全过）。
+6. **[3.x 拉取换镜像破局]**：ghfast 长发作期全灭（连 0 字节）；直连
+   ~26KB/s 不可用。实测 **gh-proxy.com 可用**（1MiB Range 完整返回、
+   8 路聚合 ~480KB/s）→ fetch_zsbai_full.py 镜像列表化（ghfast 8MiB →
+   gh-proxy 1MiB → 直连回落，逐镜像 sha256 双校验）→ 15 tag（v3.5.5→
+   v3.8.9.17）全线拉取启动（~10min/构建，后台）。
+7. **[guard 溯源模板修复]**：derive 工具 guard 条目 source 写死「2026-09-19
+   4.1.13 回捞轮」→ 中性化（工具+8 staging 就地修）；270349 起新生成
+   条目自带正确溯源。
+8. **[社区调研（双路代理，全带 URL）]**：
+   - **WeChatTweak PR#1044（2026-10-29 当天提交，JxWade）**：4.2.0/
+     270348 支持——x86_64 `0x516B6D0→31C0C3` 与我们 revoke_x64 silent
+     条目**逐位一致**（同谓词 is_revoke_msg 函数头）；arm64
+     `0x49E3E7C→mov w0,#0;ret` 为函数头补法（我们 gen3 cbz 0x4e7a208
+     为下游消费分支——同链不同层互补）；「codesign --deep 不下探
+     Resources」与我们逐 Mach-O 重签结论一致；4.1.5(32288) 上其定位器
+     复现既有地址=方法论互认。官方主线停更（2.0.1/2025-12-09，末提交
+     2026-02-08），社区 PR 活跃（#1042/#1043 未合并）。
+   - **WeChatIntercept macOS 27 事实死亡**：#94/#95 后 #96（重启失效）/
+     #97（截图权限死循环）全开无修，末提交 2026-06-11。
+   - **数据侧生态退潮**：chatlog 停更一年+release 清零（#334-336 求源码；
+     注意 #185 实为 4.0.6 失效非密钥讨论——我们此前引用口径需更正）；
+     PyWxDump 2025-10-20「删库跑路」；wechat-dump-rs 被 DMCA 451。
+     WeChatDataAnalysis 仍活跃（10-27 有推送），#187=MAS 版重签被 AMFI
+     拒启（Code 163/-424，restricted entitlements）——Darwin 27 对抗面
+     再证。
+   - **磁盘补丁路线双雄**：fzlzjerry v1.2.0（10-19）+ **#91 Darwin 27.0.0
+     +270135 实测注入存活无崩溃**（lsof 确认）+「嵌套签名保留」（9-30）；
+     新入场 **zengtianli/WeChatUnrevoke**（SwiftUI GUI 磁盘补丁 v1.0.15/
+     10-25，实测 269627，更新拦截+自动重打）。
+   - **版本谱系修正**：**3.8.10/3.8.10.17 存在**（cntrump「最后一个原生
+     开发版本」/ Rodert 2026-03 归档）——「3.x 止于 3.8.9.17」假设修正，
+     3.8.10 线待补拉（zsbai 无此 tag）；X1a0He 插件版表止 4.1.15.72；
+     fzlzjerry patches.json 止 270135；gclm 版本映射止 269341。
+   - **zsbai 仓库活着**（117 tags，API 实测）——调研代理报「404 消失」
+     系查错仓名（wechatmac vs **wechat-versions**），留档防再犯。
+   - 4.2.0 官方更新日志仅「修复一些已知问题」一句，无细分到 .13。
+9. **[3.x 替代源清单（下一轮补拉入口）]**：Rodert/wechat-mac-versions
+   （日快照 + **v3.8.10.17** + v4.2.0_20261029）、cntrump/WeChatMac
+   （v3.8.10）、cntrump/WeChatMac_archives（3.7.1）、che246/
+   wechat-versions-Mac（3.8.4-.6）。3.0-3.5.4 仍无任何成体系存档。
+
+**工具与纪律**：verify_staging_batch.py（per-family 验证驱动）；
+fetch_zsbai_full.py 镜像列表化；derive 工具 revoke expected 实读校正 +
+guard 溯源中性化；zsbai 15 tag 后台拉取进行中（var/logs/fetch_zsbai_
+3x_20261029.log）。
 
 ## 78·「适配 3 和 4 所有版本」全版本对齐轮（2026-10-29：CDN 路径翻案 + 12 新构建入库（含 4.2.0 双构建全点位）+ XML 洞终裁非洞 + audit 门修正 + cfg_hash 落地，216 测全绿）
 

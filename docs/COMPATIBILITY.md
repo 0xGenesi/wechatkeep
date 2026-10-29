@@ -5,9 +5,16 @@
 
 | 构建号 | 微信版本 | 防撤回(silent) | keeptip | keeptip2 | 屏蔽更新 | 多开 | 备注 |
 |---|---|---|---|---|---|---|---|
-| 270348 | 4.2.0.12 | x86_64/arm64 | x86_64/arm64 | — | — | — |  |
-| 270345 | 4.2.0.9 | x86_64/arm64 | x86_64/arm64 | — | — | — |  |
-| 270152 | 4.1.15.72 | x86_64 | — | — | — | — |  |
+| 270349 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270348 | 4.2.0.12 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270346 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270345 | 4.2.0.9 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270344 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270343 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270342 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270341 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270340 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 270152 | 4.1.15.72 | x86_64 | — | — | x86_64/arm64 | — |  |
 | 270135 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 270134 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 270133 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
@@ -52,15 +59,15 @@
 | 269575 | 4.1.13.7 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 269574 | 4.1.13.6 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 269573 | 4.1.13.5 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
-| 269365 | 4.1.12.53 | x86_64/arm64 | x86_64/arm64 | — | — | x86_64 | 2 entries lack expected bytes (quarantined) |
-| 269364 | 4.1.12.52 | x86_64/arm64 | x86_64/arm64 | — | — | — |  |
-| 269363 | 4.1.12.51 | x86_64/arm64 | arm64 | — | — | — |  |
-| 269362 | 4.1.12.50 | x86_64/arm64 | arm64 | — | — | — |  |
+| 269365 | 4.1.12.53 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | x86_64 | 2 entries lack expected bytes (quarantined) |
+| 269364 | 4.1.12.52 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
+| 269363 | 4.1.12.51 | x86_64/arm64 | arm64 | — | x86_64/arm64 | — |  |
+| 269362 | 4.1.12.50 | x86_64/arm64 | arm64 | — | x86_64/arm64 | — |  |
 | 269341 | ? | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269340 | ? | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269338 | ? | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269337 | ? | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
-| 269336 | 4.1.12.24 | x86_64/arm64 | arm64 | — | — | — |  |
+| 269336 | 4.1.12.24 | x86_64/arm64 | arm64 | — | x86_64/arm64 | — |  |
 | 269335 | ? | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 269334 | ? | arm64 | arm64 | — | arm64 | — |  |
 | 269333 | ? | arm64 | arm64 | — | arm64 | — |  |
@@ -81,12 +88,12 @@
 | 268597 | ? | arm64 | arm64 | — | arm64 | — |  |
 | 268596 | ? | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 268575 | 4.1.10 | x86_64/arm64 ⚠︎ | arm64 | — | arm64 | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
-| 42530 | 4.1.12.22 | x86_64/arm64 | arm64 | — | — | — |  |
-| 41754 | 4.1.11.54 | x86_64/arm64 | arm64 | — | — | — |  |
-| 39917 | 4.1.10.53 | x86_64/arm64 | arm64 | — | — | — |  |
-| 38959 | 4.1.9.58 | x86_64/arm64 | arm64 | — | — | — |  |
+| 42530 | 4.1.12.22 | x86_64/arm64 | arm64 | — | x86_64/arm64 | — |  |
+| 41754 | 4.1.11.54 | x86_64/arm64 | arm64 | — | x86_64/arm64 | — |  |
+| 39917 | 4.1.10.53 | x86_64/arm64 | arm64 | — | x86_64/arm64 | — |  |
+| 38959 | 4.1.9.58 | x86_64/arm64 | arm64 | — | x86_64/arm64 | — |  |
 | 37342 | ? | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
-| 37335 | ? | x86_64 | — | — | — | x86_64 | 2 entries lack expected bytes (quarantined) |
+| 37335 | ? | x86_64 | — | — | x86_64/arm64 | x86_64 | 2 entries lack expected bytes (quarantined) |
 | 37331 | ? | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 37303 | ? | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 37293 | ? | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
@@ -103,4 +110,4 @@
 | 31927 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 | 29123 | 4.0.3.93 | x86_64/arm64 | — | — | — | — |  |
 
-共 97 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
+共 104 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。

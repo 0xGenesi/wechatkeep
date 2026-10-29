@@ -1,8 +1,8 @@
 {
-  "schema": 1,
-  "generated_at": "2026-10-29T12:34:02Z",
-  "files": {
-    "config.json": "1a4f0a8a6846a9f99b9ceee37a4a4770fa005490283acfe4f762fd462acf00e6",
-    "signatures.json": "13eed0ff4fe3ae196bcc4539781fea146fc740b4e4ae5bf48ae32c9c9ed55312"
-  }
+ "schema": 1,
+ "generated_at": "2026-10-29T15:26:06Z",
+ "files": {
+  "config.json": "cc635265962b8e41a108d2c5df874500f27b00b83d2dde558300218d29545874",
+  "signatures.json": "13eed0ff4fe3ae196bcc4539781fea146fc740b4e4ae5bf48ae32c9c9ed55312"
+ }
 }
