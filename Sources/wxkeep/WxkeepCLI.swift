@@ -660,6 +660,23 @@ extension Wxkeep {
                         let df = DateFormatter(); df.dateFormat = "HH:mm:ss"
                         print("配置戳:            \(df.string(from: t))（热重载已应用的 runtime.json mtime）")
                     }
+                    // cfg_hash（V4 需求 3）：marker 携带已应用配置内容的指纹。
+                    // 与当前生效配置文件实算指纹对比：不一致 = 装载后文件被改
+                    // 且尚未被 30s 热重载应用（或 marker 陈旧）；一致 = 所见
+                    // 即所应用。mtime 可被 touch -r 还原，内容指纹不能。
+                    if let r = markerText.range(of: "cfgh=") {
+                        let hex = markerText[r.upperBound...].prefix(16)
+                            .filter { $0.isHexDigit }
+                        if hex.count == 16 {
+                            let current = RuntimeConfig.currentConfigContentHash()
+                            let same = current.map { String(format: "%016llx", $0) == hex } ?? nil
+                            print("配置指纹:          \(hex)"
+                                + (same == true ? "（与当前 runtime.json 一致）"
+                                   : same == false ? " ≠ 当前文件 \(current.map { String(format: "%016llx", $0) } ?? "?")"
+                                     + "——变更待 30s 热重载应用或 marker 陈旧"
+                                   : "（当前文件不可读）"))
+                        }
+                    }
                     // 诊断位判读（77 续）：install-fail 时 istep/ierr 指明
                     // mmap(1)/页改写(2) 与 errno——macOS 27 W^X 排障的钥匙。
                     if let decode = RuntimeCommand.markerStatusDecode(markerText) {

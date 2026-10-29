@@ -327,4 +327,23 @@ extension RuntimeConfigTests {
         #expect(head.contains("<!DOCTYPE plist"))
         #expect(head.contains("tip_text"))
     }
+
+    /// cfg_hash（V4 需求 3）：CLI 侧指纹算法与 runtime.m 的 FNV-1a 64 同构，
+    /// 空文件有确定值、内容变化指纹变化（touch -r 还原 mtime 也还原不了内容）。
+    @Test func configContentHashStableAndSensitive() throws {
+        let url = tmpConfigPath()
+        try Data().write(to: url)
+        let empty = RuntimeConfig.currentConfigContentHash(at: [url])
+        #expect(empty == 1_469_598_103_934_665_603)   // FNV offset basis（空输入）
+
+        try Data("keep_message = true".utf8).write(to: url)
+        let a = RuntimeConfig.currentConfigContentHash(at: [url])
+        #expect(a != empty && a != nil)
+
+        try Data("keep_message = false".utf8).write(to: url)
+        let b = RuntimeConfig.currentConfigContentHash(at: [url])
+        #expect(b != a)   // 一字节之差指纹必变
+        try FileManager.default.removeItem(at: url)
+        #expect(RuntimeConfig.currentConfigContentHash(at: [url]) == nil)   // 不可读 = nil
+    }
 }

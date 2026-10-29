@@ -101,6 +101,30 @@ struct DbKeysTests {
         #expect(cls("非 UTF-8：\u{FFFD}") == .otherSystem)
     }
 
+    /// --since 门语义（2026-10-29 XML 取证轮定案）：只有 [other] 计 FAIL。
+    /// [xml]=lite 通知（无 newmsgid，补丁态无关——广告群日更会误报门）；
+    /// [self]=自发撤回记账（R3 原生行为）；[otherSystem] 永不计入。
+    @Test func auditGateCountsOnlyOtherFormAsFailure() {
+        typealias Row = (ts: Int, chat: String, db: String, form: RevokeTipClassifier.Form)
+        let since = 100
+        let rows: [Row] = [
+            (100, "g@chatroom", "d", .xmlRevoke),      // lite 通知：窗口内、不计 FAIL
+            (105, "g@chatroom", "d", .selfRevoke),     // 自发记账：窗口内、不计 FAIL
+            (110, "g@chatroom", "d", .otherSystem),    // 普通系统行：不计
+            (120, "wxid_x", "d", .otherRevoke),        // 他撤模板灰条：保护失败证据
+            (99, "wxid_x", "d", .otherRevoke),         // 窗口外：一切不计
+            (80, "g@chatroom", "d", .xmlRevoke),
+        ]
+        let g = Wxkeep.DbKeysCommand.Audit.gateCounts(rows: rows, since: since)
+        #expect(g.fail == 1)
+        #expect(g.xml == 1)
+        #expect(g.selfCnt == 1)
+        // 纯 lite 通知窗口（广告群日常态）必须 PASS——修正前的门会误报 FAIL
+        let liteOnly = rows.filter { $0.form != .otherRevoke }
+        let g2 = Wxkeep.DbKeysCommand.Audit.gateCounts(rows: liteOnly, since: since)
+        #expect(g2.fail == 0 && g2.xml == 1 && g2.selfCnt == 1)
+    }
+
     // MARK: 捕获
 
     @Test func captureHitParsing() {

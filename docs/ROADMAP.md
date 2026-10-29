@@ -267,6 +267,94 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 78·「适配 3 和 4 所有版本」全版本对齐轮（2026-10-29：CDN 路径翻案 + 12 新构建入库（含 4.2.0 双构建全点位）+ XML 洞终裁非洞 + audit 门修正 + cfg_hash 落地，216 测全绿）
+
+> 用户令「继续阅读源码，全网和 github 都调研下再继续完善和深入，然后继续
+> 完成所有未完成的项……尽量适配 3 和 4 所有版本，向完美对齐」。两轮独立
+> 调研（版本谱系 + 生态/macOS27）+ 数据面取证 + 批量派生收账。
+
+1. **[CDN 路径翻案——本轮最大解锁]** 「4.1.12 及更老 404」的既有结论是
+   **路径错误**：版本化归档的规范路径是 `/weixin/Universal/Mac/`（工具
+   URL 一直如此），但㉚ 轮对老线抽测走的是 `/weixin/Mac/`。实测 Universal
+   路径全代托管：4.0.3.93_29123、4.1.7.56_34878…4.1.12.22_42530（**双
+   序列 5 位构建线**，与 268xxx 线同版本并存、二进制不同——39917 vs
+   268880 位点评证）、4.1.15.72_270152、**4.2.0.9_270345 / 4.2.0.12_
+   270348**（2026-10-27/28 发布，发布次日全点位适配）。X1a0He README
+   版本表（112 对 URL）+ zsbai（3.5.5-3.8.9.17 + 4.x dated）为枚举源；
+   Homebrew cask 有 5 年空窗（4.0.x 无档），Sparkle feed 已陈旧不可用。
+2. **[新分发形态——xz 分块 UDIF]** 270152/4.2.0 的 CDN 文件=**N 个 xz
+   小流（数据叉）+ raw XML plist（resource fork/blkx）+ koly 尾板**。
+   `xz -d`/python lzma 皆报 corrupt（尾部非流内容）；**macOS hdiutil 原生
+   支持直接挂载**——完整下载（content-length 逐字节核对）是唯一前提，
+   早期"无可装载的文件系统"全是截断文件。sha256 与 zsbai 权威值逐位一致
+   （4.2.0.12=413f2425…）。derive 工具链已适配（decompress_if_xz 单流
+   形态才解压，分块形态直通 hdiutil）。
+3. **[12 新构建入库，config 84→96]** 每构建全链（locate 配方→guard→
+   keeptip→update）+ 引擎级往返验证（TestingMacros 抖动重试后全 PASS）+
+   merge + manifest 重签 + COMPATIBILITY 重生：
+   - **270348/270345（4.2.0.12/.9）**：revoke 双架构+keeptip 双架构全中
+     （gen3 几何不变）——**大版本换代日防撤回覆盖到位**；update 面诚实
+     缺席（XAppUpdateManager 不在 4.2.0，类已移除/更名）。
+   - **270152（4.1.15.72）**：x64 isRevokemsg **序言换代**（SSO 检查前移
+     `554889E5 0FB607 A8 01`，锚与语义不变，expected 按实读修正入库）；
+     arm64 gen3 配方未命中（gen4 猎捕：newmsgid/revokems 字面量引用者
+     逐验无 cbz 几何命中——该构建为换血孤例，4.2.0 反而全中）。诚实降级
+     =x64 silent 单条目。配方家族白名单（REV_X64_FAMILY）入派生工具。
+   - **29123（4.0.3.93）**：4.0.x=主程序时代（无 Resources/wechat.dylib，
+     Sparkle 在位）——arm64 **gen0 配方直接命中**（locate 实测 0x103131410
+     ）；x64 手工锚定（movabs 'revokems'+家族序言，同 33480 先例）。
+   - **269336/362/363/364/365**（4.1.12.24/.50/.51/.52/.53）：269xxx 线
+     缺口补齐，364/365 全点位（revoke×2+keeptip×2+guard）。
+   - **38959/41754/42530/39917**（4.1.9.58/4.1.11.54/4.1.12.22/4.1.10.53
+     双序列）：gen1 代 arm64+x64 命中。
+   - **37335（4.1.8.106）**：重 derive 修正 tanranv5 隔离条目（其地址
+     4C318A0 vs 锚定 476C22E——社区数据首次官方字节审计的机会成本实证）。
+4. **[XML 群聊灰条「补丁洞」终裁=非洞]** ㊷ 立项的判别实验被数据面直接
+   关账：①XML 形态=`<sysmsg><revokemsg><content>预览</content><revoketime>`
+   **无 newmsgid/replacemsg 的轻量通知**——天生无法定位原消息、必然独立
+   落库；②**10-28 无补丁日同样落库**（破窗期 13 条）→与补丁态无关的原生
+   行为；③09-16 实证原消息行（type=1）与 XML 行**并存**（3 文本保留+6
+   XML 行，各自独立 local_id/svrid/递增 create_time）——v1 保护对象从未
+   被此路径触碰；④全库 198 条 XML 行=广告群 lite 通知+T5 keep+zero 强制
+   miss 产物，无一例原消息丢失。**结论：无需第四补丁点位**；判别实验
+   （群聊小号撤回测）不再需要用户窗口。社区互证：WeChatDataAnalysis
+   专门解析该形态（正常客户端第三方工具的已知输入）。
+5. **[audit 门语义修正]** 上述终裁的工程落地：`--since` 门从「全部形态
+   计 FAIL」改为**仅 [other]（他撤模板灰条=消费端命中腿产物）计 FAIL**；
+   [xml]（lite 通知，广告群日更）与 [self]（自发撤回记账=R3 原生行为）
+   移出门外（否则广告群常态会让补丁有效性门天天误报）。gateCounts 抽成
+   可测函数+回归测试钉死语义。实测复核：10-28 破窗窗口仍正确 FAIL（13
+   条 other 形态在册），今日窗口 PASS。
+6. **[cfg_hash 落地（V4 需求 3）]** runtime marker 新增 `cfgh=`（生效
+   配置内容 FNV-1a 64，load/热重载时更新）；`runtime status` 展示并与
+   当前文件实算指纹对比（一致=所见即所应用；不一致=变更待 30s 热重载或
+   marker 陈旧）。mtime 可被 touch -r 还原、内容指纹不能。CLI/dylib 同
+   算法同选径（group 优先/legacy 回落）；测试钉死（空文件=basis、单字节
+   敏感、不可读=nil）。
+7. **[b2 静态核=关账（moot）]** V2-PIVOT 的 b2 前提（tip 锚定与删除消费
+   顺序可分离）被 77 续㊳ 终审的一次性写模型结构性否决（「删除」与
+   「提示」是同一写操作的两面）+ 27.0.1 runtime 钩子机械已死（四层全灭）
+   双重 moot。b2 从队列移除；若 runtime 线复活（见下条）再重开。
+8. **[macOS 27 存活路线情报（社区互证）]** frida#3752 定根因（CS_LIBRARY_
+   VALIDATION 0x20000 拒代码页可写化）；**WeChatIntercept 27.0.1 全灭**
+   （#94/#95，provenance xattr 不可删 SIGKILL）；唯一实证存活=fzlzjerry
+   runtime：**安装期磁盘改 wechat.dylib 入口 3 指令（adrp x16,SLOT;ldr;br）
+   + SLOT 落 __DATA 尾零填充（运行时天然可写）+ LC_LOAD_DYLIB 注入 +
+   逐项保留原厂 entitlements 重签**（Darwin 27.0.0 实测加载）。与我们
+   的磁盘级补丁+Resigner 管线同族——runtime 线若复活，机械前提=安装期
+   磁盘改入口（而非进程内 COW）。
+9. **[3.x 拉取网络受阻]** zsbai 是 3.5.5+ 唯一成体系官方原包源（3.x 无
+   CDN 归档、3.0-3.5.4 无档）。ghfast 镜像间歇截断 Range（1MB 请求回
+   555KB）、直连 70KB/s——队列尽力而为，失败 tag 留档待网络窗口补扫。
+   3.x 条目形态已明：3.8.x=主程序（zengtianli arm64 隔离条目）+ 4.1.7
+   （34888）=**Frameworks/wechat.dylib 时代**（Resources 无 dylib 的第一
+   代），多槽抽取管线（fetch_zsbai_full.py）已就绪。
+
+**工具与纪律**：fetch_zsbai_full.py（16 路分块+sha256 双校验+多槽布局
+探测）；cdn 下载循环模板（续传+content-length 门+用后即删）；xml_row_
+forensics.py（svrid 关联取证，内容零打印）；TestingMacros 楔子解药再证
+（-load-plugin-library 显式装载，本机已第二次发作 cured）。
+
 ## 77 续㊷·库内撤回取证 + dbkeys 仪器化（2026-10-29 同日：灰条原地变身铁证落库、XML 群聊路径补丁洞候选、wxkeep dbkeys check/capture/audit 三子命令上线，214 测全绿）
 
 > 承㊶读权限做两件事：①用库内撤回真身反推/验证我们的写模型；②把

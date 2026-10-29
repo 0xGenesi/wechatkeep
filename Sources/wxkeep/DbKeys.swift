@@ -514,10 +514,38 @@ extension Wxkeep {
                     print("  \(row.ts > 0 ? Self.fmt(row.ts) : "?") [\(row.form.rawValue)] \(row.chat) (\(row.db))")
                 }
                 if let sinceTS {
-                    let newTips = rows.filter { $0.ts >= sinceTS && $0.form != .otherSystem }.count
-                    print("--since \(since!) 新灰条=\(newTips) → \(newTips == 0 ? "补丁有效（数据面 PASS）" : "补丁后有灰条落库（数据面 FAIL，存在未覆盖撤回路径）")")
-                    if newTips != 0 { throw ExitCode(1) }
+                    // 门语义（2026-10-29 XML 取证轮定案）：只有 [other]（模板文案
+                    // 灰条=消费端命中腿产物）是保护失败证据。[xml] 是无 newmsgid
+                    // 的轻量通知形态（content 预览+revoketime，天生 lookup-miss
+                    // 独立落库——补丁态无关，广告群日更）；[self] 是自发撤回记账
+                    // （R3 原生行为，v1 不触碰发起侧）。两者计入 FAIL 会让门误报。
+                    let g = Self.gateCounts(rows: rows, since: sinceTS)
+                    print("--since \(since!) 他撤模板灰条=\(g.fail)"
+                          + (g.xml + g.selfCnt == 0 ? "" : "（另：lite 通知 xml=\(g.xml)"
+                              + " self=\(g.selfCnt)"
+                              + "——非保护失败证据，见 DbKeys 注）")
+                          + " → \(g.fail == 0 ? "补丁有效（数据面 PASS）" : "补丁后有他撤灰条落库（数据面 FAIL）")")
+                    if g.fail != 0 { throw ExitCode(1) }
                 }
+            }
+
+            /// --since 门计数（独立成函数供回归测试钉死语义）：
+            /// fail=[other]（他撤模板灰条=唯一保护失败证据）；
+            /// xml=[xml]（lite 通知）；selfCnt=[self]（自发撤回记账）。
+            static func gateCounts(
+                rows: [(ts: Int, chat: String, db: String, form: RevokeTipClassifier.Form)],
+                since: Int
+            ) -> (fail: Int, xml: Int, selfCnt: Int) {
+                var fail = 0, xml = 0, selfCnt = 0
+                for r in rows where r.ts >= since {
+                    switch r.form {
+                    case .otherRevoke: fail += 1
+                    case .xmlRevoke: xml += 1
+                    case .selfRevoke: selfCnt += 1
+                    case .otherSystem: break
+                    }
+                }
+                return (fail, xml, selfCnt)
             }
 
             static func resolveSQLCipher(explicit: String?) -> String? {

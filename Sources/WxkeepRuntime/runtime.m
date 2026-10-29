@@ -468,6 +468,36 @@ static void apply_config_dict(NSDictionary *cfg) {
 }
 
 static double g_cfg_stamp;   // 已应用配置文件的双路径 mtime 之和（热重载探测）
+static uint64_t g_cfg_hash;  // 已应用配置文件内容的 FNV-1a 64（cfg_hash 告警面，
+                             // V4 需求 3：mtime 可被 touch -r 还原，内容哈希不能）
+
+// 配置内容哈希：对生效路径（group 优先/legacy 回落，同 read_runtime_config
+// 选径）的原始字节 FNV-1a 64。文件缺失/不可读 = 0（与未装载区分开靠
+// marker 的 cfg= 戳）。只做身份指纹，不做完整性安全（算法无密钥）。
+static uint64_t fnv1a64(const uint8_t *p, size_t n) {
+    uint64_t h = 1469598103934665603ULL;
+    for (size_t i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+static uint64_t config_content_hash(void) {
+    // 与 read_runtime_config 同选径语义：group 优先、读失败回落 legacy
+    // （只构造不校验时 group 路径常在但文件未必在——不能就此返回 0）。
+    NSString *group = groupContainerConfigPath();
+    if (group) {
+        NSData *d = [NSData dataWithContentsOfFile:group];
+        if (d) return fnv1a64(d.bytes, d.length);
+    }
+    NSString *legacy = runtimeConfigPath();
+    if (legacy) {
+        NSData *d = [NSData dataWithContentsOfFile:legacy];
+        if (d) return fnv1a64(d.bytes, d.length);
+    }
+    return 0;
+}
 
 // 双路径戳（77 续㉘补丁）：生产装载序 = group 优先、legacy（沙盒容器内
 // 展开）回落——只盯 group 会让回落位的变更永远探测不到（T4 在案场景：
@@ -503,6 +533,7 @@ static void maybe_reload_config(void) {
         NSDictionary *cfg = read_runtime_config();   // 正式选径（group 优先/legacy 回落）
         g_cfg_stamp = st;                             // 先立戳：坏文件不再每 tick 重读
         if ([cfg isKindOfClass:[NSDictionary class]]) apply_policy_dict(cfg);
+        g_cfg_hash = config_content_hash();
     }
 }
 
@@ -510,6 +541,7 @@ static void load_config(void) {
     NSDictionary *cfg = read_runtime_config();
     if ([cfg isKindOfClass:[NSDictionary class]]) apply_config_dict(cfg);
     g_cfg_stamp = config_stamps_both();
+    g_cfg_hash = config_content_hash();
 }
 
 // ---------------------------------------------------------------------------
@@ -1510,12 +1542,12 @@ static void write_marker_ex(int loud) {
             groupDir = nil;
         }
         NSString *content = [NSString stringWithFormat:
-            @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d cfg=%.0f last=%@ inner=%@ probe=%@\n",
+            @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
             [NSDate date].timeIntervalSince1970,
             g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
             g_install_step, g_install_errno,
             g_rewrite_fires, g_rewrite_hits, g_zero_fires,
-            g_self_skips, g_cfg_stamp,
+            g_self_skips, g_cfg_stamp, g_cfg_hash,
             g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
             g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
             [NSString stringWithFormat:@"cb=%d last=%@ scanmiss=%d probe=%@",

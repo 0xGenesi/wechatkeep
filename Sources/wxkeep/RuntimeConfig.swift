@@ -283,6 +283,23 @@ enum RuntimeConfig {
         Config.userDataURL.appendingPathComponent("runtime.json")
     }
 
+    /// 当前生效配置文件的内容指纹（FNV-1a 64，与 runtime.m 的
+    /// config_content_hash 同算法同选径：group 优先/legacy 回落）。
+    /// `runtime status` 用它与 marker 的 cfgh= 对比做漂移告警（V4 需求 3）。
+    /// 文件不可读返回 nil。at 参数供测试注入（缺省走真实选径）。
+    static func currentConfigContentHash(at candidates: [URL]? = nil) -> UInt64? {
+        for u in candidates ?? [url(), legacyURL()] {
+            guard let data = try? Data(contentsOf: u) else { continue }
+            var h: UInt64 = 1_469_598_103_934_665_603
+            for b in data {
+                h ^= UInt64(b)
+                h = h &* 1_099_511_628_211
+            }
+            return h
+        }
+        return nil
+    }
+
     /// plist 优先、JSON 兜底的读取（plist 是落盘格式；JSON 只为历史脏文件）。
     private static func readDict(at url: URL) -> [String: Any]? {
         guard let data = try? Data(contentsOf: url) else { return nil }

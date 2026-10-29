@@ -56,6 +56,10 @@ ARM64_GEN_KEEPTIP = {
 }
 
 REV_X64_EXPECTED = "554889E553504889FB"      # isRevokemsg 序言（家族恒定）
+# 2026-10-29：270152（4.1.15.72）isRevokemsg 换序言形态——SSO 检查前移
+# （554889E5 0FB607 A801…=movzx eax,[rdi];test al,1）。锚（imm64:revokems +
+# 唯一正调用者）与函数语义不变，expected 按实读即可（白名单防锚误命中）。
+REV_X64_FAMILY = {"554889E553504889FB", "554889E50FB607A8"}
 REV_X64_ASM = "31C0C3909090909090"
 KEEPTIP_STORE_ASM = "4831C06690488983C8010000"
 STORE_TAIL = b"\x48\x89\x83\xc8\x01\x00\x00"  # mov [rbx+0x1C8],rax
@@ -71,6 +75,27 @@ def die(msg):
 
 
 # ---------------------------------------------------------------- 切片抽取
+def decompress_if_xz(path):
+    """CDN dmg 的两种形态（2026-10-29 实测）：
+    a) 旧派单流 xz-of-dmg（4.1.13 时代）→ xz -d 可解；
+    b) 新派 xz 分块 UDIF（270152/4.2.0 起的分发形态，sha256 与 zsbai 权威
+       逐位一致）——xz CLI 报 corrupt（尾部 raw plist+koly 非流内容），但
+       macOS hdiutil **原生支持直接挂载**。本函数只处理 a：xz 失败即返回
+       原路径交由调用方挂载（b 不需要也无法预先解压）。"""
+    with open(path, "rb") as f:
+        if f.read(6) != b"\xfd7zXZ\x00":
+            return path
+    out = path + ".out"
+    with open(path, "rb") as fi, open(out, "wb") as fo:
+        r = subprocess.run(["xz", "-dc", "-T0"], stdin=fi, stdout=fo)
+    if r.returncode != 0:
+        os.unlink(out)          # 形态 b：原生挂载，原文件直通
+        return path
+    os.replace(out, path)
+    print("  已解压（单流 xz 形态）")
+    return path
+
+
 def ensure_thins(build, dotted, download, prune_dmg):
     x64 = os.path.join(ROOT, "var/wxarm", f"{build}_x64.dylib")
     arm = os.path.join(ROOT, "var/wxarm", f"{build}_arm64.dylib")
@@ -86,6 +111,7 @@ def ensure_thins(build, dotted, download, prune_dmg):
                 urllib.request.Request(url, headers={"User-Agent": "wxkeep"}),
                 timeout=1800) as r, open(dmg, "wb") as f:
             shutil.copyfileobj(r, f)
+    dmg = decompress_if_xz(dmg)
     mount = tempfile.mkdtemp(prefix="wxkeep-mount-")
     r = sh(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", mount, dmg])
     if r.returncode != 0:
@@ -170,11 +196,14 @@ def derive_guard_and_keeptip(x64thin, rev_x64_site):
     expected = d[so:so + 12].hex().upper()
     if not expected.endswith(STORE_TAIL.hex().upper()):
         return guard, None, f"store 尾字节异常: {expected}"
+    d2 = machutil.load_slice(x64thin, X64)
+    ro = machutil.va2off(d2, rev_x64_site)
+    pro = d2[ro:ro + 9].hex().upper()
     keeptip = {
         "store": {"addr": format(site, "x"), "expected": [expected],
                   "asm": KEEPTIP_STORE_ASM},
-        "normalize": {"addr": format(rev_x64_site, "x"), "asm": REV_X64_EXPECTED,
-                      "expected": [REV_X64_ASM, REV_X64_EXPECTED]},
+        "normalize": {"addr": format(rev_x64_site, "x"), "asm": pro,
+                      "expected": [REV_X64_ASM, pro]},
     }
     return guard, keeptip, None
 
@@ -183,8 +212,8 @@ def check_rev_x64_bytes(x64thin, site):
     d = machutil.load_slice(x64thin, X64)
     off = machutil.va2off(d, site)
     actual = d[off:off + 9].hex().upper()
-    if actual != REV_X64_EXPECTED:
-        die(f"isRevokemsg 序言家族漂移: {actual}（配方静态 expected 将失配）")
+    if not any(actual.startswith(f[:18]) for f in REV_X64_FAMILY):
+        die(f"isRevokemsg 序言家族漂移: {actual}（未知形态，防锚误命中人工复核）")
 
 
 # ---------------------------------------------------------------- update

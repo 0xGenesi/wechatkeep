@@ -1,5 +1,189 @@
 [
  {
+  "version": "270348",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "4e7a208",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "516b6d0",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     },
+     {
+      "addr": "568da49",
+      "expected": [
+       "84C00F84????????"
+      ],
+      "asm": "30C0",
+      "arch": "x86_64",
+      "source": "wxkeep:parse-guard test→xor 翻转（270348 冗余 silent，2026-09-19 4.1.13 全线回捞轮）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "516b6d0",
+      "asm": "554889E553504889FB",
+      "expected": [
+       "31C0C3909090909090",
+       "554889E553504889FB"
+      ],
+      "source": "wxkeep:270348 keeptip——还原 isRevokemsg（解除 silent）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "568dfbd",
+      "asm": "4831C06690488983C8010000",
+      "expected": [
+       "E8DE3DE9FF488983C8010000"
+      ],
+      "source": "wxkeep:270348 keeptip——v1语义：parse 内 newmsgid 转换call置零（expected 按实读字节；家族恒定 E8+store 形态）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "4e7a208",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:270348 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "4e7a9a8",
+      "asm": "7FE600F9",
+      "expected": [
+       "60E600F9"
+      ],
+      "source": "wxkeep:270348 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "270345",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "4e7787c",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "51673a0",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     },
+     {
+      "addr": "5689719",
+      "expected": [
+       "84C00F84????????"
+      ],
+      "asm": "30C0",
+      "arch": "x86_64",
+      "source": "wxkeep:parse-guard test→xor 翻转（270345 冗余 silent，2026-09-19 4.1.13 全线回捞轮）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "51673a0",
+      "asm": "554889E553504889FB",
+      "expected": [
+       "31C0C3909090909090",
+       "554889E553504889FB"
+      ],
+      "source": "wxkeep:270345 keeptip——还原 isRevokemsg（解除 silent）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "5689c8d",
+      "asm": "4831C06690488983C8010000",
+      "expected": [
+       "E8DE3DE9FF488983C8010000"
+      ],
+      "source": "wxkeep:270345 keeptip——v1语义：parse 内 newmsgid 转换call置零（expected 按实读字节；家族恒定 E8+store 形态）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "4e7787c",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:270345 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "4e7801c",
+      "asm": "7FE600F9",
+      "expected": [
+       "60E600F9"
+      ],
+      "source": "wxkeep:270345 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "270152",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "4434710",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E50FB607A801"
+      ],
+      "source": "recipe:revoke_x64（270152 序言换代 SSO 前移：expected 按实读修正）"
+     }
+    ]
+   }
+  ]
+ },
+ {
   "version": "270135",
   "targets": [
    {
@@ -9691,7 +9875,10 @@
       "arch": "x86_64",
       "addr": "2FA038",
       "asm": "909090909090",
-      "source": "tanranv5/WeChatTweak"
+      "source": "tanranv5/WeChatTweak",
+      "expected": [
+       "0F84A30C0000"
+      ]
      }
     ]
    },
@@ -9703,12 +9890,326 @@
       "arch": "x86_64",
       "addr": "4F1C4A0",
       "asm": "B801000000C3",
-      "source": "tanranv5/WeChatTweak"
+      "source": "tanranv5/WeChatTweak",
+      "expected": [
+       "554889E54157"
+      ]
+     },
+     {
+      "addr": "47e0928",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "4a538f0",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     },
+     {
+      "addr": "4f1c789",
+      "expected": [
+       "84C00F84????????"
+      ],
+      "asm": "30C0",
+      "arch": "x86_64",
+      "source": "wxkeep:parse-guard test→xor 翻转（269365 冗余 silent，2026-09-19 4.1.13 全线回捞轮）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "4a538f0",
+      "asm": "554889E553504889FB",
+      "expected": [
+       "31C0C3909090909090",
+       "554889E553504889FB"
+      ],
+      "source": "wxkeep:269365 keeptip——还原 isRevokemsg（解除 silent）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "4f1ccfd",
+      "asm": "4831C06690488983C8010000",
+      "expected": [
+       "E84EB8E9FF488983C8010000"
+      ],
+      "source": "wxkeep:269365 keeptip——v1语义：parse 内 newmsgid 转换call置零（expected 按实读字节；家族恒定 E8+store 形态）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47e0928",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269365 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47e10c8",
+      "asm": "7FE600F9",
+      "expected": [
+       "60E600F9"
+      ],
+      "source": "wxkeep:269365 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    }
   ],
   "note": "2 entries lack expected bytes (quarantined)"
+ },
+ {
+  "version": "269364",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "47c2b74",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "4a32b60",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     },
+     {
+      "addr": "4efb9f9",
+      "expected": [
+       "84C00F84????????"
+      ],
+      "asm": "30C0",
+      "arch": "x86_64",
+      "source": "wxkeep:parse-guard test→xor 翻转（269364 冗余 silent，2026-09-19 4.1.13 全线回捞轮）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "4a32b60",
+      "asm": "554889E553504889FB",
+      "expected": [
+       "31C0C3909090909090",
+       "554889E553504889FB"
+      ],
+      "source": "wxkeep:269364 keeptip——还原 isRevokemsg（解除 silent）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "4efbf6d",
+      "asm": "4831C06690488983C8010000",
+      "expected": [
+       "E84EB8E9FF488983C8010000"
+      ],
+      "source": "wxkeep:269364 keeptip——v1语义：parse 内 newmsgid 转换call置零（expected 按实读字节；家族恒定 E8+store 形态）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47c2b74",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269364 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47c3314",
+      "asm": "7FE600F9",
+      "expected": [
+       "60E600F9"
+      ],
+      "source": "wxkeep:269364 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "269363",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "47a8e48",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen2"
+     },
+     {
+      "addr": "4a160c0",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "47a8e48",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47a95e8",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "47a8e48",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47a95e8",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "269362",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "47a0ed4",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen2"
+     },
+     {
+      "addr": "4a0e310",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "47a0ed4",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269362 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47a1674",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269362 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "47a0ed4",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269362 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47a1674",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269362 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
  },
  {
   "version": "269341",
@@ -10165,6 +10666,85 @@
    }
   ],
   "note": "2 entries lack expected bytes (quarantined)"
+ },
+ {
+  "version": "269336",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "462e440",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen2"
+     },
+     {
+      "addr": "487ea20",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "462e440",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269336 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "462ebe0",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269336 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "462e440",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269336 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "462ebe0",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269336 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
  },
  {
   "version": "269335",
@@ -12468,6 +13048,322 @@
   "note": "2 entries lack expected bytes (quarantined)"
  },
  {
+  "version": "42530",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "461d894",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen2"
+     },
+     {
+      "addr": "486fa50",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "461d894",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "461e034",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "461d894",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "461e034",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "41754",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "450a128",
+      "arch": "arm64",
+      "asm": "7F000014",
+      "expected": [
+       "E00F0034"
+      ],
+      "source": "recipe:revoke_arm64_gen1"
+     },
+     {
+      "addr": "473b0f0",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "450a128",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:41754 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "450a8bc",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:41754 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "450a128",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:41754 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "450a8bc",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:41754 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "39917",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "488c2d0",
+      "arch": "arm64",
+      "asm": "7F000014",
+      "expected": [
+       "E00F0034"
+      ],
+      "source": "recipe:revoke_arm64_gen1"
+     },
+     {
+      "addr": "4a622d0",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "488c2d0",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "488ca64",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "488c2d0",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "488ca64",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "38959",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "4785910",
+      "arch": "arm64",
+      "asm": "7F000014",
+      "expected": [
+       "E00F0034"
+      ],
+      "source": "recipe:revoke_arm64_gen1"
+     },
+     {
+      "addr": "490d1ce",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "4785910",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:38959 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47860a4",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:38959 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "4785910",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:38959 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47860a4",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:38959 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   }
+  ]
+ },
+ {
   "version": "37342",
   "targets": [
    {
@@ -12508,7 +13404,10 @@
       "arch": "x86_64",
       "addr": "21EC38",
       "asm": "909090909090",
-      "source": "tanranv5/WeChatTweak"
+      "source": "tanranv5/WeChatTweak",
+      "expected": [
+       "0F84130B0000"
+      ]
      }
     ]
    },
@@ -12520,7 +13419,25 @@
       "arch": "x86_64",
       "addr": "4C318A0",
       "asm": "B801000000C3",
-      "source": "tanranv5/WeChatTweak"
+      "source": "tanranv5/WeChatTweak",
+      "expected": [
+       "488B05A9B6D1"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "revoke",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "476c22e",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
      }
     ]
    }
@@ -12706,6 +13623,35 @@
    }
   ],
   "note": "2 entries lack expected bytes (quarantined)"
+ },
+ {
+  "version": "34888",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "addr": "103fc3eb8",
+      "arch": "arm64",
+      "asm": "00008052C0035FD6",
+      "expected": [
+       "F44FBEA9FD7B01A9"
+      ],
+      "source": "recipe:revoke_arm64_gen0（34888=4.1.7.57，2026-10-29 locate 实测）"
+     },
+     {
+      "addr": "1045505ae",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "wxkeep:movabs-revokems 锚+家族序言（34888 x64 手工派生）"
+     }
+    ]
+   }
+  ]
  },
  {
   "version": "34817",
@@ -13098,5 +14044,34 @@
    }
   ],
   "note": "8 entries lack expected bytes (quarantined)"
+ },
+ {
+  "version": "29123",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "addr": "103131410",
+      "arch": "arm64",
+      "asm": "00008052C0035FD6",
+      "expected": [
+       "F44FBEA9FD7B01A9"
+      ],
+      "source": "recipe:revoke_arm64_gen0（29123=4.0.3.93，2026-10-29 locate 实测）"
+     },
+     {
+      "addr": "10353e300",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "wxkeep:movabs-revokems 锚+家族序言（29123 x64 手工派生，9 正调用者语义同 33480 先例）"
+     }
+    ]
+   }
+  ]
  }
 ]
