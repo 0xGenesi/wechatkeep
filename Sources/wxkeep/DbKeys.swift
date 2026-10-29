@@ -262,8 +262,8 @@ extension Wxkeep {
     struct DbKeysCommand: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "dbkeys",
-            abstract: "WeChat 数据库密钥仪器：check 验钥 / capture 捕获 / audit 撤回审计",
-            subcommands: [Check.self, Capture.self, Audit.self])
+            abstract: "WeChat 数据库密钥仪器：check 验钥 / capture 捕获 / audit 撤回审计 / recover 撤回原文复原",
+            subcommands: [Check.self, Capture.self, Audit.self, Recover.self])
 
         // MARK: check
 

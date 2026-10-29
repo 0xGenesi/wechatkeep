@@ -291,6 +291,35 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 81·`wxkeep dbkeys recover` 落地（2026-10-30：复原功能产品化——14,468 条历史撤回原文实弹导出，other 形态与 python 扫描逐条精确一致，222 测全绿）
+
+> 承 80 轮终裁把复原管线产品化。新增 Sources/wxkeep/Recover.swift +
+> RecoverTests（6 测）。
+
+1. **[命令]** `wxkeep dbkeys recover`：灰条行（原地覆写形态 self/other；
+   xml 按 78 轮裁决排除=原消息并存无损失）× FTS 四分片 content 表反查
+   → JSONL 导出（默认用户数据目录 recovered/recovered.jsonl，0600，
+   含聊天内容不入仓库）。选项：--since/--chat 子串过滤/--output/
+   --latest 预览（只出会话/时间/长度）/--stdout 明文直出（用户显式
+   opt-in；默认终端零内容——延续取证纪律）。
+2. **[管线复用]** Audit 的 runSQL/listMsgTables/nameMap/queryTips/
+   hexData/parseTimestamp/fmt 全量复用（零搬运）；Zstd/分类器/
+   WeChatDBFinder/DbKeysStore 共用。FTS 反查批化：会话×local_id 按
+   cap=500 项贪心合批（content 表无 (c4,c1) 索引，批化把全表扫描从
+   4×会话数压到 4×批数；实测 54 批/分片）。多账号正确性：FTS 库按
+   账号枚举逐一反查合并。
+3. **[实弹]** 全量跑通：26,564 候选（python 27,170 差 606=Swift 正确
+   排除的 sysmsg 形态 re-edit 通知）→ **成功 14,468**（self 1975+
+   other 12493；**other 与 python RETAINED 12493 逐条精确一致**）/
+   无 FTS 文档 12,096（非文本原文为主）/ 不可解码 0 / 被同步 0。
+   产物 2.6MB / 399 会话 / 2019-10-31→2026-10-23 / 长度校验 0 错 /
+   灰条模板污染 0 条。
+4. **[测试]** RecoverTests 6 测：isTipDocument（含「原文含撤回字样不
+   误判」边界）/decodeDocument（截断序列拒）/ftsQueryBatches 贪心
+   cap 硬约束+项不丢不重+空输入/RecoveredRecord JSON 回环。222 全绿
+   （216 基线+6）。测试教训：python 式精确串断言会被合法 packing 变
+   化击穿——批切分断言用性质式（cap/守恒/合批）而非精确串。
+
 ## 80·FTS 撤回原文残留终裁（2026-10-29 深夜：复原路线大规模成立——27,170 条原地覆写灰条 54% 原文可复原，synced=0 证明覆写不触发 FTS 同步；机器重启后状态核验 ✓）
 
 > 承 77 续㊶㊷ 读权限做撤回复原实验。此轮由「现在有什么需要试验的」驱动：
