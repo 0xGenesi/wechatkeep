@@ -5,6 +5,8 @@
 
 | 构建号 | 微信版本 | 防撤回(silent) | keeptip | keeptip2 | 屏蔽更新 | 多开 | 备注 |
 |---|---|---|---|---|---|---|---|
+| 270348 | ? | x86_64/arm64 | — | — | — | — |  |
+| 270345 | ? | x86_64/arm64 | — | — | — | — |  |
 | 270135 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 270134 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 270133 | ? | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
@@ -90,4 +92,4 @@
 | 31960 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 31927 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 
-共 84 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
+共 86 个构建号。未知构建号可用 `wxkeep locate` / patch 时的 auto-locate 自动适配（配方签名代不变时）。
