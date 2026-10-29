@@ -247,6 +247,13 @@ hooks 行加签升 P0。
      Keychain。
    - **敏感物清理**：7.86GB 内存转储+harvest 串+全部测试库已删除（转储
      含聊天数据不入档）。扫描器源码 /tmp/*.c（ephemeral，不仓库化）。
+   - **第五轮（KDF 路径终判）**：重倾倒（8.19GB/1205 区域）+重收割
+     25,548 条 HEX96 → **passphrase 假设终判**：WCDB v≤3 = PBKDF2-SHA1
+     ×{4000, 64000}，51,096 次派生验证 0 命中。**五路（raw AES/SM4/hex
+     原钥/hex passphrase/全几何）全部排除——密钥材料要么白盒/包裹态，
+     要么在数据保护 Keychain，要么 WCDB 专有格式使验证签名失效。**
+     战役工具链（倾倒/收割/验证/快速扫描）全入档可复用；格式 RE 需按
+     微信实际嵌入 WCDB 版本单独立项。
 
 5. **[第二轮增补：自营扫描器 bring-up 遇 brew sqlcipher 4.19 格式疑案]**
    自营扫描器（/tmp/scan_dbkey.c，task_for_pid+区域遍历+32B 窗口+
