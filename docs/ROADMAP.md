@@ -267,6 +267,53 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 77 续㊷·库内撤回取证 + dbkeys 仪器化（2026-10-29 同日：灰条原地变身铁证落库、XML 群聊路径补丁洞候选、wxkeep dbkeys check/capture/audit 三子命令上线，214 测全绿）
+
+> 承㊶读权限做两件事：①用库内撤回真身反推/验证我们的写模型；②把
+> 密钥仪器产品化成 CLI 子命令。取证全部只读、内容零打印（只取形态/
+> 时间戳/会话名）。
+
+1. **[撤回灰条原地变身——库内铁证]** 灰条行=原消息行就地覆写：
+   local_id 不变、**create_time 保留原发送时刻**（10:00:28）而
+   `<revoketime>`=10:01:27（撤回时刻，晚 59 秒）、local_type→10000、
+   content→tip 文本，zstd 压缩帧（magic 28B52FFD，WCDB 压缩层）。
+   与 77 续㊳ 静态裁决（revoke=一次原地写）互证。**status≠撤回标志**
+   （status=4 有 21 条普通文本行；撤回身份=type 10000+content 形态）。
+   全库盘点：4215 张会话表、122,499 条系统行、**26,760 条撤回灰条
+   （2019-10→2026-10）**，三形态：self=2831（"你撤回了一条消息"）、
+   other=23733（"昵称" 撤回了一条消息）、xml=198（`<sysmsg
+   type="revokemsg">` 含 revoketime，自撤 re-edit 记账）。
+2. **[revoke 表语义翻案]** general.db 的 `revokemessage` 0 行≠补丁
+   面板——26K 灰条历史下仍 0 行，说明它不是灰条写者的账本（疑似
+   **主动发起撤回的待同步队列**，schema to_user_name/svr_id/revoke_
+   time）；`revokebatchmessage`（5 行）**收消息时即写**（batch_id=
+   消息创建时刻 epoch 毫秒，消息行原样完好）——是接收侧追踪索引，
+   非撤回日志。静态分析的"明文表名=撤回持久层"判断均需修正。
+3. **[补丁洞候选——下轮入口]** 10-24→10-27 群聊**他方撤回**走 XML
+   形态落库成灰条（广告群机器人，日均 10+ 条），而 10-27 骤停、
+   10-28 的 13 条=T5 破窗（270135 未补丁窗口）、10-29 今日 0。两案：
+   ①v1 三点位只护单聊/纯文本识别路径，群聊 XML 路径漏网（真洞）；
+   ②10-24-26 存在补丁空窗（微信滚动更新后未及时重打）。判别实验：
+   群聊小号撤回测 + `wxkeep dbkeys audit --since`——数据面直接出
+   PASS/FAIL。若真洞：在 270135 消费端拓扑（handler 0x45a4948 族）
+   定位群聊撤回写者补第四点位。
+4. **[dbkeys 仪器化]** `wxkeep dbkeys` 三子命令（DbKeys.swift，+13 测）：
+   - **check**：全加密库逐个页 HMAC（stored 优先→secrets 派生晋升），
+     实测 green=36 red=0，派生结果与 python 管线逐字节一致。
+   - **capture**：全自动断点捕获（get-task-allow 预检→pkill→lldb 批
+     模式四连-o→轮询 hits→派生验证→SafeWrite 入库 0600）——密钥
+     轮换/换机时一条命令恢复仪器。
+   - **audit**：撤回灰条审计=补丁有效性数据面。sqlcipher（brew/PATH
+     探测）+裸钥+显式 PRAGMA 读库；UNION 分块（400 表/进程）扫
+     type=10000；zstd dlopen 可选（缺席退化不分类）；`--since` 出
+     **新灰条=0→PASS / >0→FAIL** 并以退出码落地（实测：今日窗口
+     PASS=0、10-28 破窗窗口 FAIL=13 被正确抓出）。
+   - 加密核：CCKeyDerivationPBKDF 缓冲位重解释桥接（`Int8($0)` 对
+     高位字节 trap 教训）+ CryptoKit HMAC-SHA512；RFC 4231/社区向量
+     单测钉死；Swift Testing 宏内禁 mutating 调用（前端崩）教训。
+5. **[纪律]** audit/check 输出永不打印消息内容（只出形态标签/会话名/
+   时间戳）；密钥库 var/dbkeys（gitignored+0600）与仓库隔离。
+
 ## 77 续㊶·SQLCipher 密钥战役翻案终局（2026-10-29：全网调研定路→PBKDF 断点捕获→36/36 逐库 HMAC 全绿→实弹开库读消息——数据层仪器到手）
 
 > 用户令「有需要就全网和 github 都调研下再继续」。调研直接翻案第五轮的
