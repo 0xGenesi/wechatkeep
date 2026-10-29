@@ -43,8 +43,10 @@ from backfill_expected import decompress_if_xz, run  # noqa: E402
 ASSET_FMT = ("https://github.com/zsbai/wechat-versions/releases/download/"
              "{tag}/WeChatMac-{tag}.dmg")   # 仅适用于无前缀点分 tag；其余走 API 真实 URL
 GHFAST = "https://ghfast.top/"
-MIRRORS = [(GHFAST, 8 << 20),               # 快但间歇截断/全灭
-           ("https://gh-proxy.com/", 1 << 20)]  # 2026-10-29 实测可用 ~480KB/s 聚合
+# gh-proxy 优先：ghfast 长发作期每请求挂满 max-time（接受连接不回数据），
+# 8MiB 块 × 3 重试 × ~40 块 = 每 tag 空耗 ~15min。ghfast 恢复后可调回。
+MIRRORS = [("https://gh-proxy.com/", 1 << 20),  # 2026-10-29 实测 ~480KB/s 聚合
+           (GHFAST, 8 << 20)]               # 快但间歇截断/全灭
 CHUNK_WORKERS = 16
 CHUNK = 8 << 20  # 8MiB（ghfast 档；gh-proxy 档各自带块大小）
 
@@ -63,10 +65,21 @@ DEFAULT_TAGS = [
 
 def asset_meta(tag):
     """(size, sha256_hex, url) —— GitHub API 权威值；镜像 content-length 不可信。
-    返回真实 asset 下载 URL（v 前缀/日期后缀 tag 的资产名与 tag 不同构）。"""
+    返回真实 asset 下载 URL（v 前缀/日期后缀 tag 的资产名与 tag 不同构）。
+    认证：GH_TOKEN/GITHUB_TOKEN 环境变量或 gh auth token——匿名 60 次/时
+    限流一轮就耗尽（2026-10-29 实证），多 tag 批必须带 token。"""
+    import subprocess as sp
     import urllib.request
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        r = sp.run(["gh", "auth", "token"], capture_output=True, text=True)
+        if r.returncode == 0:
+            token = r.stdout.strip()
     url = (f"https://api.github.com/repos/zsbai/wechat-versions/releases/tags/{tag}")
-    req = urllib.request.Request(url, headers={"User-Agent": "wxkeep-zsbai"})
+    headers = {"User-Agent": "wxkeep-zsbai"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as r:
         rel = json.load(r)
     size = digest = dl = None
@@ -155,9 +168,18 @@ def _chunked_download(url, want_len, dest, chunk_size):
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def read_plist_defaults(plist, key):
-    r = run(["/usr/bin/defaults", "read", plist, key])
-    return r.stdout.strip() if r.returncode == 0 else None
+def read_plist_defaults(plist, key, tries=4):
+    """macOS 27 hdiutil 连续快速挂/卸同一 dmg 后，挂载点内文件会瞬时
+    stat 不可见（walk 能列名、随后 exists=False——2026-10-29 实证）。
+    重试 + 间隔读，仍败才认 None。"""
+    import time
+    for i in range(tries):
+        r = run(["/usr/bin/defaults", "read", plist, key])
+        if r.returncode == 0:
+            return r.stdout.strip()
+        if i < tries - 1:
+            time.sleep(0.6)
+    return None
 
 
 def mount_layout(dmg_path):
@@ -172,10 +194,24 @@ def mount_layout(dmg_path):
         return None, None
     try:
         app = res_dylib = fw_dylib = main_bin = None
+        # 先定 app 再读 plist——plist 读取必须发生在全树 walk 之前：
+        # macOS 27 上对刚挂载卷做大量 scandir 后，部分文件会进入
+        # stat 不可见的陈旧态（2026-10-29 实证：walk 后 Info.plist
+        # exists=False 而 MacOS/WeChat 仍 True；zsh 新挂载一切正常）。
+        for name in os.listdir(mount):
+            cand = os.path.join(mount, name)
+            if name.endswith(".app") and \
+                    os.path.exists(os.path.join(cand, "Contents", "Info.plist")):
+                app = cand
+                break
+        info = {}
+        if app:
+            info["app"] = os.path.basename(app)
+            for k in ("CFBundleVersion", "WeChatBundleVersion",
+                      "CFBundleShortVersionString"):
+                info[k] = read_plist_defaults(
+                    os.path.join(app, "Contents", "Info.plist"), k)
         for root, _dirs, files in os.walk(mount):
-            if "Info.plist" in files and root.endswith(".app/Contents"):
-                if app is None:  # 多 .app（安装器嵌套）取最外层主 app
-                    app = os.path.dirname(root)
             if "wechat.dylib" in files:
                 p = os.path.join(root, "wechat.dylib")
                 rel = os.path.relpath(p, app if app else mount)
@@ -185,19 +221,24 @@ def mount_layout(dmg_path):
                     fw_dylib = p
             if "WeChat" in files and root.endswith(".app/Contents/MacOS"):
                 main_bin = os.path.join(root, "WeChat")
-        info = {}
-        if app:
-            info["app"] = os.path.basename(app)
-            for k in ("CFBundleVersion", "WeChatBundleVersion",
-                      "CFBundleShortVersionString"):
-                info[k] = read_plist_defaults(os.path.join(app, "Info.plist"), k)
         bins = {}
         for slot, p in (("res", res_dylib), ("fw", fw_dylib), ("main", main_bin)):
             if p and os.path.exists(p):
                 bins[slot] = p
-        return info, bins
+        # 切片提取必须在挂载生命周期内（finally 会卸载卷——bins 路径
+        # 返回后即失效，2026-10-29 实证 slice 解析失败 No such file）
+        slots = {}
+        if bins:
+            build = (info or {}).get("WeChatBundleVersion") \
+                or (info or {}).get("CFBundleVersion")
+            if build and build.isdigit():
+                slots = extract_slices(build, bins, False)
+        return info, bins, slots
     finally:
-        run(["/usr/bin/hdiutil", "detach", mount, "-force"])
+        # 优雅卸载优先——force 会撕掉仍在被扫描的卷，连带毒化同 dmg 的
+        # 下一次挂载（plist 竞态根因之一）
+        if run(["/usr/bin/hdiutil", "detach", mount]).returncode != 0:
+            run(["/usr/bin/hdiutil", "detach", mount, "-force"])
 
 
 SLOT_SUFFIX = {"res": "", "fw": "_fw", "main": "_main"}
@@ -247,7 +288,7 @@ def main():
             if not download(tag, dest):
                 print("    下载失败（双路），跳过", flush=True)
                 continue
-            info, bins = mount_layout(dest)
+            info, bins, slots = mount_layout(dest)
             if info:
                 tagmap[tag] = info.get("CFBundleVersion")
                 json.dump(tagmap, open(tagmap_path, "w"), indent=1, sort_keys=True)
@@ -260,7 +301,8 @@ def main():
                 print(f"    构建号缺失（{info}），跳过", flush=True)
                 log[tag] = {"info": info, "note": "no-build"}
                 continue
-            slots = extract_slices(build, bins, args.keep_dmg)
+            if not slots:
+                slots = extract_slices(build, bins, args.keep_dmg)
             sizes = {s: {n: os.path.getsize(p) for n, p in d.items()}
                      for s, d in slots.items()}
             dup = "（构建号重复，多版本并存已各自入库）" if build in seen_builds else ""

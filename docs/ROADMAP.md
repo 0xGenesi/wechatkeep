@@ -326,9 +326,18 @@ hooks 行加签升 P0。
    216 测全绿（目录结构契约含新构建全过）。
 6. **[3.x 拉取换镜像破局]**：ghfast 长发作期全灭（连 0 字节）；直连
    ~26KB/s 不可用。实测 **gh-proxy.com 可用**（1MiB Range 完整返回、
-   8 路聚合 ~480KB/s）→ fetch_zsbai_full.py 镜像列表化（ghfast 8MiB →
-   gh-proxy 1MiB → 直连回落，逐镜像 sha256 双校验）→ 15 tag（v3.5.5→
-   v3.8.9.17）全线拉取启动（~10min/构建，后台）。
+   16 路聚合实测 480KB/s~1.5MB/s）→ fetch_zsbai_full.py 四修后管线
+   全通（**28564/3.8.9.17 首建落地**，15 tag 全线后台拉取中）：
+   - 镜像列表化（gh-proxy 1MiB 优先 → ghfast 8MiB → 直连回落）；
+   - **GitHub API 认证**（GH_TOKEN/gh auth token——匿名 60 次/时一轮
+     就耗尽，13/15 tag 全 403 的教训）；
+   - **plist 先读后 walk**：macOS 27 上对刚挂载卷做大量 scandir 后部分
+     文件进入 stat 不可见陈旧态（walk 后 Info.plist exists=False 而
+     MacOS/WeChat 仍 True；zsh 新挂载一切正常）——版本读取必须发生
+     在全树扫描前 + 重试；detach 优雅优先（-force 毒化同 dmg 下次挂载）；
+   - **切片提取挪入挂载生命周期**：mount_layout finally 卸载后才
+     extract 的路径 78 轮从未跑到（网络一直挡着）——bins 路径返回即
+     失效的设计缺陷，提取入 try 块内修复。
 7. **[guard 溯源模板修复]**：derive 工具 guard 条目 source 写死「2026-09-19
    4.1.13 回捞轮」→ 中性化（工具+8 staging 就地修）；270349 起新生成
    条目自带正确溯源。
@@ -366,9 +375,22 @@ hooks 行加签升 P0。
    wechat-versions-Mac（3.8.4-.6）。3.0-3.5.4 仍无任何成体系存档。
 
 **工具与纪律**：verify_staging_batch.py（per-family 验证驱动）；
-fetch_zsbai_full.py 镜像列表化；derive 工具 revoke expected 实读校正 +
-guard 溯源中性化；zsbai 15 tag 后台拉取进行中（var/logs/fetch_zsbai_
-3x_20261029.log）。
+fetch_zsbai_full.py 镜像列表化 + API 认证 + plist 先读 + 挂载内切片；
+derive 工具 revoke expected 实读校正 + guard 溯源中性化；zsbai 15 tag
+后台拉取进行中（var/logs/fetch_zsbai_3x_20261029g.log）。
+
+**3.x 派生面首轮侦查（下轮入口，28564/3.8.9.17 已切片入库）**：
+- `revokemsg` 字面量 7 命中/架构，全在 __cstring（3.x 无 movabs SSO 形态
+  ——4.x locate 配方直接跑不中）；其中 `<cgi netstrategy>revokemsg</cgi>`
+  ×2=CGI 路由配置、`revokemsg.db`/`revokemsgtable`=库表名，均非谓词点。
+- **3.x=ObjC 时代，撤回链在方法级**：`onDelMsg:msgData:isRevoke:`
+  （删除执行体，isRevoke 旗标在签名里）、`onAddRevokePromptMsg:msgData:`
+  （提示插入）、`revokeHistoryInChatRoom:...`、`onStartRevokePat:`/
+  `onRevokePatEnd:forUser:n64MsgId:clientMsgId:`（拍一拍撤回？待核）。
+  双变体对位：silent=patch `onDelMsg:...` 早退（保原消息）；
+  keeptip=同上（提示由 onAddRevokePromptMsg 独立插）或另点位——
+  imp 定位 + 语义裁决 + 逐构建验证 = 下轮正课。16 构建素材到齐后
+  用 ObjC 元数据批量定位（选择子→imp→序言实读）。
 
 ## 78·「适配 3 和 4 所有版本」全版本对齐轮（2026-10-29：CDN 路径翻案 + 12 新构建入库（含 4.2.0 双构建全点位）+ XML 洞终裁非洞 + audit 门修正 + cfg_hash 落地，216 测全绿）
 
