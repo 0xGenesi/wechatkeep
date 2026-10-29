@@ -383,14 +383,22 @@ derive 工具 revoke expected 实读校正 + guard 溯源中性化；zsbai 15 ta
 - `revokemsg` 字面量 7 命中/架构，全在 __cstring（3.x 无 movabs SSO 形态
   ——4.x locate 配方直接跑不中）；其中 `<cgi netstrategy>revokemsg</cgi>`
   ×2=CGI 路由配置、`revokemsg.db`/`revokemsgtable`=库表名，均非谓词点。
-- **3.x=ObjC 时代，撤回链在方法级**：`onDelMsg:msgData:isRevoke:`
-  （删除执行体，isRevoke 旗标在签名里）、`onAddRevokePromptMsg:msgData:`
-  （提示插入）、`revokeHistoryInChatRoom:...`、`onStartRevokePat:`/
-  `onRevokePatEnd:forUser:n64MsgId:clientMsgId:`（拍一拍撤回？待核）。
-  双变体对位：silent=patch `onDelMsg:...` 早退（保原消息）；
-  keeptip=同上（提示由 onAddRevokePromptMsg 独立插）或另点位——
-  imp 定位 + 语义裁决 + 逐构建验证 = 下轮正课。16 构建素材到齐后
-  用 ObjC 元数据批量定位（选择子→imp→序言实读）。
+- **3.x=ObjC 时代，撤回链在方法级**；工具 locate_revoke_objc.py 已入库
+  （otool -oV 两遍解析：类头名→方法三元组；裸值/括号两种 imp 形态）。
+  首轮裁决：
+  - `onDelMsg:msgData:isRevoke:`（types v36@0:8@16@24c32，void 返回，
+    裸 ret ABI 安全）= **观察者广播**（37 实现 × 全 UI/服务层）——全补
+    必误伤，非靶点；上游发送者才是目标。
+  - `MMRevokeMsgService` 方法表全 dump（init/dealloc/canRecallMsg:/
+    recallMsgWithChatName:msgData:errorHandler:/sendRevokeRequest:/
+    addRevokeMessageData:/reloadRevokeMsgNode: …）= **自发撤回侧**；
+    `MMRevokeMsgServiceExt`=协议（imp 全 0）。
+  - 收侧执行体候选：`addRevokeMessageData:` 语义待反汇编；或撤回经
+    C++ 核 surfaced 为 onDelMsg 广播（则 keep 策略要找广播源头）。
+    `onAddRevokePromptMsg:msgData:`（176 声明）=提示插入面。
+  - 选择子面在 3.8.6-3.8.9 四构建稳定（387/387/387/382 条目）。
+  - WeChatTweak 3.x 先验=无（其 3.x 时代走 insert_dylib+运行时 swizzle，
+    config.json 历史无 28xxx 静态条目）——自有 RE 是唯一路。
 
 ## 78·「适配 3 和 4 所有版本」全版本对齐轮（2026-10-29：CDN 路径翻案 + 12 新构建入库（含 4.2.0 双构建全点位）+ XML 洞终裁非洞 + audit 门修正 + cfg_hash 落地，216 测全绿）
 
