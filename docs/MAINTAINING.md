@@ -66,6 +66,48 @@ break，会截断追加在尾部的行）。手动定界/新营销线定界用
 永久缺口。残余盲区（记录在案）：base<269633 且公开段 N≥16 的交错布局与
 观察到的单调阶梯矛盾，未扫。
 
+## 3.x 主程序时代构建适配 SOP（83-87 轮沉淀；3.5.5=23440 … 3.8.10.17=28632）
+
+3.x 与 4.x 是两套完全不同的补丁架构：**主程序 `Contents/MacOS/WeChat`
+（PIE）、ObjC 方法级点位（非 C++ 谓词）、裸 ret 补丁（x64 C3 /
+arm64 C0035FD6）**。适配不走 signatures.json 配方，走
+`tools/derive_revoke_3x.py`：
+
+1. **取原包**：zsbai（3.5.5-3.8.9.17，gh-proxy 镜像）或 Rodert 归档
+   （3.8.10.17=28632）。挂载后 **plist 先读**（CFBundleVersion=构建号，
+   见 [[wechatkeep-machine-env]] 陈旧态竞态），fat 主程序双架构切片到
+   `var/wxarm/<b>_main_{arm64,x64}`（**fat_arch 每项 20 字节**，16 步长
+   会错位读到上一项 align）。
+2. **派生**：`PATH=$PWD/var/venv/bin:$PATH python3 tools/derive_revoke_3x.py
+   --build <b>`。谱系表内新构建先在 BUILDS 加 (版本, 入口选择子)——
+   **入口四代改名**：≤3.7.1 `FFToNameFavChatZZ:sessionMsgList:` /
+   3.8.0 `processNewXMLMsg:` / 3.8.1-3.8.2 `onRevokeRoomHistory:` /
+   ≥3.8.4 `onSecMsg:syncMsgList:`。新代际裁决法：撤回 sysmsg 入口 =
+   体内引用 `DelRevokedMsg:msgData:` 选择子的 FFProcessReqsvrZZ 大方法，
+   源码真名靠体内 log 的 `__FUNCTION__` 字面量
+   （`-[MessageService <名>]`——类名/选择子双重混淆都挡不住它）。
+   三重验证门：ownlit（__FUNCTION__ 字面量，双架构全格稳定——arm64
+   3.6.2+ 走 __objc_stubs 无 selector ref 标注，字面量是唯一稳定锚）+
+   x64 selref + 执行体 DeleteMsgListInDB 语义门。产出 staging + var/wxarm
+   产物（revoke/revoke-keeptip/update 三 target）。
+3. **引擎往返**：`python3 tools/verify_staging_batch.py "_main_"`
+   （pristine→patch→幂等→restore→字节级一致）。
+4. **深度门**：L2/L6 计划文件指 `_main_` 切片
+   （`WXKEEP_L2_PLAN`/`WXKEEP_L6_PLAN`，双 JSON
+   `{"build","arm","x64"}`——测试已布局自适应）。
+5. **merge→重签→矩阵**（正序纪律同 4.x）：`merge_staging` →
+   `sign_manifest --key keys/release.key` → `gen_matrix`。
+6. **契约**：Rev3xLineageTests 的 `lineage` 表加新构建（双变体/裸 ret
+   形态/expected 8 字节/位点互斥/update 代际全锁）。
+7. **E2E**：双架构切片 lipo 合成假 bundle（Info.plist 带
+   CFBundleVersion）→ `wxkeep patch/verify/doctor/restore` 全链；
+   verify 行为级 = 逐「已打补丁」位点调用返回（87 轮，arm64 host 实测；
+   x64 host 组合待 Intel 环境——CLT compat 库无 x86_64 切片本机不可
+   链接）。
+8. **多开面**：3.x 无内建单实例锁（85 轮五路证据终裁 N/A），不要给
+   3.x 配 multiInstance 条目——4.x 的锁是 4.0.x+ 时代引入的
+   （社区 binary=None 条目域 31927-34817 是 4.0.x/4.1.x 早期序列）。
+
 ## 已知签名代（arm64 revoke，几何特征）
 
 | 代 | 构建 | cbz 字节 | delta | newmsgid 字段 |
