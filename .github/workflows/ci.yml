@@ -7,18 +7,28 @@ on:
 
 jobs:
   build-and-test:
-    name: Swift ${{ matrix.os }}
+    name: Swift ${{ matrix.os }} / Xcode ${{ matrix.xcode }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-14]
+        # macos-14 于 2026-11-02 退役（brownout 见 runner-images#13518）——
+        # 老工具链腿改为 macos-15 + 钉旧 Xcode：本机 SDK 永远最新，CI 的
+        # 价值在「旧 SDK 也得编译过」（withUnsafeMutableBytes 二义性教训），
+        # 双代 SDK 矩阵不可丢。full=1 的腿额外跑 Rosetta x64/发布冒烟。
+        include:
+          - os: macos-15
+            xcode: latest-stable
+            full: "1"
+          - os: macos-15
+            xcode: "16.4"
+            full: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: ${{ matrix.xcode }}
       - name: Show toolchain
         run: |
           swift --version
@@ -35,20 +45,20 @@ jobs:
       - name: Test
         run: swift test
       - name: Ensure Rosetta (defensive; macos-15 images usually preinstall it)
-        if: matrix.os == 'macos-15'
+        if: matrix.full == '1'
         run: /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
       - name: Test x86_64 under Rosetta
-        if: matrix.os == 'macos-15'
+        if: matrix.full == '1'
         # GitHub 免费 CI 池只有 arm64 runner——x64 路径（mini-loader worker、
         # PLT/GOT 重定向、x64 SSO 探针）零覆盖，问题只能在用户 Intel 机上炸
         # 出来（269631 SIGSEGV 实测链）。Rosetta 下 worker 照常执行映射代码，
         # VerifierTests 的 x64 集成测试在这里跑的就是真 x64 worker 路径。
         run: arch -x86_64 swift test
       - name: Release build (universal smoke)
-        if: matrix.os == 'macos-15'
+        if: matrix.full == '1'
         run: swift build -c release
       - name: CLI smoke
-        if: matrix.os == 'macos-15'
+        if: matrix.full == '1'
         run: |
           .build/release/wxkeep --help
           .build/release/wxkeep versions || true   # no WeChat on runners: expect a clean error
