@@ -7,6 +7,7 @@ import Foundation
 enum RevokeRecovery {
     struct RecoveredRecord: Codable, Equatable {
         var chat: String
+        var name: String?      // 会话显示名（contact.db 解析；缺省=chat）
         var time: Int          // 原消息 create_time（灰条行原地保留）
         var form: String       // self / other
         var localId: Int
@@ -18,6 +19,38 @@ enum RevokeRecovery {
     /// FTS 文档是否为灰条文本（被同步覆盖）——实测 synced=0，此分支仅为防御
     static func isTipDocument(_ text: String) -> Bool {
         text.contains("撤回了一条消息") || text.contains("<sysmsg")
+    }
+
+    /// 会话显示名解析（contact.db 字段 fallback：备注 > 昵称 > 微信号 > 原始 ID）
+    static func displayName(remark: String, nickName: String, alias: String, username: String) -> String {
+        for c in [remark, nickName, alias] where !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return c
+        }
+        return username
+    }
+
+    /// Markdown 报告渲染：会话分组（最近活跃在前），会话内时间升序，原文 blockquote
+    static func renderMarkdown(records: [RecoveredRecord], generatedAt: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.timeZone = .current
+        var out = "# 撤回原文复原报告\n\n"
+        out += "- 生成：\(f.string(from: generatedAt))\n"
+        out += "- 记录：\(records.count) 条 / 会话：\(Set(records.map(\.chat)).count) 个\n\n"
+        let byChat = Dictionary(grouping: records) { $0.chat }
+        for (chat, group) in byChat.sorted(by: { ($0.value.map(\.time).max() ?? 0) > ($1.value.map(\.time).max() ?? 0) }) {
+            let name = group.compactMap(\.name).first ?? chat
+            out += "## \(name)\n\n`\(chat)` · \(group.count) 条\n\n"
+            for r in group.sorted(by: { $0.time < $1.time }) {
+                let who = r.form == "self" ? "我撤回" : "对方撤回"
+                out += "### \(r.time > 0 ? f.string(from: Date(timeIntervalSince1970: TimeInterval(r.time))) : "时间未知") · \(who)\n\n"
+                for line in r.text.split(separator: "\n", omittingEmptySubsequences: false) {
+                    out += "> \(line)\n"
+                }
+                out += "\n"
+            }
+        }
+        return out
     }
 
     /// FTS 文档解码（content 表 c0 为明文 UTF-8，非 zstd）
@@ -66,7 +99,9 @@ extension Wxkeep.DbKeysCommand {
         var since: String?
         @Option(name: .long, help: "只复原会话名含此子串的灰条（wxid / 群 ID）")
         var chat: String?
-        @Option(name: .long, help: "输出 JSONL 路径（默认用户数据目录 recovered/recovered.jsonl，0600）")
+        @Option(name: .long, help: "输出格式：jsonl（默认，机器可读）或 markdown（按会话分组的阅读报告）")
+        var format: OutputFormat = .jsonl
+        @Option(name: .long, help: "输出路径（默认用户数据目录 recovered/recovered.jsonl 或 .md，0600）")
         var output: String?
         @Option(name: .long, help: "sqlcipher 可执行路径（默认 brew/PATH 探测）")
         var sqlcipher: String?
@@ -74,6 +109,10 @@ extension Wxkeep.DbKeysCommand {
         var latest: Int = 0
         @Flag(name: .long, help: "把复原原文直接打印到终端（默认只写文件）")
         var stdout = false
+
+        enum OutputFormat: String, CaseIterable, ExpressibleByArgument {
+            case jsonl, markdown
+        }
 
         mutating func run() throws {
             guard let exe = Audit.resolveSQLCipher(explicit: sqlcipher) else {
@@ -188,41 +227,73 @@ extension Wxkeep.DbKeysCommand {
             }
             print("· FTS 命中分片：\(shardNote)")
 
-            // 4. 复原判定与导出
+            // 4. 会话显示名解析（contact.db：备注 > 昵称 > 微信号）
+            var displayNames: [String: String] = [:]
+            for account in accounts {
+                guard let contact = WeChatDBFinder.encryptedDBs(account: account, live: true)
+                    .first(where: { $0.lastPathComponent == "contact.db" }) else { continue }
+                guard let page = WeChatDBFinder.page1(of: contact), !WeChatDBFinder.isPlain(page) else { continue }
+                let salt = SQLCipherGeometry.saltOfPage1(page: page)
+                guard let key = store.keyFor(basename: contact.lastPathComponent, salt: salt, page: page) else { continue }
+                for line in Audit.runSQL(exe, db: contact, key: key,
+                                         statements: "SELECT username, coalesce(remark,''), coalesce(nick_name,''), coalesce(alias,'') FROM contact;") {
+                    let p = line.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
+                    guard p.count == 4 else { continue }
+                    let username = String(p[0])
+                    displayNames[username] = RevokeRecovery.displayName(
+                        remark: String(p[1]), nickName: String(p[2]),
+                        alias: String(p[3]), username: username)
+                }
+            }
+            print("· 会话名映射 \(displayNames.count) 项")
+
+            // 5. 复原判定与导出
             var records: [RevokeRecovery.RecoveredRecord] = []
             var absent = 0, synced = 0, undecodable = 0
             for t in tips {
                 guard let sid = t.sid, let hex = docs[sid]?[t.localId] else { absent += 1; continue }
                 guard let text = RevokeRecovery.decodeDocument(hex) else { undecodable += 1; continue }
                 if RevokeRecovery.isTipDocument(text) { synced += 1; continue }
+                let resolved = displayNames[t.username]
                 records.append(RevokeRecovery.RecoveredRecord(
-                    chat: t.username, time: t.ts, form: t.form.rawValue,
+                    chat: t.username, name: (resolved != nil && resolved != t.username) ? resolved : nil,
+                    time: t.ts, form: t.form.rawValue,
                     localId: t.localId, db: t.db, length: text.utf8.count, text: text))
             }
             records.sort { $0.time < $1.time }
+            let named = records.filter { $0.name != nil }.count
 
+            let ext = format == .markdown ? "md" : "jsonl"
             let outURL = output.map { URL(fileURLWithPath: $0) }
-                ?? Config.userDataURL.appendingPathComponent("recovered/recovered.jsonl")
+                ?? Config.userDataURL.appendingPathComponent("recovered/recovered.\(ext)")
             try FileManager.default.createDirectory(
                 at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let enc = JSONEncoder()
-            enc.outputFormatting = [.sortedKeys]
-            var payload = Data()
-            for r in records {
-                payload.append((try enc.encode(r)))
-                payload.append(Data("\n".utf8))
+            let payload: Data
+            switch format {
+            case .jsonl:
+                let enc = JSONEncoder()
+                enc.outputFormatting = [.sortedKeys]
+                var data = Data()
+                for r in records {
+                    data.append(try enc.encode(r))
+                    data.append(Data("\n".utf8))
+                }
+                payload = data
+            case .markdown:
+                payload = Data(RevokeRecovery.renderMarkdown(records: records, generatedAt: Date()).utf8)
             }
             try SafeWrite.overwrite(payload, to: outURL)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: outURL.path)
 
-            print("复原结果：成功=\(records.count) 无 FTS 文档（非文本原文为主）=\(absent) 文档不可解码=\(undecodable) 被同步覆盖=\(synced)")
+            print("复原结果：成功=\(records.count)（含显示名 \(named)）无 FTS 文档（非文本原文为主）=\(absent) 文档不可解码=\(undecodable) 被同步覆盖=\(synced)")
             print("输出：\(outURL.path)（0600，含聊天内容——注意保管，勿入仓库）")
             for r in records.suffix(latest).reversed() {
-                print("  \(r.time > 0 ? Audit.fmt(r.time) : "?") [\(r.form)] \(r.chat) (\(r.length)B)")
+                let label = r.name ?? r.chat
+                print("  \(r.time > 0 ? Audit.fmt(r.time) : "?") [\(r.form)] \(label) (\(r.length)B)")
             }
             if stdout {
                 for r in records {
-                    print("---- \(Audit.fmt(max(r.time, 0))) [\(r.form)] \(r.chat)")
+                    print("---- \(Audit.fmt(max(r.time, 0))) [\(r.form)] \(r.name ?? r.chat)")
                     print(r.text)
                 }
             }

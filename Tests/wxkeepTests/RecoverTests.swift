@@ -80,14 +80,51 @@ struct RecoverTests {
 
     @Test func recoveredRecordJSONRoundTrip() throws {
         let r = RevokeRecovery.RecoveredRecord(
-            chat: "wxid_x", time: 1_793_241_600, form: "other",
+            chat: "wxid_x", name: "备注名", time: 1_793_241_600, form: "other",
             localId: 256, db: "message_0.db", length: 9, text: "原始消息文本")
         let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
         let data = try enc.encode(r)
         let back = try JSONDecoder().decode(RevokeRecovery.RecoveredRecord.self, from: data)
         #expect(back == r)
-        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        #expect(obj?["chat"] as? String == "wxid_x")
-        #expect(obj?["text"] as? String == "原始消息文本")
+        // name 缺省（旧文件兼容）可解码为 nil
+        let legacy = #"{"chat":"wxid_y","db":"m.db","form":"self","length":2,"localId":1,"text":"hi","time":5}"#
+        let old = try JSONDecoder().decode(RevokeRecovery.RecoveredRecord.self, from: Data(legacy.utf8))
+        #expect(old.name == nil)
+    }
+
+    // MARK: 显示名解析
+
+    @Test func displayNameFallbackChain() {
+        #expect(RevokeRecovery.displayName(remark: "备注", nickName: "昵称", alias: "wxid", username: "u") == "备注")
+        #expect(RevokeRecovery.displayName(remark: "  ", nickName: "昵称", alias: "wxid", username: "u") == "昵称")
+        #expect(RevokeRecovery.displayName(remark: "", nickName: "", alias: "alias_here", username: "u") == "alias_here")
+        #expect(RevokeRecovery.displayName(remark: "", nickName: "", alias: "", username: "raw_id") == "raw_id")
+    }
+
+    // MARK: Markdown 渲染
+
+    @Test func markdownRenderGroupsAndQuotes() {
+        let records = [
+            RevokeRecovery.RecoveredRecord(chat: "wxid_b", name: "乙", time: 200, form: "other",
+                                           localId: 2, db: "m.db", length: 5, text: "乙的消息"),
+            RevokeRecovery.RecoveredRecord(chat: "wxid_a", name: nil, time: 100, form: "self",
+                                           localId: 1, db: "m.db", length: 9, text: "第一行\n第二行"),
+            RevokeRecovery.RecoveredRecord(chat: "wxid_a", name: nil, time: 150, form: "self",
+                                           localId: 3, db: "m.db", length: 4, text: "后来的"),
+        ]
+        let md = RevokeRecovery.renderMarkdown(records: records, generatedAt: Date(timeIntervalSince1970: 0))
+        #expect(md.contains("# 撤回原文复原报告"))
+        #expect(md.contains("记录：3 条 / 会话：2 个"))
+        // 最近活跃会话在前（wxid_b max=200 > wxid_a max=150）
+        let bRange = md.range(of: "## 乙")!
+        let aRange = md.range(of: "`wxid_a`")!
+        #expect(bRange.lowerBound < aRange.lowerBound)
+        // 会话内时间升序 + 多行 blockquote
+        let first = md.range(of: "第一行")!
+        let third = md.range(of: "后来的")!
+        #expect(first.lowerBound < third.lowerBound)
+        #expect(md.contains("> 第二行"))
+        // 显示名解析与自称标注
+        #expect(md.contains("### ") && md.contains("对方撤回") && md.contains("我撤回"))
     }
 }

@@ -291,6 +291,25 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 82·recover 可用性完善（2026-10-30 同日：会话显示名解析 99.9% + Markdown 阅读报告双格式，224 测全绿）
+
+1. **[显示名解析]** contact.db（12.08 万行，钥在库）读 username→
+   remark/nick_name/alias，纯函数 fallback（备注>昵称>微信号>原始 ID）
+   ——14,468 条复原记录 **14,458 条含显示名（99.9%）**，未解析 10 条
+   =已删除联系人。JSONL 记录加 `name` 字段（可选，旧文件解码兼容）；
+   预览/stdout 同步用显示名。
+2. **[双格式导出]** `--format jsonl|markdown`（默认 jsonl 兼容）：
+   markdown=按会话分组阅读报告（最近活跃会话在前、会话内时间升序、
+   原文多行 blockquote、我撤/他撤标注），1.4MB/399 节/14468 条目实弹
+   验证。默认文件名随格式（recovered.jsonl / recovered.md）。
+3. **[测试]** RecoverTests 增至 8 测：displayName fallback 链
+   （含空白串跳过）/markdown 渲染（分组排序/升序/多行 blockquote/
+   标注）/record name 字段回环+旧文件缺 name 兼容解码。224 全绿
+   （222+2 新+既有 6 recover 测）。
+4. **[教训复犯]** PRAGMA 收尾双引号坑第三次踩（python 探针脚本）——
+   已在 80 轮入册仍犯；本轮起 Swift 侧 runSQL 用参数化拼装不受影响，
+   python 探针一律先跑非空探针。
+
 ## 81·`wxkeep dbkeys recover` 落地（2026-10-30：复原功能产品化——14,468 条历史撤回原文实弹导出，other 形态与 python 扫描逐条精确一致，222 测全绿）
 
 > 承 80 轮终裁把复原管线产品化。新增 Sources/wxkeep/Recover.swift +
