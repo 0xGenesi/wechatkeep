@@ -340,6 +340,37 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 88·真签名 3.x 生命周期验证 + SOP 收口轮（2026-10-31：Resigner 对真 3.x bundle 首测全通；MAINTAINING 补 3.x 专章；发版就绪评估）
+
+> 用户令「继续完善」。发版询问未获答复——按纪律（77 续⑪「soak+tag 均待
+> 用户」）不推进 tag，本轮做真实用户路径的最后未测段。
+
+1. **[真签名 3.x 生命周期首测]**：3.8.10.17 dmg 拷出**真 bundle**（真
+   Info.plist/entitlements/50 code objects）全链：patch --variant silent
+   （revoke 2+update 6 写入）→ **Resigner 50 code objects/5 带
+   entitlements 重签 + codesign --verify --deep --strict OK** → verify
+   行为级 4 位点全返回 → doctor 三 target 状态正确 → restore（再次
+   重签）→ 验签 OK。此前 83-87 的 E2E 全部是假 bundle+--no-resign——
+   **3.x 重签链（真实用户必经路径）就此首验全通**。4.x 侧 Resigner 线
+   （v0.2.13 brew E2E 等）不变。
+2. **[x86_64 交叉链接环境定案]**：本机 CLT 的
+   `libswiftCompatibility56.a` 仅 arm64/arm64e 切片——`swift build
+   --arch x86_64` 链接失败是**环境限制**非代码问题；3.x verify 的
+   x64-host 组合（真件×Rosetta/Intel）与 4.x x64 真件验收同域，worker
+   x64 机械已由 CI Rosetta 全量测试覆盖。无 Xcode.app（xcode-select=
+   CommandLineTools）。教训：`--arch x86_64` 构建失败会弄乱
+   `.build/release` 产物（本轮 wxkeep 二进制消失，重建即恢复）。
+3. **[MAINTAINING 补 3.x 派生 SOP 专章]**：取原包（plist 先读/fat_arch
+   20 字节）→ derive_revoke_3x 三重门与入口四代谱系裁决法
+   （__FUNCTION__ 字面量锚）→ 引擎往返+L2/L6 深度门 → merge→重签→
+   矩阵正序 → Rev3xLineageTests 契约 → E2E 假 bundle 全链 → 多开
+   N/A 边界——83-87 的整条新管线入 SOP，未来会话可复跑。
+4. **[发版就绪评估]**：v0.2.14 落后 28 提交（recover 81/82 + 3.x
+   83-87 + CI 修复）。v0.2.15 内容清单已在案（ROADMAP 81-88 节）；
+   发版门=launch_soak 真跑→tag（均待用户）。**就绪态：代码面全绿
+   （CI 双工具链+227 测+真 bundle 生命周期），一声令下即可走发版
+   SOP**（MAINTAINING 惯例：soak→tag→release→Formula→brew E2E）。
+
 ## 87·3.x 行为验证落地轮（2026-10-31：`wxkeep verify` 对 3.x 从「误导性跳过」升级为真调用级证明——逐位点裸 ret 执行验证；连带修复 worker 垃圾寄存器 UB）
 
 > 用户令「继续完善」。83-85 落地后的产品面盘点发现：verify 对 3.x 走
