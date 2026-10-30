@@ -35,11 +35,11 @@ DEFAULT_SELECTORS = [
     "onAddRevokePromptMsg:msgData:",     # 提示插入（tip 面）
 ]
 
-RE_NAME = re.compile(r"^\s*name\s+0x[0-9a-f]+\s+(\S+)\s*$")
-RE_TYPES = re.compile(r"^\s*types\s+0x[0-9a-f]+\s+(\S+)\s*$")
+RE_NAME = re.compile(r"^\s*name\s+0x[0-9a-f]+(?:\s+\(0x[0-9a-f]+\))?\s+(\S+)\s*$")
+RE_TYPES = re.compile(r"^\s*types\s+0x[0-9a-f]+(?:\s+\(0x[0-9a-f]+\))?\s+(\S+)\s*$")
 RE_IMP = re.compile(r"^\s*imp\s+0x[0-9a-f]+(?:\s+\((0x[0-9a-f]+)\))?\s*$")
 RE_METHODS_HDR = re.compile(
-    r"^\s*(?:base|instance|class)Methods\s+0x[0-9a-f]+")
+    r"^\s*(?:base|instance|class)Methods\s+0x[0-9a-f]+(?:\s+\(0x[0-9a-f]+\))?")
 
 
 def parse_objc(path):
