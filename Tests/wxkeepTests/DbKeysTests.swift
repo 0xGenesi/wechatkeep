@@ -172,12 +172,10 @@ struct DbKeysTests {
         }
     }
 
-    @Test func zstdRoundTripWhenAvailable() throws {
-        guard Zstd.available else {
-            struct ZstdUnavailable: Error {}
-            throw ZstdUnavailable() // libzstd 不可达（CI/纯净机）——分类退化路径已由 classifier 单测覆盖
-        }
-        // 非 zstd 输入原样透传；畸形帧必须失败而非崩溃
+    @Test func zstdDegradedPaths() {
+        // 无 libzstd 环境同样成立（CI Rosetta 实证）：两断言都不依赖库——
+        // 透传走前缀分支、畸形帧走 handle()=nil→nil。swift-testing 里
+        // throw=FAIL 不是 skip（macos-15 CI 首跑揭出的反模式），故无守卫。
         let plain = Data("plain text".utf8)
         #expect(Zstd.decompress(plain) == plain)
         let fakeFrame = Data([0x28, 0xB5, 0x2F, 0xFD]) + Data([0xFF, 0xFF])
