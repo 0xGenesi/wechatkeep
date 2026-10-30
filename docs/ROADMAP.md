@@ -340,6 +340,41 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 89·soak 控制组臂轮（2026-10-31：发版门 soak 红归因→重签链无罪→对照实验升级；门槛=相对控制组零可归因）
+
+> 用户令「继续完善」。发版门第一关（launch_soak）首跑红——归因取证后
+> 把门槛实验设计升级，连带 exoneration 一条重签链疑案。
+
+1. **[soak 红]**：补丁臂 4 份 WeChatAppEx EXC_BREAKPOINT（主进程存活、
+   补丁+重签+strict verify 全链过）。取证三步：
+   ①崩溃进程 procPath=**隔离副本**（/var/folders），非真机实例；
+   ②10-28 同装机件同流程全绿 → 盘面差异 = **AppEx 组件 10-29 00:05
+   热更新**（WeChatAppEx 二进制+框架全量换新，entitlements 对象 8→9：
+   新 AppEx 带 app-sandbox + TEAMID application-identifier）；
+   ③**决定性实验 = 纯 pristine 未重签副本同样复现**（8→13 份 .ips）——
+   **重签链无罪**：新版 AppEx 在第二实例/副本语境 App Sandbox 初始化
+   必崩（libsecinit `_libsecinit_appsandbox.cold.9` 启动即 trap），
+   真机正常使用零 AppEx 崩溃（13 份 .ips 全部副本路径）。
+2. **[门槛实验设计升级]**：绝对「零新增 .ips」断言会被环境噪声污染
+   （组件热更新这类系统事件）——升级为对照实验：
+   - **控制组臂**：pristine 副本（不补丁不重签）先跑同参数浸泡，收
+     环境噪声基线（--no-control 退化为绝对断言，快迭代用）；
+   - **.ips 归因分类**：按 procPath 分副本/真机实例——真机窗口期自身
+     崩溃注记排除（非本实验归因）；
+   - **崩溃身份签名对冲**：procName+procPath+异常类型+首故障帧。
+     **首版实误**：按文件名集合减法——控制组与补丁臂同类崩溃文件名
+     必不同（pid/时间戳），5 份基线与 5 份补丁臂互不能抵；签名比对
+     修复。解析失败的报告保守计可归因。
+3. **[实跑]**：门槛通过（控制组 2 份基线、补丁臂同签名全对冲）。
+   主进程存活/补丁全链/strict verify 断言不变。台账
+   var/logs/launch-soak-20261031-*.txt。**发版门 soak 关绿**——
+   v0.2.15 就绪态补全最后一项门（tag 仍待用户）。
+4. **[AppEx 边界注记]**：AppEx=内嵌 Chromium 运行时，二进制不在我们
+   补丁面（4.x 打 Resources/wechat.dylib）；其热更新独立于主程序版本
+   （CFBundleVersion 仍 270135）——**装机件的 AppEx 自更新会让副本
+   语境 AppEx 必崩**，属微信自身组件行为，后续 soak 由控制组臂自动
+   对冲，无需人工裁决。
+
 ## 88·真签名 3.x 生命周期验证 + SOP 收口轮（2026-10-31：Resigner 对真 3.x bundle 首测全通；MAINTAINING 补 3.x 专章；发版就绪评估）
 
 > 用户令「继续完善」。发版询问未获答复——按纪律（77 续⑪「soak+tag 均待
