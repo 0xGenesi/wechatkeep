@@ -121,18 +121,23 @@ struct L2ReversibilityTests {
             Issue.record("lipo 合成失败: \(lipo.stderr)")
             return
         }
-        let app = work.appendingPathComponent("Fake.app")
-        let resources = app.appendingPathComponent("Contents/Resources")
-        try FileManager.default.createDirectory(
-            at: resources, withIntermediateDirectories: true)
-        let binary = resources.appendingPathComponent("wechat.dylib")
-        try FileManager.default.copyItem(at: fat, to: binary)
 
         let config = try Config.load(explicit: "config.json")
         guard let versionEntry = config.entry(build: build) else {
             Issue.record("build \(build) 不在目录")
             return
         }
+        // 布局自适应（85 轮）：3.x 主程序时代打 Contents/MacOS/WeChat
+        let relative = versionEntry.targets.first.map {
+            $0.binary ?? "Contents/MacOS/WeChat" } ?? "Contents/Resources/wechat.dylib"
+        let app = work.appendingPathComponent("Fake.app")
+        let binaryDir = app
+            .appendingPathComponent("Contents")
+            .appendingPathComponent(String(relative.dropFirst("Contents/".count).split(separator: "/").first.map(String.init) ?? "Resources"))
+        try FileManager.default.createDirectory(
+            at: binaryDir, withIntermediateDirectories: true)
+        let binary = binaryDir.appendingPathComponent((relative as NSString).lastPathComponent)
+        try FileManager.default.copyItem(at: fat, to: binary)
         let allEntries = versionEntry.targets.flatMap(\.entries)
         let pristineSHA = try Manifest.sha256(fileURL: binary)
 
@@ -281,6 +286,10 @@ struct L6DeterminismTests {
             Issue.record("build \(build) 不在目录")
             return
         }
+        // 布局自适应：4.x 时代打 Contents/Resources/wechat.dylib；3.x 主程序
+        // 时代打 Contents/MacOS/WeChat（85 轮 L6 泛化）
+        let relative = versionEntry.targets.first.map {
+            $0.binary ?? "Contents/MacOS/WeChat" } ?? "Contents/Resources/wechat.dylib"
         // 两份独立镜像：各自 fresh lipo（连 lipo 自身的确定性也一并实证）
         var binaries = [URL]()
         var pristineSHAs = [String]()
@@ -292,9 +301,11 @@ struct L6DeterminismTests {
                 return
             }
             let app = work.appendingPathComponent("Fake\(name).app")
-            let resources = app.appendingPathComponent("Contents/Resources")
-            try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
-            let binary = resources.appendingPathComponent("wechat.dylib")
+            let binaryDir = app
+                .appendingPathComponent("Contents")
+                .appendingPathComponent(String(relative.dropFirst("Contents/".count).split(separator: "/").first.map(String.init) ?? "Resources"))
+            try FileManager.default.createDirectory(at: binaryDir, withIntermediateDirectories: true)
+            let binary = binaryDir.appendingPathComponent((relative as NSString).lastPathComponent)
             try FileManager.default.copyItem(at: fat, to: binary)
             try? FileManager.default.removeItem(at: fat)
             binaries.append(binary)

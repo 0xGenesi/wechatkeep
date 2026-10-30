@@ -371,7 +371,16 @@ hooks 行加签升 P0。
    重生（120 builds 不变，四行显示名修正）。
 3. **[收口]**：83 轮遗留②关闭。README「诚实的限制」3.x 条目补「多开
    原生可行」面。全量测试回归（227 全绿）。
-4. **[方法教训]**：xref 扫描的指令长度枚举必须含 movq m64→r64 的 8 字节
+4. **[深度门 3.x 覆盖（同日追加）]**：L2ReversibilityTests/L6Determinism
+   Tests 布局自适应泛化（4.x dylib 布局 ↔ 3.x 主程序 Contents/MacOS/
+   WeChat，按 versionEntry 首目标 binary 判）——3.x 深度门首开：
+   **L2 可逆性 23440+28632 全过**（7 状态迁移全 legal+restore 后整文件
+   sha256==pristine）；**L6 确定性 23440+26638+28632 全过**（双独立
+   lipo+patch 副本 silent/keeptip 输出 sha 恒等，覆盖全部四代入口）。
+5. **[31xxx-32xxx 显示名核实尝试]**：zsbai 117 tags 无构建号命名、
+   CDN HEAD 探测（4.1.0-4.1.3 × 4 构建号）无归档——显示名维持「?」
+   （诚实未知，确证需拉 dmg 读 plist，遗留④保持低优先）。
+6. **[方法教训]**：xref 扫描的指令长度枚举必须含 movq m64→r64 的 8 字节
    形态（本轮初版漏 8 → 假阴性一度误导「机制已换」的搜索方向）；死簇
    判定要 raw+CFString 双面（cstring 零 lea 不够，CFString 槽可能仍被
    adrp 引用）。
