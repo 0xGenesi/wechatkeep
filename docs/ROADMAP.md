@@ -1,6 +1,15 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
-> **2026-10-30 85 轮后状态修订**：①84 轮遗留②**3.x multiInstance 终裁
+> **2026-10-31 90 轮后状态修订**：①**v0.2.15 发版完成**（80-89 全部
+> 工作交付：recover 撤回原文复原 + 3.x 全版本支持 16 构建三面 +
+> verify 行为级 + soak 控制组臂 + CI 迁移）——全链：版本 bump → CI
+> 双 Xcode 矩阵绿 → tag → release run 绿（六资产）→ 资产复验（双架构
+> --version + manifest Ed25519 + openssl 三方互证）→ release notes →
+> Formula 主仓+tap 哈希管道直算 → **brew E2E**（Cellar 0.2.15 +
+> brew 布局 manifest ✓ verified）。②3.x 在册项仅剩真机行为验收
+> （用户窗口）；Windows 立项 GO、T5 hook 真机窗口均待用户。
+
+> **2026-10-30 89 轮后状态修订**：①84 轮遗留②**3.x multiInstance 终裁
 > N/A 关账**——五路证据：23440（3.5.5）无 already-running 串；3.8.x 有
 > 但两架构全死引用（=update 自重启 pid-TASK 协议遗留死数据，CFString
 > 槽零指针）；无拦截对话框串（中英文）；无锁原语实例名（24 个 dispatch
@@ -339,6 +348,31 @@ hooks 行加签升 P0。
    WeChat 库跑扫描器（WCDB 内嵌 sqlcipher 是经典 4.x——扫描器几何
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
+
+## 90·v0.2.15 发版轮（2026-10-31：80-89 全部工作交付；brew E2E 关账）
+
+> 用户「继续」= 发版指令（89 轮已明示就绪态与剩余唯一一步）。按
+> v0.2.13 同款 SOP 全链走完。
+
+1. **[发版链]**：版本常量 0.2.15 → 227 测全绿 → push → CI 双 Xcode
+   矩阵绿 → tag v0.2.15 → release run 绿（universal CLI+runtime dylib
+   交叉构建；Runner 完整 Xcode 做本机 CLT 做不到的双架构）。
+2. **[资产复验]**：六资产（wxkeep/libwxkeep_runtime.dylib/config/
+   signatures/manifest/manifest.sig）全在位；**双架构 --version**（arm64
+   原生 + `arch -x86_64` Rosetta 均 0.2.15）；**manifest Ed25519**
+   （CryptoKit 内嵌公钥）✓ verified；**openssl 三方互证**（OpenSSL 4.0.3
+   独立实现，SPKI DER 手构）签名+两受保护文件哈希全吻合；
+   config.json sha256 `1fe97004…` 与 84 轮签发值逐位一致。
+3. **[release notes]**：三大板块（recover 撤回原文复原/3.x 全版本支持/
+   目录与体验）+ 校验段 + 3.x 行为差异披露（自撤自留）。
+4. **[Formula 主仓+tap]**：六哈希由 release 下载件 `shasum` **管道直算**
+   （防 77 续⑯ 转录笔误事故复发）；desc 补 3.x；tap 仓 main 推送
+   （**分支名是 main 非 master**——src refspec 教训）。brew update →
+   upgrade → **Cellar 0.2.15**（bin 五件套+lib runtime dylib）+
+   **brew 布局 manifest ✓ verified**（`--dir /opt/homebrew/bin` 显式）。
+5. **[发版后状态]**：master=883a727（0.2.15 常量）+Formula 提交；
+   tag/release/notes/tap 全部在公网。在册用户项：3.x 真机行为验收/
+   T5 hook 真机窗口/Windows 立项 GO。
 
 ## 89·soak 控制组臂轮（2026-10-31：发版门 soak 红归因→重签链无罪→对照实验升级；门槛=相对控制组零可归因）
 
