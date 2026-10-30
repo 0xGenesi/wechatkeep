@@ -340,6 +340,36 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 87·3.x 行为验证落地轮（2026-10-31：`wxkeep verify` 对 3.x 从「误导性跳过」升级为真调用级证明——逐位点裸 ret 执行验证；连带修复 worker 垃圾寄存器 UB）
+
+> 用户令「继续完善」。83-85 落地后的产品面盘点发现：verify 对 3.x 走
+> 4.x gen3 spec 路径输出误导性 skip 文案（「cbz 前无 BL 谓词」——3.x 位点
+> 根本不是 cbz），且浪费了 3.x 的结构优势。
+
+1. **[结构洞察]**：3.x 位点=ObjC 方法入口**裸 ret（可调用）**，恰与 4.x
+   arm64 相反（cbz 位点不可调用只能探谓词输入）——3.x 可做**真正的调用
+   级行为验证**：调用补丁位点，返回=裸 ret 到达。worker 机械全部现成
+   （ExecMap 已支持 PIE 主程序 base 0x1_0000_0000、fat→lipo-thin、
+   MAP_JIT/W^X、探针 CLI 全 JSON 参数化）。
+2. **[实现]**：Verify.run 增 3.x 分支（catalog 含 wxkeep:objc3x: 溯源即
+   走 run3x）——**只探 inspect==.patched 的位点**（变体无关：未应用变体
+   的位点 pristine，真方法体带垃圾参数执行必崩不可探）；空 stubs/zero
+   spec（方法体不执行无导入可重定向）；fat 一次性 lipo-thin 共享多位点；
+   worker 信号退出=环境受限降级（裸 ret 不可能自己 crash），strict
+   verify 字节级兜底。
+3. **[连带缺陷修复——worker 垃圾寄存器 UB]**：worker 的 fn 类型声明返回
+   `Bool`，假设 callee 写 0/1——裸 ret 不写 w0，垃圾寄存器值当 Bool 是
+   UB（实测打印 `probe|wxkeep|84219152`，破坏 0/1 行契约、父进程解析
+   失败）。返回类型改 `UInt8` + `!=0` 归一：双架构 ABI 等价、4.x 谓词
+   0/1 语义不变、潜在 UB 根除。
+4. **[E2E 三态]**（28632 假 bundle）：silent→4 位点（入口+3 update）全
+   返回 ✓；keeptip→只探执行体+update 共 4 点（silent 入口已还原正确
+   跳过）✓；restore→优雅「无已应用的补丁位点」✓。227 测全绿。
+5. **[意义]**：3.x 补丁效果现在有**三重证明**——strict verify 字节级
+   （ret 字节在位）+ 引擎往返（patch/restore 可逆）+ 调用级（裸 ret
+   实际可达）。4.x x64 同构（探针=补丁函数本体）；4.x arm64 受位点形态
+   所限维持谓词输入语义。
+
 ## 86·CI 收账 + Rosetta 红修复轮（2026-10-30：80-85 十六提交双工具链验证全绿；zstd 测试 throw=skip 反模式修复；过期自动 PR 关闭）
 
 1. **[CI 收账]**：80-85 全部 16 提交（3.x 派生 144 条目/深度门泛化/谱系

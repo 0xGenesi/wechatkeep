@@ -706,8 +706,13 @@ enum Verifier {
         // withUnsafeMutableBytes yields the element buffer — never &array
         // (that is the array header: pointer+count, not the data).
         guard va >= base, Int(va - base) < mappedSize else { exit(3) }
-        let fn: @convention(c) (UnsafeMutableRawPointer) -> Bool =
-            unsafeBitCast(mapped + Int(va - base), to: (@convention(c) (UnsafeMutableRawPointer) -> Bool).self)
+        // 返回类型必须 UInt8 而非 Bool：Bool 契约假设 callee 写 0/1，但裸
+        // ret（3.x objc3x 位点，87 轮）不写 w0——垃圾寄存器值当 Bool 是
+        // UB（实测打印出 84219152 之类的值，破坏 probe|text|0/1 行契约，
+        // 父进程解析失败）。UInt8 + !=0 归一双架构 ABI 等价，4.x 谓词的
+        // 0/1 语义不变。
+        let fn: @convention(c) (UnsafeMutableRawPointer) -> UInt8 =
+            unsafeBitCast(mapped + Int(va - base), to: (@convention(c) (UnsafeMutableRawPointer) -> UInt8).self)
 
         var out = ""
         for probe in probes {
@@ -716,7 +721,7 @@ enum Verifier {
             if isARM64 {
                 // arm64 SSO：数据 @0、长度字节 @0x17（直接长度）
                 guard var storage = ARM64.ssoProbe(text) else { continue }
-                r = storage.withUnsafeMutableBytes { raw in fn(raw.baseAddress!) }
+                r = storage.withUnsafeMutableBytes { raw in fn(raw.baseAddress!) != 0 }
             } else {
                 // x64 SSO：size<<1 @byte0（LSB=long 旗），短串数据 @+1。
                 // Short-SSO probes only (<23 bytes); long-string construction is
@@ -726,7 +731,7 @@ enum Verifier {
                 var storage = [UInt8](repeating: 0, count: 24)
                 storage[0] = UInt8(bytes.count << 1)
                 for (i, byte) in bytes.enumerated() { storage[1 + i] = byte }
-                r = storage.withUnsafeMutableBytes { raw in fn(raw.baseAddress!) }
+                r = storage.withUnsafeMutableBytes { raw in fn(raw.baseAddress!) != 0 }
             }
             out += "probe|\(text)|\(r ? 1 : 0)\n"
         }

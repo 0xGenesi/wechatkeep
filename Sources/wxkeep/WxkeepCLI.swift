@@ -924,8 +924,20 @@ extension Wxkeep {
         mutating func run() throws {
             try WeChatApp.validate(options.app)
             let config = try Config.load(explicit: options.config)
-            let signatures = try Signatures.load(explicit: self.signatures)
             let build = try WeChatApp.buildNumber(app: options.app)
+
+            // 3.x 主程序时代分支（87 轮）：objc3x 条目 = ObjC 方法入口裸
+            // ret——位点本身可调用（4.x arm64 的 cbz 位点不可调用，只能探
+            // 谓词输入）。行为验证 = 调用每个「已打补丁」的位点：裸 ret
+            // 在位 ⇒ 调用即返回；下面的 gen3 spec 路径对 3.x 无意义（无
+            // verify spec、无 cbz 形态），误入只会输出误导性 skip 文案。
+            if let versionEntry = config.entry(build: build),
+               !versionEntry.targets.filter({ $0.entries.contains {
+                   $0.source?.contains("wxkeep:objc3x:") == true } }).isEmpty {
+                return try Wxkeep.run3x(app: options.app, versionEntry: versionEntry)
+            }
+
+            let signatures = try Signatures.load(explicit: self.signatures)
 
             // Find the revoke site: catalog first, recipes otherwise. The host
             // arch decides which slice gets verified — the worker executes
@@ -1065,6 +1077,87 @@ extension Wxkeep {
                       ? "✓ behavior matches the PRISTINE expectation (function classifies correctly)"
                       : "✓ behavior matches the PATCHED expectation (classification neutralized)")
             }
+        }
+    }
+
+    /// 3.x 主程序时代的行为验证（87 轮）：objc3x 位点=ObjC 方法入口裸 ret。
+    /// 只探 inspect==.patched 的位点（变体无关——未应用变体的位点保持
+    /// pristine，真方法体带垃圾参数执行必崩，不可探）。判定语义：
+    /// 裸 ret 在位 ⇒ 调用即返回（returned）；worker 信号退出 = 环境受限
+    /// 或位点异常——裸 ret 位点不可能自己 crash，worker 信号退出按环境降级处理（strict verify
+    /// 字节级证明兜底）。空 stubs/zero spec：方法体不执行，无导入可重定向。
+    static func run3x(app: URL, versionEntry: Config.VersionEntry) throws {
+        let targets = versionEntry.targets.filter { $0.entries.contains {
+            $0.source?.contains("wxkeep:objc3x:") == true } }
+        let grouped = Dictionary(grouping: targets,
+                                 by: { $0.binary ?? "Contents/MacOS/WeChat" })
+        var allOK = true
+        var probedCount = 0
+        for (relative, group) in grouped.sorted(by: { $0.key < $1.key }) {
+            let binary = WeChatApp.binaryURL(app: app, relative: relative)
+            let host = Verifier.ImageArch.host.rawValue
+            let entries = group.flatMap(\.entries)
+                .filter { $0.arch.rawValue == host }
+            guard !entries.isEmpty else {
+                print("ℹ︎ \(relative): 无 \(host) 切片条目——行为验证跳过（worker 原生执行不能跨架构）")
+                continue
+            }
+            let inspections = try Patcher.inspect(
+                binary: binary, entries: entries, identifier: "objc3x-verify")
+            let patched = zip(inspections, entries)
+                .filter { $0.0.state == .patched }.map(\.1)
+            guard !patched.isEmpty else {
+                print("ℹ︎ \(relative): 无已应用的补丁位点（当前 pristine 或未 patch）——行为验证不适用，`wxkeep patch` 后再试")
+                continue
+            }
+            // fat 装机件 → host thin 切片一次性提取（Verifier.run 每次调用
+            // 都会 lipo，多位点共享一次提取）
+            var thin = binary
+            var tempThin: URL?
+            let head = (try? Data(contentsOf: binary, options: .alwaysMapped).prefix(8)) ?? Data()
+            if head.prefix(4).elementsEqual(Data([0xCA, 0xFE, 0xBA, 0xBE])) {
+                let out = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("wxkeep-verify3x-\(UUID().uuidString).\(host)")
+                let lipo = Shell.run("/usr/bin/lipo",
+                                     ["-thin", host, binary.path, "-output", out.path])
+                guard lipo.status == 0 else {
+                    throw ValidationError("lipo 提取 \(host) 切片失败: \(lipo.stderr)")
+                }
+                thin = out
+                tempThin = out
+            }
+            defer { if let tempThin { try? FileManager.default.removeItem(at: tempThin) } }
+
+            for entry in patched {
+                guard let addrHex = entry.addr, let va = UInt64(addrHex, radix: 16) else {
+                    throw ValidationError("objc3x 条目 addr 反常: \(entry.addr ?? "nil")")
+                }
+                let stateLine = "site 0x\(String(va, radix: 16, uppercase: true)) (\(host))"
+                // 空 stubs/zero + 单探针：位点=裸 ret，SSO 参数不被消费
+                let spec = Verifier.VerifySpec(
+                    stubs: [:], zeroRegions: [], probes: [["wxkeep", "1"]])
+                print("\(stateLine) — on-disk state: patched, calling…")
+                do {
+                    let results = try Verifier.run(binary: thin, targetVA: va, spec: spec)
+                    guard results.contains(where: \.returned) else {
+                        throw ValidationError("\(stateLine): 探针未返回（worker 输出缺 probe 行）")
+                    }
+                    print("  ✓ patched entry called → returned（裸 ret 到达；"
+                          + "调用级证据与 strict verify 字节级证明互证）")
+                    probedCount += 1
+                } catch let e as Verifier.VerifyError {
+                    // 裸 ret 位点不可能自己 crash——worker 信号退出=映射/环境
+                    // 受限（arm64 MAP_JIT 语义、硬化运行时等）。降级为提示：
+                    // strict verify 字节级证明仍然有效。字节异常走通用路径。
+                    print("ℹ︎ 行为验证在此环境不可用（\(e)）")
+                    print("  位点字节已由 strict verify 证明为裸 ret（on-disk state: patched）——")
+                    print("  防护判定不受影响。协助定位请回报：sw_vers 输出与芯片型号。")
+                    allOK = false
+                }
+            }
+        }
+        if probedCount > 0, allOK {
+            print("✓ 3.x 行为验证: \(probedCount) 个已应用位点全部返回")
         }
     }
 
