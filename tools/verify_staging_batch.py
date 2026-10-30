@@ -54,15 +54,20 @@ def run_group(dylib, entries, retries=1):
 def main():
     pats = sys.argv[1:]
     files = sorted(glob.glob(os.path.join(
-        ROOT, "var/wxarm", "*_*.dylib.*.json")))
+        ROOT, "var/wxarm", "*_*.dylib.*.json"))
+        + glob.glob(os.path.join(ROOT, "var/wxarm", "*_main_*.json")))
     files = [f for f in files
              if ".verify.json" not in f and ".verifybatch.json" not in f]
     if pats:
         files = [f for f in files if any(p in f for p in pats)]
     fails = total = 0
     for f in files:
-        base = os.path.basename(f)          # <build>_<arch>.dylib.<build>.<family>.<arch>.json
-        stem = base.split(".dylib", 1)[0] + ".dylib"
+        base = os.path.basename(f)          # <b>_<arch>.dylib.<b>.<family>.<arch>.json
+        # 或 3.x 主程序切片产物 <b>_main_<arch>.<b>.<family>.<arch>.json
+        if "_main_" in base:
+            stem = base.split(".", 1)[0]    # <b>_main_<arch>
+        else:
+            stem = base.split(".dylib", 1)[0] + ".dylib"
         dylib = os.path.join(ROOT, "var/wxarm", stem)
         if not os.path.exists(dylib):
             print(f"  [SKIP] {base}: 无切片")

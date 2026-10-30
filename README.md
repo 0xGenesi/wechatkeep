@@ -77,7 +77,7 @@ wxkeep runtime remove    # 完整移除（幂等）
 
 ## 版本兼容
 
-见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，82 个构建号）。
+见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，120 个构建号——4.x 全线 + **3.x 主程序时代 16 构建（3.5.5→3.8.10.17）双变体双架构**）。
 catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（配方代不变时 day-0 可用），或显式 `wxkeep locate [--append]`。
 
 ## 从源码构建
@@ -103,6 +103,7 @@ docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现 / 工具
 
 ## 诚实的限制
 
+- **3.x 主程序时代（3.5.5-3.8.10.17，16 构建）**：撤回链在 ObjC 方法级（非 4.x 的 C++ 谓词）——silent=撤回 sysmsg 入口裸 ret（原消息保留、无灰条、无落库），keeptip=执行体 `DelRevokedMsg:msgData:` 裸 ret（原消息保留+灰条提示并存）。入口选择子四代改名谱系全裁决（FFToNameFavChatZZ→processNewXMLMsg→onRevokeRoomHistory→onSecMsg，`__FUNCTION__` 字面量+xref 双信号验证门）；引擎级往返 64/64 组全绿。**行为差异（vs 4.x）**：静态裸 ret 无法区分自发/他发撤回——自己撤回时自己的视图同样保留原文（对端仍见已撤回）；拍一拍撤回同样被保留。3.x 无 update 面（Sparkle 在独立 framework，MMUpdateMgr 为其委托层——独立裁决轮范畴）
 - **keeptip 覆盖**：4.1.13 全线 + 4.1.15 全家族双架构对称（revoke-keeptip 每构建 x64+arm64 各 2 点；私聊提示保留，群聊提示为字节路线已知限制——全生态皆然）；silent 双架构全可用
 - **二进制级屏蔽更新**：4.1.13 全线 + 4.1.15 全家族双架构同构 8 点（XAppUpdateManager 四方法+访问器对；270100 真机行为验证，其余同构派生+字节级往返）；269602 为纯 C++ 更新器时代（周期工人→ret 双架构单点）；4.1.12 及更老构建的 arm64 8/9 点来自 zengtianli/fzlzjerry 导入。偏好层三开关（`wxkeep update-guard`，patch 时自动附带）在无二进制目标的构建上兜底
 - verify 的行为验证双架构可用：worker 在 arm64 走 **MAP_JIT 拆分映射**（EXEC 前缀段=MAP_JIT，数据段=普通 RW 匿名映射紧贴其后——macOS 27 的 W^X 是执行级：写态页不可执行、保护态页不可写且 mprotect 全封，代码数据同区即死锁；2026-10-14 最小探针定案），x64 直接 RWX 映射；写入后 `sys_icache_invalidate` + `np(1)` 回保护态再执行。arm64 执行路径已 CI（macos-15）与 **macOS 27 真机**（270100 装机件四探针全对）双端验收；stock arm64 真机无需 AMFI boot-arg

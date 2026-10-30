@@ -1,5 +1,27 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-10-30 83 轮后状态修订**：①79 轮定的「下轮正课」**3.x 条目派生
+> 全线落地**——16 构建（zsbai 15 tag + **3.8.10.17=28632** Rodert 归档
+> 补拉，构建号首度入档）× revoke/revoke-keeptip × 双架构 = 64 条目入
+> config（104→120 构建）；引擎级往返 64/64 组全绿+manifest 重签+
+> COMPATIBILITY 重生+226 测全绿（+Rev3xLineageTests 2 测钉死谱系）。
+> ②**收侧执行体裁决定案**（全网调研+反汇编双路）：WeChatTweak 演进史
+> （onRevokeMsg→FFToNameFavChatZZ→processNewXMLMsg→DelRevokedMsg 最终
+> 形态）+ 我方 28564 反汇编实锤 DelRevokedMsg 全貌（DeleteMsgListInDB+
+> 清任务+notifyDelMsg(isRevoke:YES)+FTS+会话/未读）——**入口方法裸 ret
+> =silent / 执行体裸 ret=keeptip** 两变体模型成立，tip 行落库在调用方
+> （入口内、执行体后）故 keeptip 语义天然成立。③入口四代改名谱系：
+> ≤3.7.1 FFToNameFavChatZZ / 3.8.0 processNewXMLMsg / **3.8.1-3.8.2
+> onRevokeRoomHistory（撤回+房间历史源码合并体，arm64 侧同 Selector
+> 不同源修订实例）** / ≥3.8.4 onSecMsg。④验证门=ownlit（__FUNCTION__
+> 字面量 30/30 全格稳定；arm64 3.6.2+ 走 __objc_stubs 无 selector ref
+> 标注）+x64 selref/DeleteMsgListInDB 语义附加。⑤3.x update 面裁决=
+> 本轮不做（Sparkle 独立 framework+MMUpdateMgr 委托层，多点位独立轮）。
+> ⑥工具：derive_revoke_3x.py 入库；locate_revoke_objc fat_arch 20 字节
+> 步长潜伏 bug 修复（16 步长错位读到上一项 align，28632 实证）；verify_
+> staging_batch 支持 _main_ 切片。**行为差异入档**：静态裸 ret 无法区分
+> 自发/他发（自撤自留）+拍一拍撤回保留——README 诚实的限制已更新。
+
 > **2026-10-29 深夜 79 轮后状态修订**：①「适配 3 和 4 所有版本」推进到
 > **104 构建**（4.2.0 中段 .4-.10 六构建 + 今日新发 4.2.0.13/270349；
 > update 面 82 构建全配齐）；②78 轮侦查点④**关账翻案：XAppUpdateManager
@@ -11,7 +33,8 @@
 > 聚合可用**（镜像列表化入 fetch 工具），15 tag 全线拉取已启动（后台）；
 > ⑤社区互证：WeChatTweak PR#1044（10-29 当天）4.2.0 补丁点 x86_64
 > `0x516B6D0` 与我们 revoke_x64 **逐位一致**；⑥**3.8.10 存在**
-> （Rodert/cntrump 归档）——「3.x 止于 3.8.9.17」假设修正，待补拉。
+> （Rodert/cntrump 归档）——「3.x 止于 3.8.9.17」假设修正，待补拉
+> ~~待补拉~~（83 轮已补拉定案 28632）。
 
 > **2026-10-29 晚 78 轮后状态修订**：①「适配 3 和 4 所有版本」推进到
 > **97 构建**（4.2.0.9/.12 发布次日全点位、4.0.3.93、4.1.7 双序列、
@@ -290,6 +313,85 @@ hooks 行加签升 P0。
    WeChat 库跑扫描器（WCDB 内嵌 sqlcipher 是经典 4.x——扫描器几何
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
+
+## 83·3.x 撤回链派生落地轮（2026-10-30：16 构建×双变体×双架构 64 条目入 catalog，104→120；引擎往返 64/64 全绿，226 测全绿）
+
+> 用户令「继续完成所有未完成的项，最后测试并优化完善软件，遇到问题先
+> 思考再借助全网和 GitHub 调研」。79 轮定的下轮正课（3.x 条目派生：
+> 收侧执行体裁决→逐构建定位→验证→merge）本轮全线落地。
+
+1. **[收侧执行体裁决——全网调研×反汇编双路定案]**：
+   - **WeChatTweak 演进史**（子代理全带 URL 调研）：v1.0.0 hook
+     `MessageService onRevokeMsg:`（2.x）→ v1.2.5 hook `FFProcessReqsvrZZ
+     FFToNameFavChatZZ:sessionMsgList:`（3.0-3.7，即 onRevokeMsg 混淆
+     改名）→ 1.3.5 适配 3.8.0 改 `processNewXMLMsg:sessionMsgList:` →
+     **1.4.0（3.8.1）彻底换 `DelRevokedMsg:msgData:`**（入口再改名放弃）
+     +`notifyAddRevokePromptMsgOnMainThread:`；其吞提示 hook 的存在本身
+     证明 tip 插入在执行体之外。WeChatPlugin-MacOS/Frida demo 同源
+     互证（入口不调 orig=撤回失败原消息保留）。
+   - **我方 28564 x64 反汇编实锤**：`DelRevokedMsg:msgData:`（FFProcess
+     ReqsvrZZ，types v32 void）体内= NSArray 包装→**DeleteMsgListInDB:
+     chatName:isManual:**（DB 删原消息行）→ cleanDownloadTask/
+     cleanUploadTask/cleanupMediaRes → **notifyDelMsgOnMainThread:
+     msgData:isRevoke:YES**（UI 灰条广播）→ notifyFtsDelMsg→会话/未读
+     广播——**收侧删除执行体全貌**。调用方=同类 8KB 大方法（log 的
+     __FUNCTION__ 字面量泄露源码真名 "-[MessageService FFToNameFavChatZZ:
+     sessionMsgList:]"，运行时选择子 onSecMsg:syncMsgList:——**类与
+     选择子双重混淆**，MessageService→FFProcessReqsvrZZ）：GetMsgData:
+     svrId: 取原消息→调 DelRevokedMsg→**addNewMsgToDB 插灰条 tip 行→
+     notifyAddRevokePromptMsg**——tip 落库在入口内、执行体后。
+2. **[补丁模型（静态裸 ret，两方法均 void ABI 安全）]**：
+   - **revoke（silent）**= 入口方法裸 ret（x64 C3/arm64 C0035FD6）——
+     整条撤回处理（删行+清任务+广播+tip 落库）不执行；WeChatTweak
+     ≤1.3.5 吞此入口两年实证。
+   - **revoke-keeptip** = 执行体 DelRevokedMsg 裸 ret——删行/清理/
+     notifyDelMsg 被吞，入口继续插 tip 行→原消息+「xx撤回了一条消息」
+     并存。两变体=不同位点（非 4.x 同位互斥），引擎变体切换还原逻辑
+     天然兼容（restoreTargets 按对方 addr+expected 反演）。
+3. **[入口四代改名谱系定案]**（分发器 xref+__FUNCTION__ 双裁决）：
+   23440-25668（3.5.5-3.7.1）FFToNameFavChatZZ / 26239（3.8.0）
+   processNewXMLMsg / **26638+27289（3.8.1-3.8.2）onRevokeRoomHistory:
+   （与房间历史撤回源码合并体，11.5KB，体内两套 __FUNCTION__ 字面量；
+   arm64 侧同选择子同角色但 types 不同=双架构源修订漂移实例）** /
+   27725+（3.8.4-3.8.9）onSecMsg:syncMsgList:。执行体 DelRevokedMsg:
+   msgData: 16/16 构建双架构唯一实现全程稳定。
+4. **[验证门设计（全 32 格×3 信号实测后定）]**：ownlit 硬门（入口跨度
+   引用自身 __FUNCTION__ 字面量，30/30 全绿——**arm64 3.6.2+ 撤回调用
+   走 __objc_stubs，otool 无 selector ref 标注，字面量是唯一全格稳定
+   锚**）+ x64 附加（入口体内 DelRevokedMsg 选择子引用 15/15+执行体
+   体内 DeleteMsgListInDB 语义铁证）。工具 **derive_revoke_3x.py**
+   入库（谱系表+三重门+staging 产物）。
+5. **[3.8.10.17=28632 补拉]**：Rodert 归档 dmg（370MB，gh-proxy 770KB/s
+   完整下载+sha256 在案）；**构建号首度入档**（3.8.9.17=28564 的后继，
+   3.x 谱系修正闭环）；plist 先读→双架构切片→派生全门通过。3.8.3 无
+   tag=线内天然缺口维持。
+6. **[管线收口]**：引擎级往返 **64/64 组全 PASS**（pristine 门→patch→
+   幂等→restore→字节级一致；verify_staging_batch 扩展 _main_ 切片
+   支持）；merge（diff 对备份恰 64 新键全为 3.x）→ manifest Ed25519
+   重签 → COMPATIBILITY 重生（**120 builds**）→ **226 测全绿**（224
+   +Rev3xLineageTests 2：谱系/双变体/裸 ret 形态/expected 8 字节/位点
+   互斥钉死）。
+7. **[行为差异与边界入档]**：静态裸 ret 无法区分自发/他发撤回——自己
+   撤回时自己的视图同样保留原文（对端仍见已撤回；4.x 侧自撤灰条记账
+   不受影响）；拍一拍撤回（deletePatWrap 路径共享执行体）同样保留；
+   README「诚实的限制」更新。**3.x update 面本轮不做**：MMUpdateMgr=
+   Sparkle 委托层（checkForUpdates:/startBackgroundUpdatesCheck 在主
+   程序，但 Sparkle 本体在独立 framework，多点位独立裁决轮范畴）。
+8. **[附带工具修复]**：locate_revoke_objc **fat_arch 20 字节步长潜伏
+   bug**（16 步长错位读到上一项 align——只吃已切单架构文件故从未触发，
+   28632 直接喂 fat 实证）；正则兼容 arm64 otool 带括号形态（上轮尾巴
+   提交）。
+
+**工具与纪律**：derive_revoke_3x.py（3.x 派生器：谱系表+ownlit/selref/
+DeleteMsgListInDB 三重门）；verify_staging_batch.py（_main_ 切片支持）；
+locate_revoke_objc.py（fat_arch 步长+arm64 正则）；gen_matrix.py（3.x
+显示名 16 条）；Rev3xLineageTests（谱系契约）。
+
+**遗留（下轮入口）**：①3.x update 面（MMUpdateMgr+Sparkle framework
+多点裁决）；②3.x 真机验收（用户窗口：任一 3.x 构建装机跑 silent/
+keeptip 行为面）；③28632 的 zsbai 侧车 sha256 无（Rodert 单源，dmg
+完整性与 size 逐字节核对替代）；④0.x-3.5.4 仍无任何成体系存档
+（历史定案维持）。
 
 ## 82·recover 可用性完善（2026-10-30 同日：会话显示名解析 99.9% + Markdown 阅读报告双格式，224 测全绿）
 

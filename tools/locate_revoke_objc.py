@@ -95,7 +95,9 @@ def thin_slice(path):
     if magic in (0xCAFEBABE, 0xBEBAFECA):
         nfat = struct.unpack_from(">I", d, 4)[0]
         for i in range(nfat):
-            ct, _cs, off, sz, _al = struct.unpack_from(">5I", d, 8 + 16 * i)
+            # fat_arch = 20 字节/项（cputype,cpusub,offset,size,align）——
+            # 16 字节步长会错位读到上一项的 align（28632 实证）
+            ct, _cs, off, sz, _al = struct.unpack_from(">5I", d, 8 + 20 * i)
             if ct == 0x01000007:
                 return "x86_64", d[off:off + sz]
             if ct == 0x0100000C:

@@ -12678,6 +12678,31 @@
       "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
      }
     ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "47a8e48",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47a95e8",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
    }
   ]
  },
@@ -12905,6 +12930,31 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc:setCanCheckForUpdate:@269362"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "47a0ed4",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269362 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47a1674",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269362 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    },
@@ -13615,6 +13665,31 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc:setCanCheckForUpdate:@269336"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "462e440",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269336 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "462ebe0",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269336 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    },
@@ -16197,6 +16272,31 @@
       "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
      }
     ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "461d894",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "461e034",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
    }
   ]
  },
@@ -16424,6 +16524,31 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc:setCanCheckForUpdate:@41754"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "450a128",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:41754 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "450a8bc",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:41754 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    },
@@ -16705,6 +16830,31 @@
       "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
      }
     ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "488c2d0",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "488ca64",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
    }
   ]
  },
@@ -16932,6 +17082,31 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc:setCanCheckForUpdate:@38959"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "4785910",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:38959 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47860a4",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:38959 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    },
@@ -17818,6 +17993,854 @@
        "554889E553504889FB"
       ],
       "source": "wxkeep:movabs-revokems 锚+家族序言（29123 x64 手工派生，9 正调用者语义同 33480 先例）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "28632",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1016f2568",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28632（3.8.10.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012b580c",
+      "expected": [
+       "FF0303D1FC6F06A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28632（3.8.10.17）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100e0cead",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28632（3.8.10.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b7753c",
+      "expected": [
+       "FF8301D1F85F02A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28632（3.8.10.17）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "28564",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1016f8bc8",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28564（3.8.9.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012b8714",
+      "expected": [
+       "FF0303D1FC6F06A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28564（3.8.9.17）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100e15dad",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28564（3.8.9.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b7c36c",
+      "expected": [
+       "FF8301D1F85F02A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28564（3.8.9.17）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "28486",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1016ed791",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28486（3.8.8.18）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012b0a80",
+      "expected": [
+       "FF0303D1FC6F06A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28486（3.8.8.18）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100e0eede",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28486（3.8.8.18）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b7813c",
+      "expected": [
+       "FF8301D1F85F02A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28486（3.8.8.18）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "28245",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1016c6481",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28245（3.8.7）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101295a58",
+      "expected": [
+       "FF0303D1FC6F06A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28245（3.8.7）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100df066e",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28245（3.8.7）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b642ac",
+      "expected": [
+       "FF8301D1F85F02A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28245（3.8.7）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "28076",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1016bb031",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28076（3.8.6）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10128ccc0",
+      "expected": [
+       "FF0303D1FC6F06A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@28076（3.8.6）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100decd9e",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28076（3.8.6）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b6143c",
+      "expected": [
+       "FF8301D1F85F02A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28076（3.8.6）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "27885",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101666441",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@27885（3.8.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10124a590",
+      "expected": [
+       "FF0303D1FC6F06A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@27885（3.8.5）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100da101e",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27885（3.8.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b24f6c",
+      "expected": [
+       "FF8301D1F85F02A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27885（3.8.5）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "27725",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "10165d6c9",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@27725（3.8.4）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10123fff0",
+      "expected": [
+       "FF0303D1FC6F06A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onSecMsg:syncMsgList:@27725（3.8.4）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100d99b72",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27725（3.8.4）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b1bb88",
+      "expected": [
+       "FF8301D1F85F02A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27725（3.8.4）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "27289",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101624183",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onRevokeRoomHistory:@27289（3.8.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10120e7d0",
+      "expected": [
+       "FFC305D1FC6F11A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onRevokeRoomHistory:@27289（3.8.2）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100d779ee",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27289（3.8.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100afe574",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27289（3.8.2）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "26638",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1015298ff",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onRevokeRoomHistory:@26638（3.8.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101140900",
+      "expected": [
+       "FFC305D1FC6F11A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::onRevokeRoomHistory:@26638（3.8.1）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100cbeb52",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@26638（3.8.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100a65f98",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@26638（3.8.1）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "26239",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1014e392a",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::processNewXMLMsg:sessionMsgList:@26239（3.8.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101106cd0",
+      "expected": [
+       "FF4302D1FC6F03A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::processNewXMLMsg:sessionMsgList:@26239（3.8.0）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100c98c72",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@26239（3.8.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100a4633c",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@26239（3.8.0）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "25668",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1013c51db",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@25668（3.7.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10100477c",
+      "expected": [
+       "FF0302D1FC6F02A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@25668（3.7.1）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100c141fc",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@25668（3.7.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1009c9e78",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@25668（3.7.1）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "25067",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101369255",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@25067（3.7.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10130d894",
+      "expected": [
+       "FF8302D1FC6F04A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@25067（3.7.0）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100bd2310",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@25067（3.7.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b90e38",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@25067（3.7.0）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "24456",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1012cbf43",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@24456（3.6.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101276b98",
+      "expected": [
+       "FF8302D1FC6F04A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@24456（3.6.2）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100b80508",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24456（3.6.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b436c4",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24456（3.6.2）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "24205",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101290de3",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@24205（3.6.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10123b804",
+      "expected": [
+       "FF8302D1FC6F04A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@24205（3.6.1）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100b5da90",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24205（3.6.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b213dc",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24205（3.6.1）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "24160",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "10128fa9f",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@24160（3.6.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10123a72c",
+      "expected": [
+       "FF8302D1FC6F04A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@24160（3.6.0）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100b5ded8",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24160（3.6.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100b216b8",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24160（3.6.0）"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "version": "23440",
+  "targets": [
+   {
+    "identifier": "revoke",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1011e6184",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@23440（3.5.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1011953d8",
+      "expected": [
+       "FF4302D1FC6F03A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::FFToNameFavChatZZ:sessionMsgList:@23440（3.5.5）"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "100aff80c",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@23440（3.5.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "100ac4dd8",
+      "expected": [
+       "FF4301D1F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@23440（3.5.5）"
      }
     ]
    }
