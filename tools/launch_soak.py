@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
 """
-launch_soak.py — 补丁后启动浸泡门槛（V3-DEPTH，ROADMAP 73 轮）。
+launch_soak.py — 补丁后启动浸泡门槛（V3-DEPTH，ROADMAP 73 轮；89 轮控制组臂）。
 
-唯一用户可感的端到端客观标准：「打完补丁的微信能启动、活着、零新崩溃」。
-此前该证明是手工动作（真机行为验证）；本工具把它做成可重复的自动化
-对照实验，全程不碰 /Applications 装机件：
+唯一用户可感的端到端客观标准：「打完补丁的微信能启动、活着、相对控制组
+零新增崩溃」。此前该证明是手工动作（真机行为验证）；本工具把它做成可
+重复的自动化对照实验，全程不碰 /Applications 装机件：
 
   1. 前置检查（app 存在 / 装机微信未运行 / 磁盘余量 / wxkeep 二进制在位）
-  2. 隔离副本：clonefile 整个 .app 到 /tmp/wxkeep-soak-<ts>/
-  3. 对副本跑 wxkeep patch（字节写入 + 重签 + strict verify 全链）
-  4. snapshot DiagnosticReports 的 WeChat .ips 清单
-  5. open -n 启动副本 → 浸泡 N 秒 → 断言进程存活
-  6. diff .ips 清单：零新增 WeChat 崩溃报告（客观负控）
-  7. 干净收场（TERM → 等待退出）+ 复本按 --keep 决定去留
+  2. 控制组臂：clonefile 副本 → **原样启动**（不补丁不重签）→ 浸泡 →
+     收集崩溃集 C（环境噪声基线——2026-10-31 实证：AppEx 组件热更新后
+     任何副本语境沙盒初始化即崩，与补丁无关，绝对断言会假红）
+  3. 补丁臂：clonefile 副本 → wxkeep patch（字节写入+重签+strict verify）
+  4. open -n 启动补丁副本 → 浸泡 N 秒 → 断言主进程存活
+  5. 归因：补丁臂新增 .ips 减控制组集合 = **可归因崩溃**；归因集空=门槛
+     通过。每个 .ips 按 procPath 分类（副本/真机实例——真机崩溃非本
+     实验归因，注记排除）
+  6. 干净收场（TERM → 等待退出）+ 副本按 --keep 决定去留
 
---plan 只做 1-3 的前置与计划打印（不启动 GUI）——CI/无人值守可安全验证
-工具链路。真实浸泡（弹登录窗）是用户触发动作：
+--plan 只做前置与计划打印（不启动 GUI）——CI/无人值守可安全验证工具
+链路。真实浸泡（弹登录窗）是用户触发动作：
     python3 tools/launch_soak.py --seconds 45
+--no-control 跳过控制组臂（快迭代用；门槛退化为绝对零新增）。
 
-退出码：0=门槛通过；1=检查失败/浸泡失败；2=出现新崩溃报告。
+退出码：0=门槛通过；1=检查失败/浸泡失败；2=可归因新崩溃报告。
 """
 import argparse
 import datetime
+import json
 import os
 import re
 import shutil
@@ -83,6 +88,60 @@ def snapshot_reports():
             if "wechat" in f.lower() and f.endswith(".ips")}
 
 
+def ips_proc_path(report_file):
+    """读 .ips 的 procPath（首行 meta + 次行 body JSON；解析失败 = None）。"""
+    try:
+        with open(report_file, "r", encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+        _, body = raw.split("\n", 1)
+        return json.loads(body).get("procPath")
+    except Exception:
+        return None
+
+
+def crash_signature(report_file):
+    """崩溃身份签名：procName+procPath+异常类型+首故障帧（镜像+符号）。
+    控制组与补丁臂的同一类崩溃**文件名必不同**（pid/时间戳后缀）——
+    集合对冲必须按身份而非文件名（89 轮实误：按名减法把同类环境崩
+    全判成可归因，5 份基线与 5 份补丁臂互不能抵）。解析失败 = None。"""
+    try:
+        with open(report_file, "r", encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+        _, body = raw.split("\n", 1)
+        b = json.loads(body)
+        exc = str(b.get("exception", {}).get("type", "?"))
+        ft = b.get("faultingThread", 0)
+        threads = b.get("threads", [])
+        imgs = b.get("usedImages", [])
+        frame_sig = "?"
+        if ft < len(threads):
+            frs = threads[ft].get("frames", [])
+            if frs:
+                fr = frs[0]
+                idx = fr.get("imageIndex", 0)
+                img = imgs[idx] if idx < len(imgs) else {}
+                frame_sig = f'{img.get("name", "?")}+{fr.get("symbol", "?")}'
+        return f'{b.get("procName", "?")}|{b.get("procPath", "?")}|{exc}|{frame_sig}'
+    except Exception:
+        return None
+
+
+def classify_reports(names, quarantine):
+    """崩溃报告归因分类：副本进程 / 真机实例 / 未知（解析失败按副本算，
+    保守计入门槛）。真机实例崩溃 = 非本实验归因（soak 全程不碰
+    /Applications，真机窗口期自身崩溃属环境事件）。"""
+    copy_names, real_names, unknown = [], [], []
+    for n in names:
+        path = ips_proc_path(os.path.join(REPORTS_DIR, n))
+        if path is None:
+            unknown.append(n)
+        elif quarantine in path or "/var/folders/" in path:
+            copy_names.append(n)
+        else:
+            real_names.append(n)
+    return copy_names, real_names, unknown
+
+
 def find_wxkeep():
     for cand in [os.path.join(ROOT, ".build/release/wxkeep"),
                  os.path.join(ROOT, ".build/debug/wxkeep"),
@@ -116,6 +175,8 @@ def main():
     ap.add_argument("--plan", action="store_true",
                     help="只打印计划并跑前置检查+隔离打补丁，不启动 GUI")
     ap.add_argument("--keep", action="store_true", help="保留隔离副本（排障）")
+    ap.add_argument("--no-control", action="store_true",
+                    help="跳过控制组臂（快迭代；门槛退化为绝对零新增）")
     args = ap.parse_args()
 
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -141,15 +202,54 @@ def main():
 
     if args.plan:
         print("\n[plan] 后续步骤（soak 模式将执行）：")
+        if not args.no_control:
+            print("  0. 控制组臂：clonefile 副本原样启动（不补丁不重签）→ 浸泡 → 崩溃集 C（环境噪声基线）")
         print("  1. clonefile 副本 → 隔离区")
         print(f"  2. {wxkeep} patch --app <副本> --variant {args.variant}（全链：expected 门+备份+重签+strict verify+WAL journal）")
         print("  3. snapshot DiagnosticReports(WeChat .ips)")
         print("  4. open -n 副本 → 浸泡 → pgrep 存活断言")
-        print("  5. .ips 零新增断言 → TERM 收场")
+        print("  5. 归因：补丁臂新增 .ips 减控制组集合（--no-control=绝对零新增）→ TERM 收场")
         sys.exit(0)
 
     # ---- soak ----
     os.makedirs(quarantine, exist_ok=True)
+
+    # ---- 控制组臂：环境噪声基线（pristine 副本原样启动） ----
+    control_crashes = set()
+    control_copy = os.path.join(quarantine, "control-WeChat.app")
+    if not args.no_control:
+        t0 = time.time()
+        r = sh(["cp", "-cR", args.app, control_copy])   # -c = clonefile（CoW）
+        if r.returncode != 0:
+            print(f"✘ 控制组副本失败: {r.stderr.strip()}")
+            sys.exit(1)
+        cbefore = snapshot_reports()
+        r = sh(["open", "-n", control_copy])
+        if r.returncode != 0:
+            print(f"✘ 控制组 open 失败: {r.stderr.strip()}")
+            sys.exit(1)
+        print(f"✓ 控制组副本已启动（pristine，{time.time()-t0:.1f}s），浸泡 {args.seconds}s …")
+        time.sleep(args.seconds)
+        cprobe = sh(["pgrep", "-f", pgrep_escaped(control_copy + "/Contents/MacOS")])
+        print(f"  控制组进程{'存活（pid ' + cprobe.stdout.strip().split().__str__() + '）' if cprobe.returncode == 0 else '消失'}")
+        for pid in cprobe.stdout.split():
+            sh(["kill", "-TERM", pid])
+        for _ in range(10):
+            time.sleep(1)
+            if sh(["pgrep", "-f", pgrep_escaped(control_copy + "/Contents/MacOS")]).returncode != 0:
+                break
+        else:
+            for pid in cprobe.stdout.split():
+                sh(["kill", "-KILL", pid])
+        time.sleep(2)   # 崩溃报告落盘窗口
+        cfresh = snapshot_reports() - cbefore
+        cc, cr, _ = classify_reports(cfresh, quarantine)
+        control_crashes = set(cc) | set(cr) | set(cfresh)
+        print(f"✓ 控制组收场：环境噪声基线 {len(cfresh)} 份"
+              f"（副本 {len(cc)} / 真机实例 {len(cr)}）")
+        shutil.rmtree(control_copy, ignore_errors=True)
+
+    # ---- 补丁臂 ----
     t0 = time.time()
     r = sh(["cp", "-cR", args.app, copy_app])   # -c = clonefile（CoW，秒级）
     if r.returncode != 0:
@@ -183,8 +283,28 @@ def main():
     time.sleep(2)   # 给崩溃报告落盘留窗口
     after = snapshot_reports()
     fresh = after - before
-    if fresh:
-        print(f"✘ 新增 WeChat 崩溃报告 {len(fresh)} 份: {sorted(fresh)[:3]}")
+    copy_fresh, real_fresh, unknown_fresh = classify_reports(fresh, quarantine)
+    if real_fresh:
+        print(f"  ↳ 真机实例崩溃 {len(real_fresh)} 份（非本实验归因——soak 全程不碰 /Applications，注记排除）")
+    # 归因（按崩溃身份签名）：可归因 = 副本新增 − 控制组同签名复现；
+    # 签名解析失败的报告保守计为可归因
+    control_sigs = {crash_signature(os.path.join(REPORTS_DIR, n))
+                    for n in control_crashes}
+    control_sigs.discard(None)
+    attributable, env_matched = [], []
+    for n in sorted(set(copy_fresh) | set(unknown_fresh)):
+        sig = crash_signature(os.path.join(REPORTS_DIR, n))
+        if sig is not None and sig in control_sigs:
+            env_matched.append(n)
+        else:
+            attributable.append(n)
+    if attributable:
+        print(f"✘ 可归因新崩溃 {len(attributable)} 份: {attributable[:3]}")
+    elif fresh:
+        detail = f"（环境噪声 {len(env_matched)} 份已被控制组同签名复现对冲"
+        if real_fresh:
+            detail += f"；真机实例 {len(real_fresh)} 份非本实验归因"
+        print(f"✓ DiagnosticReports 相对控制组零可归因新增（原始新增 {len(fresh)} 份{detail}）")
     else:
         print("✓ DiagnosticReports 零新增（WeChat .ips 对照为空集）")
 
@@ -207,9 +327,9 @@ def main():
 
     if not alive:
         sys.exit(1)
-    if fresh:
+    if attributable:
         sys.exit(2)
-    print("== 门槛通过：补丁后可启动、存活、零新崩溃 ==")
+    print("== 门槛通过：补丁后可启动、存活、相对控制组零可归因崩溃 ==")
     sys.exit(0)
 
 
