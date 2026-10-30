@@ -104,10 +104,10 @@
 | 34817 | ? | x86_64 ⚠︎ | — | — | — | x86_64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 34371 | 4.1.5 | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
 | 33480 | ? | x86_64/arm64 | — | — | — | — | 4.1.6 夹缝构建（revoke 在主程序，桩代布局）；VA 含 PIE 基址 0x100000000 |
-| 32288 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
-| 32281 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
-| 31960 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
-| 31927 | 3.8.x | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
+| 32288 | ? | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
+| 32281 | ? | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
+| 31960 | ? | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 2 entries lack expected bytes (quarantined) |
+| 31927 | ? | arm64 ⚠︎ | — | — | — | arm64 ⚠︎ | 8 entries lack expected bytes (quarantined) |
 | 29123 | 4.0.3.93 | x86_64/arm64 | — | — | — | — |  |
 | 28632 | 3.8.10.17 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
 | 28564 | 3.8.9.17 | x86_64/arm64 | x86_64/arm64 | — | x86_64/arm64 | — |  |
