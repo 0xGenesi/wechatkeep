@@ -1,5 +1,19 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-10-30 84 轮后状态修订**：①83 轮遗留①**3.x update 面本轮落地**——
+> RE 裁决：Sparkle 本体在独立 framework（主机侧不可字节触达），但**调度
+> 入口在主程序**：MMUpdateMgr.onServiceInit 体内 100% update 专属
+> （sparkleUpdater+startUpdater:+setAutomaticallyChecksForUpdates:+间隔
+> 配置，23440/28564 双端实读）=单点吞掉 Sparkle 定时调度；checkForUpdates:
+> =手动菜单+WeChat.setupCheckUpdateIfNeeded 应用级触发；startBackground
+> UpdatesCheck:=前台后台重查（3.8.2+/27289 起；体=dispatch_after 延迟块
+> +checkForUpdatesInBackground）。**16 构建×双架构 80 条 update 条目入
+> catalog**（老代际 8 构建×2 方法×2 架构+新代际 8×3×2），随 patch 自动
+> 附带；引擎往返 84 组 ALL PASS（3.x 32 组+4.x update 族回归复绿）；
+> 227 测全绿（+updateFaceGenerations 代际契约）；CLI 端到端 28632 复验
+> （patch 附带 6 点/doctor 三态/restore 全还原）。83 轮遗留③28632 单源
+> 无侧车 sha256 维持（完整性=size 逐字节+双架构 ownlit 门代偿）。
+
 > **2026-10-30 83 轮后状态修订**：①79 轮定的「下轮正课」**3.x 条目派生
 > 全线落地**——16 构建（zsbai 15 tag + **3.8.10.17=28632** Rodert 归档
 > 补拉，构建号首度入档）× revoke/revoke-keeptip × 双架构 = 64 条目入
@@ -16,11 +30,11 @@
 > 不同源修订实例）** / ≥3.8.4 onSecMsg。④验证门=ownlit（__FUNCTION__
 > 字面量 30/30 全格稳定；arm64 3.6.2+ 走 __objc_stubs 无 selector ref
 > 标注）+x64 selref/DeleteMsgListInDB 语义附加。⑤3.x update 面裁决=
-> 本轮不做（Sparkle 独立 framework+MMUpdateMgr 委托层，多点位独立轮）。
-> ⑥工具：derive_revoke_3x.py 入库；locate_revoke_objc fat_arch 20 字节
-> 步长潜伏 bug 修复（16 步长错位读到上一项 align，28632 实证）；verify_
-> staging_batch 支持 _main_ 切片。**行为差异入档**：静态裸 ret 无法区分
-> 自发/他发（自撤自留）+拍一拍撤回保留——README 诚实的限制已更新。
+> 83 轮不做（84 轮落地，见上）。⑥工具：derive_revoke_3x.py 入库；
+> locate_revoke_objc fat_arch 20 字节步长潜伏 bug 修复（16 步长错位
+> 读到上一项 align，28632 实证）；verify_staging_batch 支持 _main_ 切片。
+> **行为差异入档**：静态裸 ret 无法区分自发/他发（自撤自留）+拍一拍
+> 撤回保留——README 诚实的限制已更新。
 
 > **2026-10-29 深夜 79 轮后状态修订**：①「适配 3 和 4 所有版本」推进到
 > **104 构建**（4.2.0 中段 .4-.10 六构建 + 今日新发 4.2.0.13/270349；
@@ -313,6 +327,60 @@ hooks 行加签升 P0。
    WeChat 库跑扫描器（WCDB 内嵌 sqlcipher 是经典 4.x——扫描器几何
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
+
+## 84·3.x update 屏蔽面落地轮（2026-10-30：MMUpdateMgr 三方法 80 条目入 catalog，随 patch 自动附带；引擎往返 84 组 ALL PASS，227 测全绿）
+
+> 用户令「继续完善」。83 轮遗留①（3.x update 面）RE 裁决+派生+验证
+> 同日闭环。
+
+1. **[RE 裁决——Sparkle 链接形态与主机侧边界]**：主程序切片无任何 SU*
+   ObjC 类（16 构建实证）——Sparkle 本体在独立 framework，主机侧无法
+   字节触达。但**调度入口全在主程序**，MMUpdateMgr（Sparkle 委托层）三
+   方法覆盖全部触发路径：
+   - `onServiceInit`（v16，16/16 构建）：体内 100% update 专属实读
+     （23440/28564 双端）——sparkleUpdater 初始化+**startUpdater:**
+     （Sparkle 定时调度启动）+setAutomaticallyChecksForUpdates:（3.8.8+）
+     +checkInterval/lastCheckTime 配置。**单点吞掉自动更新调度**=3.x 版
+     XAppUpdateManager.startUpdater 等价物。
+   - `checkForUpdates:`（v24，16/16）：手动菜单（validateMenuItem: 同域）
+     +**WeChat.setupCheckUpdateIfNeeded**（app 级触发，全程在位）+
+     MMBetaReminderWindowController 等四面调用者。
+   - `startBackgroundUpdatesCheck:`（v20，27289+=3.8.2 起 10 构建）：
+     onServiceEnterForeground 前台重查；体=dispatch_after 延迟块+
+     sparkleUpdater.checkForUpdatesInBackground+setLastCheckTime。老构建
+     无此方法（诚实缺席——其调度全在 onServiceInit 的 startUpdater:）。
+   三者全 void 返回，裸 ret ABI 安全（与 4.x update 面同构）。
+2. **[验证门代际实测]**：MMUpdateMgr 方法 ownlit 命中率——onServiceInit/
+   checkForUpdates: 全格；startBackgroundUpdatesCheck: 体小，__FUNCTION__
+   字面量为 **_block_invoke 变体**（闭引号匹配漏）→ update 门放宽为前缀
+   匹配（`"-[MMUpdateMgr <sel>` 前缀，防块变体漏报）。revoke 侧门不动
+   （32/32 闭引号全过）。
+3. **[派生+管线]**：derive_revoke_3x.py 扩展 update 面（可用即收+ownlit
+   门+MMUpdateMgr 溯源）；16 构建立即重派生（老 8 构建×2 方法+新 8×3）
+   ×双架构=**80 条**；引擎往返 **84 组 ALL PASS**（.update. 过滤命中
+   3.x 32 组+4.x update 族 52 组回归复绿）；merge diff 对备份恰 80 新键
+   全为 3.x update（merge 自报 94 系重处理文件计数，以 diff 为准）；
+   manifest 重签；COMPATIBILITY 120 builds（3.x 行「屏蔽更新」列全线
+   点亮）；**227 测全绿**（+updateFaceGenerations：全程方法 16 构建齐备
+   /startBackgroundUpdatesCheck: 代际边界 27289 钉死）。
+4. **[CLI 端到端复验（28632 假 bundle）]**：patch --variant silent 附带
+   revoke 2 点+update 6 点（非 variant 目标自动应用语义天然生效）；
+   doctor 三态独立展示（patch[revoke]/[revoke-keeptip]/[update]）；
+   restore 全还原。update-guard 偏好层文案自洽（二进制面在位构建无需
+   依赖 best-effort 偏好键）。
+5. **[边界维持]**：Sparkle framework 内部（SUUpdater 定时器/下载器）不可
+   达=设计内——但调度启动点 onServiceInit 被吞后 framework 侧永不启动
+   （无 updater 实例即无调度）；3.x 真机行为验收仍待用户窗口（83 轮
+   遗留②）；23440 老 onServiceInit 无 setAutomaticallyChecksForUpdates:
+   （3.5.5 时代 Sparkle 默认开启自动检查）——被 startUpdater: 吞点覆盖，
+   语义等价。
+
+**工具与纪律**：derive_revoke_3x.py（update 面扩展+_block_invoke 前缀
+门）；Rev3xLineageTests（update 代际契约）；无新增外部依赖。
+
+**遗留（下轮入口）**：①3.x 真机行为验收（用户窗口）；②3.x multiInstance
+（3.x 时代多开=单实例互斥点，未 RE——独立小轮）；③28632 单源 sha256
+（维持代偿）；④0.x-3.5.4 无存档（维持）。
 
 ## 83·3.x 撤回链派生落地轮（2026-10-30：16 构建×双变体×双架构 64 条目入 catalog，104→120；引擎往返 64/64 全绿，226 测全绿）
 

@@ -12703,6 +12703,31 @@
       "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
      }
     ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "47a8e48",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47a95e8",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269363 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
    }
   ]
  },
@@ -12930,6 +12955,31 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc:setCanCheckForUpdate:@269362"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "47a0ed4",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269362 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47a1674",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269362 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    },
@@ -13665,6 +13715,31 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc:setCanCheckForUpdate:@269336"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "462e440",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:269336 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "462ebe0",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:269336 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    },
@@ -16297,6 +16372,31 @@
       "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
      }
     ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "461d894",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "461e034",
+      "asm": "7FCE00F9",
+      "expected": [
+       "60CE00F9"
+      ],
+      "source": "wxkeep:42530 keeptip arm64——revoke_arm64_gen2 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
    }
   ]
  },
@@ -16524,6 +16624,31 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc:setCanCheckForUpdate:@41754"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "450a128",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:41754 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "450a8bc",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:41754 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    },
@@ -16855,6 +16980,31 @@
       "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
      }
     ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "488c2d0",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "488ca64",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:39917 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
    }
   ]
  },
@@ -17082,6 +17232,31 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc:setCanCheckForUpdate:@38959"
+     }
+    ]
+   },
+   {
+    "identifier": "revoke-keeptip",
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "arch": "arm64",
+      "addr": "4785910",
+      "asm": "E00F0034",
+      "expected": [
+       "E00F0034",
+       "7F000014"
+      ],
+      "source": "wxkeep:38959 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "47860a4",
+      "asm": "7FB600F9",
+      "expected": [
+       "60B600F9"
+      ],
+      "source": "wxkeep:38959 keeptip arm64——revoke_arm64_gen1 几何派生（cbz 归一 + 存储清零）"
      }
     ]
    },
@@ -18048,6 +18223,66 @@
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28632（3.8.10.17）"
      }
     ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1017dab5a",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28632（3.8.10.17）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017dccb9",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28632（3.8.10.17）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017dcfda",
+      "expected": [
+       "554889E541565348"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28632（3.8.10.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101373110",
+      "expected": [
+       "FF8302D1FA6705A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28632（3.8.10.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101374da8",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28632（3.8.10.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101375028",
+      "expected": [
+       "FF4301D1F44F03A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28632（3.8.10.17）"
+     }
+    ]
    }
   ]
  },
@@ -18099,6 +18334,66 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28564（3.8.9.17）"
+     }
+    ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1017e16e8",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28564（3.8.9.17）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017e3847",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28564（3.8.9.17）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017e3b68",
+      "expected": [
+       "554889E541565348"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28564（3.8.9.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10137635c",
+      "expected": [
+       "FF8302D1FA6705A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28564（3.8.9.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101377ff4",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28564（3.8.9.17）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101378274",
+      "expected": [
+       "FF4301D1F44F03A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28564（3.8.9.17）"
      }
     ]
    }
@@ -18154,6 +18449,66 @@
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28486（3.8.8.18）"
      }
     ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1017d4ab3",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28486（3.8.8.18）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017d6b46",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28486（3.8.8.18）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017d6e49",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28486（3.8.8.18）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10136d548",
+      "expected": [
+       "FF8302D1FA6705A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28486（3.8.8.18）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10136f194",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28486（3.8.8.18）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10136f404",
+      "expected": [
+       "FF8301D1F65703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28486（3.8.8.18）"
+     }
+    ]
    }
   ]
  },
@@ -18205,6 +18560,66 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28245（3.8.7）"
+     }
+    ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1017aca14",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28245（3.8.7）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017aeaa7",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28245（3.8.7）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017aedaa",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28245（3.8.7）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101351aac",
+      "expected": [
+       "FF8302D1FA6705A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28245（3.8.7）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1013536f8",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28245（3.8.7）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101353968",
+      "expected": [
+       "FF8301D1F65703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28245（3.8.7）"
      }
     ]
    }
@@ -18260,6 +18675,66 @@
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@28076（3.8.6）"
      }
     ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1017a1013",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28076（3.8.6）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017a30a6",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28076（3.8.6）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1017a33a9",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28076（3.8.6）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101348818",
+      "expected": [
+       "FF8302D1FA6705A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@28076（3.8.6）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10134a464",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@28076（3.8.6）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10134a6d4",
+      "expected": [
+       "FF8301D1F65703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@28076（3.8.6）"
+     }
+    ]
    }
   ]
  },
@@ -18311,6 +18786,66 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27885（3.8.5）"
+     }
+    ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "10174ac59",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@27885（3.8.5）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "10174ccec",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@27885（3.8.5）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "10174cfef",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@27885（3.8.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101304e88",
+      "expected": [
+       "FF8302D1FA6705A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@27885（3.8.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101306ad4",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@27885（3.8.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101306d44",
+      "expected": [
+       "FF8301D1F65703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@27885（3.8.5）"
      }
     ]
    }
@@ -18366,6 +18901,66 @@
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27725（3.8.4）"
      }
     ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101741101",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@27725（3.8.4）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "101743194",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@27725（3.8.4）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "101743497",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@27725（3.8.4）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012f9e04",
+      "expected": [
+       "FF8302D1FA6705A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@27725（3.8.4）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012fba50",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@27725（3.8.4）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012fbcc0",
+      "expected": [
+       "FF8301D1F65703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@27725（3.8.4）"
+     }
+    ]
    }
   ]
  },
@@ -18417,6 +19012,66 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@27289（3.8.2）"
+     }
+    ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101704902",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@27289（3.8.2）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "101706763",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@27289（3.8.2）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "101706a66",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@27289（3.8.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012c5874",
+      "expected": [
+       "FF8302D1FA6705A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@27289（3.8.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012c72d4",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@27289（3.8.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012c7544",
+      "expected": [
+       "FF8301D1F65703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::startBackgroundUpdatesCheck:@27289（3.8.2）"
      }
     ]
    }
@@ -18472,6 +19127,48 @@
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@26638（3.8.1）"
      }
     ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101608a79",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@26638（3.8.1）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "10160a862",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@26638（3.8.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1011f68fc",
+      "expected": [
+       "FFC301D1F85F03A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@26638（3.8.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1011f830c",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@26638（3.8.1）"
+     }
+    ]
    }
   ]
  },
@@ -18523,6 +19220,48 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@26239（3.8.0）"
+     }
+    ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1015bfb29",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@26239（3.8.0）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "1015c1912",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@26239（3.8.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1011ba5f4",
+      "expected": [
+       "FFC301D1F85F03A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@26239（3.8.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1011bc004",
+      "expected": [
+       "FF8301D1FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@26239（3.8.0）"
      }
     ]
    }
@@ -18578,6 +19317,48 @@
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@25668（3.7.1）"
      }
     ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "10148f46e",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@25668（3.7.1）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "101490ede",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@25668（3.7.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1010a7d60",
+      "expected": [
+       "FFC301D1F85F03A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@25668（3.7.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1010a93d0",
+      "expected": [
+       "FA67BBA9F85F01A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@25668（3.7.1）"
+     }
+    ]
    }
   ]
  },
@@ -18629,6 +19410,48 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@25067（3.7.0）"
+     }
+    ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101431e4c",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@25067（3.7.0）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "10143389b",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@25067（3.7.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1013d26a8",
+      "expected": [
+       "FF0302D1FA6703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@25067（3.7.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1013d41bc",
+      "expected": [
+       "FC6FBAA9FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@25067（3.7.0）"
      }
     ]
    }
@@ -18684,6 +19507,48 @@
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24456（3.6.2）"
      }
     ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "1013815dc",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@24456（3.6.2）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "10138302b",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@24456（3.6.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1013285c0",
+      "expected": [
+       "FF0302D1FA6703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@24456（3.6.2）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10132a0d4",
+      "expected": [
+       "FC6FBAA9FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@24456（3.6.2）"
+     }
+    ]
    }
   ]
  },
@@ -18735,6 +19600,48 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24205（3.6.1）"
+     }
+    ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "10134793e",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@24205（3.6.1）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "10134938d",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@24205（3.6.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012ee224",
+      "expected": [
+       "FF0302D1FA6703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@24205（3.6.1）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012efd38",
+      "expected": [
+       "FC6FBAA9FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@24205（3.6.1）"
      }
     ]
    }
@@ -18790,6 +19697,48 @@
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@24160（3.6.0）"
      }
     ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "10134635e",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@24160（3.6.0）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "101347dad",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@24160（3.6.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012ecec0",
+      "expected": [
+       "FF0302D1FA6703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@24160（3.6.0）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "1012ee9d4",
+      "expected": [
+       "FC6FBAA9FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@24160（3.6.0）"
+     }
+    ]
    }
   ]
  },
@@ -18841,6 +19790,48 @@
       ],
       "asm": "C0035FD6",
       "source": "wxkeep:objc3x:FFProcessReqsvrZZ::DelRevokedMsg:msgData:@23440（3.5.5）"
+     }
+    ]
+   },
+   {
+    "identifier": "update",
+    "binary": "Contents/MacOS/WeChat",
+    "entries": [
+     {
+      "arch": "x86_64",
+      "addr": "101296edd",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@23440（3.5.5）"
+     },
+     {
+      "arch": "x86_64",
+      "addr": "10129892c",
+      "expected": [
+       "554889E541574156"
+      ],
+      "asm": "C3",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@23440（3.5.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "10124222c",
+      "expected": [
+       "FF0302D1FA6703A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::onServiceInit@23440（3.5.5）"
+     },
+     {
+      "arch": "arm64",
+      "addr": "101243d40",
+      "expected": [
+       "FC6FBAA9FA6701A9"
+      ],
+      "asm": "C0035FD6",
+      "source": "wxkeep:objc3x:MMUpdateMgr::checkForUpdates:@23440（3.5.5）"
      }
     ]
    }

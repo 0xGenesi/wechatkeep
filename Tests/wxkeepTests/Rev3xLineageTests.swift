@@ -28,6 +28,11 @@ struct Rev3xLineageTests {
     ]
     static let executorSelector = "DelRevokedMsg:msgData:"
     static let hostClass = "FFProcessReqsvrZZ"
+    /// update 面方法代际（84 轮 RE：onServiceInit=Sparkle 调度启动，全程；
+    /// checkForUpdates:=手动+应用级触发，全程；startBackgroundUpdatesCheck:
+    /// =前台后台重查，3.8.2+/27289 起）
+    static let updateAlways: Set<String> = ["onServiceInit", "checkForUpdates:"]
+    static let updateMinBuild = 27289
 
     private func loadConfig() throws -> Config {
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -40,24 +45,40 @@ struct Rev3xLineageTests {
         for (build, entrySel) in Self.lineage {
             let entry = try #require(config.entry(build: build), "3.x 构建 \(build) 不在目录")
             let ids = Set(entry.targets.map(\.identifier))
-            #expect(ids == ["revoke", "revoke-keeptip"],
-                    "\(build): 目标集 \(ids) 应恰为双变体")
+            #expect(ids == ["revoke", "revoke-keeptip", "update"],
+                    "\(build): 目标集 \(ids) 应恰为 revoke/keeptip/update")
+            let isOld = Int(build)! < Self.updateMinBuild
             for target in entry.targets {
                 #expect(target.binary == "Contents/MacOS/WeChat",
                         "\(build)/\(target.identifier): 3.x 必须打主程序")
-                #expect(target.entries.count == 2,
-                        "\(build)/\(target.identifier): 应双架构各 1 条")
+                let expectedCount: Int
+                if target.identifier == "update" {
+                    expectedCount = isOld ? 4 : 6
+                } else {
+                    expectedCount = 2
+                }
+                #expect(target.entries.count == expectedCount,
+                        "\(build)/\(target.identifier): 应 \(expectedCount) 条，实得 \(target.entries.count)")
                 let archs = Set(target.entries.map(\.arch))
                 #expect(archs == [.x86_64, .arm64],
                         "\(build)/\(target.identifier): 架构集 \(archs)")
                 for e in target.entries {
                     // 溯源必须指向宿主类上的方法级点位；revoke=入口世代名，
-                    // revoke-keeptip=执行体（全程稳定选择子）
-                    let expectedSel = target.identifier == "revoke"
-                        ? entrySel : Self.executorSelector
-                    #expect(e.source?.contains(
-                        "wxkeep:objc3x:\(Self.hostClass)::\(expectedSel)@\(build)") == true,
-                        "\(build)/\(target.identifier)/\(e.arch): source 溯源反常: \(e.source ?? "nil")")
+                    // revoke-keeptip=执行体（全程稳定选择子），update=MMUpdateMgr
+                    let expectedSel: String
+                    switch target.identifier {
+                    case "revoke": expectedSel = entrySel
+                    case "revoke-keeptip": expectedSel = Self.executorSelector
+                    default: expectedSel = ""   // update 面单独校验（下测）
+                    }
+                    if !expectedSel.isEmpty {
+                        #expect(e.source?.contains(
+                            "wxkeep:objc3x:\(Self.hostClass)::\(expectedSel)@\(build)") == true,
+                            "\(build)/\(target.identifier)/\(e.arch): source 溯源反常: \(e.source ?? "nil")")
+                    } else {
+                        #expect(e.source?.contains("wxkeep:objc3x:MMUpdateMgr::") == true,
+                            "\(build)/update/\(e.arch): source 溯源反常: \(e.source ?? "nil")")
+                    }
                     // 形态：裸 ret（void 方法），expected = 8 字节序言
                     #expect(e.asm == (e.arch == .x86_64 ? "C3" : "C0035FD6"),
                         "\(build)/\(target.identifier)/\(e.arch): asm=\(e.asm ?? "nil") 非裸 ret")
@@ -66,6 +87,34 @@ struct Rev3xLineageTests {
                     #expect(Int(e.addr ?? "", radix: 16) != nil,
                         "\(build)/\(target.identifier)/\(e.arch): addr 非十六进制")
                 }
+            }
+        }
+    }
+
+    /// update 面方法代际：全程方法在 16 构建齐备；27289+ 增
+    /// startBackgroundUpdatesCheck:
+    @Test func updateFaceGenerations() throws {
+        let config = try loadConfig()
+        for (build, _) in Self.lineage {
+            guard let entry = config.entry(build: build) else { continue }
+            guard let update = entry.targets.first(where: { $0.identifier == "update" }) else {
+                Issue.record("\(build): 缺 update 目标")
+                continue
+            }
+            let sels = Set(update.entries.compactMap { e -> String? in
+                guard let src = e.source else { return nil }
+                let seg = src.split(separator: "::").dropFirst().first.map(String.init) ?? ""
+                return seg.split(separator: "@").first.map(String.init)
+            })
+            for sel in Self.updateAlways {
+                #expect(sels.contains(sel), "\(build): update 缺全程方法 \(sel)")
+            }
+            if Int(build)! >= Self.updateMinBuild {
+                #expect(sels.contains("startBackgroundUpdatesCheck:"),
+                        "\(build): ≥3.8.2 应有 startBackgroundUpdatesCheck:")
+            } else {
+                #expect(!sels.contains("startBackgroundUpdatesCheck:"),
+                        "\(build): <3.8.2 不该有 startBackgroundUpdatesCheck:")
             }
         }
     }

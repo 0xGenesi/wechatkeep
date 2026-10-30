@@ -50,6 +50,14 @@ import machutil  # noqa: E402
 
 HOST_CLASS = "FFProcessReqsvrZZ"
 EXECUTOR_SEL = "DelRevokedMsg:msgData:"
+# update 面（84 轮 RE 定案）：MMUpdateMgr=Sparkle 委托层，onServiceInit 体内
+# 100% update 专属（sparkleUpdater+startUpdater:+setAutomaticallyChecks
+# ForUpdates:+间隔配置，23440/28564 双端实读）——单点吞掉 Sparkle 调度；
+# checkForUpdates:=手动菜单+WeChat.setupCheckUpdateIfNeeded 应用级触发；
+# startBackgroundUpdatesCheck:=前台后台重查（3.8.2+ 才有）。三者全 void。
+UPDATE_HOST = "MMUpdateMgr"
+UPDATE_METHODS = ["onServiceInit", "checkForUpdates:",
+                  "startBackgroundUpdatesCheck:"]
 # 3.x 版本谱系（ROADMAP 79 轮深夜追加）；3.8.3 无 tag=线内天然缺口
 BUILDS = {
     23440: ("3.5.5", "FFToNameFavChatZZ:sessionMsgList:"),
@@ -86,12 +94,12 @@ def span_refs(dis, lo, hi, needle):
     return False
 
 
-def sole_impl(methods, selector, build):
+def sole_impl(methods, selector, build, host=HOST_CLASS):
     impls = [m for m in methods
-             if m["sel"] == selector and m["class"] == HOST_CLASS and m["imp"]]
+             if m["sel"] == selector and m["class"] == host and m["imp"]]
     if len(impls) != 1:
         raise SystemExit(
-            f"[{build}] {selector}: 期望 {HOST_CLASS} 唯一实现，实得 {len(impls)}")
+            f"[{build}] {selector}: 期望 {host} 唯一实现，实得 {len(impls)}")
     if not impls[0]["types"].startswith("v"):
         raise SystemExit(
             f"[{build}] {selector}: types={impls[0]['types']} 非 void 返回"
@@ -122,6 +130,7 @@ def derive_build(build, ver, entry_sel, dry):
     staging = {"build": str(build), "targets": [
         {"identifier": "revoke", "binary": MAIN_BINARY, "entries": []},
         {"identifier": "revoke-keeptip", "binary": MAIN_BINARY, "entries": []},
+        {"identifier": "update", "binary": MAIN_BINARY, "entries": []},
     ]}
     for arch_key, arch_cfg in (("x64", "x86_64"), ("arm64", "arm64")):
         path = os.path.join(ROOT, "var", "wxarm", f"{build}_main_{arch_key}")
@@ -170,7 +179,43 @@ def derive_build(build, ver, entry_sel, dry):
                     ROOT, "var", "wxarm",
                     f"{build}_main_{arch_key}.{build}.{spec}.{arch_key}.json")
                 json.dump([e], open(out, "w"), ensure_ascii=False, indent=1)
-        marks = "✓ownlit" + ("+selref" if selref else "")
+
+        # update 面：可用即收（startBackgroundUpdatesCheck: 3.8.2+ 才有）；
+        # 每方法 ownlit 硬门（__FUNCTION__ 字面量锁定 imp↔名字）
+        u_n = 0
+        for sel in UPDATE_METHODS:
+            impls = [m for m in methods if m["sel"] == sel
+                     and m["class"] == UPDATE_HOST and m["imp"]]
+            if len(impls) != 1:
+                if impls:
+                    raise SystemExit(
+                        f"[{build}] update {sel}: {len(impls)} 个实现")
+                continue    # 该构建无此方法（代际差异）——诚实缺席
+            m = impls[0]
+            if not m["types"].startswith("v"):
+                raise SystemExit(
+                    f"[{build}] update {sel}: types={m['types']} 非 void")
+            u_nxt = next_imp(methods, m["imp"])
+            # 前缀匹配：小方法体的 __FUNCTION__ 字面量可能是 _block_invoke
+            # 变体（startBackgroundUpdatesCheck: 实证——体=dispatch_after
+            # 延迟块），闭引号形态会漏
+            if not span_refs(dis, m["imp"], u_nxt,
+                             f'"-[MMUpdateMgr {sel}'):
+                raise SystemExit(
+                    f"[{build}/{arch_key}] update {sel} ownlit 失败")
+            off = machutil.va2off(thin, m["imp"])
+            pro = thin[off:off + 16].hex().upper()
+            e = make_entry(arch_cfg, m["imp"], pro,
+                           f"wxkeep:objc3x:{UPDATE_HOST}::{sel}@{build}"
+                           f"（{ver}）")
+            staging["targets"][2]["entries"].append(e)
+            if not dry:
+                out = os.path.join(
+                    ROOT, "var", "wxarm",
+                    f"{build}_main_{arch_key}.{build}.update.{arch_key}.json")
+                json.dump([e], open(out, "w"), ensure_ascii=False, indent=1)
+            u_n += 1
+        marks = "✓ownlit" + ("+selref" if selref else "") + f" +update×{u_n}"
         print(f"[{build}/{arch_key}] {ver} 入口={entry_sel}"
               f"@0x{entry['imp']:x} 执行体@0x{execu['imp']:x} {marks}")
     if not dry:
