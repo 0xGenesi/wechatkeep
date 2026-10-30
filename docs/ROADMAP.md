@@ -340,6 +340,27 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 86·CI 收账 + Rosetta 红修复轮（2026-10-30：80-85 十六提交双工具链验证全绿；zstd 测试 throw=skip 反模式修复；过期自动 PR 关闭）
+
+1. **[CI 收账]**：80-85 全部 16 提交（3.x 派生 144 条目/深度门泛化/谱系
+   修正）推送 master，CI 首跑揭出一处测试缺陷。
+2. **[Rosetta 红修复]**：`zstdRoundTripWhenAvailable` 用 guard+throw 表达
+   「无 libzstd 跳过」——swift-testing 的 throws 测试抛错=记 issue=FAIL
+   **不是 skip**（本地有 homebrew libzstd 从未触发；macos-15 Rosetta
+   x86_64 首跑翻红）。且测试体两断言（非 zstd 透传/畸形帧拒绝）本就不
+   依赖库——透传走前缀分支、畸形帧走 handle()=nil→nil，guard 纯多余。
+   改无条件 `zstdDegradedPaths`，双环境语义一致。教训：swift-testing
+   的条件跳过必须用 `.disabled(if:)/.enabled(if:)` trait，throw 只表达
+   失败。
+3. **[流水线卫生]**：关闭过期自动 PR #1（auto/builds-270345-270348，
+   79 轮已手工收编，自动 PR 语义=重复）——**watch PR 首次真跑后的人工
+   处置闭环**（77 续⑨ 权限开通后的首个待审 PR，处置模式入档：已收编
+   →关闭附因，未收编→按 SOP 审核合入）。
+4. **[新构建巡检]**：watch-wechat 当日 13:47 成功无 PR + 手工 CDN 探测
+   （270350-355/4.2.0.14/4.2.1）复核一致——无新构建。
+5. **[终态]**：CI 三 job 全绿（macos-14 2m46s / macos-15 含 Rosetta
+   9m10s / manifest 签）；本地 227 测全绿。
+
 ## 85·3.x multiInstance 终裁 N/A + 谱系显示名修正轮（2026-10-30：五路证据关账 83 轮遗留②；31xxx-32xxx 错标「3.8.x」翻案）
 
 > 用户令「继续完善」。84 轮遗留②（3.x multiInstance 独立小轮）RE 裁决关账。
