@@ -882,15 +882,14 @@ extension Wxkeep {
                 if WeChatApp.isRunning(app: options.app) {
                     throw ValidationError("WeChat 正在运行。退出后重试。")
                 }
-                // 能力探针（93 轮）：本机策略禁止进程内写化签名代码页时，
-                // 装上的 dylib 每次启动武装必败（T4/T5 机械定案）——默认
-                // 中止，--force 明确要求才装（预期策略变化/复验场景）。
+                // 能力探针（93 轮）：blocked = 进程内武装不可能（T4/T5 机械
+                // 定案）。94 轮 T6 起 blocked 不再拦 install——入口补丁
+                // （磁盘预置跳板+dylib 数据写 SLOT）是被批准的武装路线；
+                // 仅当「探针 blocked 且入口补丁也不可用」时才默认中止。
                 let (verdict, probeLines) = try RuntimeCommand.runCapabilityProbe(app: options.app)
                 for l in probeLines { print(l) }
-                if verdict == "blocked" && !force {
-                    throw ValidationError(
-                        "能力探针判定 blocked（本机 OS 策略拒绝进程内代码页写化）——装上也无法武装。\n"
-                        + "确认要在策略变化的预期下仍安装：加 --force。")
+                if verdict == "blocked" {
+                    print("ℹ︎ 进程内武装不可用——走入口补丁路线（T6）： dylib 启动时数据写 SLOT")
                 }
                 let fm = FileManager.default
                 guard let dylib = resolveDylibPath(explicit: dylib) else {
@@ -923,6 +922,44 @@ extension Wxkeep {
                 }
 
                 let dest = RuntimeCommand.frameworkDylibURL(options.app)
+                // T6（94 轮）：安装期入口补丁——wechat.dylib hook 目标函数入口
+                // 预置「adrp x16,SLOT; ldr; br」+ __DATA 段尾 SLOT。macOS 27
+                // 进程内写化被策略封死后的唯一武装通道（dylib 启动时数据写
+                // SLOT）。补丁失败不阻塞 install（entry-patch-missing 时 dylib
+                // 走旧诊断路径），但如实报告。
+                var entrySlotOK = false
+                do {
+                    let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
+                    let build = try WeChatApp.buildNumber(app: options.app)
+                    if let row = RuntimeConfig.knownHooks.first(where: {
+                        $0.build == build && $0.arch == "arm64" }) {
+                        let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16) ?? 0
+                        if EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil {
+                            // 幂等：入口补丁已在位（重复 install）——无需重写
+                            entrySlotOK = true
+                            print(String(format: "entry-slot: arm64 入口 0x%llx 跳板已在位（幂等）", hookOff))
+                        } else {
+                            let plan = try EntrySlot.planArm64(
+                                file: dylibURL, hookOff: hookOff,
+                                expectedHex: row.expected)
+                            var data = try Data(contentsOf: dylibURL)
+                            data.replaceSubrange(plan.entryFileOffset..<plan.entryFileOffset+12, with: plan.patch12)
+                            try data.write(to: dylibURL)
+                            entrySlotOK = true
+                            print(String(format: "entry-slot: arm64 入口 0x%llx ← 跳板（SLOT 0x%llx @文件 0x%x）",
+                                         plan.entryVA, plan.slotVA, plan.slotFileOffset))
+                        }
+                    } else {
+                        print("ℹ︎ entry-slot: 当前构建无 arm64 hooks 行——入口补丁跳过")
+                    }
+                } catch {
+                    print("ℹ︎ entry-slot: \(error)——dylib 将按未补丁路径诊断")
+                }
+                if verdict == "blocked" && !entrySlotOK && !force {
+                    throw ValidationError(
+                        "能力探针 blocked 且入口补丁不可用——本机无武装通道，装上也无法武装。\n"
+                        + "确认仍要安装（策略变化预期）：加 --force。")
+                }
                 do {
                     try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
                     if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
@@ -1014,6 +1051,32 @@ extension Wxkeep {
                 RuntimeConfig.removeAllMarkers()
                 if lcWasPresent {
                     try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat"])
+                }
+                // T6（94 轮）：还原入口补丁（arm64 hooks 行存在且补丁在位时，
+                // 把 expected 前 12B 写回入口——SLOT 填充随 dylib 移除自然失效，
+                // 但磁盘跳板必须清掉，否则 dylib 不在场时 br x16 → 空 SLOT 崩溃）
+                do {
+                    let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
+                    let build = try WeChatApp.buildNumber(app: options.app)
+                    if let row = RuntimeConfig.knownHooks.first(where: {
+                        $0.build == build && $0.arch == "arm64" }),
+                       let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16),
+                       EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil,
+                       let expected = Data(hex: String(row.expected.prefix(24))) {
+                        // 已补丁态不能用 planArm64（pristine 门会拒）——直接按
+                        // 切片偏移还原 expected 前 12B
+                        let image = try MachImage(file: dylibURL, arch: .arm64)
+                        guard let off = image.sliceRelativeOffset(va: hookOff) else {
+                            throw ValidationError("hook_off 无法换算为文件偏移")
+                        }
+                        let fatOff = image.sliceOffset + off
+                        var data = try Data(contentsOf: dylibURL)
+                        data.replaceSubrange(fatOff..<fatOff+12, with: expected.prefix(12))
+                        try data.write(to: dylibURL)
+                        print(String(format: "entry-slot: 已还原入口 0x%llx（期望字节写回）", hookOff))
+                    }
+                } catch {
+                    print("ℹ︎ entry-slot 还原失败: \(error)——如 dylib 已删且跳板残留，下次启动可能崩溃；用备份恢复 wechat.dylib")
                 }
                 print(lcWasPresent
                       ? "✓ runtime 已移除（备份: \(backup.lastPathComponent)）"

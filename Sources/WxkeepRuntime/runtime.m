@@ -5,6 +5,7 @@
 #import <mach/mach_vm.h>
 #import <mach/thread_act.h>
 #import <mach-o/loader.h>
+#import <dlfcn.h>
 #import <sys/mman.h>
 #import <pthread.h>
 #ifndef MAP_JIT
@@ -180,6 +181,7 @@ static NSString *cstr_sample(const volatile char *src) {
     return local[0] ? @(local) : @"";
 }
 static volatile int32_t g_arm_done;   // 整个进程只装一次（多触发源竞态防御）
+static int g_arm_via_slot;            // T6：经入口补丁 SLOT 数据写武装（vs 旧进程内写阶梯）
 static const char kTarget270099_uuid[] = "97e21436-abda-3b79-bec0-ef2653c6b423";
 static char g_last_uuid[40];     // 回调收到的最后一个镜像 UUID
 static uint8_t g_saved_prologue[16];  // T4 排障：install_hook 序言比对现场快照
@@ -1196,6 +1198,39 @@ static void quiesce_end(void) {
 /// 0 = 生产文件页：mprotect → vm_remap COW 舞步（语义见 install_hook 内
 /// 注释）。失败时 errno/step 已记录（step=2 = 目标页可写化）。
 /// arm64 的 store+icache 在线程静默窗内执行（77 续⑩，见上方块注释）。
+// T6（94 轮）：入口补丁态识别 + SLOT 填充——macOS 27 进程内写化被策略
+// 封死（mprotect errno 13 / COW 写副本 CS 击杀，T5 二分定案）后的唯一
+// 武装通道。CLI 在装机时已把目标函数入口前 12B 改写为
+//   adrp x16, <SLOT 页> ; ldr x16, [x16, #off] ; br x16
+// （SLOT 落 __DATA 段尾文件填充）。本函数解码该形态并把蹦床地址写进
+// SLOT——纯数据写（__DATA RW），合法。
+// 返回：0=已填充；ENOENT=入口无补丁形态（调用方回落旧阶梯）；其余=错误。
+static int try_slot_fill(uintptr_t target, void *trampoline) {
+    const uint32_t br_x16 = 0xD61F0200u;
+    uint32_t w[3];
+    memcpy(w, (const void *)target, 12);
+    // adrp x16: bit31=1, bits28-24=10000, Rd=16
+    if (!((w[0] >> 31) == 1 && ((w[0] >> 24) & 0x1F) == 0x10 && (w[0] & 0x1F) == 16))
+        return ENOENT;
+    // ldr x16, [x16, #imm]
+    if (!((w[1] & 0xFFC00000u) == 0xF9400000u && ((w[1] >> 5) & 0x1F) == 16 && (w[1] & 0x1F) == 16))
+        return ENOENT;
+    if (w[2] != br_x16) return ENOENT;
+    int64_t immlo = (w[0] >> 29) & 0x3;
+    int64_t immhi = (w[0] >> 5) & 0x7FFFF;
+    int64_t imm = (immhi << 2) | immlo;
+    if (imm & (1 << 20)) imm -= (1 << 21);
+    uint64_t page = (target & ~(uint64_t)0xFFF) + ((uint64_t)imm << 12);
+    uint64_t slot = page + (((uint64_t)(w[1] >> 10) & 0xFFF) << 3);
+    // 双写一致性读回（数据写无需 icache；release 语义由 volatile+读回保证）
+    *(volatile uint64_t *)slot = (uint64_t)(uintptr_t)trampoline;
+    os_compiler_barrier();
+    if (*(volatile uint64_t *)slot != (uint64_t)(uintptr_t)trampoline) return EIO;
+    os_log(OS_LOG_DEFAULT, "[wxkeep-runtime] slot-fill ok slot=0x%llx trampoline=0x%llx",
+           (unsigned long long)slot, (unsigned long long)(uintptr_t)trampoline);
+    return 0;
+}
+
 static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_len,
                             int is_arm64, int page_already_writable) {
     uintptr_t page = target & ~(uintptr_t)0xfff;
@@ -1371,6 +1406,13 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     // MAP_JIT SIGBUS 大战同期同硬化）。无 entitlement 的进程（本机实测
     // 2026-10-27）连 COW 后的 mprotect RW 也被拒——该舞步只在带
     // allow-unsigned-executable-memory 的宿主（微信）内成立。
+    // T6（94 轮）：入口补丁态优先——数据写 SLOT 即武装；无补丁形态回落
+    // 旧阶梯（诊断照旧，供未补丁安装与策略回退场景）。
+    int slot_rc = t->is_arm64 ? try_slot_fill(target, tr.mem) : ENOENT;
+    if (slot_rc == 0) {
+        g_arm_via_slot = 1;
+        return 0;
+    }
     if (write_entry_stub(target, tr.stub, tr.stub_len, t->is_arm64, 0) != 0) {
         g_hook_status |= kStInstallFail;   // errno/step 已在公共路径内记录
         // 失败清理：蹦床页归还 + 复位 g_hook（此刻 entry 尚未改写、hook 未
@@ -1463,6 +1505,25 @@ static void try_hook_image(const struct mach_header_64 *hdr, intptr_t slide,
 static void on_image_add(const struct mach_header *mh, intptr_t slide) {
     g_hook_status |= kStCallbackBit;
     g_cb_count++;
+    // T6（94 轮）：wechat.dylib 出现即同步武装。dlopen 的 add_image 通知
+    // 在绑定完成后、初始化器运行前触发——SLOT 必须在这个窗口填充：初始化
+    // 器/早期消息管线就会调 parse，SLOT=0 时 br x16 → 空 SLOT 崩溃（副本
+    // 实测 2026-10-31：500ms 重试输了与初始化器的竞速）。名字识别
+    // （dladdr）不走 uuid——uuid 门在历史运行中位形粘滞。
+    {
+        Dl_info info;
+        if (dladdr((const void *)mh, &info) && info.dli_fname) {
+            const char *leaf = strrchr(info.dli_fname, '/');
+            leaf = leaf ? leaf + 1 : info.dli_fname;
+            if (strcmp(leaf, "wechat.dylib") == 0) {
+                strlcpy(g_probe_name, "callback-wechat-slotfill", sizeof(g_probe_name));
+                const struct mach_header_64 *h64 = (const struct mach_header_64 *)mh;
+                if (match_target(h64, (size_t)-1) != NULL) {
+                    try_hook_image(h64, slide, (size_t)-1);
+                }
+            }
+        }
+    }
     {
         // 记录最后一个到达镜像的 UUID（诊断：wechat.dylib 是否经过回调）
         const uint8_t *p = (const uint8_t *)mh + sizeof(struct mach_header_64);
@@ -1820,10 +1881,10 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
                               NSHomeDirectory()];
             NSMutableString *acc = [NSMutableString stringWithContentsOfFile:boot
                                                                     encoding:NSUTF8StringEncoding error:nil];
-            [acc appendFormat:@"late20s installed=%d status=%d cb=%d last_uuid=%s scanmiss=%d istep=%d errno=%d prologue=",
+            [acc appendFormat:@"late20s installed=%d status=%d cb=%d last_uuid=%s scanmiss=%d istep=%d errno=%d slot=%d prologue=",
                 g_hook_installed, g_hook_status, g_cb_count,
                 g_last_uuid[0] ? g_last_uuid : "<none>", g_scan_missed,
-                g_install_step, g_install_errno];
+                g_install_step, g_install_errno, g_arm_via_slot];
             if (g_saved_prologue_valid) {
                 for (int k = 0; k < 16; k++) [acc appendFormat:@"%02x", g_saved_prologue[k]];
             } else {

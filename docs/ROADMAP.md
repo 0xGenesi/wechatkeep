@@ -1,5 +1,12 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-10-31 94 轮后状态修订**：用户批立项三项并开工——**T6**（runtime
+> 复活·安装期入口补丁）机制全链建成（EntrySlot 计划器+CLI install/remove
+> 幂等生命周期+runtime.m SLOT 填充+回调同步武装），234 测全绿；E2E 揭示
+> 回调语境 memmove 崩溃一题（dyld 锁×MAP_JIT 线程局部写相嫌疑）=95 轮
+> 首题，修复前不在真机装入口补丁。**自定义提示真机验**=T6 修复后。
+> **v3**（shellcode 克隆）排 T6 之后。3.x 真机验收/Windows GO 仍待用户。
+
 > **2026-10-31 92 轮后状态修订（T5 真机窗口）**：①队列第 1 项「hook 链
 > 真机 T5 验证」**完成关账**——用户开窗执行 T5-RUNBOOK：三数据点闭环
 > （BASE errno=322 / T5A 零写入 errno=0 全通 / T5B errno=13）精确锁定
@@ -361,6 +368,48 @@ hooks 行加签升 P0。
    WeChat 库跑扫描器（WCDB 内嵌 sqlcipher 是经典 4.x——扫描器几何
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
+
+## 94·三项目立项 + T6 机制建设轮（2026-10-31：安装期入口补丁全链建成；回调武装实证可达；遗留=回调语境 memmove 崩溃一题）
+
+> 用户令「立项未做的并开始」。三项正式立项：**T6**（runtime 复活·安装期
+> 入口补丁——自定义提示的地基）、**自定义撤回提示真机验**（T6 后）、
+> **v3**（shellcode 克隆消息行——群聊真共存）。本轮 T6 从设计到 E2E。
+
+1. **[T6 机制设计]**：macOS 27 进程内写化被策略封死（92 轮定案）后的
+   唯一武装通道 = fzlzjerry 社区实证的「安装期磁盘改入口」：
+   - CLI install 时把 hook 目标函数（parse 0x4d1f8d8）入口前 12B 改写为
+     **「adrp x16, SLOT; ldr x16, [x16]; br x16」**（x16=linker 惯例
+     intra-procedure scratch，__objc_stubs 同款）；
+   - SLOT 落 wechat.dylib **__DATA 段尾文件填充**（270135 arm64 实测
+     60B 真填充，8 对齐取 0xa24dfc8——手算与计划器逐位一致）；
+   - runtime dylib 启动时**自解码**入口补丁（形态自描述，无需 config
+     扩展）并把蹦床地址写进 SLOT——**纯数据写，合法**。
+2. **[实现]**：EntrySlot.swift（adrp/ldr 编解码纯函数+计划器：pristine
+   门/段尾填充发现/真零验证/8 对齐/±4GB 校验）+ install 集成（探针门
+   语义演进：blocked 不再拦 T6 路线，仅「探针 blocked 且入口补丁不可
+   用」才中止）+ **幂等**（重复 install 识别已在位）+ remove 还原（期望
+   字节写回；从 install 的错位 anchor 教训中修正归属）；runtime.m：
+   try_slot_fill（解码+双写一致性读回）+ g_arm_via_slot + boot log
+   slot= 字段 + 回调同步武装（见 4）。
+3. **[测试]**：+EntrySlotTests 4（golden 向量/四形态往返/非补丁形态
+   拒认/真切片计划——SLOT=0xa24dfc8 手算互证）**234 测全绿**；CLI 生命
+   周期四态 E2E：install（pristine→补丁）/幂等/remove（期望字节写回）/
+   再装——全绿。
+4. **[E2E 揭示两层新事实]**（副本 launch 实测）：
+   - **on_image_add 回调确实收到 wechat.dylib**（崩溃栈
+     on_image_add→try_hook_image→install_hook 实证）——T4 时代「回调
+     不触发」的旧结论被推翻（当时=壳程序手动映射场景）；
+   - 回调语境武装崩溃：install_hook 内 memmove EXC_BAD_ACCESS（写保护，
+     fault 0x1340df8d8）——头号嫌疑=**dyld 锁持有时 MAP_JIT 线程局部
+     写相语义**（np(0)/np(1) 线程私有，回调线程与写线程不同则写 RX 页
+     即炸）。**未竟事项（95 轮入口）**：崩溃点精确定位（含加载基址的
+     fault 换算）+ 回调语境安全的蹦床准备路径（或预填窗口消解——
+     500ms 重试输了与 wechat 初始化器的竞速，SLOT=0 时首次 parse 调用
+     br 0，副本实测崩溃）。修复前**不要在真机装 T6 入口补丁**。
+5. **[行数据陷阱入档]**：fat dylib 的 `otool -l | grep LC_UUID` 命中的是
+   **第一个切片（x64）的 uuid**——arm64 切片需 lipo -thin 后单独读；
+   270135 两行 uuid 与装机件核对为**正确**（0C2F01C0=arm64 ✓，先前的
+   「uuid 互换」疑云=此陷阱）。
 
 ## 93·能力探针 wxprobe + install go/no-go 门轮（2026-10-31：T4/T5 复盘固化为产品能力——「能否提前发现」的答案）
 
