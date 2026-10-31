@@ -278,26 +278,66 @@ enum RuntimeConfig {
         groupContainerURL().appendingPathComponent("runtime.json")
     }
 
+    /// 微信沙盒容器内的 runtime.json——**ad-hoc 重签宿主进程内 Group 读写
+    /// 被 containermanagerd 拒（无 team）时 dylib 的真读位**（98 轮实弹
+    /// cfgdiag 实证；与 markerURLs 的沙盒回落位同机理同路径）。
+    static func wechatContainerConfigURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(
+                "Library/Containers/\(wechatContainerBundleID)/Data/Library/Application Support/wxkeep/runtime.json")
+    }
+
+    /// 配置写目标（双份）：Group（CLI 正位）+ 微信沙盒容器（进程真读位，
+    /// 同内容双写保证「进程读哪份哪份就对」——dylib 读首个可读者，两份
+    /// 内容一致后选径不再影响语义）。
+    static var configWriteTargets: [URL] {
+        [url(), wechatContainerConfigURL()]
+    }
+
+    /// 配置读候选序 = dylib read_runtime_config 的回落序（Group → 容器 AS
+    /// → 真 home legacy）；首个存在者 = 进程有效配置。
+    static var configReadCandidates: [URL] {
+        [url(), wechatContainerConfigURL(), legacyURL()]
+    }
+
+    /// 进程有效配置字典（叠加视图：legacy < Group < 容器 AS 逐键覆盖；
+    /// 全缺失返回 nil）。首个存在者选法在 ad-hoc 装机会选中陈旧 Group
+    /// （98 轮实测：显示 keep=off 而进程真跑容器的 keep=on——误报防护
+    /// 状态）；叠加方向与 mergedWriteBase 同原则：容器=在役真值。
+    static func effectiveConfigDict() -> [String: Any]? {
+        let merged = mergedWriteBase(from: [legacyURL(), url(), wechatContainerConfigURL()])
+        return merged.isEmpty ? nil : merged
+    }
+
     /// 旧位置（NSSearchPath 语义；dylib 在沙盒内读不到它，仅作迁移源）。
     static func legacyURL() -> URL {
         Config.userDataURL.appendingPathComponent("runtime.json")
     }
 
     /// 当前生效配置文件的内容指纹（FNV-1a 64，与 runtime.m 的
-    /// config_content_hash 同算法同选径：group 优先/legacy 回落）。
+    /// config_content_hash 同算法同选径：group → 容器 AS → legacy 回落）。
     /// `runtime status` 用它与 marker 的 cfgh= 对比做漂移告警（V4 需求 3）。
     /// 文件不可读返回 nil。at 参数供测试注入（缺省走真实选径）。
     static func currentConfigContentHash(at candidates: [URL]? = nil) -> UInt64? {
-        for u in candidates ?? [url(), legacyURL()] {
+        configContentHashes(at: candidates).first?.hash
+    }
+
+    /// 逐候选实算指纹（98 轮：双文件语境下 marker 指纹可能对上任何一份——
+    /// 进程 group 读被拒时读的是容器 AS，与 CLI 优先的 Group 不是同一份；
+    /// status 的漂移告警按「任一候选匹配」判，不再拿首份单挑）。
+    static func configContentHashes(at candidates: [URL]? = nil)
+        -> [(url: URL, hash: UInt64)] {
+        var out: [(URL, UInt64)] = []
+        for u in candidates ?? configReadCandidates {
             guard let data = try? Data(contentsOf: u) else { continue }
             var h: UInt64 = 1_469_598_103_934_665_603
             for b in data {
                 h ^= UInt64(b)
                 h = h &* 1_099_511_628_211
             }
-            return h
+            out.append((u, h))
         }
-        return nil
+        return out
     }
 
     /// plist 优先、JSON 兜底的读取（plist 是落盘格式；JSON 只为历史脏文件）。
@@ -312,9 +352,13 @@ enum RuntimeConfig {
 
     // MARK: - tip 文案管理（`wxkeep runtime tip`）
 
-    /// 文案配置的当前值（文件缺失 → 全部缺省）。
-    static func readTip(at target: URL = url()) -> (text: String?, rewriteSelf: Bool, keepMessage: Bool) {
-        guard let dict = readDict(at: target) else { return (nil, false, true) }
+    /// 文案配置的当前值（候选序首个存在者；全缺失 → 全部缺省）。
+    /// candidates 供测试注入（缺省 = 真实选径）。
+    static func readTip(at candidates: [URL]? = nil) -> (text: String?, rewriteSelf: Bool, keepMessage: Bool) {
+        let dict: [String: Any]? = candidates.map { cs in
+            cs.lazy.compactMap { readDict(at: $0) }.first
+        } ?? effectiveConfigDict()
+        guard let dict else { return (nil, false, true) }
         let text = dict["tip_text"] as? String
         let rewriteSelf = dict["rewrite_self"] as? Bool ?? false
         let keepMessage = (dict["keep_message"] as? Bool) ?? true
@@ -382,34 +426,68 @@ enum RuntimeConfig {
         return (stripped, notes.isEmpty ? .ok : .acceptedWithNotes(notes))
     }
 
-    /// 写 tip_text / rewrite_self（保留 hooks 与其余键，原子写，plist 格式——
-    /// 与 mergeKnownHooks 同一格式契约）。text 为 nil = 不动文案；微信运行中
-    /// 也可写：dylib 仅启动时读，下次启动生效。
-    static func writeTip(text: String?, rewriteSelf: Bool?, at target: URL = url()) throws {
-        var dict: [String: Any] = readDict(at: target) ?? [:]
+    /// 双写基座：Group 与容器 AS 都在时按「容器 AS 优先」逐键叠加（分歧键
+    /// 以容器值为准）。方向性理由：ad-hoc 装机（主流形态）进程内只读得到
+    /// 容器，容器键=在役真值；反向叠加会让陈旧 Group 键（如 keep=false）
+    /// 静默覆盖在役防护——灾难方向。容器缺失的机器（Group 可读的 team 签
+    /// 装机）退化为纯 Group 基座，语义同旧版。from 供测试注入（[] = 全隔离）。
+    static func mergedWriteBase(from candidates: [URL]? = nil) -> [String: Any] {
+        var dict: [String: Any] = [:]
+        for u in candidates ?? [url(), wechatContainerConfigURL()] {
+            if let d = readDict(at: u) { for (k, v) in d { dict[k] = v } }
+        }
+        return dict
+    }
+
+    /// 写 tip_text / rewrite_self（双目标写，见 configWriteTargets；基座=
+    /// mergedWriteBase——进程有效真源向两份副本收敛）。保留 hooks 与其余
+    /// 键，原子写，plist 格式——与 mergeKnownHooks 同一格式契约。text 为
+    /// nil = 不动文案；微信运行中也可写：30s 热重载生效。返回实写成功的
+    /// 目标；全部失败抛末次错误。
+    @discardableResult
+    static func writeTip(text: String?, rewriteSelf: Bool?,
+                         at targets: [URL] = configWriteTargets,
+                         base candidates: [URL]? = nil) throws -> [URL] {
+        var dict = mergedWriteBase(from: candidates ?? targets)
         if let text { dict["tip_text"] = text }
         if let rewriteSelf { dict["rewrite_self"] = rewriteSelf }
-        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        let out = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
-        try out.write(to: target, options: .atomic)
+        return try writePlist(dict, to: targets)
     }
 
     /// 移除 tip_text（hook 仍武装：keep_message 通用 keeptip 不受影响）。
-    static func removeTip(at target: URL = url()) throws {
-        var dict: [String: Any] = readDict(at: target) ?? [:]
+    /// 双目标写同 writeTip。
+    @discardableResult
+    static func removeTip(at targets: [URL] = configWriteTargets,
+                          base candidates: [URL]? = nil) throws -> [URL] {
+        var dict = mergedWriteBase(from: candidates ?? targets)
         dict.removeValue(forKey: "tip_text")
-        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
+        return try writePlist(dict, to: targets)
+    }
+
+    /// plist 原子写多目标；至少一份成功即返回成功清单，全败抛末次错误。
+    private static func writePlist(_ dict: [String: Any], to targets: [URL]) throws -> [URL] {
         let out = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
-        try out.write(to: target, options: .atomic)
+        var written: [URL] = []
+        var lastError: Error?
+        for target in targets {
+            do {
+                try FileManager.default.createDirectory(
+                    at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try out.write(to: target, options: .atomic)
+                written.append(target)
+            } catch { lastError = error }
+        }
+        if written.isEmpty, let lastError { throw lastError }
+        return written
     }
 
     /// 把 knownHooks 合并进 runtime.json 的 "hooks" 数组：按 uuid 去重替换，
     /// 未知 uuid 的既有行保留（update-data 下发的新构建行不会被旧工具回退），
     /// 其余键（tip_text / rewrite_self / 用户自己的行）原样保留。
-    /// 文件不存在则创建（目录一并建）；Group 容器无文件而旧位置有时，
-    /// 旧文件内容作为迁移种子并入。
+    /// 双目标写（configWriteTargets：Group + 微信沙盒容器——98 轮：ad-hoc
+    /// 装机进程内只读得到容器份，hooks 地址表的 day-0 数据通道必须达它）；
+    /// 基座 = mergedWriteBase（容器优先逐键叠加）；两目标全无文件而旧位置
+    /// 有时，旧文件内容作为迁移种子并入。
     ///
     /// 格式契约：**XML property list**，不是 JSON——dylib 侧用
     /// `NSDictionary dictionaryWithContentsOfFile`（plist 语义）读取，
@@ -417,13 +495,16 @@ enum RuntimeConfig {
     /// 本函数读写都走 PropertyListSerialization；JSON 仅作为历史脏文件的
     /// 只读迁移入口。
     @discardableResult
-    static func mergeKnownHooks(into target: URL) throws -> [HookRow] {
-        var dict: [String: Any] = [:]
-        if FileManager.default.fileExists(atPath: target.path) {
-            dict = Self.readDict(at: target) ?? [:]
-        } else if target != legacyURL(),
-                  FileManager.default.fileExists(atPath: legacyURL().path),
-                  let legacy = Self.readDict(at: legacyURL()) {
+    static func mergeKnownHooks(into targets: [URL] = configWriteTargets,
+                                base candidates: [URL]? = nil) throws -> [HookRow] {
+        // 基座缺省 = 写目标自身（容器优先叠加）——保留目标文件里的用户键
+        // （旧语义）；显式 base（含 []）供测试注入/隔离。
+        var dict = mergedWriteBase(from: candidates ?? targets)
+        if dict.isEmpty,
+           candidates == nil,
+           !targets.contains(legacyURL()),
+           FileManager.default.fileExists(atPath: legacyURL().path),
+           let legacy = Self.readDict(at: legacyURL()) {
             dict = legacy   // 迁移种子：旧位置的 tip/rewrite_self/自定义行并入新文件
         }
 
@@ -437,12 +518,7 @@ enum RuntimeConfig {
         }
         dict["hooks"] = rows
 
-        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        let out = try PropertyListSerialization.data(
-            fromPropertyList: dict, format: .xml, options: 0)
-        // 原子写：微信启动瞬间撞上写入会读到半文件并静默回落内置表
-        try out.write(to: target, options: .atomic)
+        _ = try writePlist(dict, to: targets)
         return rows.map { row in
             // 合并产物回读为 HookRow 只为计数/展示；不合法的自定义行会被
             // dylib 丢弃（宁可不挂也不挂错），这里不因此失败。

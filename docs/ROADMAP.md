@@ -403,13 +403,20 @@ hooks 行加签升 P0。
 4. **[joy 17/18 轮排除]** 用户早间两轮测试均消耗在断链时代（96 SLOT
    误指，hook 逻辑从未执行）；当前实例 18:31 启动+21:03 基线全零
    双保险——未污染读数。
-5. **[产品债新立]** CLI tip/status 管理面写/读 **Group** 配置，进程
-   真读**容器 AS**（配置三路陷阱的产品化残留）：本轮手工把 tip_text
-   镜像进容器 plist 才生效。待办：RuntimeConfig 读写覆盖容器 AS
-   （dylib 侧 group 读失败机理——重签后 entitlement 在——未究）；
-   status 的「配置指纹≠」提示在双文件语境是误报面。附诊断易损性：
-   boot log 在容器 Data/tmp 可被系统随时清除（本轮 18:31 启动行丢失
-   实况）——远程取证要及早拷贝。
+5. **[产品债清偿（本轮落地）]** CLI tip/status 管理面写/读 **Group**
+   配置，进程真读**容器 AS**（配置三路陷阱的产品化残留；dylib 侧
+   group 读失败机理=containermanagerd 拒 ad-hoc 无 team——marker 注释
+   早有记载）。RuntimeConfig 双路径面落地：`wechatContainerConfigURL`
+   +双写目标（Group+容器，`writePlist` 至少一份成功即成）+读候选序
+   （dylib 同序）+**有效配置=叠加视图（legacy<Group<容器逐键覆盖）**
+   ——首存在者选法在 ad-hoc 机会选中陈旧 Group 显示 keep=off 误报
+   （实测抓出当场修正）；写入基座同原则（容器优先，陈旧 Group 的
+   keep=false 不得外溢——灾难方向防线，+回归测试）。tip/hooks/
+   install 全走双写（实机验证：双份收敛 keep=true+同文案；status
+   指纹「任一候选匹配」判一致——漂移误报消失）。238 测全绿（+3：
+   双写收敛/容器回落/逐候选指纹）。附诊断易损性：boot log 在容器
+   Data/tmp 可被系统随时清除（本轮 18:31 启动行丢失实况）——远程
+   取证要及早拷贝。
 6. **[T6 全案关账]** 入口补丁+97 修正链=macOS 27 实时防撤回+自定义
    提示完整产品形态；**消费簇 RE 正式取消**（无实时语义缺口）；
    v3（shellcode 克隆·群聊真共存）仍独立立项。机器：在役修正链

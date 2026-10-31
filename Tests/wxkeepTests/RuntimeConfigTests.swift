@@ -18,7 +18,7 @@ struct RuntimeConfigTests {
     @Test func mergeIntoMissingFileCreatesManagedSection() throws {
         let url = tmpConfigPath()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let rows = try RuntimeConfig.mergeKnownHooks(into: url)
+        let rows = try RuntimeConfig.mergeKnownHooks(into: [url])
         #expect(rows.count == RuntimeConfig.knownHooks.count)
         #expect(rows.contains { $0.build == "270099" && $0.hook_off == "0x537db40" })
 
@@ -49,7 +49,7 @@ struct RuntimeConfigTests {
             as? [[String: Any]]
         try JSONSerialization.data(withJSONObject: dict).write(to: url)
 
-        let rows = try RuntimeConfig.mergeKnownHooks(into: url)
+        let rows = try RuntimeConfig.mergeKnownHooks(into: [url])
         // 旧 270099 行被替换为 knownHooks 版本（全表重写），future 行保留
         #expect(rows.count == RuntimeConfig.knownHooks.count + 1)
         #expect(rows.first { $0.build == "270099" }?.hook_off == "0x537db40")
@@ -64,9 +64,9 @@ struct RuntimeConfigTests {
     @Test func mergeIsIdempotent() throws {
         let url = tmpConfigPath()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        _ = try RuntimeConfig.mergeKnownHooks(into: url)
+        _ = try RuntimeConfig.mergeKnownHooks(into: [url])
         let first = try Data(contentsOf: url)
-        _ = try RuntimeConfig.mergeKnownHooks(into: url)
+        _ = try RuntimeConfig.mergeKnownHooks(into: [url])
         #expect(try Data(contentsOf: url) == first)
     }
 
@@ -196,7 +196,7 @@ extension RuntimeConfigTests {
             fromPropertyList: existing, format: .xml, options: 0)
         try plistData.write(to: url)
 
-        _ = try RuntimeConfig.mergeKnownHooks(into: url)
+        _ = try RuntimeConfig.mergeKnownHooks(into: [url])
 
         // 落盘仍是 plist（XML 头），且 dylib 生产路径能读到全部行 + tip
         let head = try String(contentsOf: url, encoding: .utf8)
@@ -300,10 +300,10 @@ extension RuntimeConfigTests {
         let seed = try PropertyListSerialization.data(fromPropertyList: ["hooks": []],
                                                       format: .xml, options: 0)
         try seed.write(to: url)
-        _ = try RuntimeConfig.mergeKnownHooks(into: url)   // 预置 hooks 管理段
+        _ = try RuntimeConfig.mergeKnownHooks(into: [url])   // 预置 hooks 管理段
 
-        try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: true, at: url)
-        let tip = RuntimeConfig.readTip(at: url)
+        try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: true, at: [url])
+        let tip = RuntimeConfig.readTip(at: [url])
         #expect(tip.text == "\"⚠️\" 撤回了一条消息")
         #expect(tip.rewriteSelf == true)
         #expect(tip.keepMessage == true, "未触碰 keep_message（缺省开）")
@@ -312,9 +312,9 @@ extension RuntimeConfigTests {
             from: Data(contentsOf: url), options: [], format: nil) as? [String: Any]
         #expect((dict?["hooks"] as? [[String: Any]])?.count == RuntimeConfig.knownHooks.count)
 
-        try RuntimeConfig.removeTip(at: url)
-        #expect(RuntimeConfig.readTip(at: url).text == nil)
-        #expect(RuntimeConfig.readTip(at: url).rewriteSelf == true, "removeTip 只动 tip_text")
+        try RuntimeConfig.removeTip(at: [url])
+        #expect(RuntimeConfig.readTip(at: [url]).text == nil)
+        #expect(RuntimeConfig.readTip(at: [url]).rewriteSelf == true, "removeTip 只动 tip_text")
     }
 
     /// CLI 写完的 tip 文件必须是 plist 格式（dylib dictionaryWithContentsOfFile
@@ -322,7 +322,7 @@ extension RuntimeConfigTests {
     @Test func tipWriteProducesPlist() throws {
         let url = tmpConfigPath()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: nil, at: url)
+        try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: nil, at: [url])
         let head = try String(contentsOf: url, encoding: .utf8)
         #expect(head.contains("<!DOCTYPE plist"))
         #expect(head.contains("tip_text"))
@@ -345,6 +345,77 @@ extension RuntimeConfigTests {
         #expect(b != a)   // 一字节之差指纹必变
         try FileManager.default.removeItem(at: url)
         #expect(RuntimeConfig.currentConfigContentHash(at: [url]) == nil)   // 不可读 = nil
+    }
+
+    // MARK: - 98 轮：双路径面（Group + 微信沙盒容器 AS）回归
+
+    /// 双写收敛：writeTip 双目标各落一份同内容；基座分歧键按「容器优先」
+    /// 裁决——Group 陈旧 keep=false 不得覆盖容器在役 keep=true（灾难方向
+    /// 防线，98 轮实弹前的手工镜像即为此）。
+    @Test func dualWriteConvergesAndContainerWins() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-cfgtest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let group = dir.appendingPathComponent("group.json")
+        let container = dir.appendingPathComponent("container.json")
+        let enc = try PropertyListSerialization.data(fromPropertyList:
+            ["keep_message": false, "tip_text": "旧"], format: .xml, options: 0)
+        try enc.write(to: group)
+        try PropertyListSerialization.data(fromPropertyList:
+            ["keep_message": true, "hooks": [["build": "270135"]]],
+            format: .xml, options: 0).write(to: container)
+
+        let written = try RuntimeConfig.writeTip(
+            text: "\"⚠️\" 撤回了一条消息", rewriteSelf: nil,
+            at: [group, container])   // 基座缺省=targets（容器优先叠加）
+        #expect(written.count == 2)
+
+        for u in [group, container] {
+            let d = try PropertyListSerialization.propertyList(
+                from: Data(contentsOf: u), options: [], format: nil) as? [String: Any]
+            #expect(d?["keep_message"] as? Bool == true,
+                    "容器优先：Group 陈旧 keep=false 不得外溢")
+            #expect(d?["tip_text"] as? String == "\"⚠️\" 撤回了一条消息")
+            #expect((d?["hooks"] as? [[String: Any]])?.count == 1, "基座键透传")
+        }
+    }
+
+    /// 读回落序：Group 缺失时读容器 AS（ad-hoc 装机的进程真读形态）。
+    @Test func readTipFallsBackToContainer() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-cfgtest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let missing = dir.appendingPathComponent("absent.json")
+        let container = dir.appendingPathComponent("container.json")
+        try PropertyListSerialization.data(fromPropertyList:
+            ["tip_text": "\"{from}\" 撤回了一条消息", "keep_message": true],
+            format: .xml, options: 0).write(to: container)
+
+        let tip = RuntimeConfig.readTip(at: [missing, container])
+        #expect(tip.text == "\"{from}\" 撤回了一条消息")
+        #expect(tip.keepMessage == true)
+    }
+
+    /// status 漂移面：marker 指纹对上任一候选即一致（进程读 Group 或容器
+    /// AS 都算）；全部不匹配才算漂移。
+    @Test func contentHashesCoverEveryCandidate() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-cfgtest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("a.json")
+        let b = dir.appendingPathComponent("b.json")
+        try Data("keep=true".utf8).write(to: a)
+        try Data("keep=false".utf8).write(to: b)
+
+        let hashes = RuntimeConfig.configContentHashes(at: [a, b])
+        #expect(hashes.count == 2)
+        #expect(hashes[0].url == a)   // 候选序保持
+        #expect(hashes[0].hash != hashes[1].hash)
+        #expect(RuntimeConfig.currentConfigContentHash(at: [a, b]) == hashes[0].hash)
+        #expect(RuntimeConfig.configContentHashes(at: [dir.appendingPathComponent("x.json")]).isEmpty)
     }
 }
 

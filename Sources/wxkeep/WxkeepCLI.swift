@@ -515,11 +515,11 @@ extension Wxkeep {
             @OptionGroup var options: Options
             mutating func run() throws {
                 do {
-                    let rows = try RuntimeConfig.mergeKnownHooks(into: RuntimeConfig.url())
+                    let rows = try RuntimeConfig.mergeKnownHooks()
                     var builds: [String] = []
                     for r in rows where !builds.contains(r.build) { builds.append(r.build) }
                     print("✓ hooks: \(rows.count) 行（构建 \(builds.joined(separator: "/"))）")
-                    print("  \(RuntimeConfig.url().path)")
+                    for u in RuntimeConfig.configWriteTargets { print("  \(u.path)") }
                     print("  微信下次启动生效——已装运行时组件时无需重装 dylib")
                 } catch {
                     print("⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")
@@ -547,13 +547,14 @@ extension Wxkeep {
 
             mutating func run() throws {
                 if clear {
-                    try RuntimeConfig.removeTip()
+                    let written = try RuntimeConfig.removeTip()
                     print("✓ tip_text 已移除（hook 仍武装：keep_message 通用 keeptip 不受影响）")
+                    written.forEach { print("  \($0.path)") }
                     return
                 }
                 guard let text else {
                     let tip = RuntimeConfig.readTip()
-                    print("runtime.json: \(RuntimeConfig.url().path)")
+                    print("runtime.json: \(RuntimeConfig.configWriteTargets.map(\.path).joined(separator: "\n              "))")
                     print("tip_text:     \(tip.text ?? "<未配置（hook 只武装不改写）>")")
                     if let t = tip.text {
                         let (_, verdict) = RuntimeConfig.validateTip(t)
@@ -577,11 +578,12 @@ extension Wxkeep {
                 case .ok:
                     break
                 }
-                try RuntimeConfig.writeTip(text: normalized, rewriteSelf: rewriteSelf.map { $0 == .on })
+                let written = try RuntimeConfig.writeTip(text: normalized, rewriteSelf: rewriteSelf.map { $0 == .on })
                 print("✓ tip_text = \(normalized)")
                 let selfOn = rewriteSelf.map { $0 == .on } ?? RuntimeConfig.readTip().rewriteSelf
                 print("  rewrite_self: \(selfOn ? "on" : "off")")
-                print("  \(RuntimeConfig.url().path)（策略键 ≤30s 热生效——含 tip/开关；hooks 地址表仍需重启微信）")
+                written.forEach { print("  \($0.path)") }
+                print("  （策略键 ≤30s 热生效——含 tip/开关；hooks 地址表仍需重启微信）")
             }
         }
 
@@ -602,11 +604,10 @@ extension Wxkeep {
                 print("runtime dylib:     \(dylibExists ? "存在" : "缺失") (\(dylib.path))")
                 let markerLine = RuntimeCommand.runtimeMarkerLine(active: active, markerExists: markerExists)
                 print("加载标记:          \(markerLine)")
-                // runtime.json 在微信 App Group 容器（dylib 沙盒内读同一路径），
-                // plist 格式——与 RuntimeConfig.mergeKnownHooks 同源同格式。
-                let cfg = (try? PropertyListSerialization.propertyList(
-                    from: Data(contentsOf: RuntimeConfig.url()),
-                    options: [], format: nil)) as? [String: Any]
+                // runtime.json 在微信 App Group 容器（98 轮勘误：ad-hoc 装机
+                // 进程内 Group 读写被拒，dylib 真读沙盒容器份——按 dylib 同序
+                // 候选取进程有效配置），plist 格式——与 mergeKnownHooks 同源。
+                let cfg = RuntimeConfig.effectiveConfigDict()
                 if let hooks = cfg?["hooks"] as? [[String: Any]] {
                     let builds = Set(hooks.compactMap { $0["build"] as? String })
                         .sorted().joined(separator: "/")
@@ -661,20 +662,25 @@ extension Wxkeep {
                         print("配置戳:            \(df.string(from: t))（热重载已应用的 runtime.json mtime）")
                     }
                     // cfg_hash（V4 需求 3）：marker 携带已应用配置内容的指纹。
-                    // 与当前生效配置文件实算指纹对比：不一致 = 装载后文件被改
-                    // 且尚未被 30s 热重载应用（或 marker 陈旧）；一致 = 所见
-                    // 即所应用。mtime 可被 touch -r 还原，内容指纹不能。
+                    // 与当前候选配置文件实算指纹对比（98 轮：双文件语境下进程
+                    // 可能读 Group 或容器 AS 任一份——任一候选匹配即视为一致，
+                    // 全部不匹配才告警）。mtime 可被 touch -r 还原，内容指纹
+                    // 不能。
                     if let r = markerText.range(of: "cfgh=") {
                         let hex = markerText[r.upperBound...].prefix(16)
                             .filter { $0.isHexDigit }
                         if hex.count == 16 {
-                            let current = RuntimeConfig.currentConfigContentHash()
-                            let same = current.map { String(format: "%016llx", $0) == hex } ?? nil
+                            let hashes = RuntimeConfig.configContentHashes()
+                            let match = hashes.first { String(format: "%016llx", $0.hash) == hex }
+                            let same: Bool? = hashes.isEmpty ? nil : (match != nil)
+                            let detail = match.map { "（与 \($0.url.lastPathComponent) 所在份一致）" }
+                                ?? hashes.map { String(format: "%016llx", $0.hash) }
+                                    .joined(separator: "/")
                             print("配置指纹:          \(hex)"
-                                + (same == true ? "（与当前 runtime.json 一致）"
-                                   : same == false ? " ≠ 当前文件 \(current.map { String(format: "%016llx", $0) } ?? "?")"
+                                + (same == true ? "\(detail)"
+                                   : same == false ? " ≠ 候选配置 \(detail)"
                                      + "——变更待 30s 热重载应用或 marker 陈旧"
-                                   : "（当前文件不可读）"))
+                                   : "（候选配置不可读）"))
                         }
                     }
                     // 诊断位判读（77 续）：install-fail 时 istep/ierr 指明
@@ -992,11 +998,12 @@ extension Wxkeep {
                 // 详见 RuntimeConfig 注释）；tip_text/rewrite_self 不在管理面，
                 // 用户手写的值原样保留。
                 do {
-                    let rows = try RuntimeConfig.mergeKnownHooks(into: RuntimeConfig.url())
+                    let rows = try RuntimeConfig.mergeKnownHooks()
                     var builds: [String] = []
                     for r in rows where !builds.contains(r.build) { builds.append(r.build) }
                     print("  hooks: \(rows.count) 行（runtime.json，构建 \(builds.joined(separator: "/"))）")
-                    print("  文案: 编辑 \(RuntimeConfig.url().path) 的 tip_text（支持 {from} 占位符）")
+                    print("  文案: 编辑 runtime.json 的 tip_text（支持 {from} 占位符）——双份：")
+                    RuntimeConfig.configWriteTargets.forEach { print("    \($0.path)") }
                 } catch {
                     print("  ⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")
                     print("     dylib 将回落内置地址表（当前构建仍可用）")
