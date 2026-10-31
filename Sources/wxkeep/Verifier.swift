@@ -165,10 +165,13 @@ enum Verifier {
         }
 
         /// arm64 探针 SSO：数据 @0、长度字节 @0x17（直接长度）。短串 only。
+        /// 上限与 storage 绑定（24B：长度字节占 [0x17]，有效载荷 ≤23）——
+        /// 此前守卫写 0x40，超长探针文本在此越界写崩 worker（x64 分支的
+        /// <23 才是正确语义；中文 3B/汉字，8 个汉字即 24B 可达）。
         static func ssoProbe(_ text: String) -> [UInt8]? {
             let bytes = Array(text.utf8)
-            guard bytes.count < 0x40 else { return nil }
             var storage = [UInt8](repeating: 0, count: 24)
+            guard bytes.count < storage.count else { return nil }
             for (i, byte) in bytes.enumerated() { storage[i] = byte }
             storage[0x17] = UInt8(bytes.count)
             return storage
@@ -494,6 +497,9 @@ enum Verifier {
             }
         } else {
             let top = segs.filter { $0.vmaddr >= base }.map { $0.vmaddr + $0.vmsize }.max() ?? 0
+            // 病态段表（top-base 超 Int 表示域）按不可映射拒绝，不做会 trap
+            // 的 UInt64→Int 强转（L3⑤ 家族：损坏输入必须干净拒绝）。
+            guard top >= base, top - base <= UInt64(Int.max) else { return nil }
             let total = Int(top - base)
             mappedSize = total
             totalCount = total

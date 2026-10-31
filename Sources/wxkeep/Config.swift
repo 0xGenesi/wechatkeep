@@ -200,9 +200,12 @@ struct Config {
     }
 
     /// 用户级数据目录（wxkeep update-data 的安装位；测试可注入）。
+    /// 家目录锚 RealUser：sudo 补丁/装数据时落在真实用户家（journal/
+    /// 备份/OTA 与普通用户 doctor 同域），不跟 euid 漂到 /var/root。
     static var userDataURL: URL {
         if let override = _userDataURLOverride { return override }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return RealUser.homeURL()
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
             .appendingPathComponent("wxkeep")
     }
     nonisolated(unsafe) static var _userDataURLOverride: URL?   // 仅测试注入（Swift 并发门）

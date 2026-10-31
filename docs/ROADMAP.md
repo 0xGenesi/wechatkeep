@@ -463,6 +463,100 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 102·主动体检第二轮 + 发版遗留清账（2026-11-01：双评审 P1×4+P2×6+P3 批全修——259 测全绿；v0.2.16 资产事故清账 + Formula E2E 修通）
+
+**背景**：用户令「读全部源码、完成未完项、一次性找全问题、对齐完美软件」。
+执行 = 主动体检打法第二轮（CLI/UX 面 + 引擎面两个并行深读评审，全部发现
+逐项源码级复核后实施）+ 101 轮挂起项（brew E2E / release.yml 策略收口）
+当日清账。
+
+**发版遗留清账（v0.2.16 资产事故）**：关账核验发现 release.yml 仍在 tag
+触发链上——v0.2.16 tag push 后自动构建并上传了六资产，与「0 资产=源码-
+only 达成」的关账记录矛盾（当时只核对了 notes 文本）。处置：六资产从
+release 删除（update-data 走 raw master，零工具链影响）；release.yml 删除
+（此后发版=本地 `gh release create --notes-file`）；MAINTAINING 增事故档
+与关账判据（必须 `--json assets` 机械核对）。**教训：notes 声明≠机械事实。**
+
+**Formula v0.2.16 E2E 修通（101 轮挂起项关账，brew 硬要求）**：E2E 揪出
+三个真 bug——①`depends_on xcode:` 硬性要求完整 Xcode.app，把 CLT-only
+用户挡在门外（对位 homebrew-core 纯 SPM 惯例=swiftformat：改
+`uses_from_macos "swift" => :build`）；②`--product wxkeep` 单品构建不产
+runtime dylib/wxprobe（lib.install 直接 ENOENT；去过滤改全产品 +
+`std_swift_args`）；③wxprobe 从未入装（brew 用户能力探针静默缺失——
+`libexec.install` + locateWxprobe 符号链接解析补齐）。E2E 终绿：54s 源码
+构建、brew 布局 manifest ✓ verified、`brew test` PASS、libexec/wxprobe 在
+位。过程档案：brew7 拒本地路径 formula（走本地 tap checkout）；brew 沙箱
+HOME=tmpdir 且拒读真实 HOME（gitconfig 代理失效，依赖拉取直连超时是瞬时
+网络抖动，非 formula 缺陷）。tag 版 CLI 的 probe 缺口由下一 tag 闭环
+（formula 已装 wxprobe，CLI 解析修复已入本轮源码）。
+
+**P1（双评审各源码级复核后全修）**：
+1. **sudo 路径漂移**（CLI 面）：Foundation 家目录按 euid 解析——sudo
+   patch/install/hooks/tip/update-data 的 journal/备份/hooks 表/OTA 全落
+   /var/root，普通用户 doctor 一片盲（WAL 检测链在最需要它的 sudo 流上
+   断裂；defaults 写侧早有 launchctl asuser 委托，文件路径面一直没跟）。
+   修=RealUser 单点锚定（SUDO_USER→getpwnam 家目录）：Config.userDataURL/
+   RuntimeConfig 三路径/WeChatDBFinder.xwechatRoot 全部锚回真实用户；
+   root 写用户空间后 chown 交还（Group 容器位 dylib 要回写 marker，
+   root 属主目录会拒它的写）。
+2. **recover 多账号 FTS 串号**（CLI 面）：name2id/localId 跨账号编号独立，
+   全局合并让 A 的灰条配 B 的原文（张冠李戴）；修=tips/docs/显示名全部
+   账号隔离 + assembleRecords 纯函数抽取（回归钉死撞号场景）。
+3. **UpdateData 数据竞争**（CLI 面）：30s 超时后不 cancel 在飞 task 且无锁
+   读共享集合（Set rehash 中被读=UB）；暂存写失败被 try? 吞后照常
+   completed.insert（磁盘满→误报「签名校验失败」）。修=FetchState 锁对象
+   （读写都持锁，顺带灭「captured var 并发突变」双告警）+ 超时 cancel +
+   写失败如实入 failures。
+4. **runtime remove 失败路径必崩态**（引擎面）：入口还原链失败时主程序
+   LC 已移除落盘——原实现只打警告照删 dylib =「跳板残留+SLOT 恒零」
+   parse 一进即崩（100 轮修了次序，失败收口没修）。修=catch 内回滚主程序
+   到安装态（回滚成功=complete+指引重试；失败=手工路径+journal 残留由
+   doctor 收口）；孤儿路径给入口字节恢复指引。
+
+**P2 批**：install blocked 分支回滚 `try?` 谎报「已回滚」（100 轮原则的
+漏网点，改两分支如实分报）；removeLoadDylib 写侧越界/下溢（sizeofcmds
+越过文件尾时 replaceSubrange precondition 崩 + ncmds=0 时 UInt32 下溢
+trap——写侧与读侧同钳位+removals≤ncmds 门，insert 侧 ncmds 饱和上溢同
+修）；arm64 SSO 探针守卫 0x40 vs storage 24B 不一致（8 个汉字即越界写崩
+worker——改与 storage.count 绑定）；dbkeys/recover 失败路径 CleanExit
+exit 0（脚本无法区分成败，改 ValidationError 非零退出）；runSQL 忽略退出
+码/stderr（查询失败伪装全零统计→audit --since 假 PASS——改全检+stderr
+落临时文件防管道死锁，FTS 分片「no such table」显式容错）；tilde 展开
+缺口（--dylib/--sqlcipher/--keys/--output/--dir 五处，PathUtil 单点）；
+audit/recover 无 --keys 透传（capture --keys 自相矛盾，补齐）。
+
+**P3 批（择要）**：doctor runtime 行在「已注入未启动」不再整行隐藏；
+doctor 硬编码 sudo 按可写性条件化；clone launch 未命中给可用清单；
+CloneCreate 序号回退 0 改名字形态；probeBareRet 混合结局加汇总行；
+recover 默认输出带时间戳（FTS 文档不可再生，静默覆盖=数据丢失）；
+applySwaps 回滚失败如实指认残留路径；双份分歧检测 hooks 行实质比较
+（同条数不同内容此前漏报）；sudo 下 update-guard/privacy-guard status
+读 root 域（委托控制台用户，与写侧对齐）；runtime remove 孤儿路径跳过
+主程序备份（轮换 keep=3 不被无谓备份稀释）；runtime.m uint64_t[3]→
+uint32_t[3] 类型卫生（灭 C 告警）；MachImage thin 分支 cputype 校验
+（fat 分支同门——错架构干净拒绝而非误导性 noHit）；Patcher 同 binary
+fileOffset 重叠检测（数据演进事故从静默错写变干净拒绝）；Verifier/
+MachImage 病态段表 UInt64→Int 强转 trap 三处收敛。
+
+**明确评估不修（防误伤/低值）**：退出码语义全面统一（64 vs 1 混用是
+既成脚本习惯，改缺省破兼容——同 update-guard 缺省不动原则）；verify
+配方名硬编码 gen3（gen4 数据出现时改文案即可）；Patcher MachImage
+按 (binary,arch) 缓存（当前耗时秒级，非用户可感）；manifest ensure_ascii
+对齐（受保护文件名恒 ASCII，schema 演进时再对齐）；patch --no-resign
+的 journal complete 语义（debug-only flag，用户自担风险已在 help 声明）。
+
+**测试**：+10——重叠条目拒绝、injector 病态头三连（零 ncmds 下溢/超界
+sizeofcmds/饱和 ncmds）、SSO 边界 23/24、账号隔离撞号+计数、FetchState
+并发、分歧实质比较、tilde 展开。**259 测全绿**（本机 arm64；x64 腿 CI
+Rosetta——本机 CLT 无 x86_64 切片，与 98 轮同约束）。
+
+**冒烟实证**：doctor/manifest/probe 全过；locateWxprobe 修复实测生效
+（.build/release 探针找到、三探针值与档册一致：mprotect 13/remap 110/
+JIT 允许→blocked 判定）。
+
+**遗留**：tap 推送与 v0.2.17 发版待用户拍板（E2E 已绿）；V3-M1-R3 深挖/
+M2-M4、3.x 真机验收、Windows GO 维持原状（用户窗口/独立轮）。
+
 ## 101·续收口轮（2026-10-31 深夜：100 轮遗留工程项全清——staging 原子装/journal 盖 runtime/FAT64 显式拒；270350 auto-locate PR 首跑闭环合入；R3 有界轮；v0.2.16 源码-only 首发版）
 
 **100 轮遗留工程项**：①**UpdateData staging+swap 原子装**——四件套先全

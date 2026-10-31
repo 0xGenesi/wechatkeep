@@ -545,3 +545,17 @@ struct VerifierTests {
         #expect(exited.status == 126)
     }
 }
+
+// MARK: - 102 轮：arm64 SSO 探针上限与 storage 绑定（24B：长度字节占 [0x17]）
+
+extension VerifierTests {
+    @Test func arm64SSOProbeBoundaryMatchesStorage() {
+        #expect(Verifier.ARM64.ssoProbe(String(repeating: "a", count: 23)) != nil,
+                "23B 是 storage 的最大有效载荷")
+        #expect(Verifier.ARM64.ssoProbe(String(repeating: "a", count: 24)) == nil,
+                "24B 超出 storage（此前守卫 0x40 会在 worker 内越界写崩）")
+        // 中文 3B/汉字：8 字 = 24B 恰好越界（spec 演进的真实可达面）
+        #expect(Verifier.ARM64.ssoProbe("一二三四五六七八") == nil)
+        #expect(Verifier.ARM64.ssoProbe("一二三四五六七") != nil)
+    }
+}

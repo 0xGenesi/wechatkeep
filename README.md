@@ -7,11 +7,16 @@ macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具�
 ## 安装
 
 ```bash
-brew install 0xGenesi/tap/wxkeep
+brew install 0xGenesi/tap/wxkeep   # v0.2.16 起从源码构建（需 Command Line Tools，约几分钟）
 wxkeep update-data   # 拉取最新补丁数据（brew 安装的 catalog 随发版冻结；此命令 day-0 跟进新构建）
 ```
 
-或从 [Releases](https://github.com/0xGenesi/wechatkeep/releases) 下载单文件（universal，约 2.4MB）。
+或从源码构建（v0.2.16 起 release 不再附预构建二进制——发版策略见 [docs/MAINTAINING.md](docs/MAINTAINING.md)）：
+
+```bash
+git clone https://github.com/0xGenesi/wechatkeep && cd wechatkeep
+swift build -c release   # 产出 .build/release/wxkeep（含 wxprobe 探针与 runtime dylib）
+```
 
 ## 功能
 
@@ -77,7 +82,7 @@ wxkeep runtime remove    # 完整移除（幂等）
 
 ## 版本兼容
 
-见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，120 个构建号——4.x 全线 + **3.x 主程序时代 16 构建（3.5.5→3.8.10.17）双变体双架构**）。
+见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，121 个构建号——4.x 全线 + **3.x 主程序时代 16 构建（3.5.5→3.8.10.17）双变体双架构**）。
 catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（配方代不变时 day-0 可用），或显式 `wxkeep locate [--append]`。
 
 ## 从源码构建
@@ -86,7 +91,7 @@ catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（
 
 ```bash
 swift build -c release          # 产出 .build/release/wxkeep
-swift test                      # 177 项测试（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件 + 崩溃一致性/确定性/负控/性质深度门；arm64 行为项在非 arm64 主机自动 skip）
+swift test                      # 259 项测试（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件 + 崩溃一致性/确定性/负控/性质深度门；arm64 行为项在非 arm64 主机自动 skip）
 WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路（开发机）
 ```
 

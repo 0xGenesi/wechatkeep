@@ -39,7 +39,10 @@ enum UpdateGuard {
 
     static func read() -> [Status] {
         keys.map { spec in
-            let result = Shell.run("/usr/bin/defaults", ["read", domain, spec.key])
+            // root 语境经 defaultsArgs 委托控制台用户读（与写侧同款）——
+            // 否则 sudo status 读的是 root 自己的域，误报「未开启」。
+            let args = defaultsArgs(["read", domain, spec.key])
+            let result = Shell.run(args[0], Array(args.dropFirst()))
             let value = result.status == 0
                 ? result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 : "<unset>"

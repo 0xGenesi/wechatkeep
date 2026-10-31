@@ -232,7 +232,10 @@ enum RuntimeConfig {
     static let wechatContainerBundleID = "com.tencent.xinWeChat"
 
     static func groupContainerURL() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        // RealUser：sudo runtime install/hooks/tip 写进的必须是真实用户的
+        // Group 容器——dylib 以微信用户身份读它；跟 euid 走 /var/root 时
+        // install 报「✓ hooks: 44 行」而 dylib 实际读到的是空表（静默失效）。
+        RealUser.homeURL()
             .appendingPathComponent("Library/Group Containers/\(appGroupID)/wxkeep",
                                     isDirectory: true)
     }
@@ -245,7 +248,7 @@ enum RuntimeConfig {
     ///    容器路径对同用户 CLI 可读，不是盲区
     /// 3. 真实 home 的 Application Support（非沙盒宿主的 legacy 位）
     static var markerURLs: [URL] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = RealUser.homeURL()
         return [
             groupContainerURL().appendingPathComponent("runtime.marker"),
             home.appendingPathComponent(
@@ -282,7 +285,7 @@ enum RuntimeConfig {
     /// 被 containermanagerd 拒（无 team）时 dylib 的真读位**（98 轮实弹
     /// cfgdiag 实证；与 markerURLs 的沙盒回落位同机理同路径）。
     static func wechatContainerConfigURL() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        RealUser.homeURL()
             .appendingPathComponent(
                 "Library/Containers/\(wechatContainerBundleID)/Data/Library/Application Support/wxkeep/runtime.json")
     }
@@ -494,6 +497,9 @@ enum RuntimeConfig {
                 try FileManager.default.createDirectory(
                     at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try out.write(to: target, options: .atomic)
+                // sudo 写入的容器目录交还真实用户：dylib 以微信用户身份回写
+                // marker——root 属主目录会拒它的写，status 证据链断。
+                RealUser.chownToRealUser(target.deletingLastPathComponent())
                 written.append(target)
             } catch { lastError = error }
         }
@@ -531,7 +537,17 @@ enum RuntimeConfig {
         case (nil, nil): return true
         case let (x as [Any], y as [Any]):
             guard let y2 = y as? [Any] else { return false }
-            return x.count == y2.count
+            guard x.count == y2.count else { return false }
+            // hooks 行数组做实质比较（uuid+hook_off 键对）：同条数不同内容
+            // 的表（如手改过 hook_off 的旧份）按 count 判等会漏报——双份
+            // 分歧正是要抓的态。行内其余字段（派生轮次备注类）不参与，
+            // 避免无害差异噪音。
+            func rowKey(_ row: Any) -> String {
+                guard let dict = row as? [String: Any] else { return String(describing: row) }
+                return "\(dict["uuid"] ?? "?")|\(dict["hook_off"] ?? "?")|\(dict["build"] ?? "?")"
+            }
+            let ka = x.map(rowKey).sorted(), kb = y2.map(rowKey).sorted()
+            return ka == kb
         case let (x as Bool, y as Bool): return x == y
         case let (x as String, y as String): return x == y
         default:

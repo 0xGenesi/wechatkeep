@@ -128,3 +128,62 @@ struct RecoverTests {
         #expect(md.contains("### ") && md.contains("对方撤回") && md.contains("我撤回"))
     }
 }
+
+// MARK: - 102 轮：多账号隔离（sid/localId 跨账号编号独立，全局合并会张冠李戴）
+
+extension RecoverTests {
+    @Test func assembleRecordsIsolatesAccounts() throws {
+        // 两账号 sid 撞号：A 的 sid=5 与 B 的 sid=5 是不同会话
+        let tipA = RevokeRecovery.RecoverTip(
+            account: "accA", username: "wxid_a", sid: 5, localId: 7, ts: 100,
+            form: .otherRevoke, db: "message_0.db")
+        let tipB = RevokeRecovery.RecoverTip(
+            account: "accB", username: "wxid_b", sid: 5, localId: 7, ts: 200,
+            form: .selfRevoke, db: "message_0.db")
+        let tipC = RevokeRecovery.RecoverTip(
+            account: "accC", username: "wxid_c", sid: 5, localId: 7, ts: 300,
+            form: .otherRevoke, db: "message_0.db")   // accC 无 FTS 文档 → absent
+        let textA = "账号A的原文"
+        let textB = "账号B的原文"
+        let docs: [String: [Int: [Int: String]]] = [
+            "accA": [5: [7: Data(textA.utf8).hexUppercase]],
+            "accB": [5: [7: Data(textB.utf8).hexUppercase]],
+        ]
+        // 显示名同账号隔离：A 的 wxid_a→名字甲，B 的 wxid_b→名字乙
+        let names: [String: [String: String]] = [
+            "accA": ["wxid_a": "名字甲"],
+            "accB": ["wxid_b": "名字乙"],
+        ]
+        let out = RevokeRecovery.assembleRecords(
+            tips: [tipA, tipB, tipC], docs: docs, displayNames: names)
+        #expect(out.records.count == 2)
+        #expect(out.absent == 1)
+        #expect(out.records.contains { $0.text == textA && $0.name == "名字甲" })
+        #expect(out.records.contains { $0.text == textB && $0.name == "名字乙" })
+        // 跨账号污染的具体形态（回归前会发生）：A 的 tip 配到 B 的原文
+        #expect(!out.records.contains { $0.text == textB && $0.chat == "wxid_a" })
+        #expect(!out.records.contains { $0.text == textA && $0.chat == "wxid_b" })
+    }
+
+    @Test func assembleRecordsCountsSyncedAndUndecodable() throws {
+        let tip = RevokeRecovery.RecoverTip(
+            account: "a", username: "u", sid: 1, localId: 1, ts: 1,
+            form: .otherRevoke, db: "db")
+        let synced = RevokeRecovery.RecoverTip(
+            account: "a", username: "u", sid: 1, localId: 2, ts: 2,
+            form: .otherRevoke, db: "db")
+        let bad = RevokeRecovery.RecoverTip(
+            account: "a", username: "u", sid: 1, localId: 3, ts: 3,
+            form: .otherRevoke, db: "db")
+        let docs: [String: [Int: [Int: String]]] = [
+            "a": [1: [1: "6162",                                  // "ab" 正常
+                      2: Data("xx撤回了一条消息".utf8).hexUppercase,  // 同步覆盖
+                      3: "ZZZZ"]],                                  // 非 hex → 不可解码
+        ]
+        let out = RevokeRecovery.assembleRecords(
+            tips: [tip, synced, bad], docs: docs, displayNames: [:])
+        #expect(out.records.count == 1 && out.records.first?.text == "ab")
+        #expect(out.synced == 1)
+        #expect(out.undecodable == 1)
+    }
+}

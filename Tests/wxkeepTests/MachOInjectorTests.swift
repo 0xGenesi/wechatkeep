@@ -180,3 +180,82 @@ struct MachOInjectorTests {
                 "命令区 >0x10000 时注入命令在尾部仍必须可见")
     }
 }
+
+// MARK: - 102 轮：病态头的写侧干净拒绝（读侧钳位的写侧对偶）
+
+struct MachOInjectorHardeningTests {
+    /// 复用 MachOInjectorTests 的 fixture 构造（同文件包内可见——独立
+    /// struct 需要 @testable 访问；直接复制保持两套件独立）。
+    private func makeExecutable(size: Int = 0x1000) -> Data {
+        var d = Data(count: size)
+        func put32(_ o: Int, _ v: UInt32) {
+            d[o] = UInt8(v & 0xFF); d[o+1] = UInt8((v >> 8) & 0xFF)
+            d[o+2] = UInt8((v >> 16) & 0xFF); d[o+3] = UInt8((v >> 24) & 0xFF)
+        }
+        func put64(_ o: Int, _ v: UInt64) {
+            for k in 0..<8 { d[o+k] = UInt8((v >> (8*k)) & 0xFF) }
+        }
+        func putStr(_ o: Int, _ s: String) {
+            d.replaceSubrange(o..<(o+16), with: Data(repeating: 0, count: 16))
+            d.replaceSubrange(o..<o+min(16, s.utf8.count), with: s.utf8.prefix(16))
+        }
+        put32(0, 0xFEEDFACF); put32(4, 0x01000007); put32(8, 0); put32(12, 2)
+        put32(16, 1); put32(20, 152); put32(24, 0); put32(28, 0)
+        put32(32, 0x19); put32(36, 152)
+        putStr(40, "__TEXT")
+        put64(56, 0); put64(64, UInt64(size))
+        put64(72, 0x400); put64(80, UInt64(size - 0x400))
+        put32(88, 7); put32(92, 5); put32(96, 1); put32(100, 0)
+        putStr(104, "__text"); putStr(120, "__TEXT")
+        put64(136, 0x400); put64(144, UInt64(size - 0x400))
+        put32(152, 0x400)
+        d[0x400] = 0xC3
+        return d
+    }
+
+    /// ncmds=0 + 匹配 LC 在场：removals(1) > ncmds(0) 的减法此前是
+    /// UInt32 下溢 trap；现在必须是干净拒绝。
+    @Test func removeWithZeroNcmdsThrowsInsteadOfTrapping() throws {
+        var data = makeExecutable()
+        let cmd = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
+        try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: cmd)
+        data.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32(0), toByteOffset: 16, as: UInt32.self)   // ncmds=0
+        }
+        var caught: MachOInjector.InjectorError?
+        do { try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: cmd) }
+        catch let e as MachOInjector.InjectorError { caught = e }
+        var malformed = false
+        if case .malformedHeader? = caught { malformed = true }
+        #expect(malformed, "expected malformedHeader, got \(String(describing: caught))")
+    }
+
+    /// sizeofcmds 越过文件尾 + 匹配 LC 在场：写回按文件尾钳位——不再
+    /// replaceSubrange 越界 precondition 崩溃；文件长度恒不变。
+    @Test func removeWithOversizedSizeofcmdsDoesNotCrash() throws {
+        var data = makeExecutable()
+        let cmd = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
+        try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: cmd)
+        let before = data.count
+        data.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32(0x00FFFFFF), toByteOffset: 20, as: UInt32.self)
+        }
+        // 不崩溃即通过（成功或干净拒绝均可）；长度不变是硬断言。
+        do { try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: cmd) } catch {}
+        #expect(data.count == before, "移除路径永不改变文件长度")
+    }
+
+    /// insert 侧：ncmds=0xFFFFFFFF 病态值 +1 此前上溢 trap；先校验后写。
+    @Test func insertWithSaturatedNcmdsThrowsInsteadOfTrapping() throws {
+        var data = makeExecutable()
+        data.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32.max, toByteOffset: 16, as: UInt32.self)
+        }
+        var caught: MachOInjector.InjectorError?
+        do { try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: "@x/y.dylib") }
+        catch let e as MachOInjector.InjectorError { caught = e }
+        var malformed = false
+        if case .malformedHeader? = caught { malformed = true }
+        #expect(malformed, "expected malformedHeader, got \(String(describing: caught))")
+    }
+}

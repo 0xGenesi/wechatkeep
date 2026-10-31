@@ -10,6 +10,25 @@ enum UpdateData {
     static let remoteBase = "https://raw.githubusercontent.com/0xGenesi/wechatkeep/master/"
     static let payload = ["config.json", "signatures.json", "manifest.json", "manifest.sig"]
 
+    /// URLSession 回调并发到达的结果聚合：锁封装在对象内（读写都持锁），
+    /// 主线程超时后取快照不再与在飞回调竞争共享集合（Set rehash 中被读
+    /// = 未定义行为）；同时消除「captured var 并发突变」的编译告警。
+    final class FetchState {
+        private let lock = NSLock()
+        private var failures: [String] = []
+        private var completed: Set<String> = []
+        func addFailure(_ rel: String) {
+            lock.lock(); failures.append(rel); lock.unlock()
+        }
+        func addCompleted(_ rel: String) {
+            lock.lock(); completed.insert(rel); lock.unlock()
+        }
+        var snapshot: (failures: [String], completed: Set<String>) {
+            lock.lock(); defer { lock.unlock() }
+            return (failures, completed)
+        }
+    }
+
     enum UpdateError: Error, CustomStringConvertible {
         case network(String)
         case notVerified(String)
@@ -33,30 +52,45 @@ enum UpdateData {
         defer { try? FileManager.default.removeItem(at: workDir) }
 
         // 1. 下载四件套
-        var failures: [String] = []
-        var completed: Set<String> = []
-        let lock = NSLock()   // URLSession 回调并发到达——共享数组/集合需加锁
+        // 结果聚合封装进锁对象（闭包只捕获 let——「captured var 并发突变」
+        // 告警的根因是裸 var + 锁分居两处；读写都持锁，超时路径的并发读
+        // 也不再竞争）。
+        let state = FetchState()
         let group = DispatchGroup()
+        var tasks: [URLSessionDataTask] = []
         for rel in payload {
             group.enter()
             let task = URLSession.shared.dataTask(with: URL(string: remoteBase + rel)!) { data, resp, _ in
                 defer { group.leave() }
                 guard let http = resp as? HTTPURLResponse, http.statusCode == 200, let data, !data.isEmpty else {
-                    lock.lock(); failures.append(rel); lock.unlock(); return
+                    state.addFailure(rel)
+                    return
                 }
-                try? data.write(to: workDir.appendingPathComponent(rel))
-                lock.lock(); completed.insert(rel); lock.unlock()
+                do {
+                    try data.write(to: workDir.appendingPathComponent(rel))
+                } catch {
+                    // 暂存写失败（磁盘满等）如实入 failures——此前 try? 吞掉
+                    // 后继续 completed.insert，残缺/空文件会被下面的签名门
+                    // 误报成「签名校验失败」，把用户引向错误的排障方向。
+                    state.addFailure("\(rel)（暂存写入失败：\(error.localizedDescription)）")
+                    return
+                }
+                state.addCompleted(rel)
             }
+            tasks.append(task)
             task.resume()
         }
-        // 30s 上限：超时后 completed 检查把未完成文件如实报「下载超时」，
+        // 30s 上限：超时先取消在飞任务（回调侧状态变更全部持锁，读侧不再
+        // 与迟到的回调竞争共享集合），再把未完成文件如实报「下载超时」，
         // 不会误报成签名校验失败（残缺文件）。
-        _ = group.wait(timeout: .now() + 30)
-        if !failures.isEmpty {
-            throw UpdateError.network(failures.joined(separator: ", "))
+        if group.wait(timeout: .now() + 30) == .timedOut {
+            tasks.forEach { $0.cancel() }
         }
-        // 超时未完成的下载如实报网络错误——否则残缺文件会被下面误报成「签名校验失败」
-        let missing = payload.filter { !completed.contains($0) }
+        let snap = state.snapshot
+        if !snap.failures.isEmpty {
+            throw UpdateError.network(snap.failures.joined(separator: ", "))
+        }
+        let missing = payload.filter { !snap.completed.contains($0) }
         if !missing.isEmpty {
             throw UpdateError.network("下载超时（30s）：" + missing.joined(separator: ", "))
         }
@@ -84,6 +118,9 @@ enum UpdateData {
         do {
             try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
             try installStaged(from: workDir, to: dest, payload: payload)
+            // sudo 装数据时目录交还真实用户——普通用户的后续 update-data
+            // 暂存/换位写不被 root 属主目录卡死。
+            RealUser.chownToRealUser(dest)
         } catch {
             throw UpdateError.install(error.localizedDescription)
         }
@@ -172,15 +209,22 @@ enum UpdateData {
                 }
             }
         } catch {
-            // 回滚全部已换位文件；换位失败的当前文件已在上面处理
+            // 回滚全部已换位文件；换位失败的当前文件已在上面处理。回滚
+            // 再失败如实指认残留路径（连续两次 FS 失败的窄路径）——静默
+            // 留下 .bak-*/缺失 final 的半套态无告警。
             for (item, hadOld) in swapped.reversed() {
-                if hadOld {
-                    if FileManager.default.fileExists(atPath: item.final.path) {
-                        try? FileManager.default.removeItem(at: item.final)
+                do {
+                    if hadOld {
+                        if FileManager.default.fileExists(atPath: item.final.path) {
+                            try FileManager.default.removeItem(at: item.final)
+                        }
+                        try FileManager.default.moveItem(at: item.backup, to: item.final)
+                    } else {
+                        try FileManager.default.removeItem(at: item.final)
                     }
-                    try? FileManager.default.moveItem(at: item.backup, to: item.final)
-                } else {
-                    try? FileManager.default.removeItem(at: item.final)
+                } catch {
+                    print("⚠️ 回滚失败：\(hadOld ? "\(item.backup.lastPathComponent) → \(item.final.lastPathComponent)" : item.final.lastPathComponent)"
+                          + "——目录可能处于半套态，请手工检查 .bak-*/.staging-* 残留后重跑 update-data")
                 }
             }
             throw error

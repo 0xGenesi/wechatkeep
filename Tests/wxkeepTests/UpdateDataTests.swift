@@ -246,3 +246,24 @@ final class UpdateDataTests {
         #expect(explicit.recipes["from_user_dir"] != nil)
     }
 }
+
+// MARK: - 102 轮：FetchState 并发聚合（锁内读写，超时路径快照不竞争）
+
+extension UpdateDataTests {
+    @Test func fetchStateConcurrentAddsAndSnapshot() {
+        let state = UpdateData.FetchState()
+        let group = DispatchGroup()
+        for i in 0..<200 {
+            group.enter()
+            DispatchQueue.global().async {
+                state.addCompleted("f\(i).json")
+                if i % 7 == 0 { state.addFailure("f\(i).json") }
+                group.leave()
+            }
+        }
+        group.wait()
+        let snap = state.snapshot
+        #expect(snap.completed.count == 200, "唯一名全部入集（Set 语义）")
+        #expect(snap.failures.count == 29, "0,7,...,196 共 29 条")
+    }
+}

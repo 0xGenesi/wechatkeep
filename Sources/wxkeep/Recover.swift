@@ -59,6 +59,43 @@ enum RevokeRecovery {
         return String(bytes: data, encoding: .utf8)
     }
 
+    /// 灰条候选（account 维度随 102 轮多账号隔离引入：各账号的
+    /// name2id/localId 编号互相独立，跨账号合并会让 A 的会话错配
+    /// B 的 FTS 原文——81 轮单账号语境的隐含假设随切号场景失效）。
+    struct RecoverTip {
+        var account: String
+        var username: String
+        var sid: Int?
+        var localId: Int
+        var ts: Int
+        var form: RevokeTipClassifier.Form
+        var db: String
+    }
+
+    /// 汇总判定（纯函数，供回归测试钉死多账号隔离）：tips × FTS 文档 ×
+    /// 显示名全部按账号隔离匹配。
+    static func assembleRecords(
+        tips: [RecoverTip],
+        docs: [String: [Int: [Int: String]]],        // account → sid → localId → hex(c0)
+        displayNames: [String: [String: String]]     // account → username → 显示名
+    ) -> (records: [RecoveredRecord], absent: Int, synced: Int, undecodable: Int) {
+        var records: [RecoveredRecord] = []
+        var absent = 0, synced = 0, undecodable = 0
+        for t in tips {
+            guard let sid = t.sid, let hex = docs[t.account]?[sid]?[t.localId] else {
+                absent += 1; continue
+            }
+            guard let text = decodeDocument(hex) else { undecodable += 1; continue }
+            if isTipDocument(text) { synced += 1; continue }
+            let resolved = displayNames[t.account]?[t.username]
+            records.append(RecoveredRecord(
+                chat: t.username, name: (resolved != nil && resolved != t.username) ? resolved : nil,
+                time: t.ts, form: t.form.rawValue,
+                localId: t.localId, db: t.db, length: text.utf8.count, text: text))
+        }
+        return (records, absent, synced, undecodable)
+    }
+
     /// 会话×local_id 反查项 → WHERE 条件批（OR 连接），每批总 IN 项数 ≤ cap。
     /// 批化动机：content 表无 (c4,c1) 索引，逐会话查询=全表扫描 ×4 分片 ×会话数；
     /// 批化把扫描次数从 4×会话数压到 4×批数。
@@ -101,10 +138,12 @@ extension Wxkeep.DbKeysCommand {
         var chat: String?
         @Option(name: .long, help: "输出格式：jsonl（默认，机器可读）或 markdown（按会话分组的阅读报告）")
         var format: OutputFormat = .jsonl
-        @Option(name: .long, help: "输出路径（默认用户数据目录 recovered/recovered.jsonl 或 .md，0600）")
+        @Option(name: .long, help: "输出路径（默认用户数据目录 recovered/recovered-<时间戳>.jsonl 或 .md，0600）")
         var output: String?
         @Option(name: .long, help: "sqlcipher 可执行路径（默认 brew/PATH 探测）")
         var sqlcipher: String?
+        @Option(name: .long, help: "密钥库路径（默认 $WXKEEP_DBKEYS → ./var/dbkeys/keys.json → 用户数据目录）")
+        var keys: String?
         @Option(name: .long, help: "终端预览最近 N 条（只出会话/时间/长度，不出内容）")
         var latest: Int = 0
         @Flag(name: .long, help: "把复原原文直接打印到终端（默认只写文件）")
@@ -116,15 +155,15 @@ extension Wxkeep.DbKeysCommand {
 
         mutating func run() throws {
             guard let exe = Audit.resolveSQLCipher(explicit: sqlcipher) else {
-                throw CleanExit.message("未找到 sqlcipher（brew install sqlcipher 或 --sqlcipher 指定）")
+                throw ValidationError("未找到 sqlcipher（brew install sqlcipher 或 --sqlcipher 指定）")
             }
-            let store = DbKeysFiles.loadStore(url: nil)
+            let store = DbKeysFiles.loadStore(url: PathUtil.expandTilde(keys).map { URL(fileURLWithPath: $0) })
             let sinceTS = try Audit.parseTimestamp(since)
             let accounts = WeChatDBFinder.accounts()
-            guard !accounts.isEmpty else { throw CleanExit.message("未找到 xwechat_files 账号目录") }
+            guard !accounts.isEmpty else { throw ValidationError("未找到 xwechat_files 账号目录") }
 
-            // 1. FTS session 映射（username → rowid）
-            var ftsUser2Sid: [String: Int] = [:]
+            // 1. FTS session 映射（account → username → rowid；各账号编号独立）
+            var ftsUser2Sid: [String: [String: Int]] = [:]
             var ftsKeyed: [String: (url: URL, key: [UInt8])] = [:]
             for account in accounts {
                 guard let fts = WeChatDBFinder.encryptedDBs(account: account, live: true)
@@ -133,28 +172,22 @@ extension Wxkeep.DbKeysCommand {
                 let salt = SQLCipherGeometry.saltOfPage1(page: page)
                 guard let key = store.keyFor(basename: fts.lastPathComponent, salt: salt, page: page) else { continue }
                 ftsKeyed[account] = (fts, key)
-                for line in Audit.runSQL(exe, db: fts, key: key,
+                var mapping: [String: Int] = [:]
+                for line in try Audit.runSQL(exe, db: fts, key: key,
                                          statements: "SELECT rowid, username FROM name2id;") {
                     let p = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
                     guard p.count == 2, let sid = Int(p[0]) else { continue }
-                    ftsUser2Sid[String(p[1])] = sid
+                    mapping[String(p[1])] = sid
                 }
+                ftsUser2Sid[account] = mapping
             }
             guard !ftsUser2Sid.isEmpty else {
-                throw CleanExit.message("FTS name2id 不可用——先 `wxkeep dbkeys check` 确认密钥")
+                throw ValidationError("FTS name2id 不可用——先 `wxkeep dbkeys check` 确认密钥")
             }
-            print("· FTS 会话映射 \(ftsUser2Sid.count) 项")
+            print("· FTS 会话映射 \(ftsUser2Sid.values.map(\.count).max() ?? 0) 项 × \(ftsUser2Sid.count) 账号")
 
             // 2. 灰条收集（原地覆写形态：self/other；xml=78 轮已裁非洞原消息并存，不适用复原）
-            struct Tip {
-                var username: String
-                var sid: Int?
-                var localId: Int
-                var ts: Int
-                var form: RevokeTipClassifier.Form
-                var db: String
-            }
-            var tips: [Tip] = []
+            var tips: [RevokeRecovery.RecoverTip] = []
             var unknownForm = 0
             for account in accounts {
                 let dbs = WeChatDBFinder.encryptedDBs(account: account, live: true)
@@ -167,13 +200,13 @@ extension Wxkeep.DbKeysCommand {
                     guard let page = WeChatDBFinder.page1(of: db), !WeChatDBFinder.isPlain(page) else { continue }
                     let salt = SQLCipherGeometry.saltOfPage1(page: page)
                     guard let key = store.keyFor(basename: db.lastPathComponent, salt: salt, page: page) else {
-                        throw CleanExit.message("密钥不可用：\(db.lastPathComponent) — 先 `wxkeep dbkeys check` / `capture`")
+                        throw ValidationError("密钥不可用：\(db.lastPathComponent) — 先 `wxkeep dbkeys check` / `capture`")
                     }
-                    let tables = Audit.listMsgTables(db: db, exe: exe, key: key)
-                    let names = Audit.nameMap(db: db, exe: exe, key: key)
+                    let tables = try Audit.listMsgTables(db: db, exe: exe, key: key)
+                    let names = try Audit.nameMap(db: db, exe: exe, key: key)
                     var dbTips = 0
                     for chunk in tables.chunked(into: 400) {
-                        for line in Audit.queryTips(db: db, exe: exe, key: key, tables: chunk, since: sinceTS) {
+                        for line in try Audit.queryTips(db: db, exe: exe, key: key, tables: chunk, since: sinceTS) {
                             let parts = line.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
                             guard parts.count == 4 else { continue }
                             guard let raw = Audit.hexData(String(parts[3])),
@@ -186,9 +219,11 @@ extension Wxkeep.DbKeysCommand {
                             let username = names[String(parts[0])] ?? String(parts[0])
                             if let chat, !username.contains(chat) { continue }
                             let ts = Int(parts[2]) ?? 0
-                            tips.append(Tip(username: username, sid: ftsUser2Sid[username],
-                                            localId: Int(parts[1]) ?? 0, ts: ts, form: form,
-                                            db: db.lastPathComponent))
+                            tips.append(RevokeRecovery.RecoverTip(
+                                account: account, username: username,
+                                sid: ftsUser2Sid[account]?[username],
+                                localId: Int(parts[1]) ?? 0, ts: ts, form: form,
+                                db: db.lastPathComponent))
                             dbTips += 1
                         }
                     }
@@ -197,27 +232,42 @@ extension Wxkeep.DbKeysCommand {
             }
             print("· 原地覆写灰条（复原候选）\(tips.count) 条（未分类 \(unknownForm)）")
 
-            // 3. FTS 反查（按会话分组批化 ×4 分片）
-            var bySid: [(sid: Int, lids: [Int])] = []
-            var grouped = Dictionary(grouping: tips.filter { $0.sid != nil }) { $0.sid! }
-            for (sid, group) in grouped {
-                bySid.append((sid, group.map(\.localId)))
+            // 3. FTS 反查（按账号隔离批化 ×4 分片——跨账号查同一批会把
+            // sid 巧合相同的行错配进来；每账号只打自己的 fts 库）
+            var accountBatches: [String: [String]] = [:]
+            for account in accounts {
+                var bySid: [(sid: Int, lids: [Int])] = []
+                let grouped = Dictionary(grouping: tips.filter { $0.account == account && $0.sid != nil }) { $0.sid! }
+                for (sid, group) in grouped {
+                    bySid.append((sid, group.map(\.localId)))
+                }
+                bySid.sort { $0.sid < $1.sid }
+                accountBatches[account] = RevokeRecovery.ftsQueryBatches(bySid)
             }
-            bySid.sort { $0.sid < $1.sid }
-            let batches = RevokeRecovery.ftsQueryBatches(bySid)
-            var docs: [Int: [Int: String]] = [:]   // sid → localId → hex(c0)
+            var docs: [String: [Int: [Int: String]]] = [:]   // account → sid → localId → hex(c0)
             var shardNote = ""
-            let ftsList = ftsKeyed.values.sorted { $0.url.path < $1.url.path }
+            let ftsSorted = ftsKeyed.sorted { $0.key < $1.key }
             for shard in 0...3 {
                 var sawRows = false
-                for fts in ftsList {
+                for (account, fts) in ftsSorted {
+                    guard let batches = accountBatches[account] else { continue }
                     for (i, term) in batches.enumerated() {
                         let sql = "SELECT c4, c1, hex(coalesce(c0,'')) FROM message_fts_v4_\(shard)_content WHERE \(term);"
-                        for line in Audit.runSQL(exe, db: fts.url, key: fts.key, statements: sql) {
+                        // 分片表缺失（schema 漂移/老库无此分片）按空集容错——
+                        // 其余错误（退出码/stderr）如实抛出，不再伪装成空结果。
+                        let lines: [String]
+                        do {
+                            lines = try Audit.runSQL(exe, db: fts.url, key: fts.key, statements: sql)
+                        } catch {
+                            guard String(describing: error).contains("no such table") else { throw error }
+                            continue
+                        }
+                        for line in lines {
                             let p = line.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
                             guard p.count == 3, let sid = Int(p[0]), let lid = Int(p[1]) else { continue }
-                            if docs[sid] == nil { docs[sid] = [:] }
-                            if docs[sid]?[lid] == nil { docs[sid]?[lid] = String(p[2]) }
+                            if docs[account] == nil { docs[account] = [:] }
+                            if docs[account]?[sid] == nil { docs[account]?[sid] = [:] }
+                            if docs[account]?[sid]?[lid] == nil { docs[account]?[sid]?[lid] = String(p[2]) }
                             sawRows = true
                         }
                         if i % 40 == 39 { print("·   分片\(shard) 反查 \(i + 1)/\(batches.count) 批") }
@@ -227,45 +277,44 @@ extension Wxkeep.DbKeysCommand {
             }
             print("· FTS 命中分片：\(shardNote)")
 
-            // 4. 会话显示名解析（contact.db：备注 > 昵称 > 微信号）
-            var displayNames: [String: String] = [:]
+            // 4. 会话显示名解析（contact.db：备注 > 昵称 > 微信号；按账号隔离）
+            var displayNames: [String: [String: String]] = [:]
             for account in accounts {
                 guard let contact = WeChatDBFinder.encryptedDBs(account: account, live: true)
                     .first(where: { $0.lastPathComponent == "contact.db" }) else { continue }
                 guard let page = WeChatDBFinder.page1(of: contact), !WeChatDBFinder.isPlain(page) else { continue }
                 let salt = SQLCipherGeometry.saltOfPage1(page: page)
                 guard let key = store.keyFor(basename: contact.lastPathComponent, salt: salt, page: page) else { continue }
-                for line in Audit.runSQL(exe, db: contact, key: key,
+                var names: [String: String] = [:]
+                for line in try Audit.runSQL(exe, db: contact, key: key,
                                          statements: "SELECT username, coalesce(remark,''), coalesce(nick_name,''), coalesce(alias,'') FROM contact;") {
                     let p = line.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
                     guard p.count == 4 else { continue }
                     let username = String(p[0])
-                    displayNames[username] = RevokeRecovery.displayName(
+                    names[username] = RevokeRecovery.displayName(
                         remark: String(p[1]), nickName: String(p[2]),
                         alias: String(p[3]), username: username)
                 }
+                displayNames[account] = names
             }
-            print("· 会话名映射 \(displayNames.count) 项")
+            print("· 会话名映射 \(displayNames.values.map(\.count).max() ?? 0) 项 × \(displayNames.count) 账号")
 
-            // 5. 复原判定与导出
-            var records: [RevokeRecovery.RecoveredRecord] = []
-            var absent = 0, synced = 0, undecodable = 0
-            for t in tips {
-                guard let sid = t.sid, let hex = docs[sid]?[t.localId] else { absent += 1; continue }
-                guard let text = RevokeRecovery.decodeDocument(hex) else { undecodable += 1; continue }
-                if RevokeRecovery.isTipDocument(text) { synced += 1; continue }
-                let resolved = displayNames[t.username]
-                records.append(RevokeRecovery.RecoveredRecord(
-                    chat: t.username, name: (resolved != nil && resolved != t.username) ? resolved : nil,
-                    time: t.ts, form: t.form.rawValue,
-                    localId: t.localId, db: t.db, length: text.utf8.count, text: text))
-            }
-            records.sort { $0.time < $1.time }
+            // 5. 复原判定与导出（纯函数 assembleRecords：账号隔离匹配）
+            let assembled = RevokeRecovery.assembleRecords(
+                tips: tips, docs: docs, displayNames: displayNames)
+            let records = assembled.records.sorted { $0.time < $1.time }
             let named = records.filter { $0.name != nil }.count
 
+            // 默认输出带时间戳：FTS 文档可能已被微信清理（不可再生），静默
+            // 覆盖上一次复原报告 = 数据丢失。
+            let stamp: String = {
+                let f = DateFormatter()
+                f.dateFormat = "yyyyMMdd-HHmmss"
+                return f.string(from: Date())
+            }()
             let ext = format == .markdown ? "md" : "jsonl"
-            let outURL = output.map { URL(fileURLWithPath: $0) }
-                ?? Config.userDataURL.appendingPathComponent("recovered/recovered.\(ext)")
+            let outURL = output.map { URL(fileURLWithPath: PathUtil.expandTilde($0)) }
+                ?? Config.userDataURL.appendingPathComponent("recovered/recovered-\(stamp).\(ext)")
             try FileManager.default.createDirectory(
                 at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let payload: Data
@@ -285,7 +334,7 @@ extension Wxkeep.DbKeysCommand {
             try SafeWrite.overwrite(payload, to: outURL)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: outURL.path)
 
-            print("复原结果：成功=\(records.count)（含显示名 \(named)）无 FTS 文档（非文本原文为主）=\(absent) 文档不可解码=\(undecodable) 被同步覆盖=\(synced)")
+            print("复原结果：成功=\(records.count)（含显示名 \(named)）无 FTS 文档（非文本原文为主）=\(assembled.absent) 文档不可解码=\(assembled.undecodable) 被同步覆盖=\(assembled.synced)")
             print("输出：\(outURL.path)（0600，含聊天内容——注意保管，勿入仓库）")
             for r in records.suffix(latest).reversed() {
                 let label = r.name ?? r.chat

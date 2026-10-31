@@ -158,8 +158,10 @@ enum DbKeysFiles {
 // MARK: - 微信库枚举
 
 enum WeChatDBFinder {
+    /// 微信库根：家目录锚 RealUser——sudo dbkeys/recover 时读真实用户的
+    /// 微信数据（NSHomeDirectory 在 root 下指 /var/root，必然「未找到账号」）。
     static var xwechatRoot: URL {
-        URL(fileURLWithPath: NSHomeDirectory())
+        RealUser.homeURL()
             .appendingPathComponent("Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files")
     }
 
@@ -275,10 +277,10 @@ extension Wxkeep {
             var keys: String?
 
             mutating func run() throws {
-                let storeURL = keys.map { URL(fileURLWithPath: $0) }
+                let storeURL = PathUtil.expandTilde(keys).map { URL(fileURLWithPath: $0) }
                 var store = DbKeysFiles.loadStore(url: storeURL)
                 let accounts = WeChatDBFinder.accounts()
-                guard !accounts.isEmpty else { throw CleanExit.message("未找到 xwechat_files 账号目录") }
+                guard !accounts.isEmpty else { throw ValidationError("未找到 xwechat_files 账号目录") }
                 var green = 0, plain = 0, changed = false
                 var red: [String] = []
                 for account in accounts {
@@ -320,12 +322,12 @@ extension Wxkeep {
             mutating func run() throws {
                 let wechatExe = "/Applications/WeChat.app/Contents/MacOS/WeChat"
                 guard FileManager.default.fileExists(atPath: wechatExe) else {
-                    throw CleanExit.message("未找到 \(wechatExe)")
+                    throw ValidationError("未找到 \(wechatExe)")
                 }
                 guard Self.entitleHasGetTaskAllow(exe: wechatExe) else {
-                    throw CleanExit.message("微信二进制无 get-task-allow：先 `wxkeep patch`（重签带该 entitlement）再 capture")
+                    throw ValidationError("微信二进制无 get-task-allow：先 `wxkeep patch`（重签带该 entitlement）再 capture")
                 }
-                let storeURL = keys.map { URL(fileURLWithPath: $0) }
+                let storeURL = PathUtil.expandTilde(keys).map { URL(fileURLWithPath: $0) }
                 let hitsPath = NSTemporaryDirectory() + "wxkeep-pbkdf-hits.jsonl"
                 try? FileManager.default.removeItem(atPath: hitsPath)
                 let scriptPath = NSTemporaryDirectory() + "wxkeep_capture_lldb.py"
@@ -340,7 +342,7 @@ extension Wxkeep {
                 let logPath = NSTemporaryDirectory() + "wxkeep-capture-lldb.log"
                 FileManager.default.createFile(atPath: logPath, contents: nil)
                 guard let log = FileHandle(forWritingAtPath: logPath) else {
-                    throw CleanExit.message("无法创建 \(logPath)")
+                    throw ValidationError("无法创建 \(logPath)")
                 }
                 defer { try? log.close() }
                 let lldb = Process()
@@ -453,21 +455,24 @@ extension Wxkeep {
             var latest: Int = 0
             @Option(name: .long, help: "sqlcipher 可执行路径（默认 brew/PATH 探测）")
             var sqlcipher: String?
+            @Option(name: .long, help: "密钥库路径（默认 $WXKEEP_DBKEYS → ./var/dbkeys/keys.json → 用户数据目录）")
+            var keys: String?
             @Flag(name: .long, help: "跳过灰条分类（zstd 缺席时自动退化）")
             var noClassify = false
 
             mutating func run() throws {
                 guard let exe = Self.resolveSQLCipher(explicit: sqlcipher) else {
-                    throw CleanExit.message("未找到 sqlcipher（brew install sqlcipher 或 --sqlcipher 指定）")
+                    throw ValidationError("未找到 sqlcipher（brew install sqlcipher 或 --sqlcipher 指定）")
                 }
-                let store = DbKeysFiles.loadStore(url: nil)
+                let store = DbKeysFiles.loadStore(
+                    url: PathUtil.expandTilde(keys).map { URL(fileURLWithPath: $0) })
                 let sinceTS = try Self.parseTimestamp(since)
                 let needRows = latest > 0 || sinceTS != nil
                 var total: [RevokeTipClassifier.Form: Int] = [:]
                 var unknownForm = 0
                 var rows: [(ts: Int, chat: String, db: String, form: RevokeTipClassifier.Form)] = []
                 let accounts = WeChatDBFinder.accounts()
-                guard !accounts.isEmpty else { throw CleanExit.message("未找到 xwechat_files 账号目录") }
+                guard !accounts.isEmpty else { throw ValidationError("未找到 xwechat_files 账号目录") }
                 for account in accounts {
                     let dbs = WeChatDBFinder.encryptedDBs(account: account, live: true)
                         .filter { url in
@@ -479,12 +484,12 @@ extension Wxkeep {
                         guard let page = WeChatDBFinder.page1(of: db), !WeChatDBFinder.isPlain(page) else { continue }
                         let salt = SQLCipherGeometry.saltOfPage1(page: page)
                         guard let key = store.keyFor(basename: db.lastPathComponent, salt: salt, page: page) else {
-                            throw CleanExit.message("密钥不可用：\(db.lastPathComponent) — 先 `wxkeep dbkeys check` / `capture`")
+                            throw ValidationError("密钥不可用：\(db.lastPathComponent) — 先 `wxkeep dbkeys check` / `capture`")
                         }
-                        let tables = Self.listMsgTables(db: db, exe: exe, key: key)
-                        let names = Self.nameMap(db: db, exe: exe, key: key)
+                        let tables = try Self.listMsgTables(db: db, exe: exe, key: key)
+                        let names = try Self.nameMap(db: db, exe: exe, key: key)
                         for chunk in tables.chunked(into: 400) {
-                            for line in Self.queryTips(db: db, exe: exe, key: key, tables: chunk, since: sinceTS) {
+                            for line in try Self.queryTips(db: db, exe: exe, key: key, tables: chunk, since: sinceTS) {
                                 let parts = line.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
                                 guard parts.count == 4 else { continue }
                                 let table = String(parts[0])
@@ -549,7 +554,10 @@ extension Wxkeep {
             }
 
             static func resolveSQLCipher(explicit: String?) -> String? {
-                if let explicit, FileManager.default.isExecutableFile(atPath: explicit) { return explicit }
+                if let explicit {
+                    let expanded = PathUtil.expandTilde(explicit)
+                    if FileManager.default.isExecutableFile(atPath: expanded) { return expanded }
+                }
                 for c in ["/opt/homebrew/opt/sqlcipher/bin/sqlcipher",
                           "/opt/homebrew/bin/sqlcipher",
                           "/usr/local/opt/sqlcipher/bin/sqlcipher",
@@ -588,34 +596,57 @@ extension Wxkeep {
                 return Data(bytes)
             }
 
-            static func runSQL(_ exe: String, db: URL, key: [UInt8], statements: String) -> [String] {
+            /// sqlcipher 批查询。**退出码/stderr 全检**（102 轮修）：此前
+            /// `catch { return [] }` + 忽略 terminationStatus 会让一切查询
+            /// 失败（CLI 版本差异/-readonly 不支持/SQL 错）静默伪装成「全
+            /// 零统计」——audit 的 --since 门打出假 PASS。stderr 落临时文件
+            /// 而非 Pipe（没人读的管道 >64KB 会写阻塞死锁，Shell.run 同款
+            /// 教训），错误尾部并入抛错信息。
+            static func runSQL(_ exe: String, db: URL, key: [UInt8], statements: String) throws -> [String] {
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: exe)
                 p.arguments = ["-readonly", db.path]
                 let inPipe = Pipe(), outPipe = Pipe()
                 p.standardInput = inPipe
                 p.standardOutput = outPipe
-                p.standardError = Pipe()
-                do { try p.run() } catch { return [] }
+                let errFile = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("wxkeep-sqlcerr-\(UUID().uuidString)")
+                guard FileManager.default.createFile(atPath: errFile.path, contents: nil),
+                      let errHandle = FileHandle(forWritingAtPath: errFile.path) else {
+                    throw ValidationError("无法创建 stderr 临时文件：\(errFile.path)")
+                }
+                defer { try? FileManager.default.removeItem(at: errFile) }
+                p.standardError = errHandle
+                do { try p.run() } catch {
+                    try? errHandle.close()
+                    throw ValidationError("sqlcipher 无法启动（\(exe)）：\(error.localizedDescription)")
+                }
                 let sql = "PRAGMA key = \"x'\(key.hexString)'\"; \(SQLCipherGeometry.pragmaPreamble); \(statements)\n"
                 inPipe.fileHandleForWriting.write(sql.data(using: .utf8)!)
                 try? inPipe.fileHandleForWriting.close()
                 let data = outPipe.fileHandleForReading.readDataToEndOfFile()
                 p.waitUntilExit()
+                try? errHandle.close()
+                if p.terminationStatus != 0 {
+                    let tail = ((try? String(contentsOf: errFile, encoding: .utf8)) ?? "")
+                        .split(separator: "\n", omittingEmptySubsequences: true)
+                        .suffix(3).joined(separator: " | ")
+                    throw ValidationError("sqlcipher 退出码 \(p.terminationStatus)（\(db.lastPathComponent)）：\(tail)")
+                }
                 return (String(data: data, encoding: .utf8) ?? "")
                     .split(separator: "\n", omittingEmptySubsequences: true)
                     .filter { $0 != "ok" }
                     .map(String.init)
             }
 
-            static func listMsgTables(db: URL, exe: String, key: [UInt8]) -> [String] {
-                runSQL(exe, db: db, key: key,
+            static func listMsgTables(db: URL, exe: String, key: [UInt8]) throws -> [String] {
+                try runSQL(exe, db: db, key: key,
                        statements: "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg\\_%' ESCAPE '\\';")
             }
 
-            static func nameMap(db: URL, exe: String, key: [UInt8]) -> [String: String] {
+            static func nameMap(db: URL, exe: String, key: [UInt8]) throws -> [String: String] {
                 var out: [String: String] = [:]
-                for line in runSQL(exe, db: db, key: key, statements: "SELECT user_name FROM Name2Id;") {
+                for line in try runSQL(exe, db: db, key: key, statements: "SELECT user_name FROM Name2Id;") {
                     guard let data = line.data(using: .utf8) else { continue }
                     let digest = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
                     out["Msg_" + digest] = line
@@ -623,7 +654,7 @@ extension Wxkeep {
                 return out
             }
 
-            static func queryTips(db: URL, exe: String, key: [UInt8], tables: [String], since: Int?) -> [String] {
+            static func queryTips(db: URL, exe: String, key: [UInt8], tables: [String], since: Int?) throws -> [String] {
                 guard !tables.isEmpty else { return [] }
                 let selects = tables.map { t in
                     "SELECT '\(t)', local_id, create_time, hex(coalesce(message_content,'')) FROM \"\(t)\" WHERE local_type=10000"
@@ -631,7 +662,7 @@ extension Wxkeep {
                 let sqlText = since.map {
                     "SELECT * FROM (\(selects)) WHERE create_time >= \($0) ORDER BY create_time;"
                 } ?? "SELECT * FROM (\(selects)) ORDER BY create_time;"
-                return runSQL(exe, db: db, key: key, statements: sqlText)
+                return try runSQL(exe, db: db, key: key, statements: sqlText)
             }
         }
     }

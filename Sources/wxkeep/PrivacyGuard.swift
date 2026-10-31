@@ -31,7 +31,19 @@ enum PrivacyGuard {
 
     static func read() -> [Status] {
         keys.map { spec in
-            let r = Shell.run("/usr/bin/defaults", ["read", domain, spec.key])
+            // root 语境委托控制台用户读（disable 同款；否则 sudo status 读
+            // root 域误报「未开启」）。
+            let r: Shell.Result
+            if geteuid() == 0 {
+                let console = Shell.run("/usr/bin/stat", ["-f", "%Su", "/dev/console"])
+                    .stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                let uid = Shell.run("/usr/bin/id", ["-u", console]).stdout
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                r = Shell.run("/bin/launchctl", ["asuser", uid, "/usr/bin/sudo", "-u", console,
+                                                 "/usr/bin/defaults", "read", domain, spec.key])
+            } else {
+                r = Shell.run("/usr/bin/defaults", ["read", domain, spec.key])
+            }
             let value = r.status == 0
                 ? r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 : "<unset>"

@@ -1693,4 +1693,28 @@ var/wxarm/SeedFunctionStarts.java 入库（复现入口）；无代码改动；/
    （config/signatures/manifest 全在 tarball 内）；失去的=预构建二进制
    的下载即用性——源码用户按 README 自行 `swift build -c release`。
 5. **CI 不变**：双 Xcode 矩阵仍跑（测试绿是 tag 前置门）；release 触发
-   的资产上传 workflow 停用/删除。
+   的资产上传 workflow 已删除（2026-11-01 收口；见下条事故档）。
+   发版 runbook 的 release 创建 = 本地 `gh release create vX.Y.Z
+   --notes-file <notes>`（notes 手写、附源码包 sha256），不再有任何
+   workflow 挂资产。
+6. **v0.2.16 资产事故档（2026-11-01 清账）**：发版当夜 release.yml 仍在
+   tag 触发链上——v0.2.16 tag push 后 workflow 自动构建并上传了六资产，
+   与「0 资产=源码-only 达成」的关账记录矛盾（关账时只核对了 notes 文本，
+   未核对 assets 列表）。次日清账：六资产已从 v0.2.16 release 删除
+   （`gh release delete-asset`；update-data 走 raw.githubusercontent
+   master 分支，与 release 资产零耦合，删除无工具链影响）；release.yml
+   同步删除。教训：**源码-only 发版的关账判据必须包含
+   `gh release view --json assets` 核对**，notes 声明不等于机械事实。
+7. **源码 formula 的三个坑（v0.2.16 E2E 实证，2026-11-01 修通入档）**：
+   ① `depends_on xcode:` 硬性要求完整 Xcode.app——CLT-only 用户被拒装
+   （"A full installation of Xcode.app is required"）。对位 homebrew-core
+   纯 SPM 惯例（swiftformat）：`uses_from_macos "swift" => :build` +
+   `system "swift", "build", *std_swift_args`。② `--product wxkeep`
+   单品过滤不产出 runtime dylib/wxprobe（lib.install ENOENT）——全产品
+   构建再去各产物位取件。③ 辅助可执行件（wxprobe）按 brew 惯例进
+   `libexec.install`（不进 PATH）；CLI 侧搜索必须先
+   `resolvingSymlinksInPath` 再推 `../libexec`（/opt/homebrew/libexec
+   从不被链接，未解析路径永远落空）。E2E 环境注意：brew7 拒绝本地路径
+   formula（复制进本地 tap checkout 从 tap 装）；brew 沙箱把 HOME 换成
+   tmpdir 且拒读真实 HOME——依赖拉取不走用户 gitconfig 代理；github
+   直连抖动时 E2E 会卡依赖拉取（非 formula 缺陷，重试即过）。

@@ -470,3 +470,43 @@ struct WxProbeTests {
         #expect(Wxkeep.RuntimeCommand.csOnlyEntitlements(bare) == nil)
     }
 }
+
+// MARK: - 102 轮：双份分歧检测对 hooks 行做实质比较（同条数不同内容此前漏报）
+
+extension RuntimeConfigTests {
+    private func writePlist(_ dict: [String: Any], to url: URL) throws {
+        let data = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
+        try data.write(to: url)
+    }
+
+    @Test func divergenceDetectsSameCountDifferentContentHooks() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-div-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("group.json")
+        let b = dir.appendingPathComponent("container.json")
+
+        // 同 uuid 同条数、hook_off 不同（手改旧份的形态）——按 count 判等漏报
+        try writePlist(["hooks": [["uuid": "u1", "build": "270100", "arch": "arm64",
+                                  "hook_off": "0x100"]]], to: a)
+        try writePlist(["hooks": [["uuid": "u1", "build": "270100", "arch": "arm64",
+                                  "hook_off": "0x200"]]], to: b)
+        #expect(RuntimeConfig.configDivergenceDescription(at: [a, b]) != nil,
+                "同条数不同内容的 hooks 表必须报分歧")
+
+        // 内容一致 → 不报
+        try writePlist(["hooks": [["uuid": "u1", "build": "270100", "arch": "arm64",
+                                  "hook_off": "0x100"]]], to: b)
+        #expect(RuntimeConfig.configDivergenceDescription(at: [a, b]) == nil)
+    }
+
+    /// tilde 展开单点（PathUtil）：引号传入的 ~/ 路径展开后再落盘/校验。
+    @Test func pathUtilExpandsTildePrefix() {
+        let expanded = PathUtil.expandTilde("~/wxkeep-test-102")
+        #expect(!expanded.hasPrefix("~"))
+        #expect(expanded.hasPrefix("/"))
+        #expect(PathUtil.expandTilde("/absolute/path") == "/absolute/path")
+        #expect(PathUtil.expandTilde(nil as String?) == nil)
+    }
+}

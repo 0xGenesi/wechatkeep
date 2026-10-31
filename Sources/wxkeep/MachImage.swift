@@ -73,6 +73,10 @@ struct MachImage {
             guard raw.withUnsafeBytes({ $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }) == 0xFEEDFACF
             else { throw ImageError.notMachO }
             let cputype = raw.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: Int32.self) }
+            // thin 分支与 fat 分支同门：请求架构与实际切片不符 = 干净拒绝
+            // （否则拿错架构的段表解码，报 noHit/noSection 把排障引向歧途；
+            // 下游 expected 门虽兜底，错误信息应指向真因）。
+            guard cputype == arch.cpuType else { throw ImageError.noSlice(arch: arch.rawValue) }
             self.init(slice: raw, sliceOffset: 0, cputype: cputype)
         }
     }
@@ -137,7 +141,12 @@ struct MachImage {
     /// __bss 类零填充尾由 bytes() 的 data.count 界兜底。
     func sliceRelativeOffset(va: UInt64) -> Int? {
         for seg in segments where va >= seg.vmaddr && va < seg.vmaddr + seg.vmsize {
-            return Int(seg.fileoff) + Int(va - seg.vmaddr)
+            // 病态段表（fileoff/差值超 Int 表示域）按不可映射拒绝而非强转
+            // trap（L3⑤ 家族：损坏输入必须干净拒绝）。
+            let rel = va - seg.vmaddr
+            guard rel <= UInt64(Int.max), seg.fileoff <= UInt64(Int.max),
+                  UInt64(seg.fileoff) + rel <= UInt64(Int.max) else { return nil }
+            return Int(seg.fileoff) + Int(rel)
         }
         return nil
     }
@@ -159,7 +168,9 @@ struct MachImage {
     func offsets(of pattern: Data, in sectionName: String) throws -> [Int] {
         let s = try section(sectionName)
         let start = s.offset
-        let end = min(start + Int(s.size), data.count)
+        // 病态节头（size 超 Int 表示域）按文件尾收敛而非强转 trap。
+        let size = s.size <= UInt64(Int.max) ? Int(s.size) : 0
+        let end = min(start + size, data.count)
         var out: [Int] = []
         var searchStart = start
         while searchStart + pattern.count <= end {

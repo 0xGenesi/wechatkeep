@@ -397,10 +397,16 @@ extension Wxkeep {
                 }
                 let dest = try Clone.create(source: options.app, replace: replace)
                 let idx = Clone.list(in: options.app.deletingLastPathComponent())
-                    .first { $0.url == dest }?.index ?? 0
+                    .first { $0.url == dest }?.index
                 print("✓ 克隆已创建: \(dest.path)")
                 print("  独立 bundle ID + 独立数据目录；可正常打开登录第二账号")
-                print("  打开: wxkeep clone launch \(idx)")
+                // 序号未命中（list 识别规则外）不能回退 0——序号从 1 起，
+                // 提示 launch 0 必然再失败；退到名字/路径形态。
+                if let idx {
+                    print("  打开: wxkeep clone launch \(idx)")
+                } else {
+                    print("  打开: wxkeep clone launch \"\(dest.lastPathComponent)\"")
+                }
             }
         }
 
@@ -459,6 +465,16 @@ extension Wxkeep {
             var target: String
             mutating func run() throws {
                 let url = Wxkeep.CloneCommand.CloneRemove.resolve(target, in: options.app.deletingLastPathComponent())
+                guard FileManager.default.fileExists(atPath: url.path) else {
+                    // 未命中给可用清单（与 clone remove 同款），不把不存在路径
+                    // 丢给 open 报一个含糊的系统错误。
+                    let clones = Clone.list(in: options.app.deletingLastPathComponent())
+                    let hint = clones.isEmpty
+                        ? "当前没有 wxkeep 克隆（wxkeep clone create 创建）"
+                        : "可用克隆:\n" + clones.map { "  \($0.index) \($0.url.lastPathComponent)" }
+                            .joined(separator: "\n")
+                    throw ValidationError("未找到克隆 \"\(target)\"。\(hint)")
+                }
                 try Clone.launch(url)
                 print("已启动 \(url.lastPathComponent)")
             }
@@ -579,6 +595,11 @@ extension Wxkeep {
                     return
                 }
                 guard let text else {
+                    if rewriteSelf != nil {
+                        // 只读查看分支不落盘——静默忽略开关会让「带 --rewrite-self
+                        // 跑查看」的用户误以为已切换。如实提示。
+                        print("ℹ︎ --rewrite-self 需与文案一起提供才会写入；本次仅查看当前配置")
+                    }
                     let tip = RuntimeConfig.readTip()
                     print("runtime.json: \(RuntimeConfig.configWriteTargets.map(\.path).joined(separator: "\n              "))")
                     print("tip_text:     \(tip.text ?? "<未配置（hook 只武装不改写）>")")
@@ -747,8 +768,10 @@ extension Wxkeep {
             explicit: String?, env: String?, exePath: String, cwd: String
         ) -> [String] {
             var c: [String] = []
-            if let explicit, !explicit.isEmpty { c.append(explicit) }
-            if let env, !env.isEmpty { c.append(env) }
+            // tilde 展开：引号传入的 ~/… 路径不展开必报「dylib 未找到」
+            // （与 --app/--config/--signatures 同款处理，100 轮收口项）。
+            if let explicit, !explicit.isEmpty { c.append(PathUtil.expandTilde(explicit)) }
+            if let env, !env.isEmpty { c.append(PathUtil.expandTilde(env)) }
             let bin = URL(fileURLWithPath: exePath).resolvingSymlinksInPath()
                 .deletingLastPathComponent()
             c.append(bin.deletingLastPathComponent()
@@ -820,17 +843,29 @@ extension Wxkeep {
 
         /// 定位 wxprobe 探针件：exe 同目录 → ../libexec（brew 布局）→
         /// .build/release → .build/debug。
+        /// brew 符号链接（/opt/homebrew/bin/wxkeep → Cellar）必须先解析——
+        /// 未解析的 ../libexec 落在 /opt/homebrew/libexec（brew 从不把
+        /// libexec 链出去），探针永远找不到（与 dylibSearchOrder 同序修正）。
         static func locateWxprobe() -> URL? {
-            let exeDir = URL(fileURLWithPath: CommandLine.arguments[0])
-                .deletingLastPathComponent()
             let fm = FileManager.default
-            let cands = [
-                exeDir.appendingPathComponent("wxprobe"),
-                exeDir.appendingPathComponent("../libexec/wxprobe"),
-                URL(fileURLWithPath: "wxprobe"),
-                exeDir.appendingPathComponent("../../release/wxprobe"),
-                exeDir.appendingPathComponent("../../debug/wxprobe"),
+            let exeDirs = [
+                // 解析后的真实目录（brew Cellar 布局命中 ../libexec）
+                URL(fileURLWithPath: CommandLine.arguments[0])
+                    .resolvingSymlinksInPath().deletingLastPathComponent(),
+                // 未解析目录（手工并排放置 / PATH 直装场景）
+                URL(fileURLWithPath: CommandLine.arguments[0])
+                    .deletingLastPathComponent(),
             ]
+            var cands: [URL] = []
+            for dir in exeDirs {
+                cands.append(dir.appendingPathComponent("wxprobe"))
+                cands.append(dir.appendingPathComponent("../libexec/wxprobe"))
+            }
+            cands.append(URL(fileURLWithPath: "wxprobe"))
+            for dir in exeDirs {
+                cands.append(dir.appendingPathComponent("../../release/wxprobe"))
+                cands.append(dir.appendingPathComponent("../../debug/wxprobe"))
+            }
             return cands.first { fm.isExecutableFile(atPath: $0.path) }
         }
 
@@ -1041,8 +1076,12 @@ extension Wxkeep {
                         if verdict == "blocked" && !force {
                             // blocked 机的唯一武装通道写失败：继续装 = 永不武装
                             // 的死重——回滚主程序 LC 后中止（保持无混合态原则）。
-                            try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
-                            throw ValidationError("入口补丁写入失败且本机无进程内武装通道——已回滚主程序，未安装。")
+                            // 回滚结果如实分报（100 轮原则）：说「已回滚」而实际
+                            // 没滚 = 把用户留在「有 LC 无 dylib」必崩态还断线索。
+                            let restored = (try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)) != nil
+                            throw ValidationError(restored
+                                ? "入口补丁写入失败且本机无进程内武装通道——已回滚主程序，未安装。"
+                                : "入口补丁写入失败且回滚失败——请手工恢复: \(backup.path) → \(main.path)（恢复前勿启动微信）")
                         }
                     }
                 }
@@ -1115,17 +1154,23 @@ extension Wxkeep {
                 }
                 let main = RuntimeCommand.mainExecURL(options.app)
                 let build = try WeChatApp.buildNumber(app: options.app)
+                // LC 在场性预检：孤儿清理路径（LC 缺失）主程序一字节不动——
+                // 不再白造主程序备份（备份轮换 keep=3，无谓备份会挤掉有用的
+                // 历史点）。
+                let mainData = try Data(contentsOf: main, options: .alwaysMapped)
+                let injectedAtStart = MachOInjector.isInjectedAnySlice(data: mainData, path: lcPath)
                 try PatchJournal.begin(kind: .runtimeRemove, build: build, variant: nil,
                                        app: options.app.path)
-                let backup = try Backup.make(binary: main)
-                var data = try Data(contentsOf: main)
-                var lcWasPresent = true
-                do {
+                var backup: URL?
+                if injectedAtStart { backup = try Backup.make(binary: main) }
+                var data = mainData
+                var lcWasPresent = injectedAtStart
+                if injectedAtStart {
                     do {
                         try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: lcPath)
                     } catch MachOInjector.InjectorError.loadCommandNotFound {
-                        // LC 本就不在场（历史半装态的孤儿 dylib）：删除 dylib 无
-                        // 启动风险（无引用者），主程序一字节不动，仍走清理路径。
+                        // LC 本就不在场（预检与遍历两读间的极窄竞窗）：
+                        // 主程序一字节不动，仍走清理路径。
                         lcWasPresent = false
                     }
                     if lcWasPresent {
@@ -1133,13 +1178,15 @@ extension Wxkeep {
                         guard !MachOInjector.isInjectedAnySlice(data: data, path: lcPath) else {
                             throw ValidationError("LC_LOAD_DYLIB 移除未生效（遍历校验失败）——已中止，dylib 保留")
                         }
-                        try SafeWrite.overwrite(data, to: main)
+                        do {
+                            try SafeWrite.overwrite(data, to: main)
+                        } catch {
+                            Wxkeep.printPermissionHintIfTCC(error)
+                            throw error
+                        }
                     }
-                } catch {
-                    Wxkeep.printPermissionHintIfTCC(error)
-                    throw error
                 }
-                if lcWasPresent {
+                if lcWasPresent, let backup {
                     // 落盘后重读验证（2026-09-18 事故防线：LC 未清零时删除 dylib
                     // 文件 = 下次启动必崩。失败即回滚备份，dylib 文件原样保留）
                     let verifyData = try Data(contentsOf: main)
@@ -1156,6 +1203,7 @@ extension Wxkeep {
                 // （95 轮三连崩同机制）；且还原失败信息要在删除 runtime dylib
                 // 之前给出（跳板残留 + dylib 已删 = parse 一进即崩的混合态）。
                 var entryRestored = false
+                var entryNeedsRestore = false   // detectPatched 命中（跳板在位）
                 var resignTargets = ["Contents/MacOS/WeChat"]
                 do {
                     let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
@@ -1163,6 +1211,7 @@ extension Wxkeep {
                         $0.build == build && $0.arch == "arm64" }) {
                         if let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16),
                            EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil {
+                            entryNeedsRestore = true
                             guard let expected = Data(hex: String(row.expected.prefix(24))), expected.count >= 12 else {
                                 throw ValidationError("hooks 行 expected 字节不足（build \(row.build)）")
                             }
@@ -1188,9 +1237,32 @@ extension Wxkeep {
                         }
                     }
                 } catch {
-                    print("⚠️ entry-slot 还原失败: \(error)")
-                    print("   若跳板残留，下次启动可能崩溃——从最新备份恢复 wechat.dylib：")
+                    // 进此分支 ⟹ 跳板在位而还原链失败。此刻主程序 LC 移除已
+                    // 落盘（lcWasPresent 路径）——「LC 已移除 + 跳板残留」=
+                    // parse 一进即崩的必崩混合态（dylib 不加载 → SLOT 恒零 →
+                    // br x16 跳 0）。原实现只打警告然后照删 dylib = 把必崩态
+                    // 留给下次启动（100 轮「remove 重签」修复的失败路径残余）。
+                    // 收敛动作：回滚主程序到 remove 前态（完整安装态，dylib
+                    // 保留），整事务以失败收场而不是留崩溃。
+                    if lcWasPresent, let backup {
+                        let restored = (try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)) != nil
+                        if restored {
+                            PatchJournal.complete()   // 已回到一致的安装态，无未竟事务
+                            throw ValidationError(
+                                "entry-slot 还原失败（\(error.localizedDescription)）——主程序已回滚，runtime 保持安装态。\n"
+                                + "微信可正常启动；排查后重试 `wxkeep runtime remove`。")
+                        }
+                        print("⚠️ 主程序回滚失败——手工恢复: \(backup.path) → \(main.path)")
+                        print("   恢复前勿启动微信（LC 已移除而入口跳板残留 = 撤回解析即崩）。")
+                        throw error
+                    }
+                    // 孤儿路径（LC 本不在场）：主程序一字节未动；跳板+空 SLOT
+                    // 同样是崩态（与 runtime dylib 文件无关）——指引导人工还原
+                    // 入口字节后重试（journal 残留由 doctor 收口指路）。
+                    print("⚠️ entry-slot 还原失败且 LC 本不在场（历史半装态）：\(error)")
+                    print("   入口跳板残留 = 启动后撤回解析即崩——从备份还原 wechat.dylib 入口字节：")
                     print("   ls ~/Library/Application\\ Support/wxkeep/backups/ 或 Contents/Resources/ 下 wxkeep-bak-*")
+                    throw error
                 }
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 try? FileManager.default.removeItem(at: dylib)
@@ -1203,7 +1275,7 @@ extension Wxkeep {
                     try Resigner.resign(app: options.app, patchedBinaries: resignTargets)
                 }
                 print(lcWasPresent
-                      ? "✓ runtime 已移除（备份: \(backup.lastPathComponent)）"
+                      ? "✓ runtime 已移除\(backup.map { "（备份: \($0.lastPathComponent)）" } ?? "")"
                       : "✓ LC 未注入，孤儿 dylib 已清理（主程序未改动）")
                 PatchJournal.complete()   // 移除事务确认成功
             }
@@ -1530,6 +1602,11 @@ extension Wxkeep {
         }
         if probedCount > 0, allOK {
             print(successLine.replacingOccurrences(of: "%d", with: String(probedCount)))
+        } else if probedCount > 0 {
+            // 混合结局（部分探成、部分环境降级）给一行汇总——否则成功行与
+            // 降级提示并存时没有可扫读的结论行。
+            print("ℹ︎ 行为验证部分完成：\(probedCount) 个位点调用即返回，其余在本环境不可用"
+                  + "（strict verify 字节级证明不受影响）")
         }
     }
 
@@ -1555,7 +1632,7 @@ extension Wxkeep {
         mutating func run() throws {
             let target: URL
             if let dir {
-                target = URL(fileURLWithPath: dir)
+                target = URL(fileURLWithPath: PathUtil.expandTilde(dir))
             } else if let found = Config.locatedDirectory() {
                 target = found
             } else {

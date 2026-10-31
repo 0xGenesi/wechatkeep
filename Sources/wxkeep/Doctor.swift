@@ -239,7 +239,9 @@ struct Doctor {
                 app: app, versionEntry: entry,
                 coveredTargets: entry.targets.filter { $0.identifier != "revoke-keeptip2" })) ?? []
             if !leftovers.isEmpty {
-                verdicts.append("⚠️ deprecated revoke-keeptip2 bytes present (\(leftovers.joined(separator: ", "))) — run `sudo wxkeep restore` to clean, then re-patch")
+                // sudo 前缀按可写性条件化（与下方 nextCommand 同款）——非 sudo
+                // 环境硬编码 sudo 会误导（writable 时不需要）。
+                verdicts.append("⚠️ deprecated revoke-keeptip2 bytes present (\(leftovers.joined(separator: ", "))) — run `\(writable ? "" : "sudo ")wxkeep restore` to clean, then re-patch")
                 patchStates["revoke-keeptip2"] = "leftover(\(leftovers.count))"
             } else if patchStates["revoke-keeptip2"] != nil {
                 patchStates["revoke-keeptip2"] = "clean"
@@ -486,8 +488,16 @@ struct Doctor {
         lines.append("update-guard: \(guardTag)")
         let privacy = PrivacyGuard.read()
         lines.append("privacy-guard: \(privacy.allSatisfy(\.guarded) ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）")")
-        if let injected = report.runtimeInjected, let armed = report.runtimeHookArmed {
-            let hook = armed ? "已武装" : "未武装（wxkeep runtime hooks 刷新后重启微信）"
+        if let injected = report.runtimeInjected {
+            // armed=nil（dylib 缺失=有专门 ❌ verdict；或装好但从未启动微信）
+            // 不再整行隐藏——刚 install 完的用户在 doctor 里应能看到注入在位
+            // 与「启动后才有武装态」的指引（runtime status 同语义）。
+            let hook: String
+            if let armed = report.runtimeHookArmed {
+                hook = armed ? "已武装" : "未武装（wxkeep runtime hooks 刷新后重启微信）"
+            } else {
+                hook = "未知（启动微信后回写 marker；`wxkeep runtime status` 看细节）"
+            }
             lines.append("runtime:      注入=\(injected ? "是" : "否") hook=\(hook)")
         }
         lines.append("entitlements: \(report.entitlementKeyCount) keys, restricted=\(report.restrictedEntitlements ? "yes" : "no")")

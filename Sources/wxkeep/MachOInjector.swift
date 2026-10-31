@@ -18,6 +18,7 @@ enum MachOInjector {
         case noHeaderSpace(slice: Int, needed: Int, available: Int)
         case loadCommandNotFound(String)
         case alreadyInjected(String)
+        case malformedHeader(slice: Int, field: String)
 
         var description: String {
             switch self {
@@ -30,6 +31,8 @@ enum MachOInjector {
                 "LC_LOAD_DYLIB for \(name) not found"
             case .alreadyInjected(let name):
                 "\(name) is already injected"
+            case .malformedHeader(let slice, let field):
+                "slice #\(slice): header field \(field) is inconsistent with the file — refusing to guess the layout"
             }
         }
     }
@@ -197,15 +200,26 @@ enum MachOInjector {
                           base: 0, path: dylibInstallPath) {
                 continue
             }
-            let available = info.contentFloor - (info.commandsOff + Int(info.sizeofcmds))
+            // 病态头的写前双门（读侧钳位的写侧对偶）：sizeofcmds 越过文件尾
+            // 时读侧按文件尾收敛，写侧若按原值 append 就是越界 replaceSubrange
+            // precondition 崩溃；ncmds=0xFFFFFFFF 时 +1 上溢 trap。合法镜像
+            // 两门恒过（其 sizeofcmds/ncmds 自洽）。
+            let cmdsEnd = min(info.commandsOff + Int(info.sizeofcmds), data.count)
+            let available = info.contentFloor - cmdsEnd
             guard available >= cmd.count else {
                 throw InjectorError.noHeaderSpace(slice: base, needed: cmd.count, available: available)
             }
-            // 新命令追加到加载命令区末尾；ncmds/sizeofcmds 各 +1/+=size
-            data.replaceSubrange(info.commandsOff + Int(info.sizeofcmds)..<(info.commandsOff + Int(info.sizeofcmds) + cmd.count), with: cmd)
+            guard cmdsEnd >= info.commandsOff else {
+                throw InjectorError.malformedHeader(slice: base, field: "sizeofcmds")
+            }
             let ncmdsOff = info.ncmdsOff
-            let ncmds = data.withUnsafeBytes({ $0.loadUnaligned(fromByteOffset: ncmdsOff, as: UInt32.self) }) + 1
-            data.withUnsafeMutableBytes { $0.storeBytes(of: ncmds, toByteOffset: ncmdsOff, as: UInt32.self) }
+            let oldNcmds = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: ncmdsOff, as: UInt32.self) }
+            guard oldNcmds < UInt32.max else {
+                throw InjectorError.malformedHeader(slice: base, field: "ncmds")
+            }
+            // 新命令追加到加载命令区末尾；ncmds/sizeofcmds 各 +1/+=size
+            data.replaceSubrange(cmdsEnd..<(cmdsEnd + cmd.count), with: cmd)
+            data.withUnsafeMutableBytes { $0.storeBytes(of: oldNcmds &+ 1, toByteOffset: ncmdsOff, as: UInt32.self) }
             let scOff = info.sizeofcmdsOff
             let sc = data.withUnsafeBytes({ $0.loadUnaligned(fromByteOffset: scOff, as: UInt32.self) }) + UInt32(cmd.count)
             data.withUnsafeMutableBytes { $0.storeBytes(of: sc, toByteOffset: scOff, as: UInt32.self) }
@@ -248,12 +262,17 @@ enum MachOInjector {
             }
             guard removals > 0 else { continue }
             removedAny = true
-            // 写回：命令区总长不变——移除后尾部补零（保持文件长度与内容偏移不变）。
-            // ncmds 按实删条数递减：多删一报 = dyld 把补零区当命令解析 → 启动炸。
-            let freed = Int(info.sizeofcmds) - commands.count
+            // 写回：命令区总长不变——移除后尾部补零（保持文件长度与内容偏移
+            // 不变）。写侧钳位与读侧同源（cmdsEnd 已按文件尾收敛）——按原始
+            // sizeofcmds 写回会在病态头上越界 replaceSubrange 崩溃；ncmds
+            // 递减前先校验（病态 ncmds=0 时 0−1 下溢 trap）。
+            guard removals <= info.ncmds else {
+                throw InjectorError.malformedHeader(slice: base, field: "ncmds")
+            }
+            let freed = cmdsEnd - info.commandsOff - commands.count
             var padded = commands
-            padded.append(contentsOf: Data(repeating: 0, count: freed))
-            data.replaceSubrange(info.commandsOff..<(info.commandsOff + Int(info.sizeofcmds)), with: padded)
+            padded.append(contentsOf: Data(repeating: 0, count: max(freed, 0)))
+            data.replaceSubrange(info.commandsOff..<cmdsEnd, with: padded)
             data.withUnsafeMutableBytes { raw in
                 raw.storeBytes(of: info.ncmds - removals, toByteOffset: info.ncmdsOff, as: UInt32.self)
                 raw.storeBytes(of: UInt32(commands.count), toByteOffset: info.sizeofcmdsOff, as: UInt32.self)

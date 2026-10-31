@@ -1252,7 +1252,7 @@ static uint64_t slotfill_decode(const uint32_t *w, uintptr_t target) {
 // 内核级读 + 补丁态识别（用户态 memcpy 对已改写签名页有 CS 击杀实例——
 // 95 轮副本实测——目标页访问一律走内核读）。
 static int entry_patch_present(uintptr_t target) {
-    uint64_t w[3] = {0, 0, 0};
+    uint32_t w[3] = {0, 0, 0};   // 12B 读入 12B 缓冲（slotfill_decode 按字读取）
     mach_vm_size_t got = 0;
     if (mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)target, 12,
                                (mach_vm_address_t)(unsigned long)w, &got) != KERN_SUCCESS

@@ -21,6 +21,7 @@ struct Patcher {
         case missingExpected(index: Int, identifier: String)
         case expectedMismatch(index: Int, identifier: String, va: UInt64, expected: [String], current: String)
         case malformedAsm(index: Int, identifier: String, asm: String)
+        case overlappingEntries(first: Int, second: Int, va: UInt64, identifier: String)
 
         var description: String {
             switch self {
@@ -36,6 +37,8 @@ struct Patcher {
                 + "A new signature generation needs human analysis (docs/MAINTAINING.md)."
             case .vaNotFound(let va, let arch):
                 String(format: "VA 0x%X (%@) does not fall inside any segment of its slice", va, arch)
+            case .overlappingEntries(let first, let second, let va, let id):
+                String(format: "entries #%d and #%d (target %@) map to the same file offset (VA 0x%X) — overlapping patch data is refused", first, second, id, va)
             case .missingExpected(let i, let id):
                 "entry #\(i) (target \(id)) has no `expected` bytes — quarantined. "
                 + "It cannot be safety-checked nor restored; refusing to write. "
@@ -208,6 +211,19 @@ struct Patcher {
             plans.append(Plan(entry: entry, va: va, asm: asm, expected: expected, fileOffset: fileOffset))
         }
         guard !plans.isEmpty else { throw PatchError.noArchMatched }
+        // 同 binary 内 fileOffset 重叠检测（102 轮数据完整性门）：Phase 1 的
+        // 全量预读会让重叠位点的两条 entry 都以「原始字节」过门，Phase 2
+        // 顺序写则后者静默覆盖前者（双 written 假账）。现役数据不可达
+        // （variant 互斥、域不交），但数据演进/合并事故必须在这里变成
+        // 干净拒绝而不是静默错写。
+        var seenOffsets: [UInt64: Int] = [:]
+        for (index, plan) in plans.enumerated() {
+            if let first = seenOffsets[plan.fileOffset] {
+                throw PatchError.overlappingEntries(
+                    first: first, second: index, va: plan.va, identifier: identifier)
+            }
+            seenOffsets[plan.fileOffset] = index
+        }
         return plans
     }
 

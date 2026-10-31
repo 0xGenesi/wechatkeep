@@ -156,6 +156,25 @@ final class PatcherTests {
                 identifier: "revoke"))
     }
 
+    /// 102 轮：同 binary 内两条 entry 映射同一 fileOffset 必须干净拒绝——
+    /// Phase 1 全量预读会让重叠位点双双以原始字节过门，Phase 2 顺序写
+    /// 后者静默覆盖前者（双 written 假账）。
+    @Test func overlappingEntriesAreRefused() throws {
+        let binary = try writeBinary(
+            MachOFixture.thin(cputype: MachOFixture.arm64CPU, code: [
+                (0x100, [0xF4, 0x4F, 0xBE, 0xA9, 0xFD, 0x7B, 0x01, 0xA9]),
+            ]),
+            name: "overlap.dylib")
+        let e1 = MachOFixture.entry(.arm64, addr: "100", asm: "00008052C0035FD6", expected: ["F44FBEA9FD7B01A9"])
+        let e2 = MachOFixture.entry(.arm64, addr: "100", asm: "C0035FD6", expected: ["F44FBEA9FD7B01A9"])
+        let err = expectThrows(try Patcher.patch(binary: binary, entries: [e1, e2], identifier: "revoke"))
+        var overlapped = false
+        if case .overlappingEntries? = err as? Patcher.PatchError { overlapped = true }
+        #expect(overlapped, "expected overlappingEntries, got \(err)")
+        // 单条同位合法通过（变体互斥由数据保证，非引擎面职责）
+        _ = try Patcher.patch(binary: binary, entries: [e1], identifier: "revoke")
+    }
+
     @Test func noArchMatchThrows() throws {
         let binary = try writeBinary(MachOFixture.thin(cputype: MachOFixture.x64CPU), name: "noarch.dylib")
         expectThrows(
