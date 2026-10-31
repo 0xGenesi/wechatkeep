@@ -1205,27 +1205,65 @@ static void quiesce_end(void) {
 // （SLOT 落 __DATA 段尾文件填充）。本函数解码该形态并把蹦床地址写进
 // SLOT——纯数据写（__DATA RW），合法。
 // 返回：0=已填充；ENOENT=入口无补丁形态（调用方回落旧阶梯）；其余=错误。
-static int try_slot_fill(uintptr_t target, void *trampoline) {
-    const uint32_t br_x16 = 0xD61F0200u;
-    uint32_t w[3];
-    memcpy(w, (const void *)target, 12);
-    // adrp x16: bit31=1, bits28-24=10000, Rd=16
+
+// T6 诊断：武装决策点直接追加 boot log（进程可能死于任何一步——
+// 逐点留痕才能远程定位；与 late20s 同写法）。
+static void bootlog_line(const char *msg) {
+    @autoreleasepool {
+        NSString *boot = [NSString stringWithFormat:@"%@/tmp/wxkeep-boot.log",
+                          NSHomeDirectory()];
+        NSMutableString *acc = [NSMutableString stringWithContentsOfFile:boot
+                                                                encoding:NSUTF8StringEncoding error:nil];
+        [acc appendFormat:@"%s\n", msg];
+        [acc writeToFile:boot atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+}
+
+// 入口补丁形态解码（arm64）：adrp x16 / ldr x16,[x16,#imm] / br x16 →
+// SLOT 绝对 VA。与 EntrySlot.swift decodeSlotVA 同构。0 = 非补丁形态。
+static uint64_t slotfill_decode(const uint32_t *w, uintptr_t target) {
     if (!((w[0] >> 31) == 1 && ((w[0] >> 24) & 0x1F) == 0x10 && (w[0] & 0x1F) == 16))
-        return ENOENT;
-    // ldr x16, [x16, #imm]
+        return 0;
     if (!((w[1] & 0xFFC00000u) == 0xF9400000u && ((w[1] >> 5) & 0x1F) == 16 && (w[1] & 0x1F) == 16))
-        return ENOENT;
-    if (w[2] != br_x16) return ENOENT;
+        return 0;
+    if (w[2] != 0xD61F0200u) return 0;
     int64_t immlo = (w[0] >> 29) & 0x3;
     int64_t immhi = (w[0] >> 5) & 0x7FFFF;
     int64_t imm = (immhi << 2) | immlo;
     if (imm & (1 << 20)) imm -= (1 << 21);
     uint64_t page = (target & ~(uint64_t)0xFFF) + ((uint64_t)imm << 12);
-    uint64_t slot = page + (((uint64_t)(w[1] >> 10) & 0xFFF) << 3);
+    return page + (((uint64_t)(w[1] >> 10) & 0xFFF) << 3);
+}
+
+// 内核级读 + 补丁态识别（用户态 memcpy 对已改写签名页有 CS 击杀实例——
+// 95 轮副本实测——目标页访问一律走内核读）。
+static int entry_patch_present(uintptr_t target) {
+    uint64_t w[3] = {0, 0, 0};
+    mach_vm_size_t got = 0;
+    if (mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)target, 12,
+                               (mach_vm_address_t)(unsigned long)w, &got) != KERN_SUCCESS
+        || got != 12) return 0;
+    return slotfill_decode(w, target) != 0;
+}
+
+static int try_slot_fill(uintptr_t target, void *trampoline) {
+    const uint32_t br_x16 = 0xD61F0200u;
+    uint32_t w[3];
+    memcpy(w, (const void *)target, 12);
+    uint64_t slot = slotfill_decode(w, target);
+    if (slot == 0) {
+        bootlog_line("slotfill: 入口非补丁形态（decode 失败）");
+        return ENOENT;
+    }
     // 双写一致性读回（数据写无需 icache；release 语义由 volatile+读回保证）
     *(volatile uint64_t *)slot = (uint64_t)(uintptr_t)trampoline;
     os_compiler_barrier();
-    if (*(volatile uint64_t *)slot != (uint64_t)(uintptr_t)trampoline) return EIO;
+    if (*(volatile uint64_t *)slot != (uint64_t)(uintptr_t)trampoline) {
+        bootlog_line("slotfill: readback mismatch");
+        return EIO;
+    }
+    { char b[128]; snprintf(b, sizeof(b), "slotfill: OK slot=0x%llx tramp=0x%llx",
+        (unsigned long long)slot, (unsigned long long)(uintptr_t)trampoline); bootlog_line(b); }
     os_log(OS_LOG_DEFAULT, "[wxkeep-runtime] slot-fill ok slot=0x%llx trampoline=0x%llx",
            (unsigned long long)slot, (unsigned long long)(uintptr_t)trampoline);
     return 0;
@@ -1324,10 +1362,20 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     uintptr_t target = base + t->hook_off;
     size_t len = t->expected_len;               // x64 12 / arm64 16
     uint8_t prologue[16];
-    memcpy(prologue, (void *)target, len);
+    // T6（95 轮）：arm64 先做内核级补丁态识别。补丁态 = 入口已是我们的
+    // 跳板——prologue 用行 expected（蹦床重放原始 16B、跳回 target+len，
+    // 与未补丁语义一致），并跳过对目标页的一切用户态触碰（用户态
+    // memcpy 读/写已改写签名页 = SIGKILL CS 击杀，95 轮副本实测）。
+    int entry_patched = 0;
+    if (t->is_arm64) entry_patched = entry_patch_present(target);
+    if (entry_patched) {
+        memcpy(prologue, t->expected, len);
+    } else {
+        memcpy(prologue, (void *)target, len);
+    }
     memcpy(g_saved_prologue, prologue, 16);
     g_saved_prologue_valid = 1;
-    if (memcmp(prologue, t->expected, len) != 0) {
+    if (!entry_patched && memcmp(prologue, t->expected, len) != 0) {
         // 自适应路径（allow_runtime_prologue，默认关）：270100 的 10-03 自更新
         // 后壳改写 parse 入口运行时字节——磁盘仍是 expected（我们的 RE/补丁
         // 位点不受影响，v1 字节补丁实证有效）。接受运行时原像的前提 = 它
@@ -1341,8 +1389,9 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
         }
     }
     // arm64 的 PC 相对编码在换址执行时会指向错误目标——外部表已在解析期
-    // 过滤，这里对实际内存再验一次（内置表同受保护）。
-    if (t->is_arm64 && !arm64_prologue_relocatable(prologue, len)) {
+    // 过滤，这里对实际内存再验一次（内置表同受保护）。补丁态的 prologue
+    // 来自行 expected（derive 期已过此门），豁免重验。
+    if (t->is_arm64 && !entry_patched && !arm64_prologue_relocatable(prologue, len)) {
         g_hook_status |= kStPrologueMismatch;
         return -1;
     }
@@ -1406,12 +1455,29 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     // MAP_JIT SIGBUS 大战同期同硬化）。无 entitlement 的进程（本机实测
     // 2026-10-27）连 COW 后的 mprotect RW 也被拒——该舞步只在带
     // allow-unsigned-executable-memory 的宿主（微信）内成立。
-    // T6（94 轮）：入口补丁态优先——数据写 SLOT 即武装；无补丁形态回落
-    // 旧阶梯（诊断照旧，供未补丁安装与策略回退场景）。
+    // T6（94 轮）：入口补丁态优先——数据写 SLOT 即武装。
+    // 95 轮硬门：arm64 上 SLOT 路径失败（含无补丁形态）一律**不再回落旧
+    // 阶梯**——2026-10-31 副本实测：macOS 27 的 COW 阶梯能走到最终 memmove
+    // 而后 **SIGKILL(Code Signature Invalid)**（签名 __TEXT 页写 = 内核击
+    // 杀，非可捕获信号、非 EACCES 优雅失败）——装了入口补丁的机器上
+    // decode 必成；decode 失败=补丁缺失/漂移，此时跳过武装是唯一安全动作
+    // （消息管线照常，防护由 v1 字节补丁承担）。x64 语义不同维持旧路。
+    { char b[128]; snprintf(b, sizeof(b), "arm: target=0x%llx is_arm64=%d slot_rc_slotfill_next",
+        (unsigned long long)target, t->is_arm64); bootlog_line(b); }
     int slot_rc = t->is_arm64 ? try_slot_fill(target, tr.mem) : ENOENT;
+    { char b[128]; snprintf(b, sizeof(b), "arm: slot_rc=%d", slot_rc); bootlog_line(b); }
     if (slot_rc == 0) {
         g_arm_via_slot = 1;
         return 0;
+    }
+    if (t->is_arm64) {
+        g_hook_status |= kStInstallFail;
+        os_log(OS_LOG_DEFAULT, "[wxkeep-runtime] slot-fill rc=%d — arm64 legacy ladder disabled (CS kill risk)", slot_rc);
+        g_hook.trampoline = NULL;
+        g_real_wrapper = NULL;
+        __atomic_store_n(&g_hook.target, 0, __ATOMIC_RELEASE);
+        munmap(tr.mem, 4096);
+        return -1;
     }
     if (write_entry_stub(target, tr.stub, tr.stub_len, t->is_arm64, 0) != 0) {
         g_hook_status |= kStInstallFail;   // errno/step 已在公共路径内记录

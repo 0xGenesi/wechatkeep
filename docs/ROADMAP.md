@@ -369,6 +369,49 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 95·T6 调试攻坚轮（2026-10-31：三连 CS 击杀根因链全解 + 修复——**runtime hook 在 macOS 27 上首次武装成功**，蹦床稳定；真机撤回实弹=下一窗口）
+
+> 用户「继续」。95 轮首题（回调语境 memmove 崩溃）攻坚——三轮取证把
+> 崩溃机理剥到底，修复后副本实测 **SLOT 武装成功**（installed=1 slot=1，
+> 主进程武装态存活 90s+ 无崩溃）。
+
+1. **[三连崩溃根因链]**（每轮一次副本 launch + 崩溃报告精读）：
+   - **第一杀**：SIGKILL(Code Signature Invalid) @ wechat_base+0x4d1f8d8
+     （=hook_off 精确命中）——旧阶梯（brew 旧 dylib 被搜索序优先部署，
+     无 slot-fill）的 COW 写把蹦床写进签名 __TEXT 页——T4/T5 的 errno=322
+     在该环境实为 CS 击杀而非 EACCES；
+   - **第二杀**（换新 dylib 后）：同地址同杀——**fat 头 grep LC_UUID 陷阱**
+     （先前误判 uuid 互换，实为 arm64 行正确）+ 仍走阶梯 → 95 轮硬门
+     （arm64 SLOT 失败禁回落阶梯）；
+   - **第三杀**（门后仍死）：崩溃点=install_hook 内联的**用户态序言
+     memcpy（读）**——macOS 27 对**已改写签名页**连内核态外的读都击杀
+     （termination=CODESIGNING "Invalid Page"）。
+2. **[修复链]**（每杀一修）：
+   - **arm64 硬门**：SLOT 路径失败（含无补丁形态）一律不回落旧阶梯
+     （CS 击杀风险；消息管线照常，防护由 v1 字节补丁承担）；
+   - **内核读补丁态识别**：entry_patch_present（mach_vm_read_overwrite，
+     内核级读不触发 CS）先于一切用户态目标页访问；补丁态 prologue 用行
+     expected（蹦床重放原始 16B+跳 target+16=未补丁语义）、跳过用户态
+     读与换址门重验；
+   - **重签覆盖修复（真根因）**：Resigner.codeSigningCandidates 排除
+     /Resources/ 下可执行文件——wechat.dylib 的重签靠 patchedBinaries
+     指定，而 **runtime install 的调用没带它**（T6 之前该文件不被
+     runtime 改写）→ 入口补丁页 = Invalid Page → 内核击杀。补进
+     patchedBinaries 后 [resign] 51 对象含 wechat.dylib。
+3. **[武装成功实证]**（副本，未登录 QR 态）：`slotfill: OK slot=0x
+   13726dfc8 tramp=0x1022f0000`（=base+0xa24dfc8 手算互证）→ `late20s
+   installed=1 status=25 slot=1` → 主进程武装态存活 90s+、tick 持续
+   回写、零崩溃（唯一 .ips=crashpad_handler 的副本语境沙盒初始化——
+   89 轮已归档的环境噪声，非 hook）。**蹦床（原 16B 序言重放+跳
+   target+16）经 500ms 重试+回调双路径武装，机制闭合。**
+4. **[工具教训]**：崩溃报告的符号归属可能错位（无符号区归属最近符号
+   ——install_hook+0x18e8 实为邻近代码）；nm -n 符号表精确定位崩溃指令
+   归属是唯一可靠手段。boot log 逐决策点留痕（bootlog_line）是远程
+   调试的最快通道（os_log 默认级别不外流）。
+5. **[下一步]**：真机撤回实弹 = 用户窗口（T6 装真机→登录→对方撤回→
+   fires>0+keep_message 行为确认→自定义 tip_text 终验）——**T6 装真机
+   前 v1 字节补丁保持原样**（双层防护互不冲突：v1 位点在 parse 内部
+   cbz，入口补丁在函数头）。
 ## 94·三项目立项 + T6 机制建设轮（2026-10-31：安装期入口补丁全链建成；回调武装实证可达；遗留=回调语境 memmove 崩溃一题）
 
 > 用户令「立项未做的并开始」。三项正式立项：**T6**（runtime 复活·安装期

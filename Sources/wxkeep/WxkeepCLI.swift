@@ -966,9 +966,14 @@ extension Wxkeep {
                     try fm.copyItem(at: URL(fileURLWithPath: dylib), to: dest)
                     // 子组件先签：主程序 codesign 的验证会检查 bundle 内 dylib 的签名状态
                     _ = Shell.run("/usr/bin/codesign", ["--force", "--sign", "-", dest.path])
+                    // T6（94 轮）：入口补丁改写了 wechat.dylib——必须进
+                    // patchedBinaries 让重签覆盖（codeSigningCandidates 对
+                    // /Resources/ 下的可执行文件不主动签名；漏掉 = 内核
+                    // "Invalid Page" CS 击杀——95 轮副本实测三连崩根因）。
                     try Resigner.resign(app: options.app,
                                         patchedBinaries: ["Contents/MacOS/WeChat",
-                                                          "Contents/Frameworks/wxkeep_runtime.dylib"])
+                                                          "Contents/Frameworks/wxkeep_runtime.dylib",
+                                                          "Contents/Resources/wechat.dylib"])
                 } catch {
                     // LC 已注入但 dylib 拷贝/重签失败 = 下次启动 dyld 找不到库必崩的
                     // 混合态——回滚主程序并尽力清掉已拷入的 dylib，保持原子性。
