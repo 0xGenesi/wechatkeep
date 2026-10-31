@@ -443,7 +443,7 @@ extension Wxkeep {
         static var _commandName: String { "runtime" }
         static let configuration = CommandConfiguration(
             abstract: "Runtime component (optional): inject a support dylib into WeChat",
-            subcommands: [RuntimeStatus.self, RuntimeHooks.self, RuntimeTip.self, RuntimeInstall.self, RuntimeRemove.self])
+            subcommands: [RuntimeStatus.self, RuntimeHooks.self, RuntimeTip.self, RuntimeProbe.self, RuntimeInstall.self, RuntimeRemove.self])
 
         static func mainExecURL(_ app: URL) -> URL {
             WeChatApp.binaryURL(app: app, relative: "Contents/MacOS/WeChat")
@@ -733,16 +733,164 @@ extension Wxkeep {
             ).first { FileManager.default.fileExists(atPath: $0) }
         }
 
+        // MARK: - 能力探针（93 轮）
+
+        /// 探针输出解析：三行 key=<int>（缺行=缺项）。
+        static func parseProbeOutput(_ text: String) -> (mprotect: Int?, remap: Int?, jit: Int?) {
+            func value(_ key: String) -> Int? {
+                guard let r = text.range(of: "^\(key)=(-?[0-9]+)$", options: .regularExpression) else { return nil }
+                return Int(text[r.upperBound...])
+            }
+            _ = value("mprotect_direct")   // warm the regex path shape
+            var m: Int?, rp: Int?, j: Int?
+            for line in text.split(separator: "\n") {
+                if line.hasPrefix("mprotect_direct=") { m = Int(line.dropFirst("mprotect_direct=".count)) }
+                if line.hasPrefix("remap_cow=") { rp = Int(line.dropFirst("remap_cow=".count)) }
+                if line.hasPrefix("jit_write=") { j = Int(line.dropFirst("jit_write=".count)) }
+            }
+            return (m, rp, j)
+        }
+
+        /// 判定（纯函数）：「可武装」要求既有签名代码页存在一条可写化路径
+        /// （mprotect 直写或 vm_remap COW）——MAP_JIT 新区可写不算（那是
+        /// 新分配区，runtime 阶梯需要的是改写既有页）。
+        static func probeVerdict(mprotect: Int?, remap: Int?) -> String {
+            guard let m = mprotect, let r = remap else { return "inconclusive" }
+            if m == 0 || r == 0 { return "writable" }
+            return "blocked"
+        }
+
+        /// entitlements 过滤：只保留 CS 策略面键（allow-jit 等）。剥掉
+        /// app-sandbox/application-identifier/application-groups/
+        /// keychain-access-groups——带这些键重签临时件会触发沙盒容器绑定
+        /// 校验（AppEx 副本 libsecinit .cold.9 崩溃同源），而 W^X 策略面
+        /// 由 CS 键决定，沙盒键与写化能力无关。
+        static func csOnlyEntitlements(_ xml: String) -> String? {
+            guard let data = xml.data(using: .utf8),
+                  let obj = try? PropertyListSerialization.propertyList(
+                      from: data, options: [], format: nil) as? [String: Any]
+            else { return nil }
+            let keep = obj.filter {
+                guard let k = $0.key as String? else { return false }
+                return k.hasPrefix("com.apple.security.cs.")
+                    || k == "com.apple.security.get-task-allow"
+            }
+            guard !keep.isEmpty, let out = try? PropertyListSerialization.data(
+                fromPropertyList: keep, format: .xml, options: 0)
+            else { return nil }
+            return String(data: out, encoding: .utf8)
+        }
+
+        /// 定位 wxprobe 探针件：exe 同目录 → ../libexec（brew 布局）→
+        /// .build/release → .build/debug。
+        static func locateWxprobe() -> URL? {
+            let exeDir = URL(fileURLWithPath: CommandLine.arguments[0])
+                .deletingLastPathComponent()
+            let fm = FileManager.default
+            let cands = [
+                exeDir.appendingPathComponent("wxprobe"),
+                exeDir.appendingPathComponent("../libexec/wxprobe"),
+                URL(fileURLWithPath: "wxprobe"),
+                exeDir.appendingPathComponent("../../release/wxprobe"),
+                exeDir.appendingPathComponent("../../debug/wxprobe"),
+            ]
+            return cands.first { fm.isExecutableFile(atPath: $0.path) }
+        }
+
+        /// 跑能力探针：拷贝 wxprobe 到临时目录 → 以微信主程序提取的
+        /// CS 面 entitlements 重签 → 运行 → 解析判定。
+        /// 返回 (verdict, 详述行)；探针件缺失 = (nil, 说明)。
+        @discardableResult
+        static func runCapabilityProbe(app: URL) throws -> (verdict: String?, lines: [String]) {
+            guard let probeSrc = locateWxprobe() else {
+                return (nil, ["ℹ︎ wxprobe 探针件不在搜索路径——跳过能力探针（决定性判读仍以装后 marker 为准）"])
+            }
+            let main = mainExecURL(app)
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("wxkeep-probe-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            let probeCopy = tmp.appendingPathComponent("wxprobe")
+            try FileManager.default.copyItem(at: probeSrc, to: probeCopy)
+
+            // 提取微信主程序 entitlements（DER 输出回落 --entitlements :-）
+            var entOut = Shell.run("/usr/bin/codesign",
+                                   ["-d", "--entitlements", ":-", main.path])
+            var csXml: String?
+            if entOut.status == 0, entOut.stdout.contains("<") {
+                csXml = csOnlyEntitlements(entOut.stdout)
+            }
+            if let csXml {
+                let plist = tmp.appendingPathComponent("ent.plist")
+                try csXml.write(to: plist, atomically: true, encoding: .utf8)
+                _ = Shell.run("/usr/bin/codesign",
+                              ["-f", "-s", "-", "--entitlements", plist.path, probeCopy.path])
+            } else {
+                _ = Shell.run("/usr/bin/codesign", ["-f", "-s", "-", probeCopy.path])
+            }
+            let r = Shell.run(probeCopy.path, [])
+            guard r.status == 0 else {
+                return (nil, ["ℹ︎ 探针运行异常（exit \(r.status)）——能力未知，决定性判读以装后 marker 为准"])
+            }
+            let parsed = parseProbeOutput(r.stdout)
+            let verdict = probeVerdict(mprotect: parsed.mprotect, remap: parsed.remap)
+            var lines = [
+                "  mprotect 直写: \(parsed.mprotect.map { $0 == 0 ? "允许(0)" : "拒绝(errno \($0))" } ?? "缺项")",
+                "  vm_remap COW:  \(parsed.remap.map { $0 == 0 ? "允许(0)" : "拒绝(kr \($0))" } ?? "缺项")",
+                "  MAP_JIT 写相:  \(parsed.jit.map { $0 == 0 ? "允许(诊断面——不构成可武装)" : "拒绝" } ?? "缺项")",
+            ]
+            switch verdict {
+            case "blocked":
+                lines.append("  ⇒ 判定: 本机策略禁止进程内写化签名代码页——runtime 无法武装"
+                    + "（frida#3752 同根因；T4/T5 机械终审复确认）")
+            case "writable":
+                lines.append("  ⇒ 判定: 存在可写化路径——runtime 可尝试武装")
+            default:
+                lines.append("  ⇒ 判定: 探针输出不完整——能力未知")
+            }
+            return (verdict, lines)
+        }
+
+        struct RuntimeProbe: ParsableCommand {
+            static var _commandName: String { "probe" }
+            static let configuration = CommandConfiguration(
+                abstract: "Probe whether in-process code-page writes are possible on this OS (runtime go/no-go)")
+            @OptionGroup var options: Options
+            mutating func run() throws {
+                try WeChatApp.validate(options.app)
+                print("== runtime 能力探针（微信同款 CS entitlements 重签后实测）==")
+                let (verdict, lines) = try RuntimeCommand.runCapabilityProbe(app: options.app)
+                for l in lines { print(l) }
+                if verdict == "blocked" {
+                    print("结论：runtime 无法武装（详见 RUNTIME-DESIGN 92 轮节）。"
+                        + "复活唯一路线=安装期磁盘改入口（独立建设轮）。")
+                    throw ExitCode(1)
+                }
+            }
+        }
+
         struct RuntimeInstall: ParsableCommand {
             static var _commandName: String { "install" }
             static let configuration = CommandConfiguration(abstract: "Install the runtime dylib into WeChat (requires WeChat quit)")
             @OptionGroup var options: Options
             @Option(help: "Path of the built libwxkeep_runtime.dylib (default: search brew lib/ → exe dir → .build/release)")
             var dylib: String?
+            @Flag(name: .long, help: "Install even when the capability probe says blocked (policy-change expectations)")
+            var force: Bool = false
             mutating func run() throws {
                 try WeChatApp.validate(options.app)
                 if WeChatApp.isRunning(app: options.app) {
                     throw ValidationError("WeChat 正在运行。退出后重试。")
+                }
+                // 能力探针（93 轮）：本机策略禁止进程内写化签名代码页时，
+                // 装上的 dylib 每次启动武装必败（T4/T5 机械定案）——默认
+                // 中止，--force 明确要求才装（预期策略变化/复验场景）。
+                let (verdict, probeLines) = try RuntimeCommand.runCapabilityProbe(app: options.app)
+                for l in probeLines { print(l) }
+                if verdict == "blocked" && !force {
+                    throw ValidationError(
+                        "能力探针判定 blocked（本机 OS 策略拒绝进程内代码页写化）——装上也无法武装。\n"
+                        + "确认要在策略变化的预期下仍安装：加 --force。")
                 }
                 let fm = FileManager.default
                 guard let dylib = resolveDylibPath(explicit: dylib) else {

@@ -3,6 +3,22 @@
 > 每个地址的推导来源、置信度、验证方式都要可追溯。本文件是新代签名适配的 SOP。
 
 ## 新构建适配 SOP
+## OS 机械工程前置纪律（93 轮，T4/T5 复盘固化）
+
+1. **能力探针先行**：任何「进程内改写/注入/写化」类机械工程开工前，先跑
+   `wxkeep runtime probe`（微型探针件 wxprobe 以微信同款 CS entitlements
+   重签后实测 mprotect/vm_remap/MAP_JIT 三路径）——blocked = 机器上不可
+   行，直接停，不许在 blocked 状态下建机制工程（T4/T5 教训：静默写窗、
+   naked thunk、双变体预构建三轮工程全部可被一次 5 分钟探针省掉）。
+2. **社区执行面变更检索**：目标 OS 版本的已知执行面强化先查
+   frida/community（frida#3752 = macOS 27 CS_LIBRARY_VALIDATION 拒代码页
+   可写化——公开情报在我们撞墙后才检索到）。
+3. `runtime install` 已内置探针门（blocked 默认中止，--force 逃逸）；
+   `runtime probe` 可独立运行。判定语义：既有签名页存在可写化路径
+   （mprotect 直写或 vm_remap COW）才算可武装——MAP_JIT 新区可写不算。
+   探针件随 release 分发（exe 同目录/`../libexec`/`.build` 搜索序）；
+   缺件=跳过+提示，向后兼容。
+
 
 1. **先自动**：`wxkeep locate` 跑全部配方（或 CI 流水线自动跑）。
    - 命中且唯一 → 进入第 4 步（expected 门会兜底）。

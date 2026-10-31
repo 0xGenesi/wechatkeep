@@ -347,3 +347,55 @@ extension RuntimeConfigTests {
         #expect(RuntimeConfig.currentConfigContentHash(at: [url]) == nil)   // 不可读 = nil
     }
 }
+
+/// 93 轮：能力探针纯函数——输出解析/判定/entitlements 过滤。
+/// 背景：T4/T5 三轮机械工程的根因是「机制工程先于机制探针」——探针把
+/// go/no-go 提前到 install 之前，这里锁死判定语义。
+struct WxProbeTests {
+    @Test func probeOutputParsing() {
+        let out = "mprotect_direct=13\nremap_cow=4\njit_write=0\n"
+        let p = Wxkeep.RuntimeCommand.parseProbeOutput(out)
+        #expect(p.mprotect == 13)
+        #expect(p.remap == 4)
+        #expect(p.jit == 0)
+        let empty = Wxkeep.RuntimeCommand.parseProbeOutput("garbage")
+        #expect(empty.mprotect == nil && empty.remap == nil && empty.jit == nil)
+    }
+
+    @Test func probeVerdictSemantics() {
+        // 可武装 = 既有签名代码页存在可写化路径（mprotect 或 remap 任一为 0）
+        #expect(Wxkeep.RuntimeCommand.probeVerdict(mprotect: 0, remap: 4) == "writable")
+        #expect(Wxkeep.RuntimeCommand.probeVerdict(mprotect: 13, remap: 0) == "writable")
+        #expect(Wxkeep.RuntimeCommand.probeVerdict(mprotect: 13, remap: 4) == "blocked")
+        // 缺项（探针运行异常）= 不可判定，不是 blocked（保守——让装后 marker 定案）
+        #expect(Wxkeep.RuntimeCommand.probeVerdict(mprotect: nil, remap: 4) == "inconclusive")
+        #expect(Wxkeep.RuntimeCommand.probeVerdict(mprotect: nil, remap: nil) == "inconclusive")
+    }
+
+    @Test func csOnlyEntitlementFilter() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict>
+        <key>com.apple.application-identifier</key><string>5A4RE8SF68.com.tencent.xinWeChat</string>
+        <key>com.apple.security.app-sandbox</key><true/>
+        <key>com.apple.security.cs.allow-jit</key><true/>
+        <key>com.apple.security.cs.disable-library-validation</key><true/>
+        <key>com.apple.security.get-task-allow</key><true/>
+        <key>com.apple.security.application-groups</key><array><string>5A4RE8SF68.x</string></array>
+        </dict></plist>
+        """
+        let filtered = try #require(Wxkeep.RuntimeCommand.csOnlyEntitlements(xml))
+        #expect(filtered.contains("allow-jit"))
+        #expect(filtered.contains("disable-library-validation"))
+        #expect(filtered.contains("get-task-allow"))
+        #expect(!filtered.contains("app-sandbox"))
+        #expect(!filtered.contains("application-identifier"))
+        #expect(!filtered.contains("application-groups"))
+        // 全被剥光的极端 = nil（调用方回落无 entitlements 重签）
+        let bare = """
+        <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>
+        <key>com.apple.security.app-sandbox</key><true/></dict></plist>
+        """
+        #expect(Wxkeep.RuntimeCommand.csOnlyEntitlements(bare) == nil)
+    }
+}
