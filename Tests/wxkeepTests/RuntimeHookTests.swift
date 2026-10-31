@@ -763,4 +763,19 @@ extension RuntimeHookTests {
         #expect(wxkeep_runtime_test_hook_transparency() == -2)
         #endif
     }
+
+    /// 97 轮：SLOT 链回归——96 轮真机 fires=0 的机械根因 = SLOT 指了蹦床
+    /// 本体（控制流绕过 hook 逻辑：武装成功、消息管线正常、fires 恒 0）。
+    /// 本缝用生产 entry patch 形态 + 生产 try_slot_fill 实参（slot_arm_target，
+    /// 与安装路共用一源）架哨兵端到端：SLOT 语义回退成蹦床时 g_hook_calls
+    /// 不增（-4）即刻红；链任何一环断则返回值失配（0）红。x86_64 宿主
+    /// 缝自报 -2。
+    @Test func slotChainFiresHookLogicEndToEnd() {
+        let r = wxkeep_runtime_test_slot_chain()
+        #if arch(arm64)
+        #expect(r == 1)
+        #else
+        #expect(r == -2)
+        #endif
+    }
 }

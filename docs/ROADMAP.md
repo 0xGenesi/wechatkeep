@@ -1,5 +1,14 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-10-31 97 轮后状态修订**：96 轮 fires=0 **翻案**——机械根因 =
+> SLOT 指了蹦床本体（hook 逻辑被完全绕过），该读数不承载路径信息；
+> 修复（slot_arm_target 一源）+回归缝（负控实证 -4 精确探测 96 形态）
+> +副本 E2E（tramp=非页对齐=thunk）全落地，235 测全绿。**机器在役
+> 实例 18:31 起已是修正链**（用户侧再装）；v1/update-guard 实为
+> 已被升级器抹掉（96 关账口径勘误）——下次微信退出窗口回装
+> `wxkeep patch`+`wxkeep update-guard`。**T6 终裁=修正链实弹**（用户
+> 窗口：对方撤回→marker fires 判 parse 是否在实时路径）。
+
 > **2026-10-31 94 轮后状态修订**：用户批立项三项并开工——**T6**（runtime
 > 复活·安装期入口补丁）机制全链建成（EntrySlot 计划器+CLI install/remove
 > 幂等生命周期+runtime.m SLOT 填充+回调同步武装），234 测全绿；E2E 揭示
@@ -369,7 +378,60 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 97·T6 SLOT 语义修正轮（2026-10-31 晚：fires=0 机械根因=SLOT 指了蹦床本体——96「复确认」证据作废；修复+回归缝+副本 E2E 实证；机器勘误=v1 已被升级器抹掉+在役实例 18:31 起已是修正链）
+
+1. **[根因与翻案]** 96 轮 fires=0 的机械根因 = try_slot_fill 填的是
+   **蹦床本体**（tr.mem=纯序言重放+跳回 target+16）→ 控制流
+   stub→SLOT→蹦床→target+16 **完全绕过 revoke_wrapper_hook**——该形态下
+   fires=0 是机械保证，与消息路径无关。96 第 2 条「实时消息不走 parse
+   实锤复确认」**证据作废**（读数不承载路径信息）；「实时撤回走独立推送
+   路径」的承重证据仍是 T4 时代读数（旧 stub 链无此缺陷：计数器登录/
+   同步期非零、实时撤回期冻结）。假说终裁悬置 → 修正链实弹（见 6）。
+2. **[修复（一源共享）]** `slot_arm_target()` = `&revoke_wrapper_hook`
+   （naked thunk=hook 逻辑入口；语义=旧架构 stub 分支目标——stub 内嵌
+   的也是 thunk 地址）。install_hook 与回归缝共用一源，实参漂移双侧
+   同红。完整链：entry 12B 补丁 → SLOT → thunk（全参保存）→
+   revoke_hook_body → 恢复 → g_real_wrapper（蹦床）→ 重放原 16B →
+   target+16。补丁态蹦床原像=行 expected（未补丁语义），链路各环节
+   语义与 94 轮设计闭合。
+3. **[回归防线（96 故障形态探测）]** `wxkeep_runtime_test_slot_chain`
+   缝（arm64）：MAP_JIT 哨兵函数 + **磁盘同构 entry patch 编码**
+   （EntrySlot.swift 同构 adrp/ldr 编码，slotfill_decode 往返互证；
+   SLOT 落普通 RW 页=生产 __DATA 语义，避开 np 写窗 store 崩）+
+   生产发布序 + 生产 try_slot_fill 实参。断言面=①g_hook_calls+1
+   ②哨兵返回值逐位。**负控实证**：SLOT 指蹦床时缝精确返回 -4
+   （武装成功、函数照常工作、逻辑未到达——96 最阴形态），测试当场红。
+   235 测全绿（+1）。
+4. **[副本 E2E（部署形态实证）]** 2.0G 副本 install（幂等入口补丁+51
+   对象重签+verify OK）→ launch → `slotfill: OK slot=0x137d1dfc8
+   tramp=0x103095c1c`——**tramp 非页对齐 = runtime dylib __TEXT 内
+   thunk**（95/96 的 0x…0000 页对齐=MAP_JIT 蹦床，boot log 一眼可辨）
+   → installed=1 status=25 稳定 tick、零新增崩溃。cfgdiag 诊断面
+   （配置三路陷阱的远程判读：容器路径+tip+rows）首验通过。
+5. **[机器勘误（96 关账口径 vs 97 实测）]** ①96「v1 已回装 doctor
+   protected」**与实测不符**：doctor 实测=v1 全 pristine+update-guard
+   off。时间线取证：wechat.dylib 在 17:28-18:31 间被微信升级器整体替换
+   （v1+入口补丁全灭——18:31 install 的入口补丁是**重写**（mtime
+   18:31:26）而非幂等跳过；17:27:41 的 v1 备份文件在、位点字节不在）。
+   ②**18:31 微信重启时用户侧再装了 runtime**：在役件 sha `1d571177…`，
+   strings 含 cfgdiag = 96 会话工作树（含未提交 97 草稿）的构建 ⇒
+   **在役实例已是修正链**——在役 fires=0 读数自此开始承载路径信息
+   （keep_message=true 态下 18:31-19:35+ 零 parse 调用；负例空窗无法
+   排除，实弹见 6）。③本轮新构建（+缝+一源重构）sha `e2d7bdc2…`，
+   与在役件语义等价，下次微信退出窗口 `wxkeep runtime install` 对齐。
+6. **[下一步]** ①**真机实弹终裁（用户窗口，在役态即可）**：对方撤回
+   一条 → 读 marker：fires>0（zero 同涨）= parse 在实时路径上（runtime
+   层实时防撤回产品价值成立，消费簇 RE 取消）；撤回期 fires=0 而后续
+   登录/同步期 fires>0 = T4 结论经修正链复立 → 消费簇 RE 立项（77 续㊲
+   候选 0x31a96d8/0x31ab38c/0x31ac2f0/handler 0x45a4948）。
+   ②**机器当前无 v1/update-guard 防护**（升级器 18:31 前抹掉后未回装）
+   ——下次窗口建议 `wxkeep patch` + `wxkeep update-guard` 回装双层。
+
 ## 96·T6 真机实弹轮（2026-10-31：武装机制真机关账；实时语义缺口实锤——fires=0 复确认「实时消息不走 parse」；防护已回装）
+
+> **97 轮勘误**：本条第 2 条的 fires=0 为 SLOT 误指蹦床的机械必然而非
+> 路径证据（见 97 轮 1）；第 4 条机器终态与 97 轮实测不符（v1 实为
+> pristine，见 97 轮 5）。本节保留原口径备查。
 
 > 用户开窗实弹（隔离实验：v1 还原→纯 runtime 态→登录→对方真实撤回）。
 

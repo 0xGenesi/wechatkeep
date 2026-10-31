@@ -6,6 +6,9 @@
 #import <mach/thread_act.h>
 #import <mach-o/loader.h>
 #import <dlfcn.h>
+
+@class NSString;
+static NSDictionary *read_runtime_config_at(NSString **usedPath);
 #import <sys/mman.h>
 #import <pthread.h>
 #ifndef MAP_JIT
@@ -234,15 +237,26 @@ static NSString *runtimeConfigPath(void) {
 
 /// 首个可解析的配置文件（Group 容器优先），两处都无效返回 nil。
 static NSDictionary *read_runtime_config(void) {
+    return read_runtime_config_at(NULL);
+}
+
+/// 带路径诊断的变体（95/97 轮：配置三路陷阱的远程判读面）。
+static NSDictionary *read_runtime_config_at(NSString **usedPath) {
     NSString *group = groupContainerConfigPath();
     if (group) {
         NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:group];
-        if ([d isKindOfClass:[NSDictionary class]]) return d;
+        if ([d isKindOfClass:[NSDictionary class]]) {
+            if (usedPath) *usedPath = group;
+            return d;
+        }
     }
     NSString *legacy = runtimeConfigPath();
     if (legacy) {
         NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:legacy];
-        if ([d isKindOfClass:[NSDictionary class]]) return d;
+        if ([d isKindOfClass:[NSDictionary class]]) {
+            if (usedPath) *usedPath = legacy;
+            return d;
+        }
     }
     return nil;
 }
@@ -1246,6 +1260,15 @@ static int entry_patch_present(uintptr_t target) {
     return slotfill_decode(w, target) != 0;
 }
 
+/// SLOT 武装目标（97 轮）：= naked thunk（revoke_wrapper_hook = hook 逻辑
+/// 入口：body→蹦床重放→原函数）。**不能指蹦床本体**——蹦床只重放序言
+/// +跳回，指它 = 完全绕过 hook 逻辑（96 轮真机 fires=0 根因：武装成功
+/// 但链路绕过了逻辑）。旧架构 stub 分支目标 = thunk（prepare_trampoline
+/// 编码进 tr.stub 的 hook 地址），SLOT 语义与 stub 分支目标一致。安装路
+/// 与回归缝（wxkeep_runtime_test_slot_chain）共用本函数——实参漂移即刻
+/// 双侧同红。
+static void *slot_arm_target(void) { return (void *)&revoke_wrapper_hook; }
+
 static int try_slot_fill(uintptr_t target, void *trampoline) {
     const uint32_t br_x16 = 0xD61F0200u;
     uint32_t w[3];
@@ -1464,7 +1487,10 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     // （消息管线照常，防护由 v1 字节补丁承担）。x64 语义不同维持旧路。
     { char b[128]; snprintf(b, sizeof(b), "arm: target=0x%llx is_arm64=%d slot_rc_slotfill_next",
         (unsigned long long)target, t->is_arm64); bootlog_line(b); }
-    int slot_rc = t->is_arm64 ? try_slot_fill(target, tr.mem) : ENOENT;
+    // T6（97 轮修正）：SLOT 必须指 **naked thunk**（slot_arm_target——见其
+    // 注释），而非蹦床本体。96 轮真机实弹 fires=0 的根因即此：武装成功但
+    // 链路（stub→SLOT→蹦床→target+16）完全绕过了 hook 逻辑。
+    int slot_rc = t->is_arm64 ? try_slot_fill(target, slot_arm_target()) : ENOENT;
     { char b[128]; snprintf(b, sizeof(b), "arm: slot_rc=%d", slot_rc); bootlog_line(b); }
     if (slot_rc == 0) {
         g_arm_via_slot = 1;
@@ -1932,8 +1958,15 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
                           NSHomeDirectory()];
         NSMutableString *acc = [NSMutableString stringWithContentsOfFile:boot
                                                                 encoding:NSUTF8StringEncoding error:nil];
+        NSString *cfgPath = nil;
+        NSDictionary *cfgDiag = read_runtime_config_at(&cfgPath);
+        NSString *tipDiag = [cfgDiag objectForKey:@"tip_text"];
+        [acc appendFormat:@"cfgdiag path=%@ tip=%@ rows=%@\n",
+            cfgPath ?: @"<nil>",
+            [tipDiag isKindOfClass:[NSString class]] && tipDiag.length > 0 ? @"set" : @"<empty>",
+            cfgDiag[@"hooks"] ? @([(NSArray *)cfgDiag[@"hooks"] count]) : @"0"];
         [acc appendFormat:@"done config=%@ installed=%d status=%d scanmiss=%d cb=%d last_uuid=%s armed=%d\n",
-            read_runtime_config() ? @"yes" : @"no", g_hook_installed, g_hook_status,
+            cfgDiag ? @"yes" : @"no", g_hook_installed, g_hook_status,
             g_scan_missed, g_cb_count,
             g_last_uuid[0] ? g_last_uuid : "<none>", g_hook_installed];
         [acc writeToFile:boot atomically:YES encoding:NSUTF8StringEncoding error:nil];
@@ -2206,8 +2239,126 @@ long wxkeep_runtime_test_hook_transparency(void) {
     g_wxkeep_transparency_got = r;
     return (r == expect) ? 1 : 0;
 }
+
+// ---------------------------------------------------------------------------
+// T6（97 轮）：SLOT 链回归缝（仅 arm64）——96 轮真机 fires=0 的机械根因 =
+// SLOT 指了蹦床本体（蹦床=纯序言重放+跳回，控制流完全绕过 hook 逻辑；
+// 表现为武装成功、消息管线正常、fires 恒 0——最阴的故障形态）。本缝把
+// 生产链路原样架在哨兵函数上端到端走一遍：磁盘侧 entry patch 形态
+//（adrp x16,SLOT / ldr x16,[x16] / br x16，EntrySlot.swift 同构编码）+
+// 生产 try_slot_fill 实参（slot_arm_target）+ 生产发布序。断言面 =
+// ①hook 逻辑到达（g_hook_calls +1——SLOT 语义回退成蹦床即刻红，即 96
+// 故障形态）②全链透传（哨兵返回值逐位，链任何一环断即红）。
+// 返回：1=链路通 0=返回值失配 -1=蹦床/武装失败 -3=哨兵自检失败
+//       -4=hook 逻辑未到达（96 故障形态）-5=SLOT/JIT 页建设失败
+//       -6=补丁编码/解码往返失配
+// ---------------------------------------------------------------------------
+long wxkeep_runtime_test_slot_chain(void) {
+    // 1) SLOT 数据页（普通 RW——try_slot_fill 的裸 volatile store 不开 np
+    //    写窗，落 JIT 页会 SIGBUS；生产位 = __DATA，同为普通 RW）。
+    uint8_t *slot_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                              MAP_ANON | MAP_PRIVATE, -1, 0);
+    if (slot_page == MAP_FAILED) return -5;
+    uint64_t slot = (uint64_t)(uintptr_t)slot_page;   // 页基 16K 对齐 ⇒ 8 对齐
+    *(volatile uint64_t *)slot = 0;
+    // 2) 哨兵页（MAP_JIT）：mmap 提示地址贴 SLOT 页，adrp ±4GB 可达性
+    //    实测验证，不赌内核布局（提示被占即换挡重试）。
+    uint8_t *jit = MAP_FAILED;
+    const uint64_t hints_src[4] = {0x100000, 0x400000, 0x1000000, 0x4000000};
+    for (int i = 0; i < 4 && jit == MAP_FAILED; i++) {
+        void *hints[2] = {(void *)(uintptr_t)(slot + hints_src[i]),
+                          (void *)(uintptr_t)(slot - hints_src[i])};
+        for (int j = 0; j < 2; j++) {
+            uint8_t *p = mmap(hints[j], 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                              MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0);
+            if (p == MAP_FAILED) continue;
+            int64_t delta = (int64_t)(uint64_t)(uintptr_t)p - (int64_t)slot;
+            if (delta < -(int64_t)0xF0000000LL || delta > (int64_t)0xF0000000LL) {
+                munmap(p, 4096);   // 超出 adrp ±4GB（0x100000<<12）保守界
+                continue;
+            }
+            jit = p;
+            break;
+        }
+    }
+    if (jit == MAP_FAILED) { munmap(slot_page, 4096); return -5; }
+    // 3) 哨兵函数：入口 16B = nop×4（可换址重放段；补丁态下前三条被
+    //    12B entry patch 覆盖，第四条原位留存——蹦床重放 16B + 跳回
+    //    jit+16 = 原函数语义，与生产补丁态同构）。+16 起续段 eor 折叠
+    //    x1-x4 进 x0 后 ret。
+    static const uint32_t cont[] = {
+        0xCA010000u, 0xCA020000u, 0xCA030000u, 0xCA040000u, 0xD65F03C0u,
+    };
+    static const uint32_t orig[4] = {0xD503201Fu, 0xD503201Fu, 0xD503201Fu, 0xD503201Fu};
+    pthread_jit_write_protect_np(0);
+    memcpy(jit, orig, 16);
+    memcpy(jit + 16, cont, sizeof(cont));
+    sys_icache_invalidate(jit, 16 + sizeof(cont));
+    pthread_jit_write_protect_np(1);
+    typedef long (*sentinel_t)(long, void *, long, long, long);
+    sentinel_t fn = (sentinel_t)(void *)jit;
+    uint8_t buf[32];
+    memset(buf, 0, sizeof(buf));   // buf[0]=0：短串门关断（确定性，同透传缝）
+    long v0 = 0x1100000000000001L, v2 = 0x3300000000000003L,
+         v3 = 0x4400000000000004L, v4 = 0x5500000000000005L;
+    long expect = v0 ^ (long)(intptr_t)buf ^ v2 ^ v3 ^ v4;
+    if (fn(v0, buf, v2, v3, v4) != expect) {   // 未挂钩自检（续段执行位）
+        munmap(jit, 4096); munmap(slot_page, 4096); return -3;
+    }
+    // 4) 生产链路架设：蹦床（原 16B 原像 + 跳回 jit+16）+ 发布序（与
+    //    install_hook 同构）+ entry patch 落页（编码/解码往返互证先行）。
+    hook_trampoline_t tr;
+    uint8_t prologue[16];
+    memcpy(prologue, orig, 16);
+    if (prepare_trampoline((uintptr_t)jit, prologue, 16, 1, &tr) != 0) {
+        munmap(jit, 4096); munmap(slot_page, 4096); return -1;
+    }
+    g_hook.msg_arg = 1;            // args[1]=buf：诊断面/串门全程界内
+    g_hook.xml_sso_off = 0;
+    g_sso_layout_arm64 = 1;
+    memcpy(g_hook.saved, prologue, 16);
+    g_hook.trampoline = tr.mem;
+    g_real_wrapper = (void *(*)(void *, void *, void *, void *, void *, void *))tr.mem;
+    __atomic_store_n(&g_hook.target, (uintptr_t)jit, __ATOMIC_RELEASE);
+    int64_t pages = ((int64_t)(slot & ~(uint64_t)0xFFF)
+                     - (int64_t)((uint64_t)(uintptr_t)jit & ~(uint64_t)0xFFF)) >> 12;
+    uint32_t imm = (uint32_t)(pages & 0x1FFFFF);   // 21 位：decode 侧符号扩展
+    uint32_t w[3] = {
+        0x90000000u | ((imm & 0x3u) << 29) | ((imm >> 2) << 5) | 16u,
+        0xF9400000u | ((uint32_t)((slot & 0xFFF) >> 3) << 10) | (16u << 5) | 16u,
+        0xD61F0200u,   // br x16
+    };
+    if (slotfill_decode(w, (uintptr_t)jit) != slot) {
+        g_hook.trampoline = NULL; g_real_wrapper = NULL;
+        __atomic_store_n(&g_hook.target, 0, __ATOMIC_RELEASE);
+        munmap(tr.mem, 4096); munmap(jit, 4096); munmap(slot_page, 4096);
+        return -6;
+    }
+    pthread_jit_write_protect_np(0);
+    memcpy(jit, w, 12);
+    sys_icache_invalidate(jit, 12);
+    pthread_jit_write_protect_np(1);
+    // 5) 生产武装 + 实弹：try_slot_fill 生产实参（slot_arm_target——与
+    //    安装路共用一源，实参漂移双侧同红）。
+    int rc = try_slot_fill((uintptr_t)jit, slot_arm_target());
+    long calls_before = g_hook_calls;
+    long r = (rc == 0) ? fn(v0, buf, v2, v3, v4) : -100;
+    // 6) 清理：还原入口 + 复位武装态（与 install 失败清理同序），页全归还。
+    pthread_jit_write_protect_np(0);
+    memcpy(jit, orig, 16);
+    sys_icache_invalidate(jit, 16);
+    pthread_jit_write_protect_np(1);
+    g_hook.trampoline = NULL;
+    g_real_wrapper = NULL;
+    __atomic_store_n(&g_hook.target, 0, __ATOMIC_RELEASE);
+    munmap(tr.mem, 4096); munmap(jit, 4096); munmap(slot_page, 4096);
+    if (rc != 0) return -1;
+    if (g_hook_calls != calls_before + 1) return -4;   // 96 故障形态：绕过逻辑
+    return (r == expect) ? 1 : 0;
+}
 #else
 long wxkeep_runtime_test_hook_transparency(void) { return -2; }   // 非 arm64 宿主
+long wxkeep_runtime_test_slot_chain(void) { return -2; }         // 同上（SLOT 链缝）
 #endif
 
 int wxkeep_runtime_test_quiesce_count(void) { return g_quiesce_threads; }

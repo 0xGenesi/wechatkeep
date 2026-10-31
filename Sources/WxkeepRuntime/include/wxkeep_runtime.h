@@ -61,6 +61,13 @@ long wxkeep_runtime_test_transparency_slot(int idx, int hooked);
 // 线程静默写窗诊断（77 续⑩）：上次安装静默的线程数（-1 = task_threads
 // 枚举失败，退化为无静默直写）。
 int wxkeep_runtime_test_quiesce_count(void);
+// SLOT 链回归缝（97 轮，仅 arm64 宿主）：把 T6 生产链路（entry patch
+// 形态 + try_slot_fill 生产实参 + 发布序）原样架在哨兵函数上端到端走
+// 一遍。返回 1=链路通（hook 逻辑到达且透传逐位）；0=返回值失配；
+// -1=蹦床/武装失败；-2=非 arm64 宿主；-3=哨兵自检失败；-4=hook 逻辑
+// 未到达（96 轮 fires=0 故障形态：SLOT 指了蹦床本体）；-5/-6=建设失败。
+// 锁死「SLOT 语义 = naked thunk」——回退成蹦床即刻红。
+long wxkeep_runtime_test_slot_chain(void);
 
 #endif
 // 自发撤回判别缝（77 续㉘）：1=keep/zero 门放行（非自发 XML）；0=自发
