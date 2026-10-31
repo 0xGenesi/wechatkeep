@@ -1,5 +1,18 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-10-31 92 轮后状态修订（T5 真机窗口）**：①队列第 1 项「hook 链
+> 真机 T5 验证」**完成关账**——用户开窗执行 T5-RUNBOOK：三数据点闭环
+> （BASE errno=322 / T5A 零写入 errno=0 全通 / T5B errno=13）精确锁定
+> 失败=write_entry_stub 内目标页改写，COW 与 mprotect 双双被 macOS
+> 27.0.1 策略拒——**签名文件页进程内不可写化定案**（frida#3752 同根因，
+> allow-jit/disable-library-validation entitlements 不豁免）；R5 命中；
+> uuid-mismatch/scanmiss=背景位排除。keep_message/tip 语义验证被机械
+> 封死（进程内不可武装⇒hook 不存在）。**runtime 复活唯一路线=安装期
+> 磁盘改入口 3 指令+__DATA SLOT（fzlzjerry 路线）——独立建设轮，非队列
+> 项**；进程内武装正式关档（RUNTIME-DESIGN 92 轮节）。②机器终态=纯
+> v1 态（runtime 清零、doctor protected）。③剩余用户项：3.x 真机行为
+> 验收、Windows GO。
+
 > **2026-10-31 90 轮后状态修订**：①**v0.2.15 发版完成**（80-89 全部
 > 工作交付：recover 撤回原文复原 + 3.x 全版本支持 16 构建三面 +
 > verify 行为级 + soak 控制组臂 + CI 迁移）——全链：版本 bump → CI

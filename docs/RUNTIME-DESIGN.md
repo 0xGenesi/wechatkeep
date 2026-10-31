@@ -453,3 +453,39 @@ var/ghidra-wx/wx270100arm：270100 arm64 切片 + FUNCTION_STARTS 全量播种
 ≈1-2 分钟出多函数伪代码（对照 ⑰：REA 全量分析 2h 不收敛）。工程产物
 gitignored；重建 = 三命令（starts 导出 → import+SeedFunctionStarts →
 setBody 扩体），全过程见 var/ghidra-wx/*.log 与 MAINTAINING 77 续⑲。
+
+## T5 真机窗口·安装级二分定案（2026-10-31，92 轮）
+
+> 用户开窗执行 T5-RUNBOOK。Phase 0（macOS 27.0.1/26A434 未变、270135、
+> v1 双补丁在役、微信退出）→ Phase 1 BASE 武装尝试 → Phase 3 变体二分。
+> **Phase 1 真实撤回实验未做**（武装失败即无 runtime 效果可测，撤回行为
+> 由 v1 字节补丁解释——翻案终裁口径）。
+
+1. **[三数据点闭环]**（同一微信、同一窗口、同 prologue 门
+   `f85fbca9f65701a9f44f02a9fd7b03a9` 全过）：
+   - **BASE**（COW 自映射+stub 写）：`istep=2 errno=322`——目标页改写，
+     vm_remap 拒绝码；
+   - **T5A**（write_entry_stub 入口即返=零写入）：`installed=1
+     istep=0 errno=0`——**安装链其余全部健康**（LC 注入/dylib 加载/
+     hooks 表 2 行匹配/序言门/回调计数 cb≈957→1196/30s marker 回写）；
+   - **T5B**（删 COW、mprotect 直写）：`istep=2 errno=13`（EACCES 裸）。
+   → **机制定案：失败精确锁定在 write_entry_stub 内的目标页改写步骤**；
+     COW 自映射（322）与 mprotect 直写（13）**双双被策略拒**——不是
+     COW 实现问题，是签名文件页在进程内根本不可写化（frida#3752
+     CS_LIBRARY_VALIDATION 同根因；WeChat 虽持 allow-jit/
+     disable-library-validation entitlements 也不豁免对既有 __TEXT 页
+     的写化）。归因表 **R5 命中**（T5B 拒装 EACCES=COW/写化必要性实锤，
+     且证明无替代路径）。机械终审（76f2126 四层全灭）在更细粒度上复
+     确认，get-task-allow 态不改变结局。
+2. **[背景位排除]**：`uuid-mismatch`+`scanmiss=1` 在成功（T5A）与失败
+   （BASE/T5B）两路恒在——是每次回调重扫的常态背景位，**非失败原因**
+   （此前 status=21/25 的位解读歧义就此消除）。
+3. **[队列第 1 项处置]**：T5 的进程内武装判别**完成关账**——
+   R2/R5 落定，keep_message/自定义 tip 的真机语义验证被机械封死
+   （进程内不可武装 ⇒ hook 无法存在 ⇒ 无语义可验）。**唯一复活路线 =
+   安装期磁盘改入口 3 指令 + __DATA SLOT**（79 轮已记档的 fzlzjerry
+   社区实证路线，与我们磁盘管线同族）——属独立建设轮，非本队列项。
+   runtime 线在 macOS 27 上的「进程内武装」正式关档。
+4. **[机器终态]**：runtime 注入清零（LC 引用 0）、v1 双补丁在役
+   （doctor overall protected）、微信退出。三份 dylib 变体（BASE/T5A/
+   T5B）与预构建管线留档 var/t5/ 可复跑。
