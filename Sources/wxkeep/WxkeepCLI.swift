@@ -937,6 +937,18 @@ extension Wxkeep {
                 return try Wxkeep.run3x(app: options.app, versionEntry: versionEntry)
             }
 
+            // 4.x update 面调用级验证（91 轮）：update 条目全部是「立即返回」
+            // 形态的函数入口（C3/C0035FD6/31C0C3…——XAppUpdateManager 方法
+            // 入口裸 ret），与 3.x 同构可探。放在 revoke 之前：域独立、且
+            // revoke 路径的 skip 早退不需要为此重构。
+            if let versionEntry = config.entry(build: build) {
+                let updateTargets = versionEntry.targets.filter { $0.identifier == "update" }
+                if !updateTargets.isEmpty {
+                    try Wxkeep.probeBareRet(app: options.app, targets: updateTargets,
+                                            successLine: "✓ update 面行为验证: %d 个已应用位点全部返回")
+                }
+            }
+
             let signatures = try Signatures.load(explicit: self.signatures)
 
             // Find the revoke site: catalog first, recipes otherwise. The host
@@ -1086,9 +1098,30 @@ extension Wxkeep {
     /// 裸 ret 在位 ⇒ 调用即返回（returned）；worker 信号退出 = 环境受限
     /// 或位点异常——裸 ret 位点不可能自己 crash，worker 信号退出按环境降级处理（strict verify
     /// 字节级证明兜底）。空 stubs/zero spec：方法体不执行，无导入可重定向。
+    /// 3.x 主程序行为验证（87 轮）：objc3x 位点全部走统一裸 ret 探针。
     static func run3x(app: URL, versionEntry: Config.VersionEntry) throws {
         let targets = versionEntry.targets.filter { $0.entries.contains {
             $0.source?.contains("wxkeep:objc3x:") == true } }
+        try probeBareRet(app: app, targets: targets,
+                         successLine: "✓ 3.x 行为验证: %d 个已应用位点全部返回")
+    }
+
+    /// 「立即返回」位点形态白名单——调用即返回、不摸任何内存，垃圾参数
+    /// 安全。白名单外（分支翻转/原字节还原/NOP 类条目）一律不探：NOP×6
+    /// 位点是函数中段，调用会滑入后续代码（91 轮）。
+    static let immediatelyReturningAsm: Set<String> = [
+        "C3",                    // x64 bare ret
+        "C0035FD6",              // arm64 ret
+        "31C0C3",                // x64 xor eax,eax; ret
+        "31C0C3909090909090",    // x64 xor eax,eax; ret + NOP 尾（4.x keeptip 同位点）
+        "00008052C0035FD6",      // arm64 movz w0,#0; ret（4.x x64 silent 的 arm64 对位）
+        "B801000000C3",          // x64 mov eax,1; ret（parse 入口 silent）
+    ]
+
+    /// 统一裸 ret 位点调用级探针（87 轮引入 3.x，91 轮泛化）：
+    /// 只探 inspect==.patched 且 asm ∈ immediatelyReturningAsm 的条目；
+    /// 空 stubs/zero spec（方法体不执行）；worker 信号退出=环境受限降级。
+    static func probeBareRet(app: URL, targets: [Config.Target], successLine: String) throws {
         let grouped = Dictionary(grouping: targets,
                                  by: { $0.binary ?? "Contents/MacOS/WeChat" })
         var allOK = true
@@ -1097,17 +1130,17 @@ extension Wxkeep {
             let binary = WeChatApp.binaryURL(app: app, relative: relative)
             let host = Verifier.ImageArch.host.rawValue
             let entries = group.flatMap(\.entries)
-                .filter { $0.arch.rawValue == host }
+                .filter { $0.arch.rawValue == host && immediatelyReturningAsm.contains($0.asm ?? "") }
             guard !entries.isEmpty else {
-                print("ℹ︎ \(relative): 无 \(host) 切片条目——行为验证跳过（worker 原生执行不能跨架构）")
+                print("ℹ︎ \(relative): 本机架构（\(host)）无可调用位点条目——行为验证跳过（worker 原生执行不能跨架构）")
                 continue
             }
             let inspections = try Patcher.inspect(
-                binary: binary, entries: entries, identifier: "objc3x-verify")
+                binary: binary, entries: entries, identifier: "bare-ret-verify")
             let patched = zip(inspections, entries)
                 .filter { $0.0.state == .patched }.map(\.1)
             guard !patched.isEmpty else {
-                print("ℹ︎ \(relative): 无已应用的补丁位点（当前 pristine 或未 patch）——行为验证不适用，`wxkeep patch` 后再试")
+                print("ℹ︎ \(relative): 该域无已应用的补丁位点（当前 pristine 或未 patch）——行为验证不适用，`wxkeep patch` 后再试")
                 continue
             }
             // fat 装机件 → host thin 切片一次性提取（Verifier.run 每次调用
@@ -1117,7 +1150,7 @@ extension Wxkeep {
             let head = (try? Data(contentsOf: binary, options: .alwaysMapped).prefix(8)) ?? Data()
             if head.prefix(4).elementsEqual(Data([0xCA, 0xFE, 0xBA, 0xBE])) {
                 let out = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("wxkeep-verify3x-\(UUID().uuidString).\(host)")
+                    .appendingPathComponent("wxkeep-verify-br-\(UUID().uuidString).\(host)")
                 let lipo = Shell.run("/usr/bin/lipo",
                                      ["-thin", host, binary.path, "-output", out.path])
                 guard lipo.status == 0 else {
@@ -1130,7 +1163,7 @@ extension Wxkeep {
 
             for entry in patched {
                 guard let addrHex = entry.addr, let va = UInt64(addrHex, radix: 16) else {
-                    throw ValidationError("objc3x 条目 addr 反常: \(entry.addr ?? "nil")")
+                    throw ValidationError("位点 addr 反常: \(entry.addr ?? "nil")")
                 }
                 let stateLine = "site 0x\(String(va, radix: 16, uppercase: true)) (\(host))"
                 // 空 stubs/zero + 单探针：位点=裸 ret，SSO 参数不被消费
@@ -1139,8 +1172,11 @@ extension Wxkeep {
                 print("\(stateLine) — on-disk state: patched, calling…")
                 do {
                     let results = try Verifier.run(binary: thin, targetVA: va, spec: spec)
-                    guard results.contains(where: \.returned) else {
-                        throw ValidationError("\(stateLine): 探针未返回（worker 输出缺 probe 行）")
+                    // 判定=probe 行在场（调用完成未崩），非 returned 布尔——
+                    // 「立即返回」形态的返回值本身有 0/1 两种（movz w0,#0;ret
+                    // 返 0），returned=false 不代表没到达 ret（91 轮实误）。
+                    guard !results.isEmpty else {
+                        throw ValidationError("\(stateLine): 探针未执行（worker 输出缺 probe 行）")
                     }
                     print("  ✓ patched entry called → returned（裸 ret 到达；"
                           + "调用级证据与 strict verify 字节级证明互证）")
@@ -1150,16 +1186,17 @@ extension Wxkeep {
                     // 受限（arm64 MAP_JIT 语义、硬化运行时等）。降级为提示：
                     // strict verify 字节级证明仍然有效。字节异常走通用路径。
                     print("ℹ︎ 行为验证在此环境不可用（\(e)）")
-                    print("  位点字节已由 strict verify 证明为裸 ret（on-disk state: patched）——")
+                    print("  位点字节已由 strict verify 证明为立即返回形态（on-disk state: patched）——")
                     print("  防护判定不受影响。协助定位请回报：sw_vers 输出与芯片型号。")
                     allOK = false
                 }
             }
         }
         if probedCount > 0, allOK {
-            print("✓ 3.x 行为验证: \(probedCount) 个已应用位点全部返回")
+            print(successLine.replacingOccurrences(of: "%d", with: String(probedCount)))
         }
     }
+
 
     struct UpdateDataCmd: ParsableCommand {
         static let configuration = CommandConfiguration(
