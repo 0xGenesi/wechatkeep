@@ -391,6 +391,15 @@ hooks 行加签升 P0。
    **230 测全绿**；MAINTAINING 固化「OS 机械工程前置纪律」（能力探针
    先行+社区执行面变更检索）；探针件随 release 分发（exe 同目录/
    ../libexec/.build 搜索序）。
+5. **[探针自身三轮 CI 磨合]**：①CI 老/新 clang 差异再+1——`vm_remap`
+   复合字面量实参 int→vm_prot_t* 在新 clang 是硬错（本机警告被
+   grep error: 吞掉），换 `mach_vm_remap` 稳定 11 参+全具名指针；
+   ②**修正调用后 remap 本身成功、写 COW 副本触发 CS 击杀**
+   （uncatchable SIGUSR1/10，进程无输出暴死）——写测 fork 隔离+
+   逐行 fflush，子进程以 100+信号编码回传；③机械图更深一层：
+   **签名页 COW 重映射 mach 级可行、写副本即死**——runtime 阶梯
+   即便 remap 过也过不了写。终态三行：mprotect 13 / remap 110 /
+   jit 0 = blocked。
 
 ## 92·T5 真机窗口·安装级二分定案轮（2026-10-31：队列第 1 项完成关账；详录=RUNTIME-DESIGN 92 轮节+本文件队列头）
 
