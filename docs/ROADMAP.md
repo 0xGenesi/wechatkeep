@@ -349,6 +349,34 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 91·verify 行为覆盖补全轮（2026-10-31：4.2.0 线 spec 变体 8 枚 + update 面调用级探针泛化到 4.x；首跑 keeptip soak 全绿）
+
+> 用户令「继续完善软件并测试」。v0.2.15 发版后的覆盖盘点揭出两缺口：
+> ①verify_variants 只覆盖 270131-135（4.2.0 线 verify 只能 worker 形态
+> 门 skip）；②verify 只证 revoke 面——update 面（4.x 82 构建+3.x 16
+> 构建）全是「立即返回」形态的可调用位点，行为级验证缺位。
+
+1. **[4.2.0 线 spec 变体]**：gen_verify_spec 双架构派生 8 变体
+   （270345/346/348/349 × arm64+x64）入 signatures.json + manifest 重签
+   （signatures.json bff7fd9c…）。arm64 谓词 0x49E3E7C（cbz 0x4E7A208）
+   ——与 WeChatTweak PR#1044 的 arm64 补丁位点**同函数互证**。E2E：
+   假 270348 bundle 谓词四探针全对（revokemsg=1/sysmsg=0/NewMsg=0/空=0）。
+2. **[update 面调用级探针泛化]**：87 轮的 run3x 泛化为 `probeBareRet`
+   ——**「立即返回」形态白名单**（C3/C0035FD6/31C0C3/31C0C3×90×6/
+   00008052C0035FD6/B801000000C3）硬门：防误探 NOP 类函数中段位点
+   （multiInstance 的 NOP×6 调用会滑入后续代码）；4.x verify 在 revoke
+   之前探 update 面（域独立，revoke 路径的 skip 早退无需重构）。
+3. **[判定语义修正]**：probe 判定=「probe 行在场=调用完成」而非
+   returned 布尔——`movz w0,#0; ret` 返 0，returned=false 不代表没到达
+   ret（实误：首个 E2E 一位点假红，worker 直跑取证后修正）。
+4. **[E2E 三连]**：假 270348（update 8 位点+谓词全对）+ 真机 270135
+   只读（update 8 位点+谓词）+ 3.x 28632 keeptip 回归（泛化无破坏）。
+   227 测全绿。
+5. **[首跑 keeptip soak]**：`launch_soak --variant keeptip` 门槛全绿
+   （控制组 0 噪声、补丁臂零新增、主进程存活）——keeptip 变体的真机
+   启动浸泡首证；顺带确证 AppEx 副本崩溃为**概率性**（本轮控制组与
+   补丁臂均零崩溃）。
+
 ## 90·v0.2.15 发版轮（2026-10-31：80-89 全部工作交付；brew E2E 关账）
 
 > 用户「继续」= 发版指令（89 轮已明示就绪态与剩余唯一一步）。按
