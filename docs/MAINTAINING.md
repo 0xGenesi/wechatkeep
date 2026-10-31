@@ -1657,3 +1657,40 @@ var/wxarm/SeedFunctionStarts.java 入库（复现入口）；无代码改动；/
 > ——新 C 代码三重验证（单测/双平台编译/fuzz）齐。
 > 自主可做项至此全部收口；剩余 = 今晚对照轮（用户窗口，协议在
 > t5-live-session-state 记忆）+ L7/L8 独立轮 + v0.2.14（T5 收口后）。
+
+## 发版策略（2026-10-31 起）：源码-only
+
+> 用户裁定：release 资产额度耗尽，此后**只发源码，不再自打包上传任何
+> release 资产**（六资产 wxkeep/config.json/signatures.json/
+> libwxkeep_runtime.dylib/… 停发）。git tag + GitHub 自动源码归档 +
+> release notes 文本 = 零成本发版面。
+
+1. **发版 = 三步**：版本常量 bump → push 触发 CI 全绿 → `git tag vX.Y.Z`
+   + release notes 文本（附下述源码包 sha256）。**不再有**：资产上传、
+   六哈希复算、Formula 六资产 URL。
+2. **源码包哈希程序**（进 notes 供三方核验）：
+   `git archive --format=tar.gz --prefix="wechatkeep-<v>/" -o /tmp/src.tar.gz vX.Y.Z && shasum -a 256 /tmp/src.tar.gz`
+   ——git archive 对同一 commit 输出字节确定（gzip 头无时间戳）；与
+   GitHub 网页归档可能不同字节（其压缩器版本随服务端变），**以 notes
+   里的 git archive 值为准**，勿与网页归档哈希互证。
+3. **Formula 过渡（v0.2.16 起）**：六资产 release 下载形态退役。源码
+   formula 草案：
+   ```ruby
+   url "https://github.com/0xGenesi/wechatkeep.git", tag: "vX.Y.Z"
+   # 或归档 URL + git archive sha256（哈希稳定性自负——见第 2 条）
+   depends_on xcode: ["15.0", :build]        # swift CLT
+   def install
+     system "swift", "build", "-c", "release", "--product", "wxkeep"
+     bininstall ".build/release/wxkeep"
+     (libexec/"wxkeep_runtime").install ".build/release/libwxkeep_runtime.dylib"
+     %w[config.json signatures.json manifest.json manifest.sig].each { |f| (etc/"wxkeep").install f }
+   end
+   ```
+   （示例骨架——实写时按 brew 审核惯例调整；wxprobe 探针件同样从源码
+   构建或随 tarball 安装。首次源码 formula 必须本地 `brew install
+   --build-from-source ./Formula/wxkeep.rb` E2E 验证后才推 tap。）
+4. **完整性面变化**：Ed25519 manifest+openssl 互证链不受影响
+   （config/signatures/manifest 全在 tarball 内）；失去的=预构建二进制
+   的下载即用性——源码用户按 README 自行 `swift build -c release`。
+5. **CI 不变**：双 Xcode 矩阵仍跑（测试绿是 tag 前置门）；release 触发
+   的资产上传 workflow 停用/删除。
