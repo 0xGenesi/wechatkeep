@@ -382,6 +382,754 @@
       ]
      ],
      "_generated": "site 0x516CD40 on var/wxarm/270349_x64.dylib"
+    },
+    {
+     "builds": [
+      "270344"
+     ],
+     "stubs": {
+      "7D7256A": "strlen",
+      "7D71F9A": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "B0C6198",
+       "16"
+      ],
+      [
+       "B0C61A8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x5167370 on var/wxarm/270344_x64.dylib"
+    },
+    {
+     "builds": [
+      "270343"
+     ],
+     "stubs": {
+      "7D7256A": "strlen",
+      "7D71F9A": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "B0C6188",
+       "16"
+      ],
+      [
+       "B0C6198",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x5167370 on var/wxarm/270343_x64.dylib"
+    },
+    {
+     "builds": [
+      "270342"
+     ],
+     "stubs": {
+      "7D6D5AA": "strlen",
+      "7D6CFDA": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "B0C0EA8",
+       "16"
+      ],
+      [
+       "B0C0EB8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x5162880 on var/wxarm/270342_x64.dylib"
+    },
+    {
+     "builds": [
+      "270341"
+     ],
+     "stubs": {
+      "7D6B5AA": "strlen",
+      "7D6AFDA": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "B0BDD48",
+       "16"
+      ],
+      [
+       "B0BDD58",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x5160DD0 on var/wxarm/270341_x64.dylib"
+    },
+    {
+     "builds": [
+      "270340"
+     ],
+     "stubs": {
+      "7D604EA": "strlen",
+      "7D5FF1A": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "B0B1C88",
+       "16"
+      ],
+      [
+       "B0B1C98",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x515D030 on var/wxarm/270340_x64.dylib"
+    },
+    {
+     "builds": [
+      "270152"
+     ],
+     "stubs": {},
+     "zero_regions": [],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4434710 on var/wxarm/270152_x64.dylib"
+    },
+    {
+     "builds": [
+      "270102"
+     ],
+     "stubs": {
+      "7A23CE4": "strlen",
+      "7A2373E": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AD2C3F8",
+       "16"
+      ],
+      [
+       "AD2C408",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4E8D970 on var/wxarm/270102_x64.dylib"
+    },
+    {
+     "builds": [
+      "270101"
+     ],
+     "stubs": {
+      "7A23CE4": "strlen",
+      "7A2373E": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AD2C3F8",
+       "16"
+      ],
+      [
+       "AD2C408",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4E8D780 on var/wxarm/270101_x64.dylib"
+    },
+    {
+     "builds": [
+      "270099"
+     ],
+     "stubs": {
+      "7A23CE4": "strlen",
+      "7A2373E": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AD2C3F8",
+       "16"
+      ],
+      [
+       "AD2C408",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4E8D440 on var/wxarm/270099_x64.dylib"
+    },
+    {
+     "builds": [
+      "270097"
+     ],
+     "stubs": {
+      "7A22B64": "strlen",
+      "7A225BE": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AD2A2C8",
+       "16"
+      ],
+      [
+       "AD2A2D8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4E8CBB0 on var/wxarm/270097_x64.dylib"
+    },
+    {
+     "builds": [
+      "270094"
+     ],
+     "stubs": {
+      "7A1EB64": "strlen",
+      "7A1E5BE": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "AD25E78",
+       "16"
+      ],
+      [
+       "AD25E88",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4E884C0 on var/wxarm/270094_x64.dylib"
+    },
+    {
+     "builds": [
+      "269365"
+     ],
+     "stubs": {
+      "75F43F8": "strlen",
+      "75F3E58": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A7690E8",
+       "16"
+      ],
+      [
+       "A7690F8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4A538F0 on var/wxarm/269365_x64.dylib"
+    },
+    {
+     "builds": [
+      "269364"
+     ],
+     "stubs": {
+      "75CF4F8": "strlen",
+      "75CEF58": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A73CFD8",
+       "16"
+      ],
+      [
+       "A73CFE8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4A32B60 on var/wxarm/269364_x64.dylib"
+    },
+    {
+     "builds": [
+      "269363"
+     ],
+     "stubs": {
+      "75B0CF8": "strlen",
+      "75B0758": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A717B48",
+       "16"
+      ],
+      [
+       "A717B58",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4A160C0 on var/wxarm/269363_x64.dylib"
+    },
+    {
+     "builds": [
+      "269362"
+     ],
+     "stubs": {
+      "75A4CB8": "strlen",
+      "75A4718": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A70A9F8",
+       "16"
+      ],
+      [
+       "A70AA08",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4A0E310 on var/wxarm/269362_x64.dylib"
+    },
+    {
+     "builds": [
+      "269336"
+     ],
+     "stubs": {
+      "73D5DD4": "strlen",
+      "73D584C": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A48C388",
+       "16"
+      ],
+      [
+       "A48C398",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x487EA20 on var/wxarm/269336_x64.dylib"
+    },
+    {
+     "builds": [
+      "42530"
+     ],
+     "stubs": {
+      "73C3D54": "strlen",
+      "73C37CC": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A478078",
+       "16"
+      ],
+      [
+       "A478088",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x486FA50 on var/wxarm/42530_x64.dylib"
+    },
+    {
+     "builds": [
+      "41754"
+     ],
+     "stubs": {
+      "71FA290": "strlen",
+      "71F9D38": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A2595D8",
+       "16"
+      ],
+      [
+       "A2595E8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x473B0F0 on var/wxarm/41754_x64.dylib"
+    },
+    {
+     "builds": [
+      "39917"
+     ],
+     "stubs": {
+      "6D9EE20": "strlen",
+      "6D9E8C2": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "9EB3D18",
+       "16"
+      ],
+      [
+       "9EB3D28",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x4A622D0 on var/wxarm/39917_x64.dylib"
+    },
+    {
+     "builds": [
+      "38959"
+     ],
+     "stubs": {
+      "6A7CDF6": "strlen",
+      "6A7C898": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "9B8E7F8",
+       "16"
+      ],
+      [
+       "9B8E808",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "site 0x490D1CE on var/wxarm/38959_x64.dylib"
     }
    ]
   },
@@ -751,6 +1499,652 @@
       ]
      ],
      "_generated": "arm64 predicate 0x49E3218 (cbz 0x4E795A4) on var/wxarm/270349_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270344"
+     ],
+     "stubs": {
+      "72ABF30": "strlen",
+      "72AB360": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A5C8AA8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x49E14E0 (cbz 0x4E7786C) on var/wxarm/270344_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270343"
+     ],
+     "stubs": {
+      "72ABF30": "strlen",
+      "72AB360": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A5C8AA8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x49E14D8 (cbz 0x4E77864) on var/wxarm/270343_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270342"
+     ],
+     "stubs": {
+      "72A7DE4": "strlen",
+      "72A7214": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A5C47D8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x49DD534 (cbz 0x4E738C0) on var/wxarm/270342_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270341"
+     ],
+     "stubs": {
+      "72A3DE4": "strlen",
+      "72A3214": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A5C0668",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x49D9064 (cbz 0x4E6F3E0) on var/wxarm/270341_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270340"
+     ],
+     "stubs": {
+      "729CD68": "strlen",
+      "729C198": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A5B85A8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x49D8980 (cbz 0x4E689CC) on var/wxarm/270340_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270102"
+     ],
+     "stubs": {
+      "6FD28EC": "strlen",
+      "6FD1D70": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A2B1AD8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x4757A30 (cbz 0x4BC53D8) on var/wxarm/270102_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270101"
+     ],
+     "stubs": {
+      "6FD28EC": "strlen",
+      "6FD1D70": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A2B1AD8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x4757830 (cbz 0x4BC51D8) on var/wxarm/270101_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270099"
+     ],
+     "stubs": {
+      "6FD28EC": "strlen",
+      "6FD1D70": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A2B1AC8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x47574E8 (cbz 0x4BC4E90) on var/wxarm/270099_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270097"
+     ],
+     "stubs": {
+      "6FD26F4": "strlen",
+      "6FD1B78": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A2B19A8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x4756D7C (cbz 0x4BC4724) on var/wxarm/270097_arm64.dylib"
+    },
+    {
+     "builds": [
+      "270094"
+     ],
+     "stubs": {
+      "6FCF6C8": "strlen",
+      "6FCEB4C": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "A2AD568",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x47542E0 (cbz 0x4BC1C88) on var/wxarm/270094_arm64.dylib"
+    },
+    {
+     "builds": [
+      "269365"
+     ],
+     "stubs": {
+      "6B45D9C": "strlen",
+      "6B4522C": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "9C92298",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x43940F8 (cbz 0x47E0928) on var/wxarm/269365_arm64.dylib"
+    },
+    {
+     "builds": [
+      "269364"
+     ],
+     "stubs": {
+      "6B23E10": "strlen",
+      "6B232A0": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "9C69188",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x4376344 (cbz 0x47C2B74) on var/wxarm/269364_arm64.dylib"
+    },
+    {
+     "builds": [
+      "269363"
+     ],
+     "stubs": {
+      "6B0889C": "strlen",
+      "6B07D2C": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "9C47CA8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x435D1B8 (cbz 0x47A8E48) on var/wxarm/269363_arm64.dylib"
+    },
+    {
+     "builds": [
+      "269362"
+     ],
+     "stubs": {
+      "6AFE854": "strlen",
+      "6AFDCE4": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "9C3BB28",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x435683C (cbz 0x47A0ED4) on var/wxarm/269362_arm64.dylib"
+    },
+    {
+     "builds": [
+      "269336"
+     ],
+     "stubs": {
+      "695E274": "strlen",
+      "695D734": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "99ED2A8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x41F1818 (cbz 0x462E440) on var/wxarm/269336_arm64.dylib"
+    },
+    {
+     "builds": [
+      "42530"
+     ],
+     "stubs": {
+      "694B220": "strlen",
+      "694A6E0": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "99D4F78",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x41E110C (cbz 0x461D894) on var/wxarm/42530_arm64.dylib"
+    },
+    {
+     "builds": [
+      "41754"
+     ],
+     "stubs": {
+      "67B4ED0": "strlen",
+      "67B43F0": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "97BA4E8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x40D10EC (cbz 0x450A128) on var/wxarm/41754_arm64.dylib"
+    },
+    {
+     "builds": [
+      "39917"
+     ],
+     "stubs": {
+      "63CED4C": "strlen",
+      "63CE260": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "949F1D8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x443EDF4 (cbz 0x488C2D0) on var/wxarm/39917_arm64.dylib"
+    },
+    {
+     "builds": [
+      "38959"
+     ],
+     "stubs": {
+      "61FAF7C": "strlen",
+      "61FA490": "memcmp"
+     },
+     "zero_regions": [
+      [
+       "92E86E8",
+       "16"
+      ]
+     ],
+     "probes": [
+      [
+       "revokemsg",
+       "1"
+      ],
+      [
+       "sysmsg",
+       "0"
+      ],
+      [
+       "NewMsg",
+       "0"
+      ],
+      [
+       "",
+       "0"
+      ]
+     ],
+     "_generated": "arm64 predicate 0x43387C8 (cbz 0x4785910) on var/wxarm/38959_arm64.dylib"
     }
    ]
   },
