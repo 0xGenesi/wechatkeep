@@ -22,6 +22,8 @@
 #include <sys/mman.h>
 #include <mach/mach.h>
 #include <pthread.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 __attribute__((noinline)) static int probe_target(void) { return 42; }
 
@@ -35,22 +37,39 @@ int main(void) {
     int m = mprotect((void *)base, page, PROT_READ | PROT_WRITE | PROT_EXEC);
     int mprotect_errno = (m == 0) ? 0 : errno;
     printf("mprotect_direct=%d\n", mprotect_errno);
+    fflush(stdout);
     // 无条件回保护态（成功过的情形必须复原，避免带 RW 代码页继续运行）
     (void)mprotect((void *)base, page, PROT_READ | PROT_EXEC);
 
-    // 2) vm_remap COW 自映射路径（runtime.m 阶梯第 2 层语义）
-    vm_address_t remap_addr = 0;
+    // 2) vm_remap COW 自映射路径（runtime.m 阶梯第 2 层语义）。
+    // 用 mach_vm_remap（11 参稳定签名；老 vm_remap 的 boolean_t copy 位
+    // 置在各 SDK 间曾是坑——CI 新 clang 对 int→vm_prot_t* 是硬错）。
+    // 实测要点（93 轮）：remap 本身可成功，但写 COW 副本触发 CS 击杀
+    // （uncatchable kill——本进程曾因此无输出暴死）。写测放 fork 子进程
+    // 里隔离，父进程用 waitpid 状态判读写结果。
+    mach_vm_address_t remap_addr = 0;
     vm_prot_t cur_protection = 0;
-    kern_return_t kr = vm_remap(task, &remap_addr, page, 0,
-                                VM_FLAGS_ANYWHERE,
-                                task, (vm_address_t)base, 0,
-                                &cur_protection,
-                                VM_PROT_READ | VM_PROT_EXECUTE,
-                                VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE);
-    printf("remap_cow=%d\n", (kr == KERN_SUCCESS) ? 0 : (int)kr);
-    if (kr == KERN_SUCCESS) {
-        // COW 副本写测（真写一字节再释放——完整复刻「COW 后可写」语义）
-        *(volatile unsigned int *)remap_addr = 0xD65F03C0u;   // arm64 ret
+    vm_prot_t max_protection = 0;
+    kern_return_t kr = mach_vm_remap(task, &remap_addr, (mach_vm_size_t)page, 0,
+                                     VM_FLAGS_ANYWHERE,
+                                     task, (mach_vm_address_t)base, FALSE,
+                                     &cur_protection, &max_protection,
+                                     VM_INHERIT_COPY);
+    if (kr != KERN_SUCCESS) {
+        printf("remap_cow=%d\n", (int)kr);
+        fflush(stdout);
+    } else {
+        pid_t pid = fork();
+        if (pid == 0) {
+            *(volatile unsigned int *)remap_addr = 0xD65F03C0u;   // arm64 ret
+            _exit(0);   // 写成功 = 干净退出
+        }
+        int st = 0;
+        waitpid(pid, &st, 0);
+        int code = (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0
+                   : 100 + (WIFSIGNALED(st) ? WTERMSIG(st) : 0);
+        printf("remap_cow=%d\n", code);   // 0=可写；1xx+信号=写测被 CS 击杀
+        fflush(stdout);
         vm_deallocate(task, remap_addr, page);
     }
 
