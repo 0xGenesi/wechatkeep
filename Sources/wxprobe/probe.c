@@ -40,10 +40,11 @@ int main(void) {
 
     // 2) vm_remap COW 自映射路径（runtime.m 阶梯第 2 层语义）
     vm_address_t remap_addr = 0;
+    vm_prot_t cur_protection = 0;
     kern_return_t kr = vm_remap(task, &remap_addr, page, 0,
                                 VM_FLAGS_ANYWHERE,
                                 task, (vm_address_t)base, 0,
-                                &(int){0},
+                                &cur_protection,
                                 VM_PROT_READ | VM_PROT_EXECUTE,
                                 VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE);
     printf("remap_cow=%d\n", (kr == KERN_SUCCESS) ? 0 : (int)kr);
