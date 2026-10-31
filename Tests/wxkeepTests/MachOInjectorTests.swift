@@ -118,4 +118,65 @@ struct MachOInjectorTests {
                                               dylibInstallPath: "@x/y.dylib")
         }
     }
+
+    /// 同切片两条同路径 LC_LOAD_DYLIB（历史事故态）：remove 全清且
+    /// ncmds/sizeofcmds 保持自洽——多删一报 = dyld 解析补零区 = 启动炸。
+    @Test func removeDoubleLoadCommandsKeepsHeaderConsistent() throws {
+        let cmd = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
+        var data = makeExecutable()
+        try MachOInjector.insertLoadDylib(data: &data, dylibInstallPath: cmd)
+        // 手工复制第二条（真实事故 = 历史版本重复注入残留）
+        let cmdsize = Int(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 188, as: UInt32.self) })
+        let first = Data(data[184..<(184 + cmdsize)])
+        data.replaceSubrange((184 + cmdsize)..<(184 + cmdsize + cmdsize), with: first)
+        data.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32(3), toByteOffset: 16, as: UInt32.self)            // ncmds 2→3
+            raw.storeBytes(of: UInt32(152 + 2 * cmdsize), toByteOffset: 20, as: UInt32.self)
+        }
+        #expect(MachOInjector.isInjected(data: data, base: 0, path: cmd))
+        try MachOInjector.removeLoadDylib(data: &data, dylibInstallPath: cmd)
+        #expect(!MachOInjector.isInjected(data: data, base: 0, path: cmd),
+                "两条都要清掉")
+        // 头自洽：按 ncmds 遍历应精确走完 sizeofcmds（多删少报 = 遍历踩进
+        // 补零区，dyld 同款语义）
+        let ncmds = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt32.self) }
+        let sizeofcmds = Int(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 20, as: UInt32.self) })
+        var cursor = 32
+        var walked = 0
+        for _ in 0..<ncmds {
+            let size = Int(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor + 4, as: UInt32.self) })
+            #expect(size >= 8)
+            cursor += size
+            walked += size
+        }
+        #expect(walked == sizeofcmds, "命令区走完应恰为 sizeofcmds（ncmds 与实删数自洽）")
+    }
+
+    /// 巨型命令区（>0x10000）：注入命令落在尾部时 isInjectedAnySlice 仍必须
+    /// 可见——固定 0x10000 窗会让 install 后置守卫假回滚、doctor 误报未注入。
+    @Test func isInjectedAnySliceSeesPast64KWindow() throws {
+        let cmd = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
+        var big = makeExecutable(size: 0x21000)
+        // 节 offset 抬到 0x20000 → 头部合法空间 >128KB
+        big.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32(0x20000), toByteOffset: 152, as: UInt32.self)
+        }
+        // 4096 条 LC_SOURCE_VERSION（16B）把命令区撑过 0x10000
+        var off = 184
+        for _ in 0..<4096 {
+            big.withUnsafeMutableBytes { raw in
+                raw.storeBytes(of: UInt32(0x32), toByteOffset: off, as: UInt32.self)
+                raw.storeBytes(of: UInt32(16), toByteOffset: off + 4, as: UInt32.self)
+            }
+            off += 16
+        }
+        big.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32(1 + 4096), toByteOffset: 16, as: UInt32.self)
+            raw.storeBytes(of: UInt32(152 + 4096 * 16), toByteOffset: 20, as: UInt32.self)
+        }
+        try MachOInjector.insertLoadDylib(data: &big, dylibInstallPath: cmd)
+        // 注入位 = 32 + sizeofcmds ≈ 0x100B8 > 0x10000
+        #expect(MachOInjector.isInjectedAnySlice(data: big, path: cmd),
+                "命令区 >0x10000 时注入命令在尾部仍必须可见")
+    }
 }

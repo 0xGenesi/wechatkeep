@@ -118,6 +118,25 @@ struct VerifierTests {
         #expect(failure != nil)
     }
 
+    /// 探针跳过（skip）不再造成错位比较（P1 修复回归）：位置 zip 会把
+    /// skip 行之后的结果整体前移一格——期望 A 配上结果 B。文本对位 + 未
+    /// 执行豁免后，skip 行既不参与比较也不挤占他人的对位槽。
+    @Test func verdictToleratesSkippedProbeWithoutShift() {
+        let spec = Verifier.VerifySpec(stubs: [:], zeroRegions: [],
+                                       probes: [["revokemsg", "1"], ["plain", "0"], ["other", "1"]])
+        let results = [
+            Verifier.ProbeResult(text: "revokemsg", returned: true),
+            Verifier.ProbeResult(text: "plain", returned: false, executed: false),   // skip
+            Verifier.ProbeResult(text: "other", returned: true),
+        ]
+        // 旧行为：plain 的位置滑到 other 上（plain=false 对 expected=nil 豁免、
+        // other=true 对上 plain 的 0 → mismatch 假阴转假阳）；文本对位后无错配
+        #expect(Verifier.verdict(results: results, spec: spec, state: .pristine) == nil)
+        #expect(Verifier.verdictPredicate(results: results, spec: spec) == nil)
+        // 乱序到达同样按文本对位
+        #expect(Verifier.verdict(results: results.reversed(), spec: spec, state: .pristine) == nil)
+    }
+
     /// arm64 worker 崩溃属环境受限（良性，不阻塞）：CI macos-15 全绿、真机
     /// （更新 macOS）SIGBUS 实测——arm64 探针语义是加成项，字节级 strict
     /// verify 才是补丁效果证明。数据类错误（mismatch/specRejected）仍异常。

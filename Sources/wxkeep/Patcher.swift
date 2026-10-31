@@ -265,12 +265,17 @@ struct Patcher {
                 guard let seg = try handle.read(upToCount: 40), seg.count == 40 else {
                     throw PatchError.not64BitMachO
                 }
-                let fields = seg.withUnsafeBytes { raw -> (UInt64, UInt64, UInt64) in
+                let fields = seg.withUnsafeBytes { raw -> (UInt64, UInt64, UInt64, UInt64) in
                     (raw.loadUnaligned(fromByteOffset: 0, as: UInt64.self),   // vmaddr
                      raw.loadUnaligned(fromByteOffset: 8, as: UInt64.self),   // vmsize
-                     raw.loadUnaligned(fromByteOffset: 16, as: UInt64.self))  // fileoff
+                     raw.loadUnaligned(fromByteOffset: 16, as: UInt64.self),  // fileoff
+                     raw.loadUnaligned(fromByteOffset: 24, as: UInt64.self))  // filesize
                 }
-                if va >= fields.0 && va < fields.0 + fields.1 {
+                // 写路径的换算必须落在 file-backed 区间内：vmsize 覆盖 __bss
+                // 等零填充尾（无文件背书），把 VA 映到那里 = 写偏移飞进下一
+                // 段或文件尾外的无关字节。
+                if va >= fields.0 && va < fields.0 + fields.3,
+                   va - fields.0 < fields.3 {
                     return sliceOffset + fields.2 + (va - fields.0)
                 }
             }

@@ -101,7 +101,15 @@ struct Config {
     static func load(explicit: String?, cwd: String = FileManager.default.currentDirectoryPath,
                      localOverride: URL? = nil) throws -> Config {
         var candidates: [String] = []
-        if let explicit { candidates.append(explicit) }
+        if let explicit {
+            // 显式路径必须真实存在：拼错的 --config 静默回落到候选链 = 加载
+            // 到另一份目录（expected 门拿错基准）而无任何提示。~ 同步展开。
+            let expanded = (explicit as NSString).expandingTildeInPath
+            guard FileManager.default.fileExists(atPath: expanded) else {
+                throw LoadError.notFound(searched: [expanded])
+            }
+            candidates.append(expanded)
+        }
         candidates.append(cwd + "/config.json")
         // update-data 的安装位（用户级、免 sudo）：优先于随包分发 的旧数据
         candidates.append(Self.userDataURL.appendingPathComponent("config.json").path)
@@ -117,6 +125,14 @@ struct Config {
         }
         guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
             throw LoadError.notFound(searched: candidates)
+        }
+        // 供应链门（sudo 面）：root 语境下隐式命中 cwd 的 config = 特权写
+        // 的字节与 expected 基准可被工作目录内容供给——恰是 Ed25519 清单要
+        // 防的攻击面。root 下要求显式 --config（清单校验仍按显式规则走）。
+        if explicit == nil, geteuid() == 0, path.hasPrefix(cwd + "/") {
+            throw LoadError.malformed(
+                "refusing implicit cwd config under sudo: \(path). "
+                + "sudo 下 cwd 文件不在清单信任域——用 --config <path> 显式指定。")
         }
         // 供应链门：隐式发现的 config（非用户显式指定）做发布清单校验。
         // 清单缺失 = 旧分发（提示但不阻塞）；清单存在且校验不过 = 数据被改动，拒载。
@@ -146,10 +162,12 @@ struct Config {
                 let ldata = try Data(contentsOf: localURL)
                 let local = try Config(data: ldata, origin: localURL.path)
                 config.merge(local: local)
-            } catch let e as LoadError {
-                throw LoadError.malformed("config.local.json: \(e.localizedDescription)")
             } catch {
-                throw LoadError.malformed("config.local.json unreadable: \(error.localizedDescription)")
+                // 本地定位文件坏 ≠ 主目录坏：点名文件 + 给出修复动作（该文件
+                // 是 locate --append 的派生产物，可安全删除重建）。
+                throw LoadError.malformed(
+                    "config.local.json (\(localURL.path)) 损坏: \(error.localizedDescription). "
+                    + "修复：删除该文件后重跑 locate --append（或修正其 JSON）。")
             }
         }
         return config

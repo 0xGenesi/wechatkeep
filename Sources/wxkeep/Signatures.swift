@@ -90,9 +90,17 @@ struct Signatures: Codable {
     static func load(explicit: String?, cwd: String = FileManager.default.currentDirectoryPath) throws -> Signatures {
         let exePath = URL(fileURLWithPath: CommandLine.arguments[0],
                           relativeTo: nil).resolvingSymlinksInPath().path
-        let candidates = searchOrder(explicit: explicit, cwd: cwd, exePath: exePath)
+        let explicitPath = explicit.map { ($0 as NSString).expandingTildeInPath }
+        let candidates = searchOrder(explicit: explicitPath, cwd: cwd, exePath: exePath)
         guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
             throw LoadError.notFound
+        }
+        // 供应链门（sudo 面，与 Config.load 同规）：root 语境下隐式命中 cwd 的
+        // signatures = expected 基准可被工作目录内容供给。
+        if explicit == nil, geteuid() == 0, path.hasPrefix(cwd + "/") {
+            throw LoadError.malformed(
+                "refusing implicit cwd signatures under sudo: \(path). "
+                + "sudo 下 cwd 文件不在清单信任域——用 --signatures <path> 显式指定。")
         }
         // 供应链门（与 Config.load 同语义）：隐式发现的 signatures 做发布
         // 清单校验（manifest 同时守护 config+signatures）；显式 --signatures
@@ -118,8 +126,16 @@ struct Signatures: Codable {
                 if Data(hex: spec.asm) == nil {
                     throw LoadError.malformed("recipe \(name): bad hex asm \"\(spec.asm)\" (\(path))")
                 }
-                if ExpectedPattern(spec: spec.expected) == nil {
+                guard let pattern = ExpectedPattern(spec: spec.expected) else {
                     throw LoadError.malformed("recipe \(name): bad expected \"\(spec.expected)\" (\(path))")
+                }
+                // 与 Config.validate 的「asm 跨度 ≤ expected 可复原面」同规：
+                // auto-locate 合成条目绕过 Config 校验直达 Patcher——asm 比每
+                // 个 expected 变体都长 = 写得进.restore 不回（不可复原写入面）。
+                if let asmBytes = Data(hex: spec.asm), asmBytes.count > pattern.byteCount {
+                    throw LoadError.malformed(
+                        "recipe \(name): asm (\(asmBytes.count)B) longer than every expected variant "
+                        + "(\(pattern.byteCount)B) — write would touch unrestorable bytes (\(path))")
                 }
             }
             return signatures

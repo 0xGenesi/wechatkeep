@@ -170,7 +170,10 @@ enum EntrySlot {
                     original12: expected.prefix(12), patch12: patch)
     }
 
-    /// 已补丁态识别：入口 12B 自解码出 SLOT 且 SLOT 在 __DATA 段尾填充区。
+    /// 已补丁态识别：入口 12B 自解码出 SLOT 且 **SLOT 落在 __DATA 段尾填充
+    /// 区内**。仅校验指令形态会把任何 `adrp x16/ldr x16/br x16` 三连（__objc_stubs
+    /// 的原生形态）误判为已补丁——install 侧因此跳过武装、remove 侧因此走还
+    /// 原路径，都是错动作。SLOT VA 的落区校验与 planArm64 同口径。
     static func detectPatched(file url: URL, hookOff: UInt64) -> UInt64? {
         guard let image = try? MachImage(file: url, arch: .arm64),
               let raw = image.bytes(va: hookOff, count: 12) else { return nil }
@@ -182,6 +185,31 @@ enum EntrySlot {
             let b3 = UInt32(raw[i * 4 + 3]) << 24
             w.append(b0 | b1 | b2 | b3)
         }
-        return decodeSlotVA(pc: hookOff, w0: w[0], w1: w[1], w2: w[2])
+        guard let slotVA = decodeSlotVA(pc: hookOff, w0: w[0], w1: w[1], w2: w[2]) else {
+            return nil
+        }
+        // 落区门：SLOT 必须在 __DATA 段尾填充区（lastEnd..段文件尾），且
+        // 当前内容为全零（planArm64 的选址不变量——objc_stubs 的 ldr 目标
+        // 不会满足这两条）。
+        guard let dataSection = image.sections.first(where: { $0.segment == "__DATA" && $0.offset > 0 }),
+              let seg = image.segments.first(where: {
+                  dataSection.addr >= $0.vmaddr && dataSection.addr < $0.vmaddr + $0.vmsize
+              }) else { return nil }
+        let lastEnd = image.sections
+            .filter { $0.segment == "__DATA" && $0.offset > 0 }
+            .map { $0.offset + Int($0.size) }
+            .max() ?? 0
+        let nextFileOff = image.segments
+            .map(\.fileoff)
+            .filter { $0 > seg.fileoff }
+            .min() ?? UInt64(image.data.count)
+        let segFileEnd = min(nextFileOff, UInt64(image.data.count))
+        let padStart = max(lastEnd, Int(seg.fileoff))
+        guard slotVA >= seg.vmaddr + UInt64(padStart - Int(seg.fileoff)),
+              slotVA + 8 <= seg.vmaddr + (segFileEnd - seg.fileoff),
+              image.bytes(va: slotVA, count: 8) == Data(repeating: 0, count: 8) else {
+            return nil
+        }
+        return slotVA
     }
 }

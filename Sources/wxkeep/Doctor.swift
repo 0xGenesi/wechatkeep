@@ -177,16 +177,25 @@ struct Doctor {
         // to poison the verdict ("mixed"/"unprotected" with full x64 protection).
         let nativeArch = Doctor.nativeArch()
         var patchStates: [String: String] = [:]
+        var inspectFailures: [String] = []
         if let versionEntry {
             for target in versionEntry.targets {
                 let binary = WeChatApp.binaryURL(app: app, relative: target.binary)
-                let states = ((try? Patcher.inspect(
-                    binary: binary, entries: target.entries,
-                    identifier: target.identifier)) ?? [])
-                    .filter { $0.arch.rawValue == nativeArch }
-                    .map(\.state)
-                guard !states.isEmpty else { continue }   // 目标不含本机架构切片 → 不参与判定
-                patchStates[target.identifier] = aggregate(states)
+                do {
+                    let states = try Patcher.inspect(
+                        binary: binary, entries: target.entries,
+                        identifier: target.identifier)
+                        .filter { $0.arch.rawValue == nativeArch }
+                        .map(\.state)
+                    guard !states.isEmpty else { continue }   // 目标不含本机架构切片 → 不参与判定
+                    patchStates[target.identifier] = aggregate(states)
+                } catch {
+                    // inspect 失败（读不了/权限/异常）≠「无本机切片」——静默
+                    // 丢弃会让判定面带着盲区报 protected。unknown 进门，让
+                    // mixed 路径如实降级并指认目标。
+                    patchStates[target.identifier] = "unknown"
+                    inspectFailures.append("⚠️ inspect failed for \(target.identifier) (\(target.binary ?? "?")): \(error.localizedDescription)")
+                }
             }
         }
 
@@ -196,8 +205,10 @@ struct Doctor {
         // ---- runtime 组件状态（可选功能，只读探测） ----
         let runtimeDylibURL = WeChatApp.binaryURL(app: app, relative: "Contents/Frameworks/wxkeep_runtime.dylib")
         let runtimeDylibExists = fm.fileExists(atPath: runtimeDylibURL.path)
+        // LC 探测不依赖 dylib 在场：dylib 被删而 LC 残留 = 下次启动 dyld 必
+        // 崩的混合态（remove 半途/手工删除），必须可见而非报 null。
         var runtimeInjected = false
-        if runtimeDylibExists, let mainData = try? Data(contentsOf: main) {
+        if let mainData = try? Data(contentsOf: main, options: .alwaysMapped) {
             runtimeInjected = MachOInjector.isInjectedAnySlice(
                 data: mainData, path: Wxkeep.RuntimeCommand.lcPath)
         }
@@ -208,7 +219,10 @@ struct Doctor {
 
         // ---- single verdict point ----
 
-        var verdicts: [String] = []
+        var verdicts: [String] = inspectFailures
+        if runtimeInjected && !runtimeDylibExists {
+            verdicts.append("❌ LC_LOAD_DYLIB 在场但 runtime dylib 缺失 — 下次启动 dyld 必崩。修复：`wxkeep runtime install` 重装，或 `wxkeep runtime remove` 清掉 LC")
+        }
         // 供应链与切片完整性观察
         var manifestStatus: String? = nil
         if let cfgDir = Config.locatedDirectory() {
@@ -320,7 +334,9 @@ struct Doctor {
             journal: journalSummary,
             verdicts: verdicts,
             nextCommand: nextCommand,
-            runtimeInjected: runtimeDylibExists ? runtimeInjected : nil,
+            // LC 探测不再被 dylib 在场性掩盖（混合态 = LC 在而 dylib 缺，
+            // 已有专门 verdict 行；hook 武装语义依赖 dylib 曾加载，保持门）。
+            runtimeInjected: runtimeInjected,
             runtimeHookArmed: runtimeDylibExists ? runtimeHookArmed : nil)
     }
 

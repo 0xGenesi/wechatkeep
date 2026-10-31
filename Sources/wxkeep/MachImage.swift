@@ -126,7 +126,10 @@ struct MachImage {
         return s
     }
 
-    /// VA → offset relative to the START of the slice (not the fat file).
+    /// VA → offset relative to the START of the slice (not the fat file)。
+    /// 注意：__DATA 段间文件填充区（> filesize、< 下段 fileoff）也是合法
+    /// 映射目标——EntrySlot 的 SLOT 选址就在那里，不能按 filesize 收紧；
+    /// __bss 类零填充尾由 bytes() 的 data.count 界兜底。
     func sliceRelativeOffset(va: UInt64) -> Int? {
         for seg in segments where va >= seg.vmaddr && va < seg.vmaddr + seg.vmsize {
             return Int(seg.fileoff) + Int(va - seg.vmaddr)

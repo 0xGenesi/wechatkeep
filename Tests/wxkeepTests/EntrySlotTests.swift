@@ -62,4 +62,34 @@ struct EntrySlotTests {
         // 已补丁态识别
         #expect(EntrySlot.detectPatched(file: url, hookOff: 0x4d1f8d8) == nil)   // 原始态无补丁
     }
+
+    /// detectPatched 落区门（P2 修复回归）：真补丁态识别 ✓；SLOT 区字节
+    /// 非零（非 planArm64 选址不变量）→ 判非补丁。只有指令形态门时，
+    /// __objc_stubs 原生三连会被误判成已补丁（install 跳武装/remove 误还原）。
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: "var/wxarm/270135_arm64.dylib")),
+          .disabled(if: ProcessInfo.processInfo.environment["CI"] != nil))
+    func detectPatchedRegionGateOnRealSlice() throws {
+        let src = URL(fileURLWithPath: "var/wxarm/270135_arm64.dylib")
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-eslot-\(UUID().uuidString).dylib")
+        try FileManager.default.copyItem(at: src, to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let plan = try EntrySlot.planArm64(
+            file: tmp, hookOff: 0x4d1f8d8,
+            expectedHex: "F85FBCA9F65701A9F44F02A9FD7B03A9")
+        var data = try Data(contentsOf: tmp)
+        data.replaceSubrange(plan.entryFileOffset..<plan.entryFileOffset + 12, with: plan.patch12)
+        try data.write(to: tmp)
+        #expect(EntrySlot.detectPatched(file: tmp, hookOff: 0x4d1f8d8) == plan.slotVA,
+                "真补丁态必须识别（SLOT 在段尾填充且内容为零）")
+
+        // SLOT 区被写入非零值（非 planArm64 不变量）→ 指令形态再像也不是补丁
+        var corrupted = try Data(contentsOf: tmp)
+        corrupted.replaceSubrange(plan.slotFileOffset..<plan.slotFileOffset + 8,
+                                  with: Data(repeating: 0xAA, count: 8))
+        try corrupted.write(to: tmp)
+        #expect(EntrySlot.detectPatched(file: tmp, hookOff: 0x4d1f8d8) == nil,
+                "SLOT 内容非零 = 非 planArm64 选址（objc_stubs 的 ldr 目标不满足零内容）")
+    }
 }

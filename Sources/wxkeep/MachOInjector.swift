@@ -139,10 +139,15 @@ enum MachOInjector {
     }
 
     /// True if ANY 64-bit slice carries an LC_LOAD_DYLIB for `path`.
+    /// 扫描窗按各切片真实的命令区（32 + sizeofcmds，钳位文件尾）取界——
+    /// 固定 0x10000 会在巨型 dylib 命令区（>800 条）上漏看尾部命令，
+    /// 误报「未注入」→ install 后置守卫假回滚 / doctor 误报。
     static func isInjectedAnySlice(data: Data, path: String) -> Bool {
         guard let bases = try? slices(in: data) else { return false }
         return bases.contains { base in
-            let end = min(base + 0x10000, data.count)
+            guard let info = try? sliceInfo(in: data, base: base) else { return false }
+            let end = min(base + 32 + Int(info.sizeofcmds), data.count)
+            guard end > base else { return false }
             return isInjected(data: data.subdata(in: base..<end), base: 0, path: path)
         }
     }
@@ -213,7 +218,7 @@ enum MachOInjector {
             // 以文件尾钳位（L3⑤ 模糊测试实锤的崩溃面；合法镜像不变）。
             let cmdsEnd = min(info.commandsOff + Int(info.sizeofcmds), data.count)
             var commands = Data(data[info.commandsOff..<max(cmdsEnd, info.commandsOff)])
-            var found = false
+            var removals: UInt32 = 0
             var cursor = 0
             while cursor + 8 <= commands.count {
                 let cmd = commands.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: cursor, as: UInt32.self) }
@@ -229,21 +234,23 @@ enum MachOInjector {
                     if nend <= cursor + cmdsize,
                        Data(commands[nstart..<nstart + dylibInstallPath.utf8.count]) == Data(dylibInstallPath.utf8) {
                         commands.removeSubrange(cursor..<cursor + cmdsize)
-                        found = true
-                        continue   // 不前进：后续命令前移补位
+                        removals += 1
+                        continue   // 不前进：后续命令前移补位（同路径可能有多条——
+                                   // 2026-09-18 事故态就留着重复注入史，逐条全清）
                     }
                 }
                 cursor += cmdsize
             }
-            guard found else { continue }
+            guard removals > 0 else { continue }
             removedAny = true
-            // 写回：命令区总长不变——移除后尾部补零（保持文件长度与内容偏移不变）
+            // 写回：命令区总长不变——移除后尾部补零（保持文件长度与内容偏移不变）。
+            // ncmds 按实删条数递减：多删一报 = dyld 把补零区当命令解析 → 启动炸。
             let freed = Int(info.sizeofcmds) - commands.count
             var padded = commands
             padded.append(contentsOf: Data(repeating: 0, count: freed))
             data.replaceSubrange(info.commandsOff..<(info.commandsOff + Int(info.sizeofcmds)), with: padded)
             data.withUnsafeMutableBytes { raw in
-                raw.storeBytes(of: info.ncmds - 1, toByteOffset: info.ncmdsOff, as: UInt32.self)
+                raw.storeBytes(of: info.ncmds - removals, toByteOffset: info.ncmdsOff, as: UInt32.self)
                 raw.storeBytes(of: UInt32(commands.count), toByteOffset: info.sizeofcmdsOff, as: UInt32.self)
             }
         }

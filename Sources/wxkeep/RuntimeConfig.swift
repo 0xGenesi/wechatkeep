@@ -439,16 +439,33 @@ enum RuntimeConfig {
         return dict
     }
 
+    /// mergedWriteBase + 旧位置迁移种子：两目标全无文件而 legacy 在场时，
+    /// legacy 内容并入基座。无种子的首写（tip/hooks）会产出只含新键的文件，
+    /// 而 dylib 的「首个存在者」选径让新文件整体遮蔽 legacy——hooks 外部表
+    /// 与 rewrite_self 静默降级（写专线必须与 mergeKnownHooks 同种子语义）。
+    /// explicitBase 非 nil = 测试隔离（不种子）；nil = 缺省双目标路径。
+    static func mergedWriteBaseSeeded(explicitBase: [URL]? = nil,
+                                      defaultTargets: [URL]) -> [String: Any] {
+        var dict = mergedWriteBase(from: explicitBase ?? defaultTargets)
+        if dict.isEmpty,
+           explicitBase == nil,
+           FileManager.default.fileExists(atPath: legacyURL().path),
+           let legacy = readDict(at: legacyURL()) {
+            dict = legacy   // 迁移种子：旧位置的 tip/rewrite_self/自定义行并入新文件
+        }
+        return dict
+    }
+
     /// 写 tip_text / rewrite_self（双目标写，见 configWriteTargets；基座=
-    /// mergedWriteBase——进程有效真源向两份副本收敛）。保留 hooks 与其余
-    /// 键，原子写，plist 格式——与 mergeKnownHooks 同一格式契约。text 为
+    /// mergedWriteBaseSeeded——进程有效真源向两份副本收敛）。保留 hooks 与
+    /// 其余键，原子写，plist 格式——与 mergeKnownHooks 同一格式契约。text 为
     /// nil = 不动文案；微信运行中也可写：30s 热重载生效。返回实写成功的
     /// 目标；全部失败抛末次错误。
     @discardableResult
     static func writeTip(text: String?, rewriteSelf: Bool?,
                          at targets: [URL] = configWriteTargets,
                          base candidates: [URL]? = nil) throws -> [URL] {
-        var dict = mergedWriteBase(from: candidates ?? targets)
+        var dict = mergedWriteBaseSeeded(explicitBase: candidates, defaultTargets: targets)
         if let text { dict["tip_text"] = text }
         if let rewriteSelf { dict["rewrite_self"] = rewriteSelf }
         return try writePlist(dict, to: targets)
@@ -459,12 +476,15 @@ enum RuntimeConfig {
     @discardableResult
     static func removeTip(at targets: [URL] = configWriteTargets,
                           base candidates: [URL]? = nil) throws -> [URL] {
-        var dict = mergedWriteBase(from: candidates ?? targets)
+        var dict = mergedWriteBaseSeeded(explicitBase: candidates, defaultTargets: targets)
         dict.removeValue(forKey: "tip_text")
         return try writePlist(dict, to: targets)
     }
 
     /// plist 原子写多目标；至少一份成功即返回成功清单，全败抛末次错误。
+    /// **部分失败如实告警**：单目标写失败（权限/容器缺失）会让双份从此分
+    /// 歧——dylib 读到的一份可能仍是旧值，静默成功 = 配置面「看似写了没
+    /// 生效」类问题的根源（98 轮 tip 三路陷阱同族）。
     private static func writePlist(_ dict: [String: Any], to targets: [URL]) throws -> [URL] {
         let out = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
         var written: [URL] = []
@@ -478,7 +498,54 @@ enum RuntimeConfig {
             } catch { lastError = error }
         }
         if written.isEmpty, let lastError { throw lastError }
+        if !written.isEmpty, let lastError {
+            let failed = targets.filter { !written.contains($0) }
+            print("⚠️ 配置部分写入失败: \(failed.map(\.path).joined(separator: ", "))"
+                  + "——\(lastError.localizedDescription)")
+            print("   双份配置已分歧：进程读到未更新的一份时新值不生效；重跑本命令或检查该路径权限。")
+        }
         return written
+    }
+
+    /// Group 与容器 AS 两份配置的分歧检测（`runtime status` 展示用）。
+    /// dylib 侧是「首个可读文件」选径而非逐键叠加——两份在受管键上不一致
+    /// 时，进程行为取决于读径，叠加视图会掩盖这一点。返回人话描述；无分
+    /// 歧返回 nil。
+    static func configDivergenceDescription(at candidates: [URL]? = nil) -> String? {
+        let targets = candidates ?? [url(), wechatContainerConfigURL()]
+        guard targets.count == 2,
+              let a = readDict(at: targets[0]),
+              let b = readDict(at: targets[1]) else { return nil }
+        let managedKeys = ["keep_message", "rewrite_self", "tip_text", "hooks"]
+        var diffs: [String] = []
+        for key in managedKeys where !isEqualValue(a[key], b[key]) {
+            diffs.append("\(key): Group=\(summarize(a[key])) vs 容器=\(summarize(b[key]))")
+        }
+        guard !diffs.isEmpty else { return nil }
+        return "双份配置在受管键上不一致（进程按首个可读文件取值，与叠加视图可能不同）——"
+            + diffs.joined(separator: "; ") + "。修复：重跑 wxkeep runtime tip/hooks 写入使两份收敛。"
+    }
+
+    private static func isEqualValue(_ a: Any?, _ b: Any?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case let (x as [Any], y as [Any]):
+            guard let y2 = y as? [Any] else { return false }
+            return x.count == y2.count
+        case let (x as Bool, y as Bool): return x == y
+        case let (x as String, y as String): return x == y
+        default:
+            if let d1 = a as? [String: Any], let d2 = b as? [String: Any] {
+                return d1.count == d2.count
+            }
+            return String(describing: a) == String(describing: b)
+        }
+    }
+
+    private static func summarize(_ v: Any?) -> String {
+        if v == nil { return "缺失" }
+        if let arr = v as? [Any] { return "[\(arr.count) 行]" }
+        return String(describing: v)
     }
 
     /// 把 knownHooks 合并进 runtime.json 的 "hooks" 数组：按 uuid 去重替换，
@@ -497,16 +564,12 @@ enum RuntimeConfig {
     @discardableResult
     static func mergeKnownHooks(into targets: [URL] = configWriteTargets,
                                 base candidates: [URL]? = nil) throws -> [HookRow] {
-        // 基座缺省 = 写目标自身（容器优先叠加）——保留目标文件里的用户键
-        // （旧语义）；显式 base（含 []）供测试注入/隔离。
-        var dict = mergedWriteBase(from: candidates ?? targets)
-        if dict.isEmpty,
-           candidates == nil,
-           !targets.contains(legacyURL()),
-           FileManager.default.fileExists(atPath: legacyURL().path),
-           let legacy = Self.readDict(at: legacyURL()) {
-            dict = legacy   // 迁移种子：旧位置的 tip/rewrite_self/自定义行并入新文件
-        }
+        // 基座缺省 = 写目标自身（容器优先叠加）+ legacy 迁移种子——与
+        // writeTip/removeTip 共用 mergedWriteBaseSeeded（同语义单点）；
+        // 显式 base（含 []）供测试注入/隔离。
+        var dict = candidates != nil
+            ? mergedWriteBase(from: candidates)
+            : mergedWriteBaseSeeded(defaultTargets: targets)
 
         var rows: [[String: Any]] = (dict["hooks"] as? [[String: Any]]) ?? []
         let knownUUIDs = Set(knownHooks.map(\.uuid))

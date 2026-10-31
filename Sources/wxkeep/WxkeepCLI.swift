@@ -11,7 +11,10 @@ struct Wxkeep: ParsableCommand {
 
     struct Options: ParsableArguments {
         @Option(name: [.customShort("a"), .long], help: "Path of WeChat.app", transform: {
-            let url = URL(fileURLWithPath: $0)
+            // tilde 展开：引号传入的 ~/Applications/... 不展开会让校验误报
+            // 「不是 app bundle」（shell 只对未引号形式展开）。
+            let expanded = ($0 as NSString).expandingTildeInPath
+            let url = URL(fileURLWithPath: expanded)
             guard FileManager.default.fileExists(atPath: url.appendingPathComponent("Contents/Info.plist").path)
             else { throw ValidationError("\($0) is not an app bundle") }
             return url
@@ -257,8 +260,9 @@ extension Wxkeep {
                 }
             }
             guard !derived.isEmpty else {
-                print("no recipe matched this build (new signature generation — needs human analysis)")
-                return
+                // 非零退出码：脚本/watch 流水线要能区分「无匹配」与成功
+                // （新构建日 PR 的自动定位据此走人工分析分支）。
+                throw ValidationError("no recipe matched this build (new signature generation — needs human analysis)")
             }
             if append {
                 // 本地定位条目写入 config.local.json（与签名目录分离）：
@@ -268,13 +272,24 @@ extension Wxkeep {
                 // 显式 --config 时写该文件（CI/开发者管理签名与提交的路径）。
                 let localURL: URL
                 if let explicit = options.config {
-                    localURL = URL(fileURLWithPath: explicit)
+                    let expanded = (explicit as NSString).expandingTildeInPath
+                    localURL = URL(fileURLWithPath: expanded)
+                    // 写签名目录 = 该目录清单对 config.json 失效（implicit 载入
+                    // 会拒载）——开发路径要知道这个连带后果。
+                    let manifestProbe = localURL.deletingLastPathComponent()
+                        .appendingPathComponent("manifest.json")
+                    if FileManager.default.fileExists(atPath: manifestProbe.path) {
+                        print("⚠️ \(localURL.deletingLastPathComponent().path) 含 manifest.json——"
+                              + "改写后该目录的隐式载入会因清单校验失败而拒载；提交前需重签清单")
+                    }
                 } else {
                     localURL = Config.userDataURL.appendingPathComponent("config.local.json")
                 }
                 let backup = localURL.appendingPathExtension("bak." + String(Int(Date().timeIntervalSince1970)))
+                var backedUp = false
                 if FileManager.default.fileExists(atPath: localURL.path) {
                     try? FileManager.default.copyItem(at: localURL, to: backup)
+                    backedUp = (try? FileManager.default.fileExists(atPath: backup.path)) ?? false
                     // 保留策略：config.local.json.bak.* 只留最新 3 个
                     let dir = localURL.deletingLastPathComponent()
                     if let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path) {
@@ -305,7 +320,8 @@ extension Wxkeep {
                 // 原子写：中途断电/中断不留半文件（半文件会让下一次 patch 的
                 // Config.load 直接 malformed 拒载，本地定位数据不可用）
                 try encoder.encode(localConfig.versions).write(to: localURL, options: .atomic)
-                print("appended to \(localURL.path) (backup: \(backup.lastPathComponent))")
+                print("appended to \(localURL.path)"
+                      + (backedUp ? " (backup: \(backup.lastPathComponent))" : " (首次定位，无先前文件)"))
                 print("next: wxkeep patch --variant silent")
             }
         }
@@ -407,11 +423,6 @@ extension Wxkeep {
             @OptionGroup var options: Options
             @Argument(help: "Clone .app 路径或名称（如 'WeChat wxkeep 1.app'）")
             var target: String
-            mutating func run() throws {
-                let url = Self.resolve(target, in: options.app.deletingLastPathComponent())
-                try Clone.remove(url)
-                print("✓ 已删除 \(url.lastPathComponent)")
-            }
             static func resolve(_ t: String, in dir: URL) -> URL {
                 if t.hasSuffix(".app"), FileManager.default.fileExists(atPath: t) {
                     return URL(fileURLWithPath: t)
@@ -422,6 +433,21 @@ extension Wxkeep {
                     return hit.url
                 }
                 return direct
+            }
+            mutating func run() throws {
+                let url = Self.resolve(target, in: options.app.deletingLastPathComponent())
+                guard FileManager.default.fileExists(atPath: url.path) else {
+                    // 名称/序号都未命中时给出可用清单，而不是把不存在路径
+                    // 丢给 Clone.remove 报一个下游含糊错误。
+                    let clones = Clone.list(in: options.app.deletingLastPathComponent())
+                    let hint = clones.isEmpty
+                        ? "当前没有 wxkeep 克隆"
+                        : "可用克隆:\n" + clones.map { "  \($0.index) \($0.url.lastPathComponent)" }
+                            .joined(separator: "\n")
+                    throw ValidationError("未找到克隆 \"\(target)\"。\(hint)")
+                }
+                try Clone.remove(url)
+                print("✓ 已删除 \(url.lastPathComponent)")
             }
         }
 
@@ -593,7 +619,7 @@ extension Wxkeep {
             mutating func run() throws {
                 try WeChatApp.validate(options.app)
                 let main = RuntimeCommand.mainExecURL(options.app)
-                let data = try Data(contentsOf: main)
+                let data = try Data(contentsOf: main, options: .alwaysMapped)
                 let injected = MachOInjector.isInjectedAnySlice(data: data, path: lcPath)
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 let dylibExists = FileManager.default.fileExists(atPath: dylib.path)
@@ -630,6 +656,11 @@ extension Wxkeep {
                     print("自定义文案:        \(tip)")
                 } else {
                     print("自定义文案:        未配置（无 tip_text 则 hook 只武装不改写）")
+                }
+                // 双份配置分歧告警（P1：叠加视图 vs dylib 首个可读文件选径的
+                // 语义差——两份不一致时上面展示的叠加值可能不是进程真值）。
+                if let divergence = RuntimeConfig.configDivergenceDescription() {
+                    print("⚠️ \(divergence)")
                 }
                 // hook 实际武装状态来自 marker 的 mr2= 字段（dylib 每次启动
                 // 回写）——「已启用」只代表注入在位；构建无匹配地址行/序言
@@ -905,9 +936,62 @@ extension Wxkeep {
                         + "brew 用户升级到 ≥0.2.0 后自带；源码用户先 swift build -c release")
                 }
                 print("dylib 来源: \(dylib)")
+
+                // T6 入口补丁可行性预检（只读，重排于任何写之前）：blocked 门
+                // 必须在主程序 LC 注入之前裁决——否则「blocked 且入口补丁不可
+                // 用」的默认中止会发生在 LC 已写入之后，留下「有 LC 无 dylib」
+                // 的必崩混合态（回滚缺失 = 启动即 dyld Library not loaded）。
+                let wechatDylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
+                let build = try WeChatApp.buildNumber(app: options.app)
+                var entrySlotPlan: EntrySlot.Plan?
+                var entrySlotIdempotent = false
+                var entrySlotHookOff: UInt64 = 0
+                do {
+                    if let row = RuntimeConfig.knownHooks.first(where: {
+                        $0.build == build && $0.arch == "arm64" }) {
+                        guard let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16) else {
+                            throw ValidationError("hooks 行 hook_off 非法: \(row.hook_off)（build \(row.build)）")
+                        }
+                        entrySlotHookOff = hookOff
+                        if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: hookOff) != nil {
+                            // 幂等：入口补丁已在位（重复 install）——无需重写
+                            entrySlotIdempotent = true
+                        } else {
+                            entrySlotPlan = try EntrySlot.planArm64(
+                                file: wechatDylibURL, hookOff: hookOff,
+                                expectedHex: row.expected)
+                        }
+                    } else {
+                        print("ℹ︎ entry-slot: 当前构建无 arm64 hooks 行——入口补丁跳过")
+                    }
+                } catch {
+                    print("ℹ︎ entry-slot: \(error)——dylib 将按未补丁路径诊断")
+                }
+                let entrySlotOK = entrySlotIdempotent || entrySlotPlan != nil
+                if verdict == "blocked" && !entrySlotOK && !force {
+                    throw ValidationError(
+                        "能力探针 blocked 且入口补丁不可用——本机无武装通道，装上也无法武装。\n"
+                        + "确认仍要安装（策略变化预期）：加 --force。")
+                }
+
                 let main = RuntimeCommand.mainExecURL(options.app)
+                // 已装检查前置于备份：重复 install 不该白造一个 340MB 级备份
+                // （备份轮换 keep=3，无谓备份会挤掉真正有用的历史点）。
+                if let mainData = try? Data(contentsOf: main, options: .alwaysMapped),
+                   MachOInjector.isInjectedAnySlice(data: mainData, path: lcPath) {
+                    throw ValidationError(
+                        "runtime 已注入（LC_LOAD_DYLIB 在场）。无需重复安装；"
+                        + "如需重装先跑 `wxkeep runtime remove`。")
+                }
                 let backup = try Backup.make(binary: main)
                 print("backup: \(backup.lastPathComponent)")
+                // 入口补丁将改写 wechat.dylib（340MB 级资源文件）——同样先备份
+                // + 原子写（撕裂写/无备份 = 修不好也回不去；主可执行同款防线）。
+                var wechatDylibBackup: URL?
+                if entrySlotPlan != nil {
+                    wechatDylibBackup = try Backup.make(binary: wechatDylibURL)
+                    print("backup: \(wechatDylibBackup!.lastPathComponent)")
+                }
 
                 var data = try Data(contentsOf: main)
                 do {
@@ -923,48 +1007,39 @@ extension Wxkeep {
                 // 否则 dylib 装了也永远不加载——静默失效比失败更危险）
                 let verifyData = try Data(contentsOf: main)
                 guard MachOInjector.isInjectedAnySlice(data: verifyData, path: lcPath) else {
-                    try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
-                    throw ValidationError("LC_LOAD_DYLIB 写入未生效（已回滚备份）——请汇报此问题")
+                    // 回滚结果如实分报：说「已回滚」而实际没滚 = 把用户留在
+                    // 坏态还断了求助线索。
+                    let restored = (try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)) != nil
+                    throw ValidationError(restored
+                        ? "LC_LOAD_DYLIB 写入未生效（已回滚备份）——请汇报此问题"
+                        : "LC_LOAD_DYLIB 写入未生效且回滚失败——请手工恢复: \(backup.path) → \(main.path)")
                 }
 
                 let dest = RuntimeCommand.frameworkDylibURL(options.app)
                 // T6（94 轮）：安装期入口补丁——wechat.dylib hook 目标函数入口
                 // 预置「adrp x16,SLOT; ldr; br」+ __DATA 段尾 SLOT。macOS 27
                 // 进程内写化被策略封死后的唯一武装通道（dylib 启动时数据写
-                // SLOT）。补丁失败不阻塞 install（entry-patch-missing 时 dylib
-                // 走旧诊断路径），但如实报告。
-                var entrySlotOK = false
-                do {
-                    let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
-                    let build = try WeChatApp.buildNumber(app: options.app)
-                    if let row = RuntimeConfig.knownHooks.first(where: {
-                        $0.build == build && $0.arch == "arm64" }) {
-                        let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16) ?? 0
-                        if EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil {
-                            // 幂等：入口补丁已在位（重复 install）——无需重写
-                            entrySlotOK = true
-                            print(String(format: "entry-slot: arm64 入口 0x%llx 跳板已在位（幂等）", hookOff))
-                        } else {
-                            let plan = try EntrySlot.planArm64(
-                                file: dylibURL, hookOff: hookOff,
-                                expectedHex: row.expected)
-                            var data = try Data(contentsOf: dylibURL)
-                            data.replaceSubrange(plan.entryFileOffset..<plan.entryFileOffset+12, with: plan.patch12)
-                            try data.write(to: dylibURL)
-                            entrySlotOK = true
-                            print(String(format: "entry-slot: arm64 入口 0x%llx ← 跳板（SLOT 0x%llx @文件 0x%x）",
-                                         plan.entryVA, plan.slotVA, plan.slotFileOffset))
+                // SLOT）。计划已在写前预检（blocked 门依赖其结果）；此处仅落盘。
+                var entrySlotWritten = false
+                if entrySlotIdempotent {
+                    print(String(format: "entry-slot: arm64 入口 0x%llx 跳板已在位（幂等）", entrySlotHookOff))
+                } else if let plan = entrySlotPlan {
+                    do {
+                        var data = try Data(contentsOf: wechatDylibURL)
+                        data.replaceSubrange(plan.entryFileOffset..<plan.entryFileOffset+12, with: plan.patch12)
+                        try SafeWrite.overwrite(data, to: wechatDylibURL)
+                        entrySlotWritten = true
+                        print(String(format: "entry-slot: arm64 入口 0x%llx ← 跳板（SLOT 0x%llx @文件 0x%x）",
+                                     plan.entryVA, plan.slotVA, plan.slotFileOffset))
+                    } catch {
+                        print("ℹ︎ entry-slot: \(error)——dylib 将按未补丁路径诊断")
+                        if verdict == "blocked" && !force {
+                            // blocked 机的唯一武装通道写失败：继续装 = 永不武装
+                            // 的死重——回滚主程序 LC 后中止（保持无混合态原则）。
+                            try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
+                            throw ValidationError("入口补丁写入失败且本机无进程内武装通道——已回滚主程序，未安装。")
                         }
-                    } else {
-                        print("ℹ︎ entry-slot: 当前构建无 arm64 hooks 行——入口补丁跳过")
                     }
-                } catch {
-                    print("ℹ︎ entry-slot: \(error)——dylib 将按未补丁路径诊断")
-                }
-                if verdict == "blocked" && !entrySlotOK && !force {
-                    throw ValidationError(
-                        "能力探针 blocked 且入口补丁不可用——本机无武装通道，装上也无法武装。\n"
-                        + "确认仍要安装（策略变化预期）：加 --force。")
                 }
                 do {
                     try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -982,10 +1057,20 @@ extension Wxkeep {
                                                           "Contents/Resources/wechat.dylib"])
                 } catch {
                     // LC 已注入但 dylib 拷贝/重签失败 = 下次启动 dyld 找不到库必崩的
-                    // 混合态——回滚主程序并尽力清掉已拷入的 dylib，保持原子性。
+                    // 混合态——回滚主程序 + 清掉已拷入的 dylib + 还原入口跳板，
+                    // 保持原子性（跳板残留 + SLOT 空 = parse 一进即崩，与 LC 混
+                    // 合态同级）。
                     Wxkeep.printPermissionHintIfTCC(error)
                     try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
                     try? fm.removeItem(at: dest)
+                    if entrySlotWritten, let dylibBackup = wechatDylibBackup {
+                        do {
+                            try SafeWrite.overwrite(Data(contentsOf: dylibBackup), to: wechatDylibURL)
+                        } catch {
+                            print("⚠️ wechat.dylib 入口跳板回滚失败: \(error.localizedDescription)"
+                                  + "——请手工恢复: \(dylibBackup.path) → \(wechatDylibURL.path)")
+                        }
+                    }
                     throw error
                 }
                 print("✓ runtime 已注入（微信下次启动时加载）")
@@ -1050,9 +1135,54 @@ extension Wxkeep {
                     // 文件 = 下次启动必崩。失败即回滚备份，dylib 文件原样保留）
                     let verifyData = try Data(contentsOf: main)
                     guard !MachOInjector.isInjectedAnySlice(data: verifyData, path: lcPath) else {
-                        try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
-                        throw ValidationError("LC_LOAD_DYLIB 移除写盘未生效（已回滚备份）——请汇报此问题")
+                        let restored = (try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)) != nil
+                        throw ValidationError(restored
+                            ? "LC_LOAD_DYLIB 移除写盘未生效（已回滚备份）——请汇报此问题"
+                            : "LC_LOAD_DYLIB 移除写盘未生效且回滚失败——请手工恢复: \(backup.path) → \(main.path)")
                     }
+                }
+                // T6（94 轮）：还原入口补丁（arm64 hooks 行存在且补丁在位时，
+                // 把 expected 前 12B 写回入口）。**必须在最终重签之前执行**：
+                // 重签后再改写 wechat.dylib = 留下无效签名 → 内核 CS 击杀
+                // （95 轮三连崩同机制）；且还原失败信息要在删除 runtime dylib
+                // 之前给出（跳板残留 + dylib 已删 = parse 一进即崩的混合态）。
+                var entryRestored = false
+                var resignTargets = ["Contents/MacOS/WeChat"]
+                do {
+                    let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
+                    let build = try WeChatApp.buildNumber(app: options.app)
+                    if let row = RuntimeConfig.knownHooks.first(where: {
+                        $0.build == build && $0.arch == "arm64" }) {
+                        if let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16),
+                           EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil {
+                            guard let expected = Data(hex: String(row.expected.prefix(24))), expected.count >= 12 else {
+                                throw ValidationError("hooks 行 expected 字节不足（build \(row.build)）")
+                            }
+                            // 已补丁态不能用 planArm64（pristine 门会拒）——直接按
+                            // 切片偏移还原 expected 前 12B
+                            let dylibBackup = try Backup.make(binary: dylibURL)
+                            let image = try MachImage(file: dylibURL, arch: .arm64)
+                            guard let off = image.sliceRelativeOffset(va: hookOff) else {
+                                throw ValidationError("hook_off 无法换算为文件偏移")
+                            }
+                            let fatOff = image.sliceOffset + off
+                            var data = try Data(contentsOf: dylibURL)
+                            data.replaceSubrange(fatOff..<fatOff+12, with: expected.prefix(12))
+                            try SafeWrite.overwrite(data, to: dylibURL)
+                            entryRestored = true
+                            resignTargets.append("Contents/Resources/wechat.dylib")
+                            print(String(format: "entry-slot: 已还原入口 0x%llx（期望字节写回，备份 %s）",
+                                         hookOff, dylibBackup.lastPathComponent))
+                        } else if UInt64(row.hook_off.dropFirst(2), radix: 16) != nil {
+                            print("ℹ︎ entry-slot: 入口补丁不在位（无需还原）")
+                        } else {
+                            print("⚠️ entry-slot: hooks 行 hook_off 非法（build \(row.build)）——无法核对入口，跳过还原")
+                        }
+                    }
+                } catch {
+                    print("⚠️ entry-slot 还原失败: \(error)")
+                    print("   若跳板残留，下次启动可能崩溃——从最新备份恢复 wechat.dylib：")
+                    print("   ls ~/Library/Application\\ Support/wxkeep/backups/ 或 Contents/Resources/ 下 wxkeep-bak-*")
                 }
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
                 try? FileManager.default.removeItem(at: dylib)
@@ -1061,34 +1191,8 @@ extension Wxkeep {
                 // status 与后续 install 前的观察都会被它污染）。全候选位清
                 // （含沙盒回落位，77 续对偶修复）。
                 RuntimeConfig.removeAllMarkers()
-                if lcWasPresent {
-                    try Resigner.resign(app: options.app, patchedBinaries: ["Contents/MacOS/WeChat"])
-                }
-                // T6（94 轮）：还原入口补丁（arm64 hooks 行存在且补丁在位时，
-                // 把 expected 前 12B 写回入口——SLOT 填充随 dylib 移除自然失效，
-                // 但磁盘跳板必须清掉，否则 dylib 不在场时 br x16 → 空 SLOT 崩溃）
-                do {
-                    let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
-                    let build = try WeChatApp.buildNumber(app: options.app)
-                    if let row = RuntimeConfig.knownHooks.first(where: {
-                        $0.build == build && $0.arch == "arm64" }),
-                       let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16),
-                       EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil,
-                       let expected = Data(hex: String(row.expected.prefix(24))) {
-                        // 已补丁态不能用 planArm64（pristine 门会拒）——直接按
-                        // 切片偏移还原 expected 前 12B
-                        let image = try MachImage(file: dylibURL, arch: .arm64)
-                        guard let off = image.sliceRelativeOffset(va: hookOff) else {
-                            throw ValidationError("hook_off 无法换算为文件偏移")
-                        }
-                        let fatOff = image.sliceOffset + off
-                        var data = try Data(contentsOf: dylibURL)
-                        data.replaceSubrange(fatOff..<fatOff+12, with: expected.prefix(12))
-                        try data.write(to: dylibURL)
-                        print(String(format: "entry-slot: 已还原入口 0x%llx（期望字节写回）", hookOff))
-                    }
-                } catch {
-                    print("ℹ︎ entry-slot 还原失败: \(error)——如 dylib 已删且跳板残留，下次启动可能崩溃；用备份恢复 wechat.dylib")
+                if lcWasPresent || entryRestored {
+                    try Resigner.resign(app: options.app, patchedBinaries: resignTargets)
                 }
                 print(lcWasPresent
                       ? "✓ runtime 已移除（备份: \(backup.lastPathComponent)）"
@@ -1353,7 +1457,7 @@ extension Wxkeep {
             let binary = WeChatApp.binaryURL(app: app, relative: relative)
             let host = Verifier.ImageArch.host.rawValue
             let entries = group.flatMap(\.entries)
-                .filter { $0.arch.rawValue == host && immediatelyReturningAsm.contains($0.asm ?? "") }
+                .filter { $0.arch.rawValue == host && immediatelyReturningAsm.contains($0.asm) }
             guard !entries.isEmpty else {
                 print("ℹ︎ \(relative): 本机架构（\(host)）无可调用位点条目——行为验证跳过（worker 原生执行不能跨架构）")
                 continue

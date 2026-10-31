@@ -1,5 +1,21 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-10-31 100 轮后状态修订（全量体检 + V3-M1-R2 翻案）**：①**主动
+> 体检轮**——两个深读评审（CLI 面 + 补丁引擎面）+ 逐项人工复核，修掉
+> **3 个 P0**（install blocked 门在 LC 已写入后抛错不回滚→必崩混合态；
+> remove 还原入口槽在重签之后改写 wechat.dylib→CS 击杀必崩态；entry-slot
+> 写无备份+非原子）+ P1×6（Config 显式路径静默回落、tip 写 legacy 种子缺
+> 失、removeLoadDylib 双 LC ncmds 错账、Verifier 探针位置 zip 错位、
+> recipe asm 跨度门缺失、cwd 供应链 sudo 门）+ P2/P3 批（detectPatched 落
+> 区门、64K 扫描窗、Doctor LC-在而-dylib-缺混合态+inspect 失败吞、tilde
+> 展开、回滚如实分报、locate 零匹配退出码、clone 未命中诊断等）；
+> **244 测全绿（+6 回归）**。②**V3-M1-R2 完成且翻案 R1**：渲染门
+> 0x5514280=析构尾标签（0xa524ad0=空串单例 vtable）、四「渲染函数」=一个
+> protobuf 消息类家族（MergeFrom/Clear；暗区经 __DATA_CONST 记录表
+> vtable 调用——R1 fixup 扫描漏扫 __DATA_CONST 之谜告破）、真 UI 层=
+> 0x5b68xxx-0x5b74xxx Qt qm/tr() 层；R3 目标重定向至翻译串消费端。详见
+> V3-CHARTER R2 节。③遗留见 100 轮节末。
+
 > **2026-10-31 99 轮后状态修订**：①**发版策略转源码-only**（用户裁定：
 > release 资产额度耗尽；此后 tag+源码归档+notes=零成本发版面，六资产
 > 停发，Formula 于 v0.2.16 切源码构建——runbook 见 MAINTAINING「发版
@@ -386,6 +402,66 @@ hooks 行加签升 P0。
    WeChat 库跑扫描器（WCDB 内嵌 sqlcipher 是经典 4.x——扫描器几何
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
+
+## 100·全量体检 + V3-M1-R2 翻案轮（2026-10-31 深夜：双评审深读 3×P0 + P1×6 + P2/P3 批全修——244 测全绿；R1「渲染门」证伪=proto 家族+__DATA_CONST fixup 盲区告破）
+
+**背景**：用户令「读全部源码、完成未完任务、以专家视角一次性把潜在问题
+全找出来」。执行 = 两个并行深读评审（CLI/配置面 + 补丁引擎面）+ 全部发
+现逐项人工对照源码复核后实施；RE 侧同轮完成 V3-M1-R2（翻案 R1）。
+
+**P0（装完微信起不来的三个洞，全部实装路径可达）**：
+1. **install blocked 门序错**（WxkeepCLI）：`verdict==blocked &&
+   !entrySlotOK && !force` 的默认中止发生在主程序 LC 已注入+验证之后
+   ——无回滚直接抛错=「有 LC 无 dylib」必崩态。触发面=新构建无 hooks
+   行（day-0 场景！）或 planArm64 失败。修=入口补丁可行性预检（只读）
+   前置到任何写之前，门随之前置；入口写失败且 blocked 时回滚 LC 再中止。
+2. **remove 重签漏 wechat.dylib**：入口槽还原（12B 写入 wechat.dylib）
+   在最终 resign **之后**执行且 patchedBinaries 只列主程序——改写后签
+   名失效=内核 Invalid Page CS 击杀（95 轮三连崩同机制）。修=还原前置
+   到 resign 前 + 写过就进 patchedBinaries（含 lcWasPresent==false 但
+   还原过的路径）+ 还原失败时不再删 dylib 后才报。
+3. **entry-slot 写无备份+非原子**：340MB 资源文件裸 `Data.write(to:)`
+   （撕裂=半文件）且无 Backup.make；install 回滚 catch 也不还原跳板。
+   修=备份+SafeWrite.overwrite+回滚 catch 全链。
+
+**P1**：Config 显式路径不存在静默回落候选链（=expected 基准拿错目录）；
+writeTip/removeTip 无 legacy 迁移种子（首写遮蔽旧位置 hooks/rewrite_self
+=静默降级，种子逻辑提取 mergedWriteBaseSeeded 与 mergeKnownHooks 单点
+共用——注意 from: 形参与外层撞名会让种子门永假的坑）；removeLoadDylib
+同切片双 LC 全删但 ncmds 只减 1（dyld 解析补零区）；Verifier 探针结果
+位置 zip 对位（skip 行后错位比较=假阴假阳双向，修=文本键对位+executed
+豁免+spec 外文本报 mismatch）；Signatures.load 缺 asm≤expected 跨度门
+（auto-locate 合成条目绕过 Config 校验）；sudo 下隐式 cwd config/
+signatures 供应链门（root 特权写以工作目录内容为基准）。
+
+**P2/P3 批**：detectPatched 只查指令形态（__objc_stubs 原生三连误判已
+补丁→补 SLOT 落区+零内容门；注意磁盘 SLOT 恒零因 dylib 写的是 COW 页）；
+isInjectedAnySlice 固定 0x10000 窗（巨命令区漏看→假回滚/误报）；Doctor
+inspect 失败被 `?? []` 吞成「无本机切片」（改 unknown+指认）+ LC 在场
+dylib 缺失混合态盲区（原来 null 掩盖）；status/Doctor 全量 Data 读改
+alwaysMapped；tilde 展开（--app/--config/--signatures）；回滚 try? 后
+如实分报（真滚了/没滚+手工恢复路径）；locate 零匹配改非零退出+--config
+写签名目录告警+backup 措辞诚实；clone remove 未命中给可用清单；
+config.local.json 损坏报错给修复动作；`$0.asm ?? ""` 死码清掉；install
+重复装前置于备份（不白造 340MB 备份）；Patcher VA 映射加 filesize 门
+（MachImage 同门**有意不加**——SLOT 选址合法落在段间文件填充区，收紧
+会拒掉在役布局，已注释在案）。
+
+**测试**：+6——双 LC 头自洽、64K 窗、verdict skip 对位/乱序/未知文本
+（原 verdictFlagsIneffectivePatch 语义保留为「spec 外文本必须报错」）、
+legacy 种子（经 _userDataURLOverride 注入，进 serialized UpdateDataTests
+套件）、detectPatched 落区门正负例（真切片副本 E2E）。**244 测全绿**。
+
+**V3-M1-R2**：见 V3-CHARTER R2 节（R1「渲染门」=析构尾标签、proto 家
+族、__DATA_CONST fixup 盲区、真 UI 层=Qt qm/tr() 0x5b68-0x5b74 簇）。
+
+**本轮明确不做/遗留**：update-guard/privacy-guard 缺省动作语义（改缺省
+会破既有脚本习惯，仅留意）；UpdateData 四文件非原子装（staging+swap 已
+立项位但涉及装载布局，独立轮做）；PatchJournal 不盖 runtime install/
+remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（当前不可
+达）；Rosetta 翻译切片盲区（doctor nativeArch 过滤，实机 x64-on-AS 场
+景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
+窗口。
 
 ## 98·T6 实弹终裁轮（2026-10-31 晚：实时防撤回+自定义提示真机全链闭环——两轮 jen 实弹 keep/tip 双验；消费簇 RE 正式取消）
 

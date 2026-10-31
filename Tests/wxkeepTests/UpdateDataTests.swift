@@ -28,6 +28,50 @@ final class UpdateDataTests {
         try? FileManager.default.removeItem(at: tmp)
     }
 
+    /// 显式 --config 不存在必须即时报错：静默回落候选链 = 拿另一份目录的
+    /// expected 基准打补丁（P1 修复回归）。
+    @Test func explicitConfigMustExist() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("wxkeep-ud-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        Config._userDataURLOverride = tmp
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        #expect(throws: Config.LoadError.self) {
+            _ = try Config.load(explicit: "/nonexistent/path/config.json", cwd: tmp.path)
+        }
+    }
+
+    /// legacy 迁移种子（writeTip 专线）：双目标全空而旧位置带 hooks/
+    /// rewrite_self 时，首写必须并入 legacy 内容——dylib 是「首个可读文件」
+    /// 选径，无种子的新文件会整体遮蔽旧位置 = hooks 外部表静默降级
+    /// （P1 修复回归）。
+    @Test func tipWriteSeedsLegacyWhenTargetsEmpty() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("wxkeep-ud-\(UUID().uuidString)")
+        let userDir = tmp.appendingPathComponent("user")
+        try FileManager.default.createDirectory(at: userDir, withIntermediateDirectories: true)
+        Config._userDataURLOverride = userDir
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let legacyDict: [String: Any] = [
+            "hooks": [["build": "270099", "uuid": "legacy-row", "arch": "x86_64",
+                       "hook_off": "0x1000", "expected": "deadbeef"]],
+            "rewrite_self": true,
+        ]
+        let legacyData = try PropertyListSerialization.data(fromPropertyList: legacyDict, format: .xml, options: 0)
+        try legacyData.write(to: userDir.appendingPathComponent("runtime.json"))
+        let t1 = tmp.appendingPathComponent("t1.json")
+        let t2 = tmp.appendingPathComponent("t2.json")
+
+        _ = try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: nil, at: [t1, t2])
+        for target in [t1, t2] {
+            let dict = try PropertyListSerialization.propertyList(
+                from: Data(contentsOf: target), options: [], format: nil) as? [String: Any]
+            #expect((dict?["hooks"] as? [[String: Any]])?.count == 1,
+                    "\(target.lastPathComponent): legacy hooks 行必须随种子保留")
+            #expect((dict?["rewrite_self"] as? Bool) == true,
+                    "\(target.lastPathComponent): legacy rewrite_self 必须随种子保留")
+            #expect((dict?["tip_text"] as? String) == "\"⚠️\" 撤回了一条消息")
+        }
+    }
+
     /// update-data 的旧值口径：只数签名 config.json 本体（安装位优先），
     /// 不合并 config.local.json——否则旧值虚高、显示增量失真（2026-09-19 修正）
     @Test func catalogBuildCountCountsOnlySignedCatalog() throws {

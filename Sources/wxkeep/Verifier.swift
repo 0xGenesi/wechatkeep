@@ -119,6 +119,15 @@ enum Verifier {
     struct ProbeResult {
         let text: String
         let returned: Bool
+        /// 该探针是否真实执行（worker 侧构造失败/超长跳过时 false——判定
+        /// 面必须按文本对位而非 zip 位置对位，否则跳过造成错位比较）。
+        var executed: Bool = true
+
+        init(text: String, returned: Bool, executed: Bool = true) {
+            self.text = text
+            self.returned = returned
+            self.executed = executed
+        }
     }
 
     // MARK: - arm64 specifics (270100/270099 predicate ground truth)
@@ -339,10 +348,13 @@ enum Verifier {
             throw failure
         }
         return result.stdout.split(separator: "\n").compactMap { line in
-            // probe|<text>|<0|1>
+            // probe|<text>|<0|1|skip>——每个 spec 探针恒出一行（构造失败也出
+            // skip 行）：判定面按文本对位，位置 zip 在有跳过时会把结果 N 对
+            // 到期望 N+1（假阴/假阳都出过）。
             let parts = line.split(separator: "|", omittingEmptySubsequences: false)
             guard parts.count == 3, parts[0] == "probe" else { return nil }
-            return ProbeResult(text: String(parts[1]), returned: parts[2] == "1")
+            return ProbeResult(text: String(parts[1]), returned: parts[2] == "1",
+                               executed: parts[2] != "skip")
         }
     }
 
@@ -717,23 +729,26 @@ enum Verifier {
         var out = ""
         for probe in probes {
             guard let text = probe.first else { continue }
-            let r: Bool
+            var r: Bool? = nil
             if isARM64 {
                 // arm64 SSO：数据 @0、长度字节 @0x17（直接长度）
-                guard var storage = ARM64.ssoProbe(text) else { continue }
-                r = storage.withUnsafeMutableBytes { raw in fn(raw.baseAddress!) != 0 }
+                if var storage = ARM64.ssoProbe(text) {
+                    r = storage.withUnsafeMutableBytes { raw in fn(raw.baseAddress!) != 0 }
+                }
             } else {
                 // x64 SSO：size<<1 @byte0（LSB=long 旗），短串数据 @+1。
                 // Short-SSO probes only (<23 bytes); long-string construction is
                 // deliberately unsupported (no current spec needs it).
                 let bytes = Array(text.utf8)
-                guard bytes.count < 23 else { continue }
-                var storage = [UInt8](repeating: 0, count: 24)
-                storage[0] = UInt8(bytes.count << 1)
-                for (i, byte) in bytes.enumerated() { storage[1 + i] = byte }
-                r = storage.withUnsafeMutableBytes { raw in fn(raw.baseAddress!) != 0 }
+                if bytes.count < 23 {
+                    var storage = [UInt8](repeating: 0, count: 24)
+                    storage[0] = UInt8(bytes.count << 1)
+                    for (i, byte) in bytes.enumerated() { storage[1 + i] = byte }
+                    r = storage.withUnsafeMutableBytes { raw in fn(raw.baseAddress!) != 0 }
+                }
             }
-            out += "probe|\(text)|\(r ? 1 : 0)\n"
+            // 构造失败的探针也占一行（skip）——行数与 spec 恒对齐
+            out += "probe|\(text)|\(r.map { $0 ? "1" : "0" } ?? "skip")\n"
         }
         FileHandle.standardOutput.write(out.data(using: .utf8)!)
         exit(0)
@@ -742,6 +757,20 @@ enum Verifier {
 
     // MARK: - Verdict
 
+    /// 探针结果按文本对位（worker 恒出一行/探针后行数虽齐，但任何历史/外
+    /// 来 worker 输出少行时，位置 zip 会把结果 N 对到期望 N+1——假阴/假阳
+    /// 双风险；文本键 + 缺行/未执行显式跳过，比较永远在同名探针间进行）。
+    private static func alignedExpectations(
+        results: [ProbeResult], spec: VerifySpec
+    ) -> [(result: ProbeResult, expected: Bool?)] {
+        let byText = Dictionary(results.map { ($0.text, $0) }, uniquingKeysWith: { first, _ in first })
+        return spec.probes.compactMap { probe in
+            guard let text = probe.first else { return nil }
+            guard let result = byText[text] else { return nil }
+            return (result, probe.count > 1 ? probe[1] == "1" : nil)
+        }
+    }
+
     /// arm64 语义：被探针的是 parse 内 cbz 的**谓词输入**（非补丁位点本身——
     /// 补丁是 cbz 分支翻转，谓词行为 pristine/patched 恒同）。本验证证明
     /// 「家族完整性 + 谓词输入路径 + harness 自检」；补丁有效性由 strict
@@ -749,9 +778,8 @@ enum Verifier {
     static func verdictPredicate(
         results: [ProbeResult], spec: VerifySpec
     ) -> VerifyError? {
-        let expecteds: [Bool?] = spec.probes.map { $0.count > 1 ? $0[1] == "1" : nil }
-        for (result, expected) in zip(results, expecteds) {
-            if let expected, result.returned != expected {
+        for (result, expected) in alignedExpectations(results: results, spec: spec) {
+            if let expected, result.executed, result.returned != expected {
                 return .mismatch(detail: "revokemsg predicate(\"\(result.text)\") = "
                     + "\(result.returned ? 1 : 0), expected \(expected ? 1 : 0) — "
                     + "image doesn't match the family ground truth this spec encodes")
@@ -766,17 +794,23 @@ enum Verifier {
     static func verdict(
         results: [ProbeResult], spec: VerifySpec, state: Patcher.Inspection.State
     ) -> VerifyError? {
-        let expecteds: [Bool?] = spec.probes.map { $0.count > 1 ? $0[1] == "1" : nil }
+        // 反向对位：执行了的探针文本必须在 spec 内——文本对位把「错位比较」
+        // 消掉后，「结果集混入 spec 外文本」成了新可见信号（worker/spec 漂移），
+        // 同样按 mismatch 报而非静默忽略。
+        let specTexts = Set(spec.probes.compactMap(\.first))
+        if let extra = results.first(where: { $0.executed && !specTexts.contains($0.text) }) {
+            return .mismatch(detail: "probe result \"\(extra.text)\" is not in the spec's probe set — worker/spec drift")
+        }
         switch state {
         case .pristine:
-            for (result, expected) in zip(results, expecteds) {
-                if let expected, result.returned != expected {
+            for (result, expected) in alignedExpectations(results: results, spec: spec) {
+                if let expected, result.executed, result.returned != expected {
                     return .mismatch(detail: "pristine image: isRevokemsg(\"\(result.text)\") = \(result.returned ? 1 : 0), expected \(expected ? 1 : 0)")
                 }
             }
         case .patched, .ambiguous:   // ambiguous: bytes hold asm (normalized entry) → patched behavior
-            for (result, expected) in zip(results, expecteds) {
-                if expected == true && result.returned {
+            for (result, expected) in alignedExpectations(results: results, spec: spec) {
+                if expected == true, result.executed, result.returned {
                     return .mismatch(detail: "patched image still classifies \"\(result.text)\" as revokemsg — patch ineffective")
                 }
             }
