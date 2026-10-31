@@ -93,7 +93,14 @@ jobs:
             git config user.email "actions@github.com"
             git add manifest.json manifest.sig
             git commit -m "chore(data): re-sign manifest [skip ci]"
-            git push
+            # 与人工 push 竞态防护（270350 合入日实测：人工提交落在签名窗
+            # 内 → fetch first 拒推 → 签名提交丢失）。重试三次 rebase 拉
+            # 平后重推；仍败则报错退出（下次 CI 会再签）。
+            for i in 1 2 3; do
+              git pull --rebase --autostash origin master && git push && break
+              [ "$i" = 3 ] && exit 1
+              sleep 15
+            done
           else
             echo "manifest 无变化"
           fi
