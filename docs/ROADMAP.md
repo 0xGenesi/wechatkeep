@@ -463,6 +463,38 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 101·续收口轮（2026-10-31 深夜：100 轮遗留工程项全清——staging 原子装/journal 盖 runtime/FAT64 显式拒；270350 auto-locate PR 首跑闭环合入；R3 有界轮；v0.2.16 源码-only 首发版）
+
+**100 轮遗留工程项**：①**UpdateData staging+swap 原子装**——四件套先全
+部暂存到目标目录（同卷 rename 原子）再逐文件换位，中途失败回滚已换位
+文件（installStaged/applySwaps 两段；修掉「半个新目录→manifest .invalid
+→工具瘫痪到下次 update-data」的可用性悬崖；测试 ①阶段一失败不动旧集
+②applySwaps 直驱回滚——注意测试字面量 `old-\(f)` 生成 `old-a.json` 的
+自坑）。②**PatchJournal 盖 runtime install/remove**——Kind 增
+runtimeInstall/runtimeRemove，CLI 写前 begin/成功 complete；Doctor 指引
+分支：组件一致→幂等重跑收口、LC 在而 dylib 缺（必崩混合态）→指向
+remove。③**FAT_MAGIC_64 显式拒绝**——Patcher/MachImage/MachOInjector
+三解析器 + Verifier（防 fat64 误入 thin/blob 判定），错误信息明示「拒
+绝猜布局」。
+
+**270350 auto-locate PR（#2，队列既定「首跑人工复核」项关账）**：批准
++合入。复核判据：arm64 gen3 cbz→b 翻转（expected 40100034/asm 82000014
+@0x4E7CCD0）+ x64 裸 ret（完整序言 @0x516D2A0）形态与家族一致；
+gen1/gen2 确认门失败被正确拒绝（不猜）；run 日志与 diff 互证。合入后
+master CI 自动重签 manifest（「Sign data manifest」job 首次真跑）。
+
+**V3-M1-R3 有界轮**：tr() 消费链走通一层——**群聊灰条文本组装函数=
+0x5b6b03c**（巨型 Qt slot，reserve(0x200)+多 tr() 查表拼接；链：
+0x5b7334c←0x5b6e0f8←0x5b6b03c）。同键性终裁显式延后（体量×无符号=多
+轮工程），M2 原型缝不依赖它——可行动假设=**群聊 tip 最小干预点在
+CoCheck 附着条件而非渲染门**。详见 V3-CHARTER R3 节。
+
+**v0.2.16 发版**（源码-only 策略首次执行）：体检 P0/P1 批 + 270350 适
+配 + staging/journal/FAT64 收口全量入版；Formula 切 git-tag 源码构建
+（数据四件套随仓库分发+update-data OTA）；版本常量 0.2.15→0.2.16；
+tag+notes+git archive sha256（runbook=MAINTAINING「发版策略」）。
+**249 测全绿**（+5：staging×2、FAT64、journal 指引×2）。
+
 ## 98·T6 实弹终裁轮（2026-10-31 晚：实时防撤回+自定义提示真机全链闭环——两轮 jen 实弹 keep/tip 双验；消费簇 RE 正式取消）
 
 1. **[实弹终裁]** 用户窗口两轮实弹（修正链在役，keep=true）：

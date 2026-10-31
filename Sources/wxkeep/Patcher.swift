@@ -14,6 +14,7 @@ struct Patcher {
 
     enum PatchError: Error, CustomStringConvertible {
         case not64BitMachO
+        case fat64Unsupported
         case noArchMatched
         case recipeResolutionFailed(identifier: String, cause: String)
         case vaNotFound(va: UInt64, arch: String)
@@ -25,6 +26,9 @@ struct Patcher {
             switch self {
             case .not64BitMachO:
                 "not a 64-bit Mach-O file"
+            case .fat64Unsupported:
+                "FAT_MAGIC_64 (0xCAFEBABF) fat header is not supported — "
+                + "current WeChat binaries are FAT32 or thin; refusing to guess layout"
             case .noArchMatched:
                 "no patch entry matched an architecture slice in this binary"
             case .recipeResolutionFailed(let identifier, let cause):
@@ -215,6 +219,9 @@ struct Patcher {
             throw PatchError.not64BitMachO
         }
         let magicBE = header.prefix(4).reduce(0) { ($0 << 8) | UInt32($1) }
+        if magicBE == 0xCAFEBABF {
+            throw PatchError.fat64Unsupported
+        }
         if magicBE == 0xCAFEBABE {
             let nfat = header.suffix(4).reduce(0) { ($0 << 8) | UInt32($1) }
             var out: [(Int32, UInt64)] = []

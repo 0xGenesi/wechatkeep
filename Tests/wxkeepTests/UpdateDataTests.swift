@@ -72,6 +72,102 @@ final class UpdateDataTests {
         }
     }
 
+    /// staging 换位安装：成功路径内容正确且无 .staging/.bak 残留。
+    @Test func stagedInstallSwapsAllAndCleansUp() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-stg-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dest = dir.appendingPathComponent("dest")
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        let src = dir.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        for f in ["a.json", "b.json"] {
+            try "old-\(f)".write(to: dest.appendingPathComponent(f), atomically: true, encoding: .utf8)
+            try "new-\(f)".write(to: src.appendingPathComponent(f), atomically: true, encoding: .utf8)
+        }
+        try UpdateData.installStaged(from: src, to: dest, payload: ["a.json", "b.json"])
+        for f in ["a.json", "b.json"] {
+            #expect(try String(contentsOf: dest.appendingPathComponent(f), encoding: .utf8) == "new-\(f)")
+        }
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dest.path)
+            .filter { $0.hasPrefix(".staging-") || $0.hasPrefix(".bak-") }
+        #expect(leftovers.isEmpty, "成功后不留暂存/备份")
+    }
+
+    /// staging 换位回滚：①payload 中途缺文件（阶段一失败）→ 既有安装集
+    /// 一字未动 + 暂存清光；②换位中途失败（applySwaps 直驱：第二文件的
+    /// stage 在换位时缺席）→ **已换位的第一文件回滚回旧内容**——目录停
+    /// 在完整旧集。
+    @Test func stagedInstallRollsBackToOldSet() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-stg2-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dest = dir.appendingPathComponent("dest")
+        let src = dir.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        for f in ["a.json", "b.json"] {
+            try "OLD".write(to: dest.appendingPathComponent(f), atomically: true, encoding: .utf8)
+        }
+        try "NEW".write(to: src.appendingPathComponent("a.json"), atomically: true, encoding: .utf8)
+        try "NEW".write(to: src.appendingPathComponent("b.json"), atomically: true, encoding: .utf8)
+
+        // ①阶段一失败：c.json 在 src 缺失
+        #expect(throws: (any Error).self) {
+            try UpdateData.installStaged(from: src, to: dest, payload: ["a.json", "c.json"])
+        }
+        #expect(try String(contentsOf: dest.appendingPathComponent("a.json"), encoding: .utf8) == "OLD",
+                "阶段一失败不得动旧集")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dest.path)
+            .filter { $0.hasPrefix(".staging-") || $0.hasPrefix(".bak-") }
+        #expect(leftovers.isEmpty, "失败路径暂存全清")
+
+        // ②换位中途失败：构造 stage-b 缺席的 staged 数组直驱 applySwaps
+        // （stage 文件在换位时消失=换位窗内被外力删除的等价形态）
+        try "NEW".write(to: dest.appendingPathComponent(".staging-a.json"),
+                        atomically: true, encoding: .utf8)
+        let items = [
+            UpdateData.StagedItem(stage: dest.appendingPathComponent(".staging-a.json"),
+                                  final: dest.appendingPathComponent("a.json"),
+                                  backup: dest.appendingPathComponent(".bak-a.json")),
+            UpdateData.StagedItem(stage: dest.appendingPathComponent(".staging-b.json"),
+                                  final: dest.appendingPathComponent("b.json"),
+                                  backup: dest.appendingPathComponent(".bak-b.json")),
+        ]
+        #expect(throws: (any Error).self) {
+            try UpdateData.applySwaps(items)
+        }
+        #expect(try String(contentsOf: dest.appendingPathComponent("a.json"), encoding: .utf8) == "OLD",
+                "换位中途失败：已换位的 a 必须回滚到旧内容")
+        #expect(try String(contentsOf: dest.appendingPathComponent("b.json"), encoding: .utf8) == "OLD",
+                "b 未被换位，保持旧内容")
+    }
+
+    /// FAT_MAGIC_64 显式拒绝：MachImage/Injector 不再误判（P3 修复回归；
+    /// Patcher 的 slices 是 private，inspect 经 resolveVA 同样会在头检查处
+    /// 抛 fat64——由 MachImage 同款门覆盖）。错误类型未 Equatable，用
+    /// String(describing:) 比对。
+    @Test func fat64MagicRejectedExplicitly() throws {
+        let fat64 = Data([0xCA, 0xFE, 0xBA, 0xBF]) + Data(repeating: 0, count: 60)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-fat64-\(UUID().uuidString).bin")
+        try fat64.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect {
+            _ = try MachImage(file: url, arch: .arm64)
+        } throws: { error in
+            String(describing: error).contains("FAT_MAGIC_64")
+        }
+        #expect {
+            var d = fat64
+            try MachOInjector.insertLoadDylib(data: &d, dylibInstallPath: "@x/y.dylib")
+        } throws: { error in
+            String(describing: error).contains("FAT_MAGIC_64")
+        }
+    }
+
     /// update-data 的旧值口径：只数签名 config.json 本体（安装位优先），
     /// 不合并 config.local.json——否则旧值虚高、显示增量失真（2026-09-19 修正）
     @Test func catalogBuildCountCountsOnlySignedCatalog() throws {

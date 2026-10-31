@@ -12,7 +12,7 @@ import Foundation
 /// 检测能力本身不能有崩溃窗口。`sudo wxkeep patch` 以 root 写入，
 /// doctor 以普通用户**只读**——0644 默认权限即可（SafeWrite 语义）。
 enum PatchJournal {
-    enum Kind: String, Codable { case patch, restore }
+    enum Kind: String, Codable { case patch, restore, runtimeInstall, runtimeRemove }
 
     struct Record: Codable, Equatable {
         let v: Int           // schema 版本（未来字段演进用）

@@ -74,15 +74,16 @@ enum UpdateData {
         let newCount = (try? Config(data: Data(contentsOf: workDir.appendingPathComponent("config.json")),
                                     origin: "remote"))?.versions.count
 
-        // 4. 原子安装到用户数据目录
+        // 4. 安装（staging + 逐文件原子 rename + 失败全量回滚）：四件套逐
+        // 个 copy 原来有半个安装窗——中途崩会留下「新 config + 旧 manifest」
+        // 混合目录，Manifest.verify 判 .invalid 双向硬拒（工具不可用直到
+        // 下次 update-data 成功，无网机器就此瘫痪）。改为先全部暂存到目标
+        // 目录（同卷 rename 原子），再逐文件换位；中途失败把已换位的旧文
+        // 件放回去——旧校验过的完整集存活到新集完全就位。
         let dest = Config.userDataURL
         do {
             try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
-            for rel in payload {
-                let to = dest.appendingPathComponent(rel)
-                if FileManager.default.fileExists(atPath: to.path) { try FileManager.default.removeItem(at: to) }
-                try FileManager.default.copyItem(at: workDir.appendingPathComponent(rel), to: to)
-            }
+            try installStaged(from: workDir, to: dest, payload: payload)
         } catch {
             throw UpdateError.install(error.localizedDescription)
         }
@@ -110,5 +111,83 @@ enum UpdateData {
             return nil   // 存在但不可解析：如实报「读不出」而非跳到下一个
         }
         return nil
+    }
+
+    // MARK: - staging 换位安装
+
+    struct StagedItem {
+        let stage: URL
+        let final: URL
+        let backup: URL      // 旧文件换位暂存（final 原不存在时 backup 也不存在）
+    }
+
+    /// 四件套两阶段换位：阶段一把全部 payload 拷进 dest 同卷暂存名（此时
+    /// 既有安装集一字未动）；阶段二 applySwaps 逐文件 rename 换位。
+    static func installStaged(from workDir: URL, to dest: URL,
+                              payload: [String] = UpdateData.payload) throws {
+        var staged: [StagedItem] = []
+        do {
+            for rel in payload {
+                let final = dest.appendingPathComponent(rel)
+                let stage = dest.appendingPathComponent(".staging-" + rel)
+                if FileManager.default.fileExists(atPath: stage.path) {
+                    try FileManager.default.removeItem(at: stage)
+                }
+                try FileManager.default.copyItem(at: workDir.appendingPathComponent(rel), to: stage)
+                staged.append(StagedItem(
+                    stage: stage, final: final,
+                    backup: dest.appendingPathComponent(".bak-" + rel)))
+            }
+        } catch {
+            for item in staged { try? FileManager.default.removeItem(at: item.stage) }
+            throw error
+        }
+        try applySwaps(staged)
+    }
+
+    /// 换位阶段：逐文件 rename（同卷原子，换位窗=单文件 rename 微秒级）。
+    /// 任何一步失败：已换位的回滚到旧文件、当前文件若已移入 backup 也放
+    /// 回——目录停在「完整旧集」。internal 供测试直接驱动回滚路径。
+    static func applySwaps(_ staged: [StagedItem]) throws {
+        var swapped: [(StagedItem, hadOld: Bool)] = []
+        do {
+            for item in staged {
+                var hadOld = false
+                if FileManager.default.fileExists(atPath: item.final.path) {
+                    if FileManager.default.fileExists(atPath: item.backup.path) {
+                        try FileManager.default.removeItem(at: item.backup)
+                    }
+                    try FileManager.default.moveItem(at: item.final, to: item.backup)
+                    hadOld = true
+                }
+                do {
+                    try FileManager.default.moveItem(at: item.stage, to: item.final)
+                    swapped.append((item, hadOld))
+                } catch {
+                    // 换位失败：旧文件还在 backup 位，先放回去再抛
+                    if hadOld {
+                        try? FileManager.default.moveItem(at: item.backup, to: item.final)
+                    }
+                    throw error
+                }
+            }
+        } catch {
+            // 回滚全部已换位文件；换位失败的当前文件已在上面处理
+            for (item, hadOld) in swapped.reversed() {
+                if hadOld {
+                    if FileManager.default.fileExists(atPath: item.final.path) {
+                        try? FileManager.default.removeItem(at: item.final)
+                    }
+                    try? FileManager.default.moveItem(at: item.backup, to: item.final)
+                } else {
+                    try? FileManager.default.removeItem(at: item.final)
+                }
+            }
+            throw error
+        }
+        // 成功：清暂存备份
+        for (item, _) in swapped {
+            try? FileManager.default.removeItem(at: item.backup)
+        }
     }
 }

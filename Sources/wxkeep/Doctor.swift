@@ -307,7 +307,8 @@ struct Doctor {
             let gating = patchStates.filter { $0.key != "revoke-keeptip2" }
             let guidance = interruptedTxGuidance(
                 journalExists: true, record: journalPending.record,
-                gatingStates: gating, sudoRequired: !writable, appPath: app.path)
+                gatingStates: gating, sudoRequired: !writable, appPath: app.path,
+                runtimeInjected: runtimeInjected, runtimeDylibExists: runtimeDylibExists)
             verdicts.append(contentsOf: guidance.verdictLines)
             journalSummary = guidance.journalSummary
             nextCommand = guidance.nextCommand ?? nextCommand
@@ -390,7 +391,9 @@ struct Doctor {
         record: PatchJournal.Record?,
         gatingStates: [String: String],
         sudoRequired: Bool,
-        appPath: String
+        appPath: String,
+        runtimeInjected: Bool = false,
+        runtimeDylibExists: Bool = false
     ) -> (verdictLines: [String], journalSummary: String?, nextCommand: String?) {
         guard journalExists else { return ([], nil, nil) }
         let sudo = sudoRequired ? "sudo " : ""
@@ -436,6 +439,23 @@ struct Doctor {
             return (["⚠️ INTERRUPTED RESTORE detected (started \(started)) — re-run "
                      + "`\(sudo)wxkeep restore` to complete it (idempotent)"],
                     "restore@\(started)", "\(sudo)wxkeep restore")
+        case .runtimeInstall:
+            // runtime 事务的半套态：LC 注入/入口跳板/dylib 拷贝/重签四个
+            // 步骤都可能只走了一半——LC 在而 dylib 缺 = dyld 必崩混合态。
+            // 收口动作 = 重跑 install（幂等重建全部组件）或 remove 清干净。
+            let mixedLC = runtimeInjected && !runtimeDylibExists
+            return ([mixedLC
+                     ? "⚠️ INTERRUPTED RUNTIME INSTALL detected (started \(started)) and the bundle is in the "
+                       + "launch-crash mixed state (LC present, dylib missing). Run `\(sudo)wxkeep runtime remove` to clean"
+                     : "journal from an unfinished runtime install (started \(started)) — components look "
+                       + "consistent; re-running `\(sudo)wxkeep runtime install` (idempotent) or "
+                       + "`\(sudo)wxkeep runtime remove` clears it"],
+                    "runtimeInstall@\(started)",
+                    mixedLC ? "\(sudo)wxkeep runtime remove" : "\(sudo)wxkeep runtime install")
+        case .runtimeRemove:
+            return (["⚠️ INTERRUPTED RUNTIME REMOVE detected (started \(started)) — re-run "
+                     + "`\(sudo)wxkeep runtime remove` to complete it (idempotent)"],
+                    "runtimeRemove@\(started)", "\(sudo)wxkeep runtime remove")
         }
     }
 

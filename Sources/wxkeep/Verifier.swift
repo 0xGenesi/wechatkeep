@@ -306,6 +306,10 @@ enum Verifier {
         var thin = binary
         var tempThin: URL?
         let magic = head.prefix(4)
+        if magic.elementsEqual(Data([0xCA, 0xFE, 0xBA, 0xBF])) {
+            // FAT64 误入 thin 判定会把 8 字节 fat 头当 blob 执行——显式拒绝
+            throw VerifyError.archMismatch(image: "fat64 (FAT_MAGIC_64)", host: ImageArch.host.rawValue)
+        }
         if magic.elementsEqual(Data([0xCA, 0xFE, 0xBA, 0xBE])) {
             let host = ImageArch.host
             let out = FileManager.default.temporaryDirectory

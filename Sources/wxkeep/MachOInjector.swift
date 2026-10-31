@@ -13,6 +13,7 @@ import Foundation
 enum MachOInjector {
     enum InjectorError: Error, CustomStringConvertible {
         case not64BitMachO
+        case fat64Unsupported
         case no64BitSlice
         case noHeaderSpace(slice: Int, needed: Int, available: Int)
         case loadCommandNotFound(String)
@@ -21,6 +22,7 @@ enum MachOInjector {
         var description: String {
             switch self {
             case .not64BitMachO: "not a 64-bit Mach-O"
+            case .fat64Unsupported: "FAT_MAGIC_64 fat header is not supported"
             case .no64BitSlice: "no 64-bit slice found"
             case .noHeaderSpace(let slice, let needed, let available):
                 "slice #\(slice): load command needs \(needed) bytes, only \(available) available"
@@ -97,6 +99,9 @@ enum MachOInjector {
         // loadUnaligned 对短输入直接 fatal；fat 分支的 nfat 同理）。
         guard data.count >= 8 else { throw InjectorError.not64BitMachO }
         let magic = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
+        if magic == 0xBFBAFECA {   // FAT_MAGIC_64 big-endian (little-endian read)
+            throw InjectorError.fat64Unsupported
+        }
         if magic == 0xBEBAFECA {   // FAT big-endian magic (little-endian read)
             let nfat = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self).byteSwapped }
             var out = [Int]()

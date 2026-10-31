@@ -134,4 +134,31 @@ final class PatchJournalTests {
             appPath: appPath)
         #expect(g.nextCommand == "wxkeep restore")
     }
+
+    /// runtime 事务（新 kind）：组件一致 → 幂等 install 收口；LC 在而 dylib
+    /// 缺（必崩混合态）→ 指向 remove 清理而非再 install。
+    @Test func guidanceRuntimeInstallByComponentConsistency() {
+        let g1 = Doctor.interruptedTxGuidance(
+            journalExists: true, record: record(.runtimeInstall), gatingStates: pristine,
+            sudoRequired: false, appPath: appPath,
+            runtimeInjected: true, runtimeDylibExists: true)
+        #expect(g1.nextCommand == "wxkeep runtime install")
+        #expect(g1.verdictLines.first?.contains("consistent") == true)
+
+        let g2 = Doctor.interruptedTxGuidance(
+            journalExists: true, record: record(.runtimeInstall), gatingStates: pristine,
+            sudoRequired: false, appPath: appPath,
+            runtimeInjected: true, runtimeDylibExists: false)
+        #expect(g2.nextCommand == "wxkeep runtime remove",
+                "LC 在而 dylib 缺 = 启动必崩混合态，必须先 remove 清干净")
+        #expect(g2.verdictLines.first?.contains("mixed state") == true)
+    }
+
+    @Test func guidanceRuntimeRemoveAlwaysConvergesViaRemove() {
+        let g = Doctor.interruptedTxGuidance(
+            journalExists: true, record: record(.runtimeRemove), gatingStates: pristine,
+            sudoRequired: false, appPath: appPath)
+        #expect(g.nextCommand == "wxkeep runtime remove")
+        #expect(g.journalSummary?.hasPrefix("runtimeRemove@") == true)
+    }
 }

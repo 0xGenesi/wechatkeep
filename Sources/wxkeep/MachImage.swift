@@ -14,12 +14,14 @@ struct MachImage {
 
     enum ImageError: Error, CustomStringConvertible {
         case notMachO
+        case fat64Unsupported
         case noSlice(arch: String)
         case noSection(String)
 
         var description: String {
             switch self {
             case .notMachO: return "not a 64-bit Mach-O"
+            case .fat64Unsupported: return "FAT_MAGIC_64 fat header is not supported"
             case .noSlice(let arch): return "no \(arch) slice in this fat file"
             case .noSection(let name): return "section __TEXT,\(name) not found"
             }
@@ -37,6 +39,9 @@ struct MachImage {
         let raw = try Data(contentsOf: url)
         guard raw.count >= 8 else { throw ImageError.notMachO }
         let magicBE = raw.prefix(4).reduce(0) { ($0 << 8) | UInt32($1) }
+        if magicBE == 0xCAFEBABF {
+            throw ImageError.fat64Unsupported
+        }
         if magicBE == 0xCAFEBABE {
             let nfat = raw.subdata(in: 4..<8).reduce(0) { ($0 << 8) | UInt32($1) }
             var chosen: (offset: Int, size: Int, cputype: Int32)?

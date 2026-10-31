@@ -5,7 +5,7 @@ struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 4.x on macOS.",
-        version: "0.2.15",
+        version: "0.2.16",
         subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self, RuntimeCommand.self, DbKeysCommand.self]
     )
 
@@ -983,6 +983,11 @@ extension Wxkeep {
                         "runtime 已注入（LC_LOAD_DYLIB 在场）。无需重复安装；"
                         + "如需重装先跑 `wxkeep runtime remove`。")
                 }
+                // WAL：runtime install 是「LC+跳板+dylib+重签」四步变更，
+                // SIGKILL/断电窗的半套态（catch 型回滚覆盖不到）由 journal
+                // 残留让 doctor 分辨「中断事故」并给精确收口指引。
+                try PatchJournal.begin(kind: .runtimeInstall, build: build, variant: nil,
+                                       app: options.app.path)
                 let backup = try Backup.make(binary: main)
                 print("backup: \(backup.lastPathComponent)")
                 // 入口补丁将改写 wechat.dylib（340MB 级资源文件）——同样先备份
@@ -1074,6 +1079,7 @@ extension Wxkeep {
                     throw error
                 }
                 print("✓ runtime 已注入（微信下次启动时加载）")
+                PatchJournal.complete()   // 四步事务（LC+跳板+dylib+重签）确认成功
                 // 清掉上一次安装期的 marker：它是 dylib 启动回写的历史证据，
                 // 留着会让 `runtime status` 在本次安装尚未启动微信时展示上一
                 // 代的「已加载/已武装/fires」快照——新装周期从「无记录」起算。
@@ -1108,6 +1114,9 @@ extension Wxkeep {
                     throw ValidationError("WeChat 正在运行。退出后重试。")
                 }
                 let main = RuntimeCommand.mainExecURL(options.app)
+                let build = try WeChatApp.buildNumber(app: options.app)
+                try PatchJournal.begin(kind: .runtimeRemove, build: build, variant: nil,
+                                       app: options.app.path)
                 let backup = try Backup.make(binary: main)
                 var data = try Data(contentsOf: main)
                 var lcWasPresent = true
@@ -1150,7 +1159,6 @@ extension Wxkeep {
                 var resignTargets = ["Contents/MacOS/WeChat"]
                 do {
                     let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
-                    let build = try WeChatApp.buildNumber(app: options.app)
                     if let row = RuntimeConfig.knownHooks.first(where: {
                         $0.build == build && $0.arch == "arm64" }) {
                         if let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16),
@@ -1197,6 +1205,7 @@ extension Wxkeep {
                 print(lcWasPresent
                       ? "✓ runtime 已移除（备份: \(backup.lastPathComponent)）"
                       : "✓ LC 未注入，孤儿 dylib 已清理（主程序未改动）")
+                PatchJournal.complete()   // 移除事务确认成功
             }
         }
     }
