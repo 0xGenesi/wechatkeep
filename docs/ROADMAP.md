@@ -489,11 +489,14 @@ master CI 自动重签 manifest（「Sign data manifest」job 首次真跑）。
 轮工程），M2 原型缝不依赖它——可行动假设=**群聊 tip 最小干预点在
 CoCheck 附着条件而非渲染门**。详见 V3-CHARTER R3 节。
 
-**v0.2.16 发版**（源码-only 策略首次执行）：体检 P0/P1 批 + 270350 适
+**v0.2.16 发版 ✅**（源码-only 策略首次执行）：体检 P0/P1 批 + 270350 适
 配 + staging/journal/FAT64 收口全量入版；Formula 切 git-tag 源码构建
-（数据四件套随仓库分发+update-data OTA）；版本常量 0.2.15→0.2.16；
-tag+notes+git archive sha256（runbook=MAINTAINING「发版策略」）。
-**249 测全绿**（+5：staging×2、FAT64、journal 指引×2）。
+（数据四件套随仓库分发+update-data OTA；ruby 语法门过，**tap 推送待
+brew build-from-source E2E**——MAINTAINING 硬要求）；tag=master
+f51033a（含 manifest 重签 a20b5b4 + CI 竞态修复）；notes 附 git archive
+sha256 `13851729…`；release 0 资产=策略达成。**249 测全绿**（+5）。
+**事故入档**：270350 合入日 CI 签名 job 与人工 push 竞态 fetch-first 拒
+推、签名提交丢失（101 run 尾签已补）→ ci.yml 加三次 rebase 重试。
 
 ## 98·T6 实弹终裁轮（2026-10-31 晚：实时防撤回+自定义提示真机全链闭环——两轮 jen 实弹 keep/tip 双验；消费簇 RE 正式取消）
 
