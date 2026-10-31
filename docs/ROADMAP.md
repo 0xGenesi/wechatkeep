@@ -362,6 +362,50 @@ hooks 行加签升 P0。
    若为经典即有效，验证绕过 brew fork）。微信进程内存扫描需 sudo（
    task_for_pid 限制）或 get-task-allow 重签+子进程模型。
 
+## 93·能力探针 wxprobe + install go/no-go 门轮（2026-10-31：T4/T5 复盘固化为产品能力——「能否提前发现」的答案）
+
+> 用户问「是否能提前发现问题并解决」。复盘定案：**能**——①10-14 最小
+> 探针已实测 macOS 27 无 entitlement 进程代码页写化被拒（早于 runtime
+> 线开工两周）；②frida#3752 社区定根因是公开情报（撞墙后才检索到）；
+> ③缺的是决定性便宜实验「WeChat entitlements 是否豁免」——直到机械
+> 终审才测。T4/T5 三轮机械工程（静默写窗⑩/naked thunk⑨/双变体预构建
+> ㉕）全部可被一次 5 分钟探针省掉。本轮把教训固化成产品能力。
+
+1. **[wxprobe 探针件]**：Sources/wxprobe（~80 行 C，零仓库依赖，独立
+   executable target）——对自身 __TEXT 页实测三条写化路径并逐项输出：
+   mprotect 直写（errno 13=EACCES）/ vm_remap COW（kr 4）/ MAP_JIT
+   写相（诊断面——新区可写≠既有页可写化）。
+2. **[`wxkeep runtime probe`]**：探针件拷临时目录→以**微信主程序提取
+   的 CS 面 entitlements 重签**→运行→判定。entitlements 过滤只留
+   `com.apple.security.cs.*`+get-task-allow（剥 app-sandbox/
+   application-identifier 等容器绑定键——带键重签临时件触发沙盒容器
+   校验=AppEx libsecinit .cold.9 崩溃同源；W^X 策略面由 CS 键决定）。
+   缺件=跳过+提示（向后兼容：v0.2.15 无探针件不受影响）。
+3. **[install go/no-go 门]**：blocked 默认中止+`--force` 逃逸；判定
+   语义=「既有签名代码页存在可写化路径（mprotect 或 COW）」才算可
+   武装。E2E：本机探针 **blocked（带微信 allow-jit/disable-library-
+   validation CS 键仍全拒）**——「entitlement 豁免」这个让 T4/T5 继续
+   下去的侥幸假设正式钉死为实验事实；install 副本实测中止零副作用
+   （真机微信在用，副本验证）。
+4. **[测试与纪律]**：+WxProbeTests 3（解析/判定语义/entitlements 过滤）
+   **230 测全绿**；MAINTAINING 固化「OS 机械工程前置纪律」（能力探针
+   先行+社区执行面变更检索）；探针件随 release 分发（exe 同目录/
+   ../libexec/.build 搜索序）。
+
+## 92·T5 真机窗口·安装级二分定案轮（2026-10-31：队列第 1 项完成关账；详录=RUNTIME-DESIGN 92 轮节+本文件队列头）
+
+1. **[三数据点闭环]**（同微信同窗口同 prologue 门）：BASE（COW+写）
+   istep=2 errno=322 / **T5A**（write_entry_stub 入口即返）installed=1
+   errno=0——安装链其余全部健康 / **T5B**（mprotect 直写）errno=13。
+   失败精确锁定目标页改写；COW 与直写双双被策略拒=签名文件页进程内
+   不可写化（frida#3752 同根因）。归因表 R5 命中。
+2. **[背景位排除]**：uuid-mismatch/scanmiss=1 成败两路恒在=重扫常态位
+   非失败原因（status=21/25 解读歧义消除）。
+3. **[关账]**：keep_message/tip 真机语义验证被机械封死（进程内不可武装
+   ⇒hook 不存在⇒无语义可验）；复活唯一路线=安装期磁盘改入口 3 指令+
+   __DATA SLOT（fzlzjerry 路线，独立建设轮非队列项）。机器还原纯 v1 态
+   （runtime 清零/doctor protected）。
+
 ## 91 续·verify 变体覆盖系统性补全轮（2026-10-31：20 构建 39 枚派生，revoke_x64 9→29 / gen3 9→28；行为覆盖近乎全量）
 
 > 承 91 轮：4.2.0 线补完后的自然问题是「其余构建呢」——批量派生把
