@@ -463,6 +463,33 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 115·R10 execute 数据流定案轮（2026-11-01：AMR pair=订阅+0x78 句柄对（0x40B 读法作废）；publisher=[sub+0x38]；同步内联派发实锤；0x340a008=静态串构造器；ctor 对 source 仅 +0x20 一写→风险#7 降级浅堆拷贝；M4 最小组装图六行成册）
+
+1. **[AMR pair 来源定案]**：0x345818c-0x345820c 逐寄存器精读——pair=
+   {[subThis+0x78], [subThis+0x80]}（B 引用计数 bump→写回 task+0x18 槽
+   →重读装配）；R8/R9 的「0x40B 捕获对象」读法作废（该对象在此被
+   release）。
+2. **[同步内联派发实锤]**：0x34581a8 写回调用方帧栈槽——异步下=内存
+   破坏，宿主不可能这么发→整链单栈同步（与 R7 零 GCD/pthread 互证）。
+   AMR 内部 second post 为独立面（风险#2 不变）。
+3. **[publisher 形状]**：=[subThis+0x38]；写枢纽只消费 [x0+8]→AMR x0
+   的形状要求=[x+8]=订阅持有者——**read_svc 本身为候选**（[read_svc+8]
+   =sub 已在探针链上）。
+4. **[0x340a008 判决]**：208B 静态字符串 std::string 构造器（x0/x1 不
+   读；串体=0xa3ef0fe0 惰性去混淆）——中间段=查询描述符构建（表名+
+   elem 字段+订阅键配置→0x34355d0）。ctor 32B sret head→0x3456d00 的
+   x2，不进 AMR。
+5. **[风险#7 降级]**：ctor 0x34597c8 全函数复核——x0（source）只在
+   0x3459818 出现一次（[source+0x20] 写）；最小调用链（ctor+AMR）无
+   其它 source 消费者→源安全化=**浅堆拷贝 0x40B**，零新增 RE。
+6. **[M4 最小组装图]**：sub=[read_svc+8]→publisher=[sub+0x38]/pair=
+   {[sub+0x78],[sub+0x80]}/container=[pair.A]/源=浅堆拷贝→ctor(源,
+   container,0xa,sret32) 双读门→AMR(publisher,&pair,&outvec24)。前提=
+   [read_svc+8] 与订阅对象同类（r9pub 字段形状裁决）。
+7. **[诚实边界]**：AMR「经句柄投递」vs「投递 pair.obj 本体」未定案
+   （决定克隆内容如何进存储）——E2E 前最后一个语义问号。探针-2 扩展
+   b80/pub38 字段（r9pub 六字段+chain-broken 分支），282 测同轮基线。
+
 ## 114·R9 容器合同判读 + 探针-2 轮（2026-11-01：订阅类静态不可达定案；msg 类多基布局+388 构造点；ctor 源变异合同发现（风险#7 立项）；r9pub 探针落地；282 测同轮基线）
 
 1. **[订阅类反查（负结果定案）]**：0x3479fc4 零 fixup 槽、零 BL、零

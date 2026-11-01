@@ -1266,3 +1266,59 @@ msgvt 实测（address-point 裁决）、容器候选（cnt/cnt20）、源变异
 3. **克隆源安全化（新增，风险#7）**——ctor 变异 source+0x20；激活前
    必须落「临时源」机制（拷贝构造或同步重读），禁止直喂活体。
 4. AMR pair 语义——副本 E2E 裁决（R8 ③不变）。
+
+
+## R10 execute 数据流定案与 M4 组装图修正（2026-11-01，115 轮；282 测同轮基线）
+
+> 目标：钉死观察者任务 execute 的逐元素数据流（ctor sret 去向 /
+> 0x340a008 角色 / AMR pair 来源）——决定「ctor+AMR」组装假设是否成立。
+> 方法：0x3457ac8..0x3458214 逐寄存器精读 + 0x340a008 全函数解码。
+
+### 判决（三方互证）
+
+- **AMR pair = {[subThis+0x78], [subThis+0x80]}**（0x345818c-0x345820c：
+  ldp 装载 → B 引用计数 bump → 写回 task+0x18 槽 → 重读装配）。R8/R9
+  期间的「0x40B 捕获对象」读法作废——那个对象在此被 release（x21 路径）。
+  pair 就是订阅对象自身的句柄对（A=句柄/B=ctl）。
+- **container（ctor x1）= [A]**——与 pair.obj 同源（0x3457ad4-0x3457adc
+  与 0x3458190 读的是同一 16B 的首成员）。R9 的 r9pub cnt 字段=本值，
+  探针链保真。
+- **publisher = [subThis+0x38]**（task+0x10 ← 订阅发起者 +0x38 成员；
+  写枢纽只消费 [x0+8]——AMR x0 的形状要求 = [x0+8]=订阅持有者）。
+- **同步内联派发实锤**：0x34581a8 把装载结果写回 0x3416724 帧的栈槽
+  （task+0x18/+0x20 指向的调用方栈）——异步派发下该写回=内存破坏，
+  宿主不可能这么发。整链（订阅发起者→派发器→写枢纽→execute）单栈同步。
+  R7「零 GCD/零 pthread」与此互证；AMR 内部的 second post 是独立面
+  （charter 风险#2 结论不变）。
+- **0x340a008 = 静态字符串 std::string 构造器**（208B：x0/x1 不读，
+  sret 出串，串体=0xa3ef0fe0 惰性去混淆常量）——中间段=构建查询描述符
+  （静态表名+elem 字段+订阅键配置 [task+8]+0x18 → 0x34355d0），不是
+  消息构建器。ctor 的 32B sret head → 0x3456d00 的 x2（&sp+0xa0），
+  不进 AMR。
+- **ctor 对 source 的全部访问 = [source+0x20] 一写**（0x34597c8 全函数
+  复核：x0 只在 0x3459818 出现一次）。最小调用链（ctor+AMR，不含
+  0x3456d00/0x340a008）中无其它 source 消费者 → **风险#7 的源安全化
+  简化为浅堆拷贝**：调用前把原消息对象首 0x40B 拷进堆缓冲、以拷贝为
+  source——零新增 RE（原定案「需类拷贝构造器」降级）。
+
+### 修正后的 M4 最小组装图（待 r9pub 真机裁决）
+
+```
+sub = [read_svc + 8]                     ; r8pub: subvt_off=认证值候选
+publisher = [sub + 0x38]                 ; r9pub: pub38（形状=[x+8]=sub）
+pair     = {[sub+0x78], [sub+0x80]}      ; r9pub: c78/b80
+container = [pair.A]                     ; r9pub: cnt
+源拷贝    = heap_copy(原消息对象, 0x40)  ; 风险#7 隔离
+ctor(源拷贝, container, 0xa, sret32)     ; 双读门（R8）
+AMR(publisher, &pair, &outvec24)         ; 护栏 8 次/进程
+```
+前提：[read_svc+8] 与订阅对象同类（r9pub 字段形状裁决）；pair/容器
+语义的最终裁决权在副本 E2E（AMR 体内首读 [pair.obj]/[+0x10]——若
+pair.obj=句柄节点而非消息对象，AMR 语义=「经句柄投递」而非「投递该
+对象」，届时组装图再修正）。
+
+### 诚实边界
+
+「AMR 经句柄投递」vs「投递 pair.obj 本体」未定案——决定克隆内容如何
+进入存储，是 E2E 前最后一个语义问号。0x3456d00 全链（查询描述符→
+holder 交付）仍是宿主逐元素交付的正文，M4 不复用它。
