@@ -463,6 +463,41 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+### 113 轮·主动体检第六轮（三路并行深读：runtime.m/Swift·CLI/全仓横切，逐项人工复核后修复）
+
+- **P2×4 全修**：①克隆套件顶层门——ins/rd/svc_vtable/func_size 孤儿字段
+  （带键而无 clone_hook_off+clone_expected 对，含 x64 误带）此前静默丢弃
+  （行照常接受、能力零信号丧失——「宁拒不挂错」违例；rd 组 111 轮同构
+  洞一并收口，武装点 has_clone 前提=孤儿无合法场景）；②clone_ins_run 的
+  AMR pair 对象位改**显式入参**（pair_obj——原 {out.a} 把 sret vtable 字段
+  值当对象指针焊进未定案合同；AMR 桩升级为把 x0/pair[0..1] 落堆断言，
+  {pair_obj, sret_ctl} 合同测试锁定）+ pair/outvec **堆分配不释放**（AMR
+  体内把两缓冲地址原样存进异步任务——栈缓冲任务执行期悬垂；泄漏由
+  kCloneMaxInserts 封顶 ≤8×40B/进程，R6 getter 同政策）；③CLI 三处
+  陈旧进度文案（clone status「插入未接」漏网/abstract「R6 insert wiring」/
+  on 提示「M2-R5」——口径统一 M4 探针-only）；④var/ab RE 工具入库
+  （r6_caller_hunt/r6_b78_writers/r7_insert_queue/r8_m4_contract 移
+  tools/ + ROOT 仓库相对化——docs 四处引用而 var/ 整目录 gitignore，
+  新克隆不可复现）。
+- **P3 批**：护栏 fetch_add 原子取号（check-then-add TOCTOU 并发越帽修，
+  计数=attempts 总数语义入注）；武装文案补「容器合同接线前 clins= 恒 0」
+  与失配行下一步指引（重派生 hooks 数据行）；clpubm= marker 键（认证门
+  命中计数——与 clpub 探针数分面，激活期判定不盲）；clone status 补
+  runtimeInjected 检查（未装组件不再宣称「全在位」死胡同）+ clpub=0
+  三义性消歧提示（clget>0 而探针零 → 指路 bootlog clone-ins 行）+
+  r8pub 行落盘路径指引（微信容器 tmp/wxkeep-boot.log）；msg_vt 常量
+  权威性入册（0x9f24930=ctor 体内 adrp+add+add 精确写入值，非符号猜测；
+  pub_vt 完全经验化=clpub 实测）；测试补：套件孤儿/x64 双形态/fs 值域
+  （0 与 2MB 界）/fs hex 串形态/pub_vt 坏值/头锚大小写混用正例/回读缝
+  -1 分支/270135 ins 现值锁（值即合同，形态锁防不了 0x34597c7 笔误）。
+- **自查即修**（评审前）：pair_obj 重构+三处陈旧文案。
+- **裁定缓改**：fs 字符串 hex 形态保留（111 轮 rd 组刻意双形态先例——
+  Swift 侧只产数字、手写行 hex 串合法；补用例钉死行为而非删通道）。
+- 工程坑入册：JIT 桩字面量槽与指令体重叠两型（ldr 偏移=PC 相对、体长
+  先于字面量布局；编码一律 clang 汇编器生成+objdump 复核——手算 imm19/
+  imm12 三处错实证）；MAP_JIT 页写保护纪律（数据副作用必须落堆）。
+  282 测全绿（+1 值锁）。
+
 ## 113·R8 M4 插入族合同定案与接线轮（2026-11-01：三缺口定案+R7 勘误——ctor/AMR ABI 全定案、publisher=订阅期绑定（clpub 证据步）；插入直调表数据行入库+探针+ABI runner+护栏全落地；281 测全绿 +2）
 
 1. **[R7 勘误（RE 翻案）]**：`ldp x0, x26, [x0, #8]` 实读——AMR 的 this
@@ -501,7 +536,7 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
    ②容器合同未定案（宿主容器=[[[task+0x20]]]，0x3456d00 处理链≈0x6D8B
    未解码）③AMR pair 语义（宿主流用订阅侧 pair 非 ctor sret；自洽直投
    的实际效果=新行 vs 更新由副本 E2E 裁决）。生产调用点在①②双落地后
-   接线。工具 var/ab/r8_m4_contract.py。
+   接线。工具 tools/r8_m4_contract.py。
 
 ## 112·R7 插入族队列归属定案轮（2026-11-01：M4 前置 RE——插入链全族零 GCD/零 pthread（风险 #2 静态收敛）；克隆构造器候选 0x34597c8 定位（msg vtable 0x9f24930）；AddMessageResource 唯一调用者入库服务 0x34579d0 全图）
 
@@ -524,7 +559,7 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
    &out)。
 4. **[诚实边界]**：订阅者实现层（任务最终执行线程）未逐 vtable 追到
    底——对克隆语义无影响；M4 直调表数据行（insert/ctor/svc 链字段组）
-   待下轮派生；工具 var/ab/r7_insert_queue.py。
+   待下轮派生；工具 tools/r7_insert_queue.py。
 
 ## 111·R6 读路径接线 + 主动体检第五轮（2026-11-01：四路并行审计 P1×4+P2×7+P3 批全修；R6 异步重查链代码全落地（x2 链/key 帧快照/sret ABI 三缺口补全）；279 测全绿 +6）
 

@@ -890,7 +890,7 @@ extension Wxkeep {
                             print("克隆插入链:        " + insLine.joined(separator: " ")
                                   + "（M4；认证门待 clpub 证据派生）")
                         }
-                        line += "（M2 原型缝：捕获/写点/配对；clmiss=插入未接的丢弃计数，非故障）"
+                        line += "（M2 原型缝+R6 读链+M4 探针；clmiss=插入未激活的丢弃计数，非故障）"
                         print(line)
                     }
                     if let cfg = markerDigits("cfg").flatMap({ Int($0) }), cfg > 0 {
@@ -1110,12 +1110,12 @@ extension Wxkeep {
 
         /// V3-M2 克隆实验开关（docs/V3-CHARTER.md M2）：clone_message 键的
         /// CLI 面。M2-R5=配置通道+hook 捕获+写点捕获+msgid↔content 配对+
-        /// marker 证据；插入直调表（消息行入库）在 R6 接线前恒空——机制
+        /// marker 证据；插入调用在认证值+容器合同（M4/R9）落地前恒惰性——机制
         /// 真实驱动且可证惰性（clmiss= 即证据位），实验开启对消息链零作用面。
         struct RuntimeClone: ParsableCommand {
             static var _commandName: String { "clone" }
             static let configuration = CommandConfiguration(
-                abstract: "V3-M2 clone experiment switch (default off; prototype seam — inert until R6 insert wiring)")
+                abstract: "V3 clone experiment switch (default off; capture/pair/read-chain wired, insert activation pending M4 auth+container)")
             @OptionGroup var options: Options
 
             enum Action: String, ExpressibleByArgument { case status, on, off }
@@ -1136,7 +1136,7 @@ extension Wxkeep {
                         }
                         if let cap = digits("clone"), let miss = digits("clmiss"),
                            cap > 0 || miss > 0 {
-                            var line = "hook 证据:       clone=\(cap)（捕获派发） clmiss=\(miss)（插入未接——机制在跑且惰性的证明）"
+                            var line = "hook 证据:       clone=\(cap)（捕获派发） clmiss=\(miss)（插入未激活——机制在跑且惰性的证明）"
                             if let rows = digits("clrow"), rows > 0 {
                                 line += " clrow=\(rows)（写点挂点事件）"
                             }
@@ -1160,17 +1160,33 @@ extension Wxkeep {
                             }
                             // M4 插入链证据（R8）：clpub=publisher 形态探针
                             //（bootlog r8pub 行携带 subvt/msgvt 偏移——认证值
-                            // 派生输入）；clins=插入调用（认证+容器合同前恒 0）。
-                            let ins = [("clpub", "publisher 探针"), ("clins", "插入调用")]
+                            // 派生输入）；clpubm=认证门命中（pub_vt 行在位
+                            // 时的判定计数）；clins=插入调用（认证+容器合同
+                            // 前恒 0）。
+                            let ins = [("clpub", "publisher 探针"), ("clpubm", "认证门命中"),
+                                       ("clins", "插入调用")]
                                 .compactMap { key, label -> String? in
                                     guard let v = digits(key), v > 0 else { return nil }
                                     return "\(key)=\(v)（\(label)）"
                                 }
                             if !ins.isEmpty {
                                 print("插入链证据:      " + ins.joined(separator: " ")
-                                      + "（M4；bootlog r8pub 行=认证值派生输入）")
+                                      + "（M4；bootlog r8pub 行=认证值派生输入：微信容器 tmp/wxkeep-boot.log）")
+                            }
+                            // clpub=0 三义性消歧（113 轮体检）：读链已通（clget>0）
+                            // 而探针零计数 = 插入表未武装或 [svc+8] 链断——
+                            // 引导查 bootlog 的 clone-ins 武装行，不留死胡同。
+                            if let get = digits("clget"), get > 0,
+               (digits("clpub") ?? 0) == 0 {
+                                print("                 ℹ︎ clget>0 而 clpub=0——插入表未武装（clone-ins 身份门失配）"
+                                      + "或 svc 订阅者链断；查微信容器 tmp/wxkeep-boot.log 的 clone-ins 行")
                             }
                         }
+                    }
+                    // 体检第六轮 P3：未装 runtime 组件时实验状态宣称会变死胡同
+                    //——组件面如实提示（与 .on 分支同款指引）。
+                    if !RuntimeCommand.runtimeInjected(app: options.app) {
+                        print("ℹ︎ runtime 组件未安装——上述接线以 `wxkeep runtime install` 装机后才在微信内生效")
                     }
                     print("实验状态:        M2-R6+读路径接线+M4 插入表（捕获/写点/配对/服务身份/异步重查/插入 ABI 全在位）；")
                     print("                 插入激活剩两步：publisher 认证值（clpub 证据派生）+ 容器合同（R9 RE）——")
@@ -1178,7 +1194,7 @@ extension Wxkeep {
                     print("                 推荐组合：keep_message 保持缺省开（真共存实验需显式关 keep 后单独开 clone）。")
                 case .on:
                     let written = try RuntimeConfig.writeCloneMessage(true)
-                    print("✓ clone_message = on（M2-R5：捕获/写点/配对，插入未接——无消息副作用）")
+                    print("✓ clone_message = on（捕获/写点/配对/读链重查/M4 探针——插入未激活，无消息副作用）")
                     written.forEach { print("  \($0.path)") }
                     if RuntimeCommand.runtimeInjected(app: options.app) {
                         print("  （≤30s 热生效；R6 证据步 clsvc= 需重启微信后撤回一次可见）")

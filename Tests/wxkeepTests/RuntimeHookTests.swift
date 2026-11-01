@@ -1136,6 +1136,46 @@ extension RuntimeHookTests {
             + #"}]}"#) == 0)
         // pub_vt 单独在场而组不在场：拒绝（认证门不脱离组存在）
         #expect(parse(#"{"hooks":["# + base + #","clone_ins_pub_vt":"0x9deeb48"}]}"#) == 0)
+        // 体检第六轮 P2：克隆套件顶层门——完整 ins 组而无克隆对（缝缺失/
+        // 键名笔误形态）此前被静默接受+丢字段（能力丧失零信号），现整行拒
+        #expect(parse(#"{"hooks":[{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9","# + ins.dropFirst() + #"}]}"#) == 0,
+                   "ins 组在场而克隆对缺失 → 整行拒绝（孤儿字段静默丢弃已修）")
+        // rd 组同构洞（111 轮遗留，一并收口）——单键即可触发顶层门
+        #expect(parse(#"{"hooks":[{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9","clone_rd_wrap":"0x309ac50"}]}"#) == 0,
+                   "rd 组在场而克隆对缺失 → 整行拒绝")
+        // x64 行带克隆套件字段（有对/无对两种形态）：均拒
+        let x64base = #"{"build":"270135","uuid":"661e436d-ae61-3413-a867-841f042ddc12","arch":"x86_64","hook_off":"0x5503730","msg_arg":1,"xml_sso_off":0,"expected":"554889E54157415641554154""#
+        #expect(parse(#"{"hooks":["# + x64base + #","clone_svc_vtable":"0x9deeb48"}]}"#) == 0,
+                   "x64 行带套件字段（无对形态）→ 整行拒绝")
+        #expect(parse(#"{"hooks":["# + x64base + #","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9F85F07A9","clone_ins_msg_vt":"0x9f24930"}]}"#) == 0,
+                   "x64 行带套件字段（有对形态）→ 整行拒绝")
+        // fs 值域负例：0 与越 2MB 上界
+        #expect(parse(#"{"hooks":["# + base + ins.replacingOccurrences(
+            of: "\"clone_ins_ctor_fs\":348", with: "\"clone_ins_ctor_fs\":0")
+            + #"}]}"#) == 0)
+        #expect(parse(#"{"hooks":["# + base + ins.replacingOccurrences(
+            of: "\"clone_ins_amr_fs\":2788", with: "\"clone_ins_amr_fs\":2097153")
+            + #"}]}"#) == 0)
+        // fs 字符串形态按 hex（与 rd 组同款双形态；Swift 侧只产数字，
+        // 手写行 hex 串合法——348 的 hex 串 = "0x15c"）
+        #expect(parse(#"{"hooks":["# + base + ins.replacingOccurrences(
+            of: "\"clone_ins_ctor_fs\":348", with: "\"clone_ins_ctor_fs\":\"0x15c\"")
+            + #"}]}"#) == 1)
+        // pub_vt 坏 hex / 零值：拒绝
+        #expect(parse(#"{"hooks":["# + base + ins + #","clone_ins_pub_vt":"0x9deeb4ZZ"}]}"#) == 0)
+        #expect(parse(#"{"hooks":["# + base + ins + #","clone_ins_pub_vt":"0x0"}]}"#) == 0)
+        // 头锚大小写混用：hex 解码双形态均收（钉死行为，防将来误收紧）
+        #expect(parse(#"{"hooks":["# + base + ins.replacingOccurrences(
+            of: "FF0305D1FC6F10A9F65711A9F44F12A9", with: "ff0305d1fc6f10a9f65711a9f44f12a9")
+            + #"}]}"#) == 1)
+        // 回读缝负例：无 ins 组的行 → -1；idx 越界 → -1
+        parse(#"{"hooks":["# + base + #"}]}"#)
+        #expect(wxkeep_runtime_test_hook_row_ins(0, nil, nil, nil, nil, nil, nil, nil) == -1,
+               "无 ins 组的行回读 → -1")
+        #expect(wxkeep_runtime_test_hook_row_ins(99, nil, nil, nil, nil, nil, nil, nil) == -1,
+               "idx 越界 → -1")
+        // 恢复含组行供后续测试（保持 fixture 状态一致）
+        parse(full)
     }
 
     /// M4 插入 ABI 端到端（arm64）：MAP_JIT 桩 ctor（sret 写 vtable+ctl）/
@@ -1164,12 +1204,23 @@ extension RuntimeHookTests {
             0xF9000D0A,              // str x10, [x8, #0x18]
             0xD65F03C0,              // ret
         ]
-        // amr：计数器自增
+        // amr：记录 (x0, pair[0..1]) 到堆 + 计数器自增——钉死 AMR 合同
+        //（x0=publisher、x1=&16B pair{obj,ctl}：生产代码装配的是
+        // {pair_obj, ctor_ctl}，桩把它们落堆供断言）
+        // 布局：9 指令 + pad@36 + 三字面量 @40(计数器)/@48(记录槽)/空
+        // （编码由 clang 汇编器生成——手算 imm19/imm12 易错，先例：
+        // 本桩首版三处编码错全靠 objdump 复核揪出）
         let amrStub: [UInt32] = [
-            0x580000C9,              // ldr x9, #24（字面量 @+24）
-            0xF940012A,              // ldr x10, [x9]
-            0x9100054A,              // add x10, x10, #1
-            0xF900012A,              // str x10, [x9]
+            0x58000189,              // ldr x9, #48（字面量1 @+48 = 计数器地址；体 44B 后）
+            0x580001AA,              // ldr x10, #52（PC@+4 → 字面量2 @+56 = 记录槽）
+            0xF940012B,              // ldr x11, [x9]
+            0x9100056B,              // add x11, x11, #1
+            0xF900012B,              // str x11, [x9]
+            0xF9000140,              // str x0, [x10]           ; 记录 publisher
+            0xF9400031,              // ldr x17, [x1]           ; pair.obj
+            0xF9000551,              // str x17, [x10, #8]
+            0xF9400431,              // ldr x17, [x1, #8]       ; pair.ctl
+            0xF9000951,              // str x17, [x10, #0x10]
             0xD65F03C0,              // ret
         ]
         let baseAddr = UInt64(UInt(bitPattern: page))
@@ -1178,8 +1229,11 @@ extension RuntimeHookTests {
         var counter: UInt64 = 0
         let counterSlot = malloc(8)!.assumingMemoryBound(to: UInt64.self)
         counterSlot.pointee = 0
-        defer { free(counterSlot) }
+        let amrRec = malloc(24)!.assumingMemoryBound(to: UInt64.self)
+        memset(amrRec, 0, 24)
+        defer { free(counterSlot); free(amrRec) }
         let counterAddr = UInt64(UInt(bitPattern: counterSlot))
+        let amrRecAddr = UInt64(UInt(bitPattern: amrRec))
         func writeCtor(_ off: Int, vt: UInt64, ctl: UInt64) {
             ctorStub.withUnsafeBufferPointer { cp in
                 memcpy(page! + off, cp.baseAddress, ctorStub.count * 4)
@@ -1197,7 +1251,9 @@ extension RuntimeHookTests {
             memcpy(page! + 120, cp.baseAddress, amrStub.count * 4)
         }
         var litCounter = counterAddr
-        memcpy(page! + 120 + 24, &litCounter, 8)
+        var litRec = amrRecAddr
+        memcpy(page! + 120 + 48, &litCounter, 8)
+        memcpy(page! + 120 + 56, &litRec, 8)
         sys_icache_invalidate(page, 0x100)
         pthread_jit_write_protect_np(1)
 
@@ -1210,17 +1266,23 @@ extension RuntimeHookTests {
             CUnsignedLongLong(UInt(bitPattern: publisher)),
             CUnsignedLongLong(UInt(bitPattern: container)),
             CUnsignedLongLong(UInt(bitPattern: source)),
+            CUnsignedLongLong(UInt(bitPattern: UnsafeMutableRawPointer(bitPattern: 0x5600_0000)!)),
             CUnsignedLong(baseAddr), CUnsignedLong(baseAddr + 120),
             CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
         #expect(r1 == 3, "ctor 门过 + AMR 已调（got r=\(r1)）")
         counter = counterSlot.pointee
         #expect(counter == 1, "AMR 桩恰好被调一次")
+        // pair 合同锁：x0=publisher、pair={pair_obj 入参, ctor sret 的 ctl}
+        #expect(amrRec[0] == 0x5566_0000, "AMR x0=publisher")
+        #expect(amrRec[1] == 0x5600_0000, "pair.obj=显式 pair_obj 入参（非 vtable 值）")
+        #expect(amrRec[2] == 0x1122_3000, "pair.ctl=ctor sret+0x18")
 
         // 负控 ①：sret vtable 失配 → 守卫退出（AMR 不调）
         let r2 = wxkeep_runtime_test_clone_ins_invoke(
             CUnsignedLongLong(UInt(bitPattern: publisher)),
             CUnsignedLongLong(UInt(bitPattern: container)),
             CUnsignedLongLong(UInt(bitPattern: source)),
+            CUnsignedLongLong(UInt(bitPattern: UnsafeMutableRawPointer(bitPattern: 0x5600_0000)!)),
             CUnsignedLong(baseAddr + 80), CUnsignedLong(baseAddr + 120),
             CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
         #expect(r2 == 0, "ctor sret vtable 失配 → 绝不进入 AMR")
@@ -1232,6 +1294,7 @@ extension RuntimeHookTests {
             CUnsignedLongLong(UInt(bitPattern: publisher)),
             CUnsignedLongLong(UInt(bitPattern: container)),
             CUnsignedLongLong(UInt(bitPattern: source)),
+            CUnsignedLongLong(UInt(bitPattern: UnsafeMutableRawPointer(bitPattern: 0x5600_0000)!)),
             CUnsignedLong(baseAddr + 40), CUnsignedLong(baseAddr + 120),
             CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
         #expect(r3 == 0, "ctl 空 → 守卫退出")
@@ -1240,9 +1303,19 @@ extension RuntimeHookTests {
         let r4 = wxkeep_runtime_test_clone_ins_invoke(
             CUnsignedLongLong(UInt(bitPattern: publisher)), 0,
             CUnsignedLongLong(UInt(bitPattern: source)),
+            CUnsignedLongLong(UInt(bitPattern: UnsafeMutableRawPointer(bitPattern: 0x5600_0000)!)),
             CUnsignedLong(baseAddr), CUnsignedLong(baseAddr + 120),
             CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
         #expect(r4 == 0, "句柄门在宿主调用之前——零指针绝不进 ctor")
+
+        // 负控 ④：pair_obj=0（AMR 体首读 [pair.obj]/[+0x10]——零句柄绝不进 AMR）
+        let r5 = wxkeep_runtime_test_clone_ins_invoke(
+            CUnsignedLongLong(UInt(bitPattern: publisher)),
+            CUnsignedLongLong(UInt(bitPattern: container)),
+            CUnsignedLongLong(UInt(bitPattern: source)), 0,
+            CUnsignedLong(baseAddr), CUnsignedLong(baseAddr + 120),
+            CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
+        #expect(r5 == 0, "pair 对象位零句柄 → 守卫退出（不进 ctor/AMR）")
 
         // 护栏：kCloneMaxInserts=8 次进程封顶（attempts 计——含失败尝试）
         var inserts0: Int32 = 0
@@ -1253,6 +1326,7 @@ extension RuntimeHookTests {
                 CUnsignedLongLong(UInt(bitPattern: publisher)),
                 CUnsignedLongLong(UInt(bitPattern: container)),
                 CUnsignedLongLong(UInt(bitPattern: source)),
+                CUnsignedLongLong(UInt(bitPattern: UnsafeMutableRawPointer(bitPattern: 0x5600_0000)!)),
                 CUnsignedLong(baseAddr), CUnsignedLong(baseAddr + 120),
                 CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
             if r == 0 { refused = true; break }
@@ -1260,7 +1334,9 @@ extension RuntimeHookTests {
         #expect(refused, "插入护栏 8 次/进程封顶后拒绝再调")
         var inserts1: Int32 = 0
         wxkeep_runtime_test_clone_ins_counts(nil, nil, nil, &inserts1)
-        #expect(inserts1 == 8, "attempts 计数恰封顶（got \(inserts1)）")
+        #expect(inserts1 >= 8, "attempts 计数越过封顶（含被拒尝试，got \(inserts1)）")
+        counter = counterSlot.pointee
+        #expect(counter == 6, "恰 8 次 admitted：首调 1 + 循环 prev=3..7 共 5 次全达 AMR（got \(counter)）")
 
         // 探针：合成 svc（[svc+8]=holder、[holder]=vtable 词）驱动生产
         // clone_ins_probe——认证门命中/失配/链断三态。

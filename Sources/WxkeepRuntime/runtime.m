@@ -522,9 +522,32 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
     // V3-M2 克隆第二挂点（可选）：clone_hook_off + clone_expected 成对出现；
     // 单边 = 行作者笔误，整行拒绝（宁可不挂也不挂错）。arm64 行专属——
     // x64 行带此字段按坏行处理（克隆缝仅 arm64 布局派生）。
+    //
+    // 克隆套件顶层门（113 轮体检 P2 修）：svc_vtable/rd 组/ins 组/func_size
+    // 的解析全嵌套在「克隆对在场」块内——孤儿字段（带任一套件键而无
+    // clone_hook_off+clone_expected，含键名笔误与 x64 行误带）此前被静默
+    // 丢弃：行照常接受、字段永不武装、零 bootlog/marker 信号（探针惰性
+    // 无从排障）。武装点要求 has_clone（arm_clone_site 只在 t->has_clone
+    // 进入），孤儿字段在现行代码不存在合法场景——任一套件键在场而无对
+    // （或非 arm64）即整行拒绝（rd 组 111 轮以来同构洞一并收口）。
     NSString *coff = [row[@"clone_hook_off"] isKindOfClass:[NSString class]] ? row[@"clone_hook_off"] : nil;
     NSString *cexp = [row[@"clone_expected"] isKindOfClass:[NSString class]] ? row[@"clone_expected"] : nil;
-    if (coff || cexp) {
+    static NSString *const kCloneSuiteKeys[] = {
+        @"clone_func_size", @"clone_svc_vtable",
+        @"clone_rd_lookup", @"clone_rd_lookup_fs", @"clone_rd_lookup_head",
+        @"clone_rd_wrap", @"clone_rd_getter", @"clone_rd_x2single",
+        @"clone_rd_x2desc", @"clone_rd_x2ctx", @"clone_rd_key_slot",
+        @"clone_ins_ctor", @"clone_ins_ctor_fs", @"clone_ins_ctor_head",
+        @"clone_ins_amr", @"clone_ins_amr_fs", @"clone_ins_amr_head",
+        @"clone_ins_msg_vt", @"clone_ins_pub_vt",
+    };
+    BOOL csAny = (coff || cexp);
+    if (!csAny) {
+        for (size_t i = 0; i < sizeof(kCloneSuiteKeys) / sizeof(kCloneSuiteKeys[0]); i++) {
+            if (row[kCloneSuiteKeys[i]] != nil) { csAny = YES; break; }
+        }
+    }
+    if (csAny) {
         if (!(coff && cexp)) return 0;
         if (!out->is_arm64) return 0;
         uint32_t cv = 0;
@@ -721,7 +744,7 @@ static void apply_policy_dict(NSDictionary *cfg) {
     id ar = cfg[@"allow_runtime_prologue"];
     g_allow_runtime_prologue = (ar == nil) ? 0 : [ar boolValue];
     // clone_message：V3-M2 克隆原型缝（默认关；M2-R5=XML 捕获+写点捕获+
-    // msgid↔content 配对+证据，插入直调表在 R6 接线前恒空——clmiss= 是
+    // msgid↔content 配对+证据，插入调用在认证值+容器合同落地前恒惰性——clmiss= 是
     // 「机制在跑且惰性」
     // 的证据位，非故障）
     id cm = cfg[@"clone_message"];
@@ -1348,7 +1371,7 @@ static int clone_rd_run(const clone_full_t *rec, const clone_rd_fns_t *fns,
 /// 完整记录 worker（生产路径）：直调表未武装/护栏到顶 → clmiss 惰性
 ///（109/110 轮语义不变）；表在位 → 读路径重查，证据入 marker。
 static void clone_ins_probe(uint64_t svc, uint64_t msg_obj);   // M4 节（后置定义）
-static volatile int g_clone_ins_valid;   // 同上（tentative 合并；M4 节带初值）
+static volatile int g_clone_ins_valid;   // 同上（tentative 合并；M4 节零初始化）
 static void clone_work_full(void *ctx) {
     clone_full_t *rec = ctx;
     if (!__atomic_load_n(&g_clone_rd_valid, __ATOMIC_ACQUIRE)
@@ -1457,11 +1480,16 @@ static void clone_ins_probe(uint64_t svc, uint64_t msg_obj) {
 /// 返回位掩码：1=ctor sret 双读门过 2=AMR 已调。中途守卫退出绝不放大为
 /// 动作（AMR 未调 = 零副作用）。
 static int clone_ins_run(uint64_t publisher, uint64_t container, uint64_t source,
-                         const void *ctor_fn, const void *amr_fn,
+                         uint64_t pair_obj, const void *ctor_fn, const void *amr_fn,
                          uint64_t base, uint32_t msg_vt_off) {
     if (publisher <= 0x10000 || container <= 0x10000 || source <= 0x10000) return 0;
-    if (__atomic_load_n(&g_clone_ins_inserts, __ATOMIC_RELAXED) >= kCloneMaxInserts) return 0;
-    __atomic_fetch_add(&g_clone_ins_inserts, 1, __ATOMIC_RELAXED);
+    if (pair_obj <= 0x10000) return 0;   // AMR 体首读 [pair.obj]/[+0x10]——零句柄绝不进
+    // 护栏（113 轮体检 P3 修）：fetch_add 原子取号判界——check-then-add 在
+    // 并发调用下可越 kCloneMaxInserts 帽（当前生产零调用点+串行队列无实际
+    // 竞态，但这是泄漏封顶的进程级上界，接线轮调用点换队列即破帽）。计数
+    // 含被拒尝试（只增不减，marker 语义=attempts 总数）。
+    if (__atomic_fetch_add(&g_clone_ins_inserts, 1, __ATOMIC_RELAXED)
+        >= kCloneMaxInserts) return 0;
     // ctor：big4_t（32B）强制 clang x8 sret——与宿主 0x34597c8 的
     // sret 协议对齐（big3_t 同理的刻意布局）
     typedef struct { uint64_t a, b, c, d; } big4_t;
@@ -1473,9 +1501,22 @@ static int clone_ins_run(uint64_t publisher, uint64_t container, uint64_t source
     // 体 0x3457aec 同款判别位）
     if (out.a != rd_abs(base, msg_vt_off)) return 0;
     if (out.d <= 0x10000 || out.d == poison) return 0;
-    // AMR：pair 16B{obj,ctl} + 24B 零置 outvec（宿主 0x34581d8-0x345820c 直译）
-    uint64_t pair[2] = { out.a, out.d };
-    uint64_t outvec[3] = { 0, 0, 0 };
+    // AMR：pair 16B{obj,ctl} + 24B 零置 outvec（宿主 0x34581d8-0x345820c 直译）。
+    // pair_obj=显式入参：宿主流的 pair 来自订阅侧 wrapper（0x3456d00 处理链
+    // 产物，RUNTIME-DESIGN R8 诚实边界③未定案）——ctl 用 ctor sret 的
+    // （产物生命周期与其控制块同源），obj 不猜、由生产调用点按定案供给。
+    //
+    // 缓冲区**堆化**（113 轮体检 P2 修）：AMR 体内把 &pair/&outvec 原样存进
+    // 异步任务（0x33fd258 stp）——宿主自己的调用点传栈缓冲是它的时序赌注，
+    // 本侧不复制该赌注：堆分配 + 不释放（R6 getter 同款「错放比泄漏危险」
+    // 政策，kCloneMaxInserts 封顶泄漏量：≤8×40B/进程）。分配失败=放弃该次
+    // 插入（计数不虚报——g_clone_ins_calls 只在 AMR 实调后 +1）。
+    uint64_t *pair = malloc(sizeof(uint64_t) * 2);
+    uint64_t *outvec = malloc(sizeof(uint64_t) * 3);
+    if (!pair || !outvec) { free(pair); free(outvec); return 0; }
+    pair[0] = pair_obj;
+    pair[1] = out.d;
+    outvec[0] = outvec[1] = outvec[2] = 0;
     typedef void *(*amr_t)(const void *, void *, void *);
     ((amr_t)amr_fn)((const void *)publisher, (void *)pair, (void *)outvec);
     g_clone_ins_calls++;                      // clins=
@@ -2525,7 +2566,9 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
         if (!bad && (!kread_buf(base + t->clone_ins_amr_off, h2, 16)
                      || memcmp(h2, t->clone_ins_amr_head, 16) != 0)) bad = 1;
         if (bad) {
-            bootlog_line("clone-ins: ctor/amr 身份门失配——插入表不武装（探针惰性）");
+            bootlog_line("clone-ins: ctor/amr 身份门失配——插入表不武装（探针惰性）；"
+                         "地址行漂移：按当前构建重派生 hooks 数据行"
+                         "（tools/derive_runtime_hooks.py）后重跑 wxkeep runtime hooks");
         } else {
             g_clone_ins.ctor_off = t->clone_ins_ctor_off;
             g_clone_ins.amr_off = t->clone_ins_amr_off;
@@ -2534,7 +2577,7 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
             g_clone_ins_pub_gated = t->has_clone_ins_pub_vt;
             __atomic_store_n(&g_clone_ins_valid, 1, __ATOMIC_RELEASE);
             bootlog_line(g_clone_ins_pub_gated
-                ? "clone-ins: 插入表已武装（R8，认证门在位，上限 8 次/进程）"
+                ? "clone-ins: 插入表已武装（R8，认证门在位，上限 8 次/进程；容器合同接线前 clins= 恒 0）"
                 : "clone-ins: 插入表已武装（R8 探针模式——pub 认证值待 clpub 证据派生，插入调用惰性）");
         }
     }
@@ -2926,7 +2969,7 @@ static void write_marker_ex(int loud) {
             groupDir = nil;
         }
     NSString *content = [NSString stringWithFormat:
-        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d clpair=%d clsvc=%d clkey=%d clkeylen=%d clhit=%d clmissq=%d clget=%d clinner=%d clpub=%d clins=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
+        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d clpair=%d clsvc=%d clkey=%d clkeylen=%d clhit=%d clmissq=%d clget=%d clinner=%d clpub=%d clpubm=%d clins=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
         [NSDate date].timeIntervalSince1970,
         g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
         g_install_step, g_install_errno,
@@ -2935,7 +2978,7 @@ static void write_marker_ex(int loud) {
         g_clone_rows, g_clone_last_len, g_clone_pairs, g_clone_svc_hits,
         g_clone_key_caps, g_clone_last_key_len,
         g_clone_rd_hits, g_clone_rd_misses, g_clone_rd_gets, g_clone_rd_inner,
-        g_clone_pub_probes, g_clone_ins_calls,
+        g_clone_pub_probes, g_clone_pub_matches, g_clone_ins_calls,
         g_cfg_stamp, g_cfg_hash,
         g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
         g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
@@ -3923,14 +3966,16 @@ void wxkeep_runtime_test_clone_ins_probe(unsigned long long svc,
 }
 
 /// M4 插入 ABI 直驱缝（生产 clone_ins_run 同一条代码）：ctor/amr 为
-/// **绝对地址** JIT 桩；publisher/container/source 由调用方构造。返回
+/// **绝对地址** JIT 桩；publisher/container/source/pair_obj 由调用方构造
+///（pair_obj=AMR pair 的对象位——生产语义待 R9 容器合同定案）。返回
 /// 位掩码（1=ctor 门过 2=AMR 已调）。
 int wxkeep_runtime_test_clone_ins_invoke(unsigned long long publisher,
                                          unsigned long long container,
                                          unsigned long long source,
+                                         unsigned long long pair_obj,
                                          unsigned long ctor_fn, unsigned long amr_fn,
                                          unsigned long base, unsigned long msg_vt_off) {
-    return clone_ins_run(publisher, container, source,
+    return clone_ins_run(publisher, container, source, pair_obj,
                          (const void *)(uintptr_t)ctor_fn, (const void *)(uintptr_t)amr_fn,
                          base, (uint32_t)msg_vt_off);
 }

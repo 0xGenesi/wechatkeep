@@ -1066,7 +1066,7 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
 
 > 目标：charter 风险 #2（消息 DB 插入的队列亲和）实证定案 + msg 对象
 > 克隆策略首个证据面。方法：stubmap（1745 外部绑定）驱动的 GCD/pthread
-> 调用全扫 + 插入链逐函数反汇编（工具 var/ab/r7_insert_queue.py）。
+> 调用全扫 + 插入链逐函数反汇编（工具 tools/r7_insert_queue.py）。
 
 ### 队列归属定案（风险 #2 收敛）
 
@@ -1120,7 +1120,7 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
 > 目标：charter M4 前置——插入族直调表数据行派生 + 三缺口定案
 > （container 语义 / 0xa 判别面 / svc 运行时获取）。方法：rel32 BL 全扫
 > + dyld_info -fixups 权威 vtable 定位 + ctor/AMR/写枢纽全函数反汇编
-> （工具 var/ab/r8_m4_contract.py）。
+> （工具 tools/r8_m4_contract.py）。
 
 ### R7 三缺口的定案与勘误
 
@@ -1172,6 +1172,10 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
   调用）：`[svc+8]→[[svc+8]]` 两跳可读 → clpub++ + bootlog r8pub 行
   （subvt_off/msgvt_off/msg10 切片偏移）；pub_vt 在位且命中 → 认证计数。
 - **插入 ABI runner**（clone_ins_run；生产未接调用点——见诚实边界）：
+  pair 对象位=显式入参（不猜）、pair/outvec **堆分配不释放**（AMR 体内把
+  两缓冲地址原样存进异步任务——栈缓冲在任务执行期悬垂；kCloneMaxInserts
+  封顶泄漏 ≤8×40B/进程，R6 getter「错放比泄漏危险」同政策）、护栏
+  fetch_add 原子取号（check-then-add 的 TOCTOU 并发越帽修）；
   句柄门 → 护栏（kCloneMaxInserts=8 次/进程，attempts 计）→ ctor 三参
   直译（big4_t 32B 强制 x8 sret）→ sret 双读门（vtable==base+msg_vt 且
   ctl 指针形）→ AMR(publisher, &pair{sret_obj,sret_ctl}, &outvec24)。
@@ -1190,7 +1194,15 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
    （ctor 产物→AMR pair 的装配段，≈0x6D8B）未解码；R8 的 clone_ins_run
    以显式参数承接，生产调用点在「认证值+容器合同」双落地后接线。
 3. **AMR pair 语义**——宿主流 AMR 的 pair 来自订阅侧 wrapper（0x3456d00
-   产物）而非 ctor sret；clone_ins_run 以 ctor 产物 pair 直投（自洽形
-   态），实际克隆效果（新行 vs 原行更新）由副本 E2E 裁决——AMR 体首读
-   [pair.obj] 与 [pair.obj+0x10]（懒初始化门），形态不合走日志门路径，
-   不放大为崩溃。
+   产物）而非 ctor sret；clone_ins_run 的 pair 对象位=**显式入参**
+   （pair_obj，ctl 用 ctor sret 的 +0x18——与产物生命周期同源），零句柄
+   守卫在 ctor/AMR 之前；对象位的真实来源（克隆产物直投 vs wrapper 链）
+   随容器合同定案，实际克隆效果（新行 vs 原行更新）由副本 E2E 裁决——
+   AMR 体首读 [pair.obj] 与 [pair.obj+0x10]（懒初始化门），形态不合走
+   日志门路径，不放大为崩溃（JIT 桩 amr 已把 pair 内容落堆断言——
+   {pair_obj, sret_ctl} 合同测试锁定）。
+4. **msg_vt/pub_vt 的常量权威性**——0x9f24930 不是 vtable 符号猜测：ctor
+   0x34597c8 体内 `adrp+add(0x920)+add(0x10)` 把该精确值写进 sret+0，
+   即 msg 对象 +0 的运行时值由构造器本体钉死（svc_vt 0x9deeb48 同理：
+   setter 0x3199f78 内联写入）。pub_vt 则完全经验化——clpub 探针打印的
+   subvt_off 即实测值，无 address-point 假设。

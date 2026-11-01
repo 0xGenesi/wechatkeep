@@ -151,5 +151,6 @@ void wxkeep_runtime_test_clone_ins_probe(unsigned long long svc,
 int wxkeep_runtime_test_clone_ins_invoke(unsigned long long publisher,
                                          unsigned long long container,
                                          unsigned long long source,
+                                         unsigned long long pair_obj,
                                          unsigned long ctor_fn, unsigned long amr_fn,
                                          unsigned long base, unsigned long msg_vt_off);

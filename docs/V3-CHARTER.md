@@ -190,7 +190,7 @@ svrid/rowid 不受波及。插入落队时机晚于撤回写也安全（内容�
       sp+0x3a0)` 构造 key → `x0=[x19+0xb78], x1=sp+0x3a0, x2=[sp+0x488],
       w3=0, sret=sp+0x390 → bl 0x32edaec` → `bl 0x102b740(x0=x20)` 取
       msg_obj。R6 工作函数照抄即可。
-    - 工具沉淀：var/ab/r6_caller_hunt.py（函数界+BL 标注定点反汇编）、
+    - 工具沉淀：tools/r6_caller_hunt.py（函数界+BL 标注定点反汇编）、
       r6_b78_writers.py（__text 界内 +0xb78 STR/LDR 全量扫描；36 位
       chained-fixup 自解版因 __TEXT 内嵌数据节假阳性废弃，dyld_info
       -fixups 为权威）。

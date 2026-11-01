@@ -151,6 +151,25 @@ struct RuntimeConfigTests {
     /// - msg_arg ≤ 5、xml_sso_off ≤ 0x1000（hook_row_parse 的行拒绝界）
     /// - expected 长度匹配架构（x64 12B / arm64 16B）
     /// - anchor 字段成对出现（半个锚点 = 行拒绝）
+    /// M4 插入直调表 270135 现值锁（113 轮体检 P3）：R8 定案数字「值即
+    /// 合同」——形态锁防不了手改笔误（0x34597c7 形态全绿），照
+    /// knownHooksFuncSizeContract 家族值锁先例锁死现值。
+    @Test func knownHooks270135InsertValuesLocked() {
+        guard let row = RuntimeConfig.knownHooks.first(where: {
+            $0.build == "270135" && $0.arch == "arm64"
+        }) else {
+            Issue.record("270135 arm64 行缺失"); return
+        }
+        #expect(row.clone_ins_ctor == "0x34597c8")
+        #expect(row.clone_ins_ctor_fs == 348)
+        #expect(row.clone_ins_ctor_head == "FF0305D1FC6F10A9F65711A9F44F12A9")
+        #expect(row.clone_ins_amr == "0x33fd190")
+        #expect(row.clone_ins_amr_fs == 2788)
+        #expect(row.clone_ins_amr_head == "F85FBCA9F65701A9F44F02A9FD7B03A9")
+        #expect(row.clone_ins_msg_vt == "0x9f24930")
+        #expect(row.clone_ins_pub_vt == nil, "270135 现役=探针-only（pub_vt 待 clpub 证据派生）")
+    }
+
     @Test func knownHooksTableContract() {
         let rows = RuntimeConfig.knownHooks
         #expect(rows.count == 44, "4.1.15 全家族（除未发布 270087/092）+ 270131-135 × 双架构")
