@@ -549,3 +549,86 @@ python3 tools/launch_soak.py                 # 可选：对照浸泡
 wxkeep runtime clone status                  # clone≥1 clmiss≥1 = 捕获链真机贯通
 wxkeep runtime remove --app <副本路径>       # 清场（幂等）
 ```
+
+## V3-M2-R2 消息行读写面对位轮（2026-11-01，104 轮）
+
+> 目标：克隆缝的宿主直调合同清单（读路径全链 + 插入族入口 + 撤回写点
+> 布局）。全部地址 = **arm64 270135**（在役构建，charter 锚点经 idx 逐
+> 一确认为精确函数起点）。工件（伪代码/脚本/索引）在 var/（隐私门，
+> 不入库）；本节是持久记录。
+
+### 工具链事实（本轮沉淀，复用省 30 分钟）
+
+- **Ghidra 快路全流程**：`analyzeHeadless var/ghidra-wx wx270135arm
+  -import var/ab/270135_arm64.dylib -noanalysis`（首导 6 分钟）→ 后续
+  `-process` 免重导（每轮 ≈2 分钟）。seeding 用 `M2SeedCreate.java`
+  （修两处：原 SeedFunctionStarts 整行 parse 遇两列 seeds 即炸；本仓
+  idx 才是 FUNCTION_STARTS 权威——**var/wxarm/270135_seeds.txt 与本
+  dylib 不同源**，缺 0x4cd5e8c 等全部目标，270135_seeds_idx.txt 为重
+  生版）。定点扩体 `M2ExpandExact.java`（须 `getFunctionsOverlapping`
+  全清相交函数——散碎 1B 残留触发 OverlappingFunctionException 连坐）。
+- **SSO 池扫描**（`var/ab/m2r2_ssopool_scan.py`）：列名明文池定位
+  （"message_content"@0x98539cf、"svrid\x00create_time"@0x98406f7、
+  "AddMessage"串簇）+ idx 引用回查=业务层函数发现的一线方法。
+
+### 合同清单（ABI 契约，直调接线的设计依据）
+
+**读路径全链**（consumer_main 0x31a96d8 伪代码直读）：
+```
+lookup:  0x32edaec(out_buf, service, key_str, x3, 0)
+              service = consumer_this + 0xb78   ← 服务句柄是消费者字段
+              key_str  = 撤回键（栈上构造，std::string）
+wrap:    0x309ac50(wrap_out, lookup_out)        ← shared_ptr 引用计数 ++/--
+hit 判:  wrap_out + 0x278 bit0 == 1             ← 命中位（charter 预言证实）
+getter:  0x102b740(sret{obj,ctl_block}, wrap_out)  ← ctx+0x220/+0x228 取
+              dynamic_cast 后 strong count +1；100B 函数，最简 ABI
+服务定位: 0x05e1d978(N)  ← GetService 按索引（未命中腿 N=3 日志服务；
+              AddMessageResource 守卫 N=4；存储服务索引 TBD=R3）
+```
+
+**消息对象布局**（0x4cd5e8c 伪代码判读，撤回写点）：
+- `+0x7e`：content `std::string`（replacemsg 原地覆写目标——**arm64
+  libc++ SSO 布局与 hook 已读的 XML 串同构，sso_head 直读**）
+- `+0x7d` bool / `+0x87` u32 / `+0x3e9` byte(=1)：撤回标记字段
+- 递归自调 + 互调 0x4cd5d88：消息树/子结构遍历
+
+**撤回写点 0x4cd5e8c**：
+```
+(param_1, shared_ptr_vec* param_2, revoke_ctx* param_3)
+  param_2 = 消息对象 shared_ptr 向量（begin/end 经典布局）——**对象已在
+  手，content @+0x7e 写前可读，零查找零服务获取**
+  revoke_ctx+0x1c8 → { +0x10 int, +0x14 int(=4 时改写 content),
+                       +0x20 string=tip 文本, +0xc u32 }
+  写的是【内存对象】——持久化在下游 WCDB object-store（非本函数 SQL）
+```
+
+**插入族业务入口 0x33fd190 = AddMessageResource**：
+```
+(this?, vector<shared_ptr<msg>>* param_2, param_3)
+  守卫段：param_2 空/vec 空 → GetService(4) + "AddMessageResource" 日志
+  （行号 0x21a/0x221）；vector begin/end = plVar13[2]/[3]
+  WCDB 库层 = 0x56xxxxx 区（SSO 池 "WCDB" 串簇实证）；业务层在其上
+```
+
+### 缝位比较（R3 接线的设计裁决输入）
+
+| | A：parse 入口 hook（R1 现位） | B：0x4cd5e8c 写点 hook |
+|---|---|---|
+| 捕获时机 | 撤回 XML 到手，**但撤回未解析**——须自建 service+key+lookup 三连 | **对象已在 param_2 向量**，content 写前可读，零查找 |
+| 服务获取 | 需定位存储服务单例（0x05e1d978 索引 TBD 或构造链追） | param_1 = 服务句柄候选（调用者反编译被 jumptable 截断，R3 补） |
+| 构建churn | hooks 行既有机制（parse 挂点已验证 44 行） | 新挂点=新派生轮（家族一致性门全重走） |
+| 与 R1 骨架 | 捕获已在位，差读链 | 捕获点迁移，异步派发骨架复用 |
+
+**R1 的 XML 捕获面不浪费**：无论缝位，newmsgid/fromusr 提取仍是克隆
+事件的键与元数据；R2 合同给出的是「content 从哪读」。
+
+### R3 剩余清单（接线前置）
+
+1. 0x713cb34（0x4cd5e8c 调用者，4 调用点）反编译被尾部 jumptable
+   （0x7140008）截断——param_1 服务语义未定案；jumptable 恢复或改
+   逐调用点截反汇编。
+2. AddMessageResource 全链（守卫后段）：插入 SQL 构造 + 队列归属
+   （异步派发在哪一层——风险#2 的实证项）。
+3. 存储服务索引定案（0x05e1d978 的存储槽位）或 consumer 构造链追
+   （+0xb78 赋值点）。
+4. 数据行 schema 定稿 + 直调表接入 + 副本 E2E（runbook 已在 R1 节）。

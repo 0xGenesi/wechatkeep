@@ -134,6 +134,18 @@ svrid/rowid 不受波及。插入落队时机晚于撤回写也安全（内容�
 - **V3-M2（原型缝）**：runtime dylib 内独立实验开关（默认关）——hook
   体内：同步读原行→异步插克隆→放行。副本 E2E：撤回实弹三态可见
   （tip 灰条+克隆内容气泡）+ launch_soak 零新崩。
+  - **M2-R1 骨架完成（2026-11-01，103 轮）**：`clone_message` 键/hook
+    体 XML 捕获（先于清零，自发不克隆由门序钉入）/串行队列异步派发/
+    marker 证据位（clone=/clmiss=）/CLI 面（`runtime clone`）；宿主直调
+    表显式空置——clmiss= 即「机制真实驱动且可证惰性」。263 测全绿。
+    机制细节与 E2E runbook 见 RUNTIME-DESIGN M2-R1 节。
+  - **M2-R2 读写面对位完成（2026-11-01，104 轮）**：arm64 270135 合同
+    清单全量落册（RUNTIME-DESIGN M2-R2 节）——读路径链
+    （0x32edaec/0x309ac50/+0x278 命中位/0x102b740 getter，服务句柄=
+    consumer this+0xb78）、消息对象布局（content @+0x7e，SSO 同构）、
+    撤回写点 0x4cd5e8c（对象向量在手写前可读）、插入族业务入口
+    0x33fd190=AddMessageResource。缝位比较（parse 入口 vs 写点 hook）
+    成册；R3=服务索引定案+插入全链+jumptable 补课+接线。
 - **V3-M3（产品化）**：config 键 `clone_message`（默认 off，与
   keep_message/zeroing 三通道关系裁决：克隆开启时清零是否让行）+自撤
   不克隆（selfskip 先于克隆判定）+重编辑记账对齐+FuzzParseSurfaces

@@ -463,6 +463,40 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 104·V3-M2-R2 消息行读写面对位轮（2026-11-01：arm64 270135 合同清单全量落册——读路径链/对象布局/撤回写点/插入族入口；Ghidra 快路工具链四坑修复）
+
+> 用户令「继续」（M2-R2）。纯 RE 轮：宿主直调合同清单是交付物，接线
+> 留 R3（无实弹窗口不 speculate 直调语义）。
+
+1. **[盘点]**：charter 锚点逐一经本仓 idx 确认=**arm64 270135 精确函数
+   起点**（consumer 0x31a96d8/svrid 查找对/obj getter/撤回写点/handler
+   全 EXACT）——77 续消费簇工作与本机在役基线同源，地址可直用。
+2. **[Ghidra 快路四坑]**（工具链事实入 RUNTIME-DESIGN M2-R2 节，复用
+   省半小时）：①seeds 两列格式炸整行 parse（M2SeedCreate 修）；②
+   **var/wxarm/270135_seeds.txt 与本 dylib 不同源**（缺全部目标地址）——
+   本仓 idx 才是 FUNCTION_STARTS 权威，重生成 seeds；③散碎 1B 函数残留
+   触发 OverlappingFunctionException 连坐（M2ExpandExact
+   getFunctionsOverlapping 全清+逐目标 try/catch）；④expand 后
+   `-process` 免重导，每轮 ≈2 分钟。
+3. **[读路径合同]**（consumer_main 伪代码直读）：`0x32edaec(out,
+   consumer_this+0xb78, key_str, x3, 0)` → `0x309ac50(wrap)` → 命中位
+   `+0x278 bit0` → `0x102b740(sret{obj,ctl}, wrap)`；服务定位器
+   `0x05e1d978(N)`（GetService 按索引）。服务句柄是消费者字段——parse
+   入口 hook 侧需单例获取（R3）。
+4. **[对象布局]**（撤回写点 0x4cd5e8c 判读）：content `std::string`
+   @**+0x7e**（arm64 SSO 与 hook 已读 XML 串同构，sso_head 直读）；撤回
+   标记 +0x7d(bool)/+0x87(u32)/+0x3e9(byte)；写的是内存对象，持久化在
+   下游 WCDB object-store。
+5. **[插入族入口]**：0x33fd190=**AddMessageResource**（守卫日志串+
+   行号 0x21a/0x221 实锤；param_2=消息对象 shared_ptr 向量）；WCDB 库
+   层=0x56xxxxx 区。全链（SQL+队列归属）=R3。
+6. **[缝位比较成册]**：parse 入口 hook（XML 在手但须自建 service+key+
+   lookup 三连）vs 0x4cd5e8c 写点 hook（对象向量在手零查找，但新挂点=
+   家族门重走）——R1 XML 捕获面两案通用（newmsgid/fromusr=克隆事件键）。
+7. **[诚实边界]**：0x713cb34（写点调用者）反编译被尾部 jumptable 截断，
+   param_1 服务语义未定案=R3 首题。本轮零代码变更（263 测基线不变），
+   合同清单+缝位裁决输入是交付物。
+
 ## 103·V3-M2-R1 克隆原型缝骨架轮（2026-11-01：机制面全落地——捕获/派发/证据/CLI 面，263 测全绿 +4；插入族 RE=M2-R2 显式前置）
 
 > 用户令「开工」（V3-M2 原型缝，charter §2）。按仓库有界轮方法论收口：
