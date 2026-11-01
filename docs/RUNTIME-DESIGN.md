@@ -866,3 +866,91 @@ x25 对象派生），**无全局捷径**。+0xb78 写入者链（consumer 构�
 ← 分发 2-3 hop）仍是 R6 静态目标；或副本窗口运行时试探（hook 侧从
 consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直连调用
 者，写入者链大概率短）。
+
+## 110 轮（2026-11-01）：R6 静态正道收口 + 证据步（clsvc）+ 主动体检第四轮（275 测全绿）
+
+### R6 静态正道：+0xb78 写入者链 → 成员对象定案（翻案 109 定性）
+
+- **RE 链**（270135 arm64，idx+capstone 全程）：handler 0x45a4948 @
+  0x45a5910 调 consumer_main，其 this 来自注册表 get-or-create
+  `0x268f370(manager, type key@0x9da2000)`——未命中走 map 工厂
+  0x4540bd8 → 闭包（vtable@0x9e870a8）→ 模板迷宫。**换道**：__text
+  界内 +0xb78 STR 全量扫描（76 站/35+ 函数）∩ consumer 类方法区
+  （0x317xxxx-0x321xxxx）唯一命中 **0x3199f78**。
+- **0x3199f78 = setter/initializer**：`new(0x90)` 双 vtable 对象
+  （0x9deeb48@+0 / 0x9ded4a8@+0x18，多继承）→ 存入 `[this+0xb78]/
+  [this+0xb80]`（shared_ptr 形态，含旧值引用计数递减）。caller =
+  0x317b850（consumer 类方法区）。**+0xb78 = consumer 成员对象，非外部
+  服务句柄**——109 的「+0xb78 写入者链（创建者←分发 2-3 hop）」与
+  「服务获取三层阻障」定性作废：不存在注入链，consumer this 即全部。
+- **x19 存活链（R6 运行时钥匙）**：consumer_main 序言 `mov x19,x0`；
+  svrid 查找站 0x31aa5dc `ldr x0,[x19,#0xb78]`→`bl 0x32edaec` 直证
+  x19=consumer this；至写点调用 0x31aa680 区间无 x19 复写（仅 x20/x0/
+  x8/x9 被写）——**写点 hook 入口处 x19 = consumer this**（自递归路径
+  由被调用者保存约定保全）。
+- **读路径直译合同**（R6 工作函数照抄）：`0x4a2b524(x20, sret)` 构造
+  key → `0x32edaec(x0=[x19+0xb78], x1=&key, x2=[sp+0x488], w3=0, sret)`
+  → `0x102b740(x20, sret)` 取 msg_obj。
+- parse 唯一直连调用者 = wrapper 0x4d1f6c4（其自身无直连 BL 调用者，
+  纯间接到达——R1 三盲实证同族）；consumer_main 不直调 parse。
+
+### R6 证据步（代码）：clsvc=
+
+- 克隆 thunk（revoke_clone_hook）bl 前快照 x19 进全局（x16 IP 草稿位
+  寻址，帧布局零改动——透传契约测试全绿实证）；hook 体内核读
+  `[x19+0xb78]→[svc+0]` 与 `base+clone_svc_vtable`（行可选字段，270135
+  =0x9deeb48）比对，命中计 marker `clsvc=`。**零宿主调用**；x19 为垃圾
+  值时比对不中（内核读兜底），绝不放大为动作。
+- wire：HookRow += `clone_svc_vtable`（hex，坏值整行拒绝）；Swift 侧
+  knownHooks 270135 行携带；`runtime status`/`runtime clone status`
+  显示 clsvc=。真机一次撤回即出证据——非零即 R6 接线钥匙实证。
+
+### 主动体检第四轮（双评审）：P0×1 + P1×3 + P2×5 + P3×12（2 项裁定拒改）
+
+- **P0 SLOT 落点双门（runtime.m try_slot_fill）**：原实现只验入口 12B
+  指令形态即对解码地址做 8B release 写——同 UUID 内容漂移（10-03 事件
+  实证形态）下入口可能恰为 __objc_stubs 原生三连，slot 解向任意常量/
+  GOT 槽：只读页 store=SIGSEGV 启动即死 / 可写页=野写劫持。修：内核读
+  SLOT 必须成功且**当前值为零**（CLI detectPatched 同口径——objc_stub
+  引用槽恒非零一并挡掉）+ mach_vm_region 页可写门。回归：
+  wxkeep_runtime_test_slot_gate（预置非零→拒装/零→武装）。
+- **P1 journal 洗白链（三方修复）**：resign 抛错后字节已改+签名陈旧，
+  doctor 判「疑似写完未收口→重跑 patch」→ 全 alreadyPatched 跳过重签
+  → complete() → protected 假象（启动 CS 击杀）。修：① journal Record
+  += `resigned` 位（markResigned 在重签成功后写盘）；② patch/restore/
+  runtime remove 的幂等重跑在 journal 残留在场时**强制重签一次**（不受
+  wroteAnything 门）；③ doctor「字节完好」分支按 resigned 分流——
+  未确认→先 restore 归一（同治签名）；另 doctor 新增 `codesign --verify
+  --strict` 实测（-dvv 只读结构，改字节后照样报 adhoc——必崩态全盲）。
+- **P1 restore 写前失败不清 journal**：unsupportedBuild/restoreUnavailable
+  在首写前抛出却留残留 → doctor 永久开「重跑 restore」死循环处方（且
+  覆盖正确的 locate 指引）。修：catch 内识别两类写前错误即 complete()。
+- **P1 Engine 记账滞后洞**：Patcher Phase-2 中途抛错时字节已部分落盘，
+  但 wroteAnything/patchedBinaries 等正常返回才更新——「半套态补一次
+  重签」的恢复条件恰在此恒假。修：per-target 调用包 do/catch 保守标记
+  后重抛（patch 与 restoreTargets 双侧）。重签幂等，多签无害。
+- **P2 批**：① thunk 尾跳改 `add x16; ldar x17; br x17` + wrapper 存
+  储改 RELEASE——发布序在 wrapper 边配对闭合（SLOT 桩 12B 磁盘编码装
+  不进 ldar，该边维持 stlr+普通 ldr 残余，注释在案）；② install_hook
+  未补丁态入口读改内核读（坏行指向未映射区从构造器 SIGSEGV 降级拒装）；
+  ③ bootlog 环形缓冲（64×176B，fetch_add 分槽）——武装路径在 add_image
+  回调（dyld 持锁）不再做 Foundation I/O（自家红线，marker 同理由移出
+  而 bootlog 漏了）；安全上下文（构造器尾/arm_late/30s tick）统一落盘
+  +4MB 截断；④ hook_row_parse 全部 .UTF8String 过 nil 安全版 ns_u8()
+  （未配对代理 → nil → NULL 解引用，配置在腾讯可写容器——威胁模型在案）；
+  ⑤ locate --append 备份失败从 try? 吞改为中止+指引（旧文案把「备份
+  失败」谎报成「首次定位」）。
+- **P3 批**：arm_clone_site 失败 munmap 蹦床 + 「盘上补丁在场而 SLOT
+  未填」矛盾态 bootlog 留痕（W^X 下运行时无中和手段，收口=remove/重装）；
+  hook_off/clone_hook_off 换严格 hex（strtoull 吞尾部垃圾=错址落地）；
+  ULEB128 shift≥64 UB 门；probe_match_target 回传 sizeofcmds（区域扫描
+  路径最后的用户态裸读消除）；SafeWrite 权限回写失败如实抛；runtime
+  remove dylib 删除失败如实分报；clone create 暂存名+rename（中断残留
+  可识别可手删）+notAClone 文案给下一步；install blocked 措辞后置到
+  entrySlotOK 判定（消除自相矛盾输出）；README 覆盖清单/runtime.json
+  双写两处漂移修正；tip/clone-on 在组件未装时改「已保存，install 后
+  生效」（效果主张不再空转）。
+- **裁定拒改（记录理由）**：① revoke_hook_body args[1] 24B 诊断快照裸
+  读——该指针是 parse 的真实参数，sso_head 随后经同指针读同字节；热路径
+  加 syscall 换零增益安全。② 区域扫描 sizeofcmds 裸读——probe 刚内核读
+  过同页（微秒级 TOCTOU 不成立）；已顺手收紧（回传），非缺陷修复。

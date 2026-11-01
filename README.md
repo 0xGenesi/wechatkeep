@@ -20,7 +20,7 @@ swift build -c release   # 产出 .build/release/wxkeep（含 wxprobe 探针与 
 
 ## 功能
 
-- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）。覆盖 4.1.13 全线（269573-269632 已知构建）+ 4.1.15 全家族（270084-270100 公开段 + 270133-270135＝4.1.15.53-.55，2026-10-14 派生轮）双架构
+- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）。覆盖 4.1.13 全线 + 4.1.15 全家族 + 4.2.0 线已收录构建（270084-270102/270131-270135 等，121 构建双架构全量清单见 docs/COMPATIBILITY.md，`wxkeep versions` 看本地目录）
 - **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效（x64 探针=补丁后的 isRevokemsg 本体；arm64 探针=喂值给 cbz 分支的独立谓词，家族完整性+输入路径自检，补丁效果由 strict verify 字节级证明承担）
 - **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示。**二进制级 update 目标**（XAppUpdateManager 四方法+访问器对全套 8 点，双架构同构覆盖 4.1.13 全线 + 4.1.15 全家族；270100 真机行为验证；269602 为纯 C++ 更新器时代，双架构周期工人→ret 单点）
 - **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）
@@ -56,7 +56,7 @@ wxkeep runtime tip '"⚠️" 撤回了一条消息'   # 设置文案（骨架/�
 wxkeep runtime remove    # 完整移除（幂等）
 ```
 
-文案配置在微信 App Group 容器内（`~/Library/Group Containers/5A4RE8SF68.com.tencent.xinWeChat/wxkeep/runtime.json`，XML plist）：
+文案配置**双位写入**：微信 App Group 容器（`~/Library/Group Containers/5A4RE8SF68.com.tencent.xinWeChat/wxkeep/runtime.json`，XML plist，CLI 正位）+ 微信沙盒容器 Application Support（ad-hoc 装机进程内的实际可读位，同内容双写保证「进程读哪份哪份就对」）。两份不一致时 `runtime status` 会告警——重跑 `wxkeep runtime tip`/`hooks` 写入即收敛：
 | 键 | 说明 |
 |---|---|
 | `tip_text` | 自定义文案。**必须保持官方骨架** `"<X>" 撤回了一条消息`（渲染层按此模式匹配，非规范形态显示为 Unsupported 占位；`wxkeep runtime tip` 会强制校验）；`{from}` 占位符展开为撤回者昵称（纯 `"{from}"` 形态展开后与原内文恒等长，最稳）；总长 ≤ 原提示内文（约 31B，超长自动放弃保原文）。推荐：`"⚠️" 撤回了一条消息` |

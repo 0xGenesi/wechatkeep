@@ -97,3 +97,10 @@ int wxkeep_runtime_test_clone_rows(unsigned long long content_bytes,
 // 非 0 时先清配对槽（测试隔离）。配对通路测试 = 先 wxkeep_runtime_test_
 // clone_capture（真实 XML 捕获暂存 msgid）再 wxkeep_runtime_test_clone_rows。
 int wxkeep_runtime_test_clone_pair_count(int clear_pending);
+// R6 证据步缝（110 轮）：clsvc 身份门判定本体——合成 consumer（+0xb78 →
+// svc，svc+0=vtable 词）经 thunk 同款全局驱动 clone_hook_body；vt_mismatch
+// 非 0 时填错 vtable（应不命中）。返回本次 clsvc 命中增量（0/1）。
+int wxkeep_runtime_test_clone_svc(int vt_mismatch, int *rows);
+// SLOT 落点双门缝（110 轮 P0）：prefill 非 0 = SLOT 预置非零内容——生产
+// try_slot_fill 的真零门必须拒装（返回 1）；prefill 0 = 照常武装（返回 0）。
+long wxkeep_runtime_test_slot_gate(int prefill);

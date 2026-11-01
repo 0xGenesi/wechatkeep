@@ -44,6 +44,10 @@ enum RuntimeConfig {
         var clone_expected: String? = nil
         /// 写点函数级身份门（LC_FUNCTION_STARTS 距离；可选，语义同 func_size）
         var clone_func_size: Int? = nil
+        /// R6 证据步（110 轮）：consumer 成员服务对象（this+0xb78 pointee）的
+        /// vtable 切片偏移（hex，0x9deeb48@270135）——克隆 hook 体内核读比对，
+        /// 命中计数 clsvc= 是「x19=consumer this」运行时假设的真机证据位。
+        var clone_svc_vtable: String? = nil
 
         /// 显式 CodingKeys：case 名与属性一致（本结构属性已是 snake_case，
         /// 恰为 dylib 侧 wire 键），列出即把 wire 键名钉死——未来新增字段
@@ -53,6 +57,7 @@ enum RuntimeConfig {
             case build, uuid, arch, hook_off, msg_arg, xml_sso_off, expected
             case func_size, anchor_va, anchor_bytes
             case clone_hook_off, clone_expected, clone_func_size
+            case clone_svc_vtable
         }
     }
 
@@ -234,7 +239,12 @@ enum RuntimeConfig {
                 // 108 轮 P0 修：12B 行=补丁态蹦床重放 4B 零（UDF#0）——扩为
                 // pristine 切片实读的完整 16B（第 4 指令 = stp x24,x23,[sp,#0x70]，
                 // 无 PC 相对编码）。
-                clone_expected: "FFC302D1FC6F05A9FA6706A9F85F07A9", clone_func_size: 728),
+                clone_expected: "FFC302D1FC6F05A9FA6706A9F85F07A9", clone_func_size: 728,
+                // R6 证据步（110 轮 RE 定案）：+0xb78 = consumer 成员 shared_ptr
+                // （setter 0x3199f78 内联 new(0x90) 双 vtable 对象，主 vtable
+                // 0x9dee000 页 +0xb48）。行带此字段 → 克隆 hook 体内核读
+                // [x19+0xb78]→[svc+0] 与 base+0x9deeb48 比对，clsvc= 计数。
+                clone_svc_vtable: "0x9deeb48"),
     ]
 
     /// 微信的 App Group（与其 entitlements application-groups 同源）。
@@ -640,7 +650,11 @@ enum RuntimeConfig {
                            expected: (row["expected"] as? String) ?? "",
                            func_size: row["func_size"] as? Int,
                            anchor_va: row["anchor_va"] as? String,
-                           anchor_bytes: row["anchor_bytes"] as? String)
+                           anchor_bytes: row["anchor_bytes"] as? String,
+                           clone_hook_off: row["clone_hook_off"] as? String,
+                           clone_expected: row["clone_expected"] as? String,
+                           clone_func_size: row["clone_func_size"] as? Int,
+                           clone_svc_vtable: row["clone_svc_vtable"] as? String)
         }
     }
 }

@@ -30,7 +30,11 @@ enum Clone {
             case .plistWriteFailed(let d): return "Info.plist 写入失败: \(d)"
             case .resignFailed(let d): return "重签名失败: \(d)"
             case .launchFailed(let d): return "启动失败: \(d)"
-            case .notAClone(let p): return "\(p) 不是 wxkeep 克隆（缺少标记）"
+            case .notAClone(let p):
+                return "\(p) 不是 wxkeep 克隆（缺少标记）——拒绝删除以防误伤。\n"
+                    + "若它是中断残留的半拷贝（.wxkeep-partial 换位前或无 marker 的旧残留），"
+                    + "确认后可手工删除该目录；若想覆盖重建，`wxkeep clone create --replace` 只覆盖带标记的克隆，"
+                    + "无标记目录需先手工处理"
             }
         }
     }
@@ -88,13 +92,21 @@ enum Clone {
             throw CloneError.copyFailed("\(dir.path) 不可写（标准用户请用 --app 自定义目录，或加 sudo）")
         }
 
-        // 2. Copy; on any later failure remove the partial clone (fail-loudly convention)
-        do { try fm.copyItem(at: source, to: dest) }
+        // 2. Copy 到暂存名再 rename（110 轮修）：copyItem 非原子——340MB 级拷贝
+        // 被 SIGKILL/断电打断会留下「无 marker 的半拷贝 .app」，对 clone list/
+        // remove 双重不可见（list 靠 Info.plist marker 识别）。暂存名不带 .app
+        // 后缀，中断残留可被用户一眼识别并安全手删；rename 原子收口。
+        let staging = dir.appendingPathComponent(name + ".wxkeep-partial")
+        if fm.fileExists(atPath: staging.path) { try fm.removeItem(at: staging) }
+        do { try fm.copyItem(at: source, to: staging) }
         catch { throw CloneError.copyFailed(error.localizedDescription) }
-        func cleanup() { try? fm.removeItem(at: dest) }
+        func cleanup() {
+            try? fm.removeItem(at: staging)
+            try? fm.removeItem(at: dest)
+        }
 
-        // 2. Rewrite Info.plist: unique bundle ID + marker + strip URL schemes
-        let plist = dest.appendingPathComponent("Contents/Info.plist")
+        // 2b. Rewrite Info.plist（在暂存位上）: unique bundle ID + marker + strip URL schemes
+        let plist = staging.appendingPathComponent("Contents/Info.plist")
         guard let dict = NSMutableDictionary(contentsOf: plist) else {
             cleanup()
             throw CloneError.plistWriteFailed("unreadable")
@@ -109,6 +121,13 @@ enum Clone {
         guard dict.write(to: plist, atomically: true) else {
             cleanup()
             throw CloneError.plistWriteFailed("write failed")
+        }
+
+        // 2c. 原子换位到最终名（同卷 rename）
+        do { try fm.moveItem(at: staging, to: dest) }
+        catch {
+            cleanup()
+            throw CloneError.copyFailed("换位失败：\(error.localizedDescription)")
         }
 
         // 3. Re-sign the clone (bundle ID changed → must re-sign to launch).

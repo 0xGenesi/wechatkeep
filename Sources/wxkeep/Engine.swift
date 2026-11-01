@@ -286,9 +286,26 @@ enum Engine {
                     summary.lines.append("  backup: \(backup.lastPathComponent)")
                 }
                 for target in targets {
-                    let outcomes = try Patcher.patch(
-                        binary: binary, entries: target.entries, identifier: target.identifier,
-                        dryRun: dryRun, allowUnverified: allowUnverified)
+                    let outcomes: [Patcher.EntryOutcome]
+                    do {
+                        outcomes = try Patcher.patch(
+                            binary: binary, entries: target.entries, identifier: target.identifier,
+                            dryRun: dryRun, allowUnverified: allowUnverified)
+                    } catch {
+                        // 记账滞后洞（110 轮修）：Patcher 的 Phase-2 写循环可在
+                        // 中途抛错（EIO/ENOSPC）——此刻字节已部分落盘，但记账要
+                        // 等正常返回才更新，外层「半套态补一次重签」的条件
+                        // （wroteAnything && !patchedBinaries.isEmpty）恰在此恒假。
+                        // 保守标记（该 binary 可能实际没写）无害：重签幂等，
+                        // 多签一次只花时间；不标记 = 把启动必崩态留给下次启动。
+                        if !dryRun {
+                            summary.wroteAnything = true
+                            if !summary.patchedBinaries.contains(relative) {
+                                summary.patchedBinaries.append(relative)
+                            }
+                        }
+                        throw error
+                    }
                     let written = outcomes.filter { $0 == .written }.count
                     let skipped = outcomes.filter { $0 == .alreadyPatched }.count
                     summary.wroteAnything = summary.wroteAnything || written > 0
@@ -378,8 +395,21 @@ enum Engine {
                     copy.expected = Config.ExpectedVariants([entry.asm] + entry.expected!.values)
                     return copy
                 }
-                let outcomes = try Patcher.patch(
-                    binary: binary, entries: inverted, identifier: target.identifier, dryRun: dryRun)
+                let outcomes: [Patcher.EntryOutcome]
+                do {
+                    outcomes = try Patcher.patch(
+                        binary: binary, entries: inverted, identifier: target.identifier, dryRun: dryRun)
+                } catch {
+                    // 与 patch 路径同款的记账滞后洞（110 轮修）：restore 反演条目
+                    // 的 Phase-2 中途抛错时字节已部分还原——记账必须先于重抛。
+                    if !dryRun {
+                        summary.wroteAnything = true
+                        if !summary.patchedBinaries.contains(relative) {
+                            summary.patchedBinaries.append(relative)
+                        }
+                    }
+                    throw error
+                }
                 let restored = outcomes.filter { $0 == .written }.count
                 let skipped = outcomes.filter { $0 == .alreadyPatched }.count
                 summary.wroteAnything = summary.wroteAnything || restored > 0

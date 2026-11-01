@@ -91,6 +91,11 @@ extension Wxkeep {
             let version = WeChatApp.marketingVersion(app: options.app).map { " (v\($0))" } ?? ""
             print("build \(build)\(version) — variant \(variant.rawValue)\(dryRun ? " — dry run" : "")")
             let onlyList = Engine.parseOnlyList(only)
+            // journal 残留在场（上次 patch 死在收口前）→ 本次成功路径**强制重签**
+            // 一次（不受 wroteAnything 门）：全部 alreadyPatched 的幂等重跑会
+            // 跳过重签直接 complete()，把「字节已改+陈旧签名」的启动必崩态洗白
+            // 成 protected——110 轮修（双评审 P1）。重签幂等，未必要时多花几秒。
+            let journalPendingAtStart = !dryRun && PatchJournal.pending().exists
             // WAL 意图 journal：引擎获得写入机会之前落盘；全链成功（含重签）
             // 后由 complete 收口。中断（SIGKILL/断电）→ journal 残留 →
             // doctor 精确指路。dry-run 不写盘，不立 journal。
@@ -132,7 +137,9 @@ extension Wxkeep {
                 throw error
             }
             summary.lines.forEach { print($0) }
-            if !dryRun && summary.wroteAnything && !noResign {
+            // 强制重签条件（110 轮修）：本次写了字节，或上次事务死在收口前
+            // （journal 残留——幂等重跑全 alreadyPatched 时也要把陈旧签名治好）。
+            if !dryRun && (summary.wroteAnything || journalPendingAtStart) && !noResign {
                 print("------ Resign ------")
                 do {
                     try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
@@ -140,6 +147,7 @@ extension Wxkeep {
                     Wxkeep.printPermissionHintIfTCC(error)
                     throw error
                 }
+                PatchJournal.markResigned()   // 重签确认位（doctor 洗白链判读依据）
                 // 偏好层防护附带（108 轮复装）：patch 要求微信退出 = cfprefd 安全
                 // 写窗，且 README/update-guard 的报错文案一直承诺「随 patch 附
                 // 带」——dcbad63 审查把 restore 的「不附带偏好写入」正确原则
@@ -208,6 +216,8 @@ extension Wxkeep {
             let config = try Config.load(explicit: options.config)
             let build = try WeChatApp.buildNumber(app: options.app)
             print("restore build \(build)\(dryRun ? " — dry run" : "")")
+            // journal 残留在场 → 成功路径强制重签一次（与 patch 同款洗白链防线）。
+            let journalPendingAtStart = !dryRun && PatchJournal.pending().exists
             // WAL 意图 journal：restore 也是多点写（Patcher 反演），同样有
             // 中断窗口；成功收口时顺带清掉任何残留（含 patch 留下的）。
             if !dryRun {
@@ -219,10 +229,25 @@ extension Wxkeep {
                 summary = try Engine.restore(app: options.app, build: build, config: config, dryRun: dryRun)
             } catch {
                 Wxkeep.printPermissionHintIfTCC(error)
+                // 写前失败即收口（110 轮修，与 patch 的 auto-locate 路径同款）：
+                // unsupportedBuild（构建不在册）/ restoreUnavailable（preflight，
+                // 任何字节未写之前抛出）两类失败若不收口，journal 残留会让
+                // doctor 永久开「重跑 restore」的处方——而它每次都同样失败
+                //（微信自动升级后 / 含隔离条目的构建），死循环。
+                if let e = error as? Engine.EngineError,
+                   case .unsupportedBuild = e {
+                    if !dryRun { PatchJournal.complete() }
+                }
+                if let e = error as? Engine.EngineError,
+                   case .restoreUnavailable = e {
+                    if !dryRun { PatchJournal.complete() }
+                }
                 throw error
             }
             summary.lines.forEach { print($0) }
-            if !dryRun && summary.wroteAnything && !noResign {
+            // 强制重签条件（110 轮修）：全 pristine 的幂等 restore 在 journal
+            // 残留时也重签——「字节已还原+旧签名」同样是启动必崩态。
+            if !dryRun && (summary.wroteAnything || journalPendingAtStart) && !noResign {
                 print("------ Resign ------")
                 do {
                     try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
@@ -230,6 +255,7 @@ extension Wxkeep {
                     Wxkeep.printPermissionHintIfTCC(error)
                     throw error
                 }
+                PatchJournal.markResigned()
                 // restore 语义 = 回到原始；不附带任何偏好写入
             }
             if !dryRun { PatchJournal.complete() }   // 事务成功（幂等 restore 到达 pristine 终态）
@@ -316,7 +342,16 @@ extension Wxkeep {
                 let backup = localURL.appendingPathExtension("bak." + String(Int(Date().timeIntervalSince1970)))
                 var backedUp = false
                 if FileManager.default.fileExists(atPath: localURL.path) {
-                    try? FileManager.default.copyItem(at: localURL, to: backup)
+                    // 备份是覆盖写的前置条件（110 轮修）：copyItem 失败（磁盘满/
+                    // 权限）继续写 = 旧定位数据无备份即丢，且下方文案还会把
+                    // 「备份失败」谎报成「首次定位」。中止并给修复动作。
+                    do {
+                        try FileManager.default.copyItem(at: localURL, to: backup)
+                    } catch {
+                        throw ValidationError(
+                            "config.local.json 备份失败：\(error.localizedDescription)——已中止写入，原文件未动。\n"
+                            + "释放磁盘空间后重试，或先手工备份 \(localURL.path)")
+                    }
                     backedUp = (try? FileManager.default.fileExists(atPath: backup.path)) ?? false
                     // 保留策略：config.local.json.bak.* 只留最新 3 个
                     let dir = localURL.deletingLastPathComponent()
@@ -590,6 +625,15 @@ extension Wxkeep {
         }
         static let lcPath = "@executable_path/../Frameworks/wxkeep_runtime.dylib"
 
+        /// 组件注入态探测（110 轮修）：tip/clone 写配置时组件未装则没有任何
+        /// 读者——「≤30s 热生效」的效果主张空转（`runtime status` 才会揭穿）。
+        /// 未装时改打「已保存，install 后生效」。
+        static func runtimeInjected(app: URL) -> Bool {
+            guard let data = try? Data(contentsOf: mainExecURL(app), options: .alwaysMapped)
+            else { return false }
+            return MachOInjector.isInjectedAnySlice(data: data, path: lcPath)
+        }
+
         struct RuntimeHooks: ParsableCommand {
             static var _commandName: String { "hooks" }
             static let configuration = CommandConfiguration(
@@ -670,7 +714,11 @@ extension Wxkeep {
                 let selfOn = rewriteSelf.map { $0 == .on } ?? RuntimeConfig.readTip().rewriteSelf
                 print("  rewrite_self: \(selfOn ? "on" : "off")")
                 written.forEach { print("  \($0.path)") }
-                print("  （策略键 ≤30s 热生效——含 tip/开关；hooks 地址表仍需重启微信）")
+                if RuntimeCommand.runtimeInjected(app: options.app) {
+                    print("  （策略键 ≤30s 热生效——含 tip/开关；hooks 地址表仍需重启微信）")
+                } else {
+                    print("  ℹ︎ runtime 组件未安装——配置已保存，`wxkeep runtime install` 并启动微信后生效")
+                }
             }
         }
 
@@ -769,6 +817,12 @@ extension Wxkeep {
                             }
                             if let pairs = markerDigits("clpair").flatMap({ Int($0) }), pairs > 0 {
                                 line += " clpair=\(pairs)（R5 配对完整记录）"
+                            }
+                            // R6 证据步（110 轮）：clsvc = [x19+0xb78] vtable 身份门
+                            // 命中数——非零即「x19=consumer this + 成员服务对象」
+                            // 运行时假设在真机成立（R6 接线的钥匙已到手）。
+                            if let svc = markerDigits("clsvc").flatMap({ Int($0) }), svc > 0 {
+                                line += " clsvc=\(svc)（R6 服务身份门命中）"
                             }
                         }
                         line += "（M2 原型缝：捕获/写点/配对；clmiss=插入直调表未接的丢弃计数，非故障）"
@@ -1024,15 +1078,24 @@ extension Wxkeep {
                             if let pairs = digits("clpair"), pairs > 0 {
                                 line += " clpair=\(pairs)（msgid↔content 配对完整记录）"
                             }
+                            if let svc = digits("clsvc"), svc > 0 {
+                                line += " clsvc=\(svc)（R6 服务身份门命中——consumer this 钥匙实证）"
+                            }
                             print(line)
                         }
                     }
-                    print("实验状态:        M2-R5（捕获/写点/配对/证据链全通）；插入直调表（消息行入库）")
-                    print("                 = R6——数据行入库前克隆不产生任何消息副作用。推荐组合：keep_message 保持缺省开。")
+                    print("实验状态:        M2-R6（捕获/写点/配对/服务身份证据链全通）；插入直调表（消息行入库）")
+                    print("                 = R6 残余——数据行入库前克隆不产生任何消息副作用。推荐组合：keep_message 保持缺省开。")
+                    print("                 110 轮定案：consumer this 即读路径钥匙；clsvc= 真机验证后接插入族。")
                 case .on:
                     let written = try RuntimeConfig.writeCloneMessage(true)
-                    print("✓ clone_message = on（≤30s 热生效；M2-R5：捕获/写点/配对，插入未接——无消息副作用）")
+                    print("✓ clone_message = on（M2-R5：捕获/写点/配对，插入未接——无消息副作用）")
                     written.forEach { print("  \($0.path)") }
+                    if RuntimeCommand.runtimeInjected(app: options.app) {
+                        print("  （≤30s 热生效；R6 证据步 clsvc= 需重启微信后撤回一次可见）")
+                    } else {
+                        print("  ℹ︎ runtime 组件未安装——配置已保存，`wxkeep runtime install` 并启动微信后生效")
+                    }
                 case .off:
                     let written = try RuntimeConfig.writeCloneMessage(false)
                     print("✓ clone_message = off")
@@ -1079,7 +1142,10 @@ extension Wxkeep {
                 let (verdict, probeLines) = try RuntimeCommand.runCapabilityProbe(app: options.app)
                 for l in probeLines { print(l) }
                 if verdict == "blocked" {
-                    print("ℹ︎ 进程内武装不可用——走入口补丁路线（T6）： dylib 启动时数据写 SLOT")
+                    // 措辞后置到 entrySlotOK 判定（110 轮修）：blocked 即宣布
+                    // 「走 T6 路线」，而入口补丁不可用时几十行后又中止——同一
+                    // 输出自相矛盾。这里只陈述事实。
+                    print("ℹ︎ 进程内武装不可用——将尝试入口补丁路线（T6，需 arm64 hooks 行）")
                 }
                 let fm = FileManager.default
                 guard let dylib = resolveDylibPath(explicit: dylib) else {
@@ -1105,7 +1171,6 @@ extension Wxkeep {
                 var cloneSlotPlan: EntrySlot.Plan?
                 var cloneSlotIdempotent = false
                 var cloneSlotHookOff: UInt64 = 0
-                var cloneExpected12 = ""
                 do {
                     if let row = RuntimeConfig.knownHooks.first(where: {
                         $0.build == build && $0.arch == "arm64" }) {
@@ -1126,7 +1191,6 @@ extension Wxkeep {
                                 throw ValidationError("hooks 行 clone_hook_off 非法: \(cOffHex)（build \(row.build)）")
                             }
                             cloneSlotHookOff = cOff
-                            cloneExpected12 = cExp
                             if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: cOff) != nil {
                                 cloneSlotIdempotent = true
                             } else {
@@ -1142,6 +1206,9 @@ extension Wxkeep {
                     print("ℹ︎ entry-slot: \(error)——dylib 将按未补丁路径诊断")
                 }
                 let entrySlotOK = entrySlotIdempotent || entrySlotPlan != nil
+                if verdict == "blocked" && entrySlotOK {
+                    print("ℹ︎ 入口补丁在位/可装——T6 路线成立（dylib 启动时数据写 SLOT 武装）")
+                }
                 if verdict == "blocked" && !entrySlotOK && !force {
                     throw ValidationError(
                         "能力探针 blocked 且入口补丁不可用——本机无武装通道，装上也无法武装。\n"
@@ -1312,6 +1379,9 @@ extension Wxkeep {
                 }
                 let main = RuntimeCommand.mainExecURL(options.app)
                 let build = try WeChatApp.buildNumber(app: options.app)
+                // journal 残留在场 → 成功路径强制重签（同 patch/restore 的洗白链
+                // 防线；孤儿路径字节未动也重签——幂等无害）。
+                let journalPendingAtStart = PatchJournal.pending().exists
                 // LC 在场性预检：孤儿清理路径（LC 缺失）主程序一字节不动——
                 // 不再白造主程序备份（备份轮换 keep=3，无谓备份会挤掉有用的
                 // 历史点）。
@@ -1361,7 +1431,6 @@ extension Wxkeep {
                 // （95 轮三连崩同机制）；且还原失败信息要在删除 runtime dylib
                 // 之前给出（跳板残留 + dylib 已删 = parse 一进即崩的混合态）。
                 var entryRestored = false
-                var entryNeedsRestore = false   // detectPatched 命中（跳板在位）
                 var resignTargets = ["Contents/MacOS/WeChat"]
                 do {
                     let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
@@ -1369,7 +1438,6 @@ extension Wxkeep {
                         $0.build == build && $0.arch == "arm64" }) {
                         if let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16),
                            EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil {
-                            entryNeedsRestore = true
                             guard let expected = Data(hex: String(row.expected.prefix(24))), expected.count >= 12 else {
                                 throw ValidationError("hooks 行 expected 字节不足（build \(row.build)）")
                             }
@@ -1445,18 +1513,34 @@ extension Wxkeep {
                     throw error
                 }
                 let dylib = RuntimeCommand.frameworkDylibURL(options.app)
-                try? FileManager.default.removeItem(at: dylib)
+                var dylibRemoved = true
+                do {
+                    try FileManager.default.removeItem(at: dylib)
+                } catch {
+                    // 如实分报（110 轮修）：说「已清理」而文件还在 = 把残留态藏
+                    // 起来——LC 已移除所以它不再被加载（无害），但下次 install
+                    // 前的「已注入」预检语义与磁盘事实一致靠这次清理。
+                    dylibRemoved = false
+                    print("⚠️ runtime dylib 删除失败：\(error.localizedDescription)"
+                          + "——请手工删除 \(dylib.path)")
+                }
                 // marker 一并清掉：它声称「runtime 已加载」——组件移除后留着
                 // 是过期证据（doctor 侧已按 dylib 在位性忽略它，但 runtime
                 // status 与后续 install 前的观察都会被它污染）。全候选位清
                 // （含沙盒回落位，77 续对偶修复）。
                 RuntimeConfig.removeAllMarkers()
-                if lcWasPresent || entryRestored {
+                if lcWasPresent || entryRestored || journalPendingAtStart {
                     try Resigner.resign(app: options.app, patchedBinaries: resignTargets)
+                    PatchJournal.markResigned()
                 }
-                print(lcWasPresent
-                      ? "✓ runtime 已移除\(backup.map { "（备份: \($0.lastPathComponent)）" } ?? "")"
-                      : "✓ LC 未注入，孤儿 dylib 已清理（主程序未改动）")
+                if lcWasPresent {
+                    print("✓ runtime 已移除\(backup.map { "（备份: \($0.lastPathComponent)）" } ?? "")"
+                          + (dylibRemoved ? "" : "（dylib 文件残留，见上）"))
+                } else {
+                    print(dylibRemoved
+                          ? "✓ LC 未注入，孤儿 dylib 已清理（主程序未改动）"
+                          : "✓ LC 未注入（dylib 删除失败——见上方指引，主程序未改动）")
+                }
                 PatchJournal.complete()   // 移除事务确认成功
             }
         }

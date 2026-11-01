@@ -42,6 +42,22 @@ final class PatchJournalTests {
         #expect(!FileManager.default.fileExists(atPath: PatchJournal.url(userData: userData).path))
     }
 
+    @Test func markResignedLifecycle() throws {
+        // 110 轮洗白链防线：resigned 位的三态生命周期——begin 后 nil（未确认，
+        // doctor 按陈旧签名嫌疑处理）；markResigned 后 true（良性收口分支）；
+        // journal 不在时静默无操作。
+        try PatchJournal.begin(kind: .patch, build: "270100", variant: nil,
+                               app: "/Applications/WeChat.app", userData: userData)
+        #expect(PatchJournal.pending(userData: userData).record?.resigned == nil)
+        PatchJournal.markResigned(userData: userData)
+        #expect(PatchJournal.pending(userData: userData).record?.resigned == true)
+        PatchJournal.markResigned(userData: userData)   // 幂等
+        #expect(PatchJournal.pending(userData: userData).record?.resigned == true)
+        PatchJournal.complete(userData: userData)
+        PatchJournal.markResigned(userData: userData)   // journal 不在：静默
+        #expect(PatchJournal.pending(userData: userData).exists == false)
+    }
+
     @Test func pendingToleratesUnreadableJournal() throws {
         try Data("[not json".utf8)
             .write(to: PatchJournal.url(userData: userData))
@@ -89,12 +105,31 @@ final class PatchJournalTests {
     }
 
     @Test func guidancePatchFullyAppliedSuggestsVerify() {
+        // 重签已确认（110 轮洗白链修复后的良性分支）：死于收口前——verify 确认即可
+        var r = record(.patch)
+        r.resigned = true
         let g = Doctor.interruptedTxGuidance(
-            journalExists: true, record: record(.patch), gatingStates: patched, sudoRequired: false,
+            journalExists: true, record: r, gatingStates: patched, sudoRequired: false,
             appPath: appPath)
         #expect(g.verdictLines.first?.contains("fully applied") == true)
         #expect(g.nextCommand == "wxkeep verify")
         #expect(g.journalSummary?.hasPrefix("patch@") == true)
+    }
+
+    @Test func guidancePatchFullyAppliedWithoutResignLeadsRestoreFirst() {
+        // 110 轮修的判读契约：字节完好但重签从未确认（v1 旧记录 nil 同判）——
+        // 「重跑 patch 即收口」的旧处方会把陈旧签名洗白成 protected（全部
+        // alreadyPatched → 跳过重签）。指引 = 先 restore 归一（同治签名）。
+        let g = Doctor.interruptedTxGuidance(
+            journalExists: true, record: record(.patch), gatingStates: patched, sudoRequired: false,
+            appPath: appPath)
+        #expect(g.verdictLines.first?.contains("RE-SIGNING was never confirmed") == true)
+        #expect(g.nextCommand == "wxkeep restore")
+        // sudo 语境同款
+        let gs = Doctor.interruptedTxGuidance(
+            journalExists: true, record: record(.patch), gatingStates: patched, sudoRequired: true,
+            appPath: appPath)
+        #expect(gs.nextCommand == "sudo wxkeep restore")
     }
 
     @Test func guidancePatchPristineSuggestsRerunNotRestore() {

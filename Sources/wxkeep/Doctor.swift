@@ -21,6 +21,9 @@ struct Doctor {
         let running: Bool
         let writable: Bool
         let signature: String
+        /// `codesign --verify --strict` 实测（110 轮）：false = 字节已改+陈旧签名
+        /// 的启动必崩态（-dvv 的结构读取检不出来）。nil = 未检（异常兜底）。
+        var signatureValid: Bool? = nil
         let entitlementsOk: Bool
         let entitlementKeyCount: Int
         let restrictedEntitlements: Bool
@@ -45,6 +48,7 @@ struct Doctor {
             case sip
             case amfiRisk = "amfi_risk"
             case running, writable, signature
+            case signatureValid = "signature_valid"
             case entitlementsOk = "entitlements_ok"
             case entitlementKeyCount = "entitlement_key_count"
             case restrictedEntitlements = "restricted_entitlements"
@@ -202,6 +206,16 @@ struct Doctor {
         let running = WeChatApp.isRunning(app: app)
         let writable = fm.isWritableFile(atPath: main.path)
 
+        // 签名有效性实测（110 轮修）：-dvv 只读内嵌签名结构——补丁字节改后
+        // 不重签，它照样报 Signature=adhoc（甚至 original），「字节已改+陈旧
+        // 签名」的启动必崩态此前在 doctor 全盲（双评审 P1 的检测缺口半边）。
+        // --verify --strict 实算 cdhash 比对（Resigner 成功门同源；不带
+        // --deep——340MB 全量太慢，主签名足以暴露字节级漂移）。
+        let signatureValid: Bool? = {
+            let verify = Shell.run("/usr/bin/codesign", ["--verify", "--strict", app.path])
+            return verify.status == 0
+        }()
+
         // ---- runtime 组件状态（可选功能，只读探测） ----
         let runtimeDylibURL = WeChatApp.binaryURL(app: app, relative: "Contents/Frameworks/wxkeep_runtime.dylib")
         let runtimeDylibExists = fm.fileExists(atPath: runtimeDylibURL.path)
@@ -322,6 +336,15 @@ struct Doctor {
             nextCommand = guidance.nextCommand ?? nextCommand
         }
 
+        // 签名实测门（110 轮）：改字节未重签（中断事务/手工改写/陈旧工具）在此
+        // 现形——放在所有 nextCommand 逻辑之后，必崩态指引拥有最终话语权。
+        // restore 幂等 = 通用归一路径（restore 后再 patch 会强制重签）。
+        if signatureValid == false {
+            overall = Overall.mixed
+            verdicts.append("❌ bundle signature INVALID (codesign --verify --strict) — bytes changed after the last re-sign; WeChat would be killed at launch. Fix: `\(writable ? "" : "sudo ")wxkeep restore` (idempotent), then re-patch")
+            nextCommand = "\(writable ? "" : "sudo ")wxkeep restore"
+        }
+
         return Report(
             overall: overall,
             nativeArch: nativeArch,
@@ -335,6 +358,7 @@ struct Doctor {
             running: running,
             writable: writable,
             signature: signature,
+            signatureValid: signatureValid,
             entitlementsOk: entitlementsOk,
             entitlementKeyCount: profile?.count ?? 0,
             restrictedEntitlements: restricted,
@@ -423,11 +447,21 @@ struct Doctor {
         let byteDamage = gatingStates.values.contains { $0 == "mixed" || $0 == "unknown" }
         let anyPatched = gatingStates.values.contains { $0 == "patched" }
         switch record.kind {
-        case .patch where revokePatched && !byteDamage:
+        case .patch where revokePatched && !byteDamage && record.resigned == true:
             return (["journal from an unfinished patch run (started \(started)) — bytes look fully "
-                     + "applied; it likely died before cleanup. Confirm with `wxkeep verify`; "
-                     + "re-running patch (idempotent) clears the journal"],
+                     + "applied and re-signing was confirmed; it likely died before cleanup. "
+                     + "Confirm with `wxkeep verify`; re-running patch (idempotent) clears the journal"],
                     "patch@\(started)", "wxkeep verify")
+        case .patch where revokePatched && !byteDamage:
+            // 110 轮修（洗白链）：字节完好但重签从未确认（v1 旧记录 nil 同判）——
+            // 「重跑 patch 即收口」的旧处方会把陈旧签名洗白成 protected（全部
+            // alreadyPatched → 跳过重签）。新 CLI 的幂等重跑已强制重签，但最稳
+            // 指引仍是先 restore 归一（同时治签名）再重打。
+            return (["⚠️ journal from an unfinished patch run (started \(started)) — bytes look "
+                     + "fully applied, but RE-SIGNING was never confirmed: the signature may not "
+                     + "cover the patched bytes (launch kill). Run `\(sudo)wxkeep restore` "
+                     + "(idempotent) first, then re-patch (re-run now force-resigns)"],
+                    "patch@\(started)", "\(sudo)wxkeep restore")
         case .patch where !byteDamage && !anyPatched:
             return (["journal from an unfinished patch run (started \(started)) — bytes look "
                      + "pristine: the run likely failed BEFORE writing (permissions / TCC / wrong "
@@ -486,7 +520,8 @@ struct Doctor {
         }
         lines.append("running:     \(report.running ? "yes — quit before patching" : "no")")
         lines.append("writable:    \(report.writable ? "yes" : "no — patch with sudo")")
-        lines.append("signature:   \(report.signature)")
+        lines.append("signature:   \(report.signature)"
+                     + (report.signatureValid == false ? " — ❌ VERIFY FAILED（字节与签名不符，启动必崩）" : ""))
         let guardStatuses = UpdateGuard.read()
         let guardTag = Doctor.updateGuardTag(
             guardOn: guardStatuses.allSatisfy(\.guarded),

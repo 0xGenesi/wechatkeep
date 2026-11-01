@@ -22,6 +22,12 @@ enum PatchJournal {
         let app: String      // 事务作用的 app bundle 路径——doctor 只对同 app 精确指路
         let startedAt: String
         let pid: Int
+        /// 重签确认位（110 轮修）：true = 重签已成功到达（签名覆盖当前字节）。
+        /// nil = v1 旧记录（保守按未确认处理）。防洗白链：patch 写完字节、死在
+        /// 重签（或重签抛错）→ journal 残留 + 字节完好——doctor 若按旧逻辑判
+        /// 「疑似写完未收口，重跑 patch 即可」，重跑会因全部 alreadyPatched 跳过
+        /// 重签直接 complete()，陈旧签名被洗白成 protected（启动即 CS 击杀）。
+        var resigned: Bool? = nil
     }
 
     static let fileName = "patch.journal.json"
@@ -49,6 +55,20 @@ enum PatchJournal {
     /// 或 restore 收口）。
     static func complete(userData: URL? = nil) {
         try? FileManager.default.removeItem(at: url(userData: userData))
+    }
+
+    /// 重签确认（110 轮修）：把 journal 内的 resigned 置真（重签成功后、
+    /// complete 之前调用）。journal 不在/不可解码时静默跳过——检测能力不因
+    /// 此减弱（doctor 对 nil record 已按未确认处理）。
+    static func markResigned(userData: URL? = nil) {
+        let target = url(userData: userData)
+        guard let data = try? Data(contentsOf: target),
+              var record = try? JSONDecoder().decode(Record.self, from: data) else { return }
+        guard record.resigned != true else { return }
+        record.resigned = true
+        if let out = try? JSONEncoder().encode(record) {
+            try? SafeWrite.overwrite(out, to: target)
+        }
     }
 
     /// 读取残留事务。文件在但不可解码 → exists=true / record=nil：

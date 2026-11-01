@@ -15,13 +15,16 @@ import Foundation
 enum SafeWrite {
     /// Atomic overwrite of `url`, restoring the original file's posix
     /// permissions afterward. Missing file → created with default perms.
+    /// 权限回写失败如实抛出（110 轮修）：`try?` 吞掉 = 「修好了撕裂写、
+    /// 引入了无执行位」——正是本类型头注释自称要防的症状；调用方
+    /// （journal/备份链）都承接 throws。
     static func overwrite(_ data: Data, to url: URL) throws {
         let fm = FileManager.default
         let perms = ((try? fm.attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber)?
             .intValue
         try data.write(to: url, options: .atomic)
         if let perms {
-            try? fm.setAttributes([.posixPermissions: perms], ofItemAtPath: url.path)
+            try fm.setAttributes([.posixPermissions: perms], ofItemAtPath: url.path)
         }
     }
 }

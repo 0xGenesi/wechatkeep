@@ -991,3 +991,52 @@ extension RuntimeHookTests {
         _ = wxkeep_runtime_test_clone_pair_count(1)   // 清场
     }
 }
+
+// MARK: - 110 轮回归（SLOT 落点门 / R6 clsvc 证据步 / wire 字段）
+
+extension RuntimeHookTests {
+    /// P0 落点双门：SLOT 预置非零 → 生产 try_slot_fill 必须拒装（真零门）；
+    /// 预置零 → 照常武装。同 UUID 漂移下入口 12B 恰为 __objc_stubs 原生
+    /// 三连时，解码出的 slot 指向非零引用槽——无门直写 = 野写/只读页崩。
+    @Test func slotGateRejectsNonZeroSlot() {
+        #if arch(arm64)
+        #expect(wxkeep_runtime_test_slot_gate(1) == 1,
+                "SLOT 非零 → 真零门拒装（返回 1）")
+        #expect(wxkeep_runtime_test_slot_gate(0) == 0,
+                "SLOT 为零 → 照常武装（返回 0，与 slot_chain 互证）")
+        #else
+        #expect(wxkeep_runtime_test_slot_gate(1) == -2)
+        #endif
+    }
+
+    /// R6 证据步：clsvc 身份门——vtable 词与 base+行偏移一致才命中。
+    /// 非零 clsvc = 「x19=consumer this + 成员服务对象」运行时假设成立的
+    /// 真机证据位（R6 接线按 msgid 重查的钥匙）。
+    @Test func cloneSvcEvidenceGate() {
+        #expect(wxkeep_runtime_test_clone_svc(0, nil) == 1,
+                "vtable 匹配 → clsvc 命中 +1")
+        #expect(wxkeep_runtime_test_clone_svc(1, nil) == 0,
+                "vtable 失配 → 不命中（垃圾寄存器值不放大为任何动作）")
+    }
+
+    /// wire 字段：clone_svc_vtable 合法 hex 接受；坏值整行拒绝（假门比没门糟）。
+    @Test func cloneSvcVtableRowParse() {
+        let row = #"{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9F85F07A9""#
+        let good = #"{"hooks":["# + row + #","clone_svc_vtable":"0x9deeb48"}]}"#
+        #expect(wxkeep_runtime_test_parse_hooks(good, UInt(good.utf8.count)) == 1)
+        let bad = #"{"hooks":["# + row + #","clone_svc_vtable":"9deeb4ZZ"}]}"#
+        #expect(wxkeep_runtime_test_parse_hooks(bad, UInt(bad.utf8.count)) == 0,
+                "坏 hex 的 clone_svc_vtable 必须整行拒绝（位置/比对基准字段宽严一致）")
+    }
+
+    /// hook_off 尾部垃圾静默吞修正：严格 hex 解析（与 anchor_va 同规）。
+    @Test func hookOffStrictHexParse() {
+        func row(_ off: String) -> String {
+            #"{"hooks":[{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"\#(off)","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9"}]}"#
+        }
+        #expect(wxkeep_runtime_test_parse_hooks(row("0x4d1f8d8"), UInt(row("0x4d1f8d8").utf8.count)) == 1)
+        let junk = row("0x4d1f8d8ZZ")
+        #expect(wxkeep_runtime_test_parse_hooks(junk, UInt(junk.utf8.count)) == 0,
+                "尾部垃圾的 hook_off 必须整行拒绝（strtoull 静默吞=错址落地）")
+    }
+}

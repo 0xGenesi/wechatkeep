@@ -169,10 +169,46 @@ svrid/rowid 不受波及。插入落队时机晚于撤回写也安全（内容�
     服务获取负结果确认（0x32edaec 全 6 调用者=this+0xb78 派生，无全局
     捷径）；consumer_main 唯一直连调用者 0x45a5910——写入者链大概率短，
     下轮主攻。详见 RUNTIME-DESIGN 109 节。
-- **V3-M3（产品化）**：config 键 `clone_message`（默认 off，与
-  keep_message/zeroing 三通道关系裁决：克隆开启时清零是否让行）+自撤
+  - **M2-R6 静态正道完成 + 证据步落地（2026-11-01，110 轮）**：
+    - **+0xb78 真相（RE 翻案）**：它**不是从别处获取的服务句柄**，而是
+      consumer 的**成员 shared_ptr**（setter `0x3199f78`——caller
+      0x317b850∈consumer 类方法区——内联 `operator new(0x90)` 构造的双
+      vtable 多继承对象，主 vtable=0x9deeb48@+0/0x9ded4a8@+0x18，存入
+      +0xb78/+0xb80）。**「服务获取」问题就此消解：拿到 consumer this
+      即拿到读路径全部输入**（109 的「写入者链」定性随之失效——不存在
+      外部服务注入链）。
+    - **x19 = consumer this 在写点调用处存活**（270135 实证：consumer_main
+      序言 `mov x19,x0`；0x31aa5dc `ldr x0,[x19,#0xb78]`→`bl 0x32edaec`
+      直证；至写点调用 0x31aa680 区间无 x19 复写；写点自递归路径 x19 被
+      被调用者保存约定原样保全）。
+    - **R6 证据步（代码落地）**：克隆 thunk 快照 x19 进全局（零帧改动）；
+      hook 体内核读 `[x19+0xb78]→[svc+0]` 与 `base+行携带 clone_svc_vtable`
+      比对（270135 行=0x9deeb48）；命中计数 marker `clsvc=`。**零宿主调用，
+      纯读**——真机一次撤回即验证「钥匙在手」（R6 接线=异步按 msgid 经
+      0x32edaec(consumer+0xb78 成员) 重查+插入族）。
+    - 读路径直译合同（0x31aa5c4-0x31aa5f0）：`0x4a2b524(x0=x20, sret
+      sp+0x3a0)` 构造 key → `x0=[x19+0xb78], x1=sp+0x3a0, x2=[sp+0x488],
+      w3=0, sret=sp+0x390 → bl 0x32edaec` → `bl 0x102b740(x0=x20)` 取
+      msg_obj。R6 工作函数照抄即可。
+    - 工具沉淀：var/ab/r6_caller_hunt.py（函数界+BL 标注定点反汇编）、
+      r6_b78_writers.py（__text 界内 +0xb78 STR/LDR 全量扫描；36 位
+      chained-fixup 自解版因 __TEXT 内嵌数据节假阳性废弃，dyld_info
+      -fixups 为权威）。
+- **V3-M3（产品化）**：config 键 `clone_message`（默认 off）+自撤
   不克隆（selfskip 先于克隆判定）+重编辑记账对齐+FuzzParseSurfaces
   负控（坏 XML 不触发插入）。
+  - **三通道关系裁决（110 轮落册）**：克隆开启时**清零不让行**——
+    keep_message 与 clone_message 正交共存。机械依据：①克隆行携带捕获
+    的 content 与独立 svrid/rowid，清零只作用于撤回 XML 的 newmsgid
+    查找（保原行），与克隆行的生成/存活性无交集；②keep_message 是
+    「消息保留」的兜底层，克隆是加法层——关清零换克隆会把兜底让位给
+    尚未接线的实验（R6 插入未接前克隆恒惰性）；③M4 实弹若观察到克隆
+    行与清零语义冲突（服务器重同步清理/判孤儿，风险#4），再议降级组合。
+    产品面已在 `runtime clone status` 文案明示「推荐组合：keep_message
+    保持缺省开」。
+  - M3 完成度：config 键 ✓ / 自撤不克隆（门序）✓ / Fuzz 负控（108 轮
+    捕获/配对段）✓ / 三通道裁决 ✓；重编辑记账对齐随 R6 接线（revokemessage
+    行插入点在工作函数侧）。
 - **V3-M4（实弹）**：用户窗口群聊+私聊双实弹验收 + 长期多端重同步
   观察（克隆行存活性）。
 
