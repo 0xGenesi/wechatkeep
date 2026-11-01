@@ -1062,3 +1062,55 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
   多 app 事务模型再议；③无跨进程互斥（flock）——双开 CLI 是操作面小
   场景且可恢复，doctor 的 mixed 判定兜底。
 
+## R7 插入族队列归属与克隆对象策略（2026-11-01，M4 前置 RE；269→279 测同轮基线）
+
+> 目标：charter 风险 #2（消息 DB 插入的队列亲和）实证定案 + msg 对象
+> 克隆策略首个证据面。方法：stubmap（1745 外部绑定）驱动的 GCD/pthread
+> 调用全扫 + 插入链逐函数反汇编（工具 var/ab/r7_insert_queue.py）。
+
+### 队列归属定案（风险 #2 收敛）
+
+**插入链全族零 GCD、零 pthread_create**（AddMessageResource 0x33fd190
+2788B / 写枢纽 0x3aeddb4 / 逐项处理 0x33f748c / 键值装配 0x3b1afc /
+0x56f412c / 入库服务 0x34579d0 7544B / svrid 批量请求 0x3402f74 全扫，
+对照组 consumer_main/撤回写点同样 NONE）：
+
+- **业务层不创建线程、不依赖特定队列**——派发全部是 vtable/observer
+  post：写枢纽 =「[this+8] 经 0x56f412c 取订阅者 → 订阅者 vtable[0x28]
+  post(&task)」；任务对象 = C++ callable 包装（0x9df7c38 vtable 全是
+  拷贝/析构样板，32B，同款 48B 形态见 0x3402f74）。
+- **同一模式双实例互证**：0x34579d0（入库服务）先 `0x3402f74(service,
+  &svrid数组, 1, &outvec)` 发「按 svrid 批量读」请求任务（同一写枢纽
+  post），再循环 `0x34597c8(源, container, 0xa, sret)` 构造 msg 对象向量
+  → `AddMessageResource(service=[this+8], x1=&vector)` 同步入库。
+- **下游=W⁢CDB 层**（0x56xxxxx 区，开源线程模型：handle 池+锁串行化，
+  无主队列亲和）——任意线程同步调用安全；并发 insert 由 handle 池排队。
+- **对 worker 的判定**：wxkeep.clone 串行队列异步调插入链 = 安全方向
+  ①不阻塞消息链（异步解耦已由 R1 架构保证）②不嵌套（不在宿主持锁栈
+  内，WCDB 死锁面为零）③与宿主并发写由 handle 池串行化吸收。风险 #2
+  从「未定案」降级为「静态证据支持安全 + 副本 E2E 实证待做」。
+
+### 克隆对象策略（首个证据面）
+
+- **msg 类构造器候选 = 0x34597c8(source, container, type=0xa, sret)**：
+  sret 对象主 vtable = **0x9f24930**（0x9f24000 页 +0x930）；体 = 字段拷
+  贝（[src+0x20]→[sret+0x20]）+ descriptor 表族（0x9f24fe8 起 9 槽）+
+  `0x347cd3c`+`0x56fa6fc(…,0x20)`+`0x2f717e8(sret, src)`（内容摘要重建）
+  +`0x56fa308`（中间对象析构）。**构造式克隆的骨架在位**——worker 已有
+  source（getter 的 msg_obj）；container 语义（[入库服务 this+0x20] 解引
+  用）与 0xa 类型常量的判别面 = 下轮定案项。
+- **service 句柄同源**：AddMessageResource 的 this = 入库服务
+  0x34579d0 的 `[this+8]` 成员 shared_ptr——与 consumer+0xb78 同构的
+  「this 成员对象」形态（无全局捷径，与 110 轮定性一致）。
+- M4 直调表数据行的候选字段组（下轮派生）：insert_off=0x33fd190、
+  ctor_off=0x34597c8、svc 链（入库服务 this+8 的运行时获取——可经写点
+  thunk 的 consumer→上游，或 0x34579d0 的 vtable 侧定位）。
+
+### 诚实边界
+
+队列归属的「任务是否最终交宿主私有 C++ 线程池执行」未逐 vtable 追到
+底（订阅者实现层）——但该残余对克隆语义无影响（我们要的恰是「不阻塞
+消息链」，无论任务在哪执行）；真机/副本 E2E（M4）仍是队列安全性的最
+终实证面。0x34597c8 的 type=0xa 分支只覆盖文本消息——非文本克隆（图
+片等）需独立分支勘察，M4 首发限定文本克隆。
+

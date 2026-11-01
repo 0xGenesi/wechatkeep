@@ -463,6 +463,29 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 112·R7 插入族队列归属定案轮（2026-11-01：M4 前置 RE——插入链全族零 GCD/零 pthread（风险 #2 静态收敛）；克隆构造器候选 0x34597c8 定位（msg vtable 0x9f24930）；AddMessageResource 唯一调用者入库服务 0x34579d0 全图）
+
+1. **[队列归属（风险 #2）]**：stubmap 驱动的 GCD/pthread 调用全扫——
+   AddMessageResource/写枢纽/逐项处理/键值装配/0x56f412c/入库服务
+   0x34579d0/0x3402f74 全族 NONE（consumer_main/写点对照组同 NONE）。
+   判读：业务层不建线程不认队列，派发=vtable/observer post（写枢纽=
+   订阅者 vtable[0x28] post(&task)，任务=32B callable 包装 0x9df7c38；
+   0x3402f74 同款 48B=按 svrid 批量读请求）；下游=WCDB handle 池（开源
+   线程模型，无主队列亲和）。worker 从异步串行队列调插入链=安全方向
+   （不阻塞/不嵌套/并发由池串行化）——副本 E2E 终证待做。
+2. **[克隆对象策略首证]**：0x34597c8(source, container, type=0xa, sret)
+   =构造式克隆骨架（sret 主 vtable=0x9f24930；字段拷贝+descriptor 表族
+   0x9f24fe8+0x2f717e8 内容摘要重建）；source=worker getter 已有；
+   container=[入库服务 this+0x20] 解引用（语义下轮定案）；0xa=文本类型
+   分支——首发限定文本克隆。
+3. **[入库服务全图]**：AddMessageResource 唯一直连调用者 0x34579d0
+   （7544B，原始 BL 全扫防 idx 漏边）；service=[this+8] 成员 shared_ptr
+   （与 consumer+0xb78 同形态，无全局捷径）；两参=(&vector<shared_ptr>，
+   &out)。
+4. **[诚实边界]**：订阅者实现层（任务最终执行线程）未逐 vtable 追到
+   底——对克隆语义无影响；M4 直调表数据行（insert/ctor/svc 链字段组）
+   待下轮派生；工具 var/ab/r7_insert_queue.py。
+
 ## 111·R6 读路径接线 + 主动体检第五轮（2026-11-01：四路并行审计 P1×4+P2×7+P3 批全修；R6 异步重查链代码全落地（x2 链/key 帧快照/sret ABI 三缺口补全）；279 测全绿 +6）
 
 1. **[R6 接线]**：110 指派的「下轮代码项」完成——HookRow 九字段直调表组
