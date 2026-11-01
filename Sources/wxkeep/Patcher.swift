@@ -303,8 +303,7 @@ struct Patcher {
                 // 写路径的换算必须落在 file-backed 区间内：vmsize 覆盖 __bss
                 // 等零填充尾（无文件背书），把 VA 映到那里 = 写偏移飞进下一
                 // 段或文件尾外的无关字节。
-                if va >= fields.0 && va < fields.0 + fields.3,
-                   va - fields.0 < fields.3 {
+                if va >= fields.0 && va - fields.0 < fields.3 {   // 111 轮修：减法式（加法式溢出 trap）
                     return sliceOffset + fields.2 + (va - fields.0)
                 }
             }

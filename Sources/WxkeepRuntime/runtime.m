@@ -99,6 +99,21 @@ typedef struct {
     // 「x19=consumer this 运行时假设」的真机证据位（零宿主调用，纯读）。
     uint32_t clone_svc_vtable;
     uint8_t has_clone_svc_vtable;
+    // R6 读路径直调表（111 轮，docs/RUNTIME-DESIGN 111 节合同）：异步工作
+    // 函数按 msgid 重查消息对象的宿主函数组。九字段**成组出现**（任一在
+    // 场则全组必须完整，否则整行拒绝——clone_hook_off 成对门同哲学）。
+    // 安装期对 clone_rd_lookup 过函数身份门（FUNCTION_STARTS 距离 + 入口
+    // 16B 锚 memcmp），失配 → 直调表不武装（worker 惰性，clmiss 语义不变）。
+    uint32_t clone_rd_lookup_off;      // svrid 查找 0x32edaec（sret 五参）
+    uint32_t clone_rd_lookup_fs;       // lookup 的函数距离（身份门①）
+    uint8_t clone_rd_lookup_head[16];  // lookup 入口 16B 原像（身份门②）
+    uint32_t clone_rd_wrap_off;        // wrap 0x309ac50（拷贝+dynamic_cast）
+    uint32_t clone_rd_getter_off;      // getter 0x102b740（sret {obj,ctl}）
+    uint32_t clone_rd_x2single_off;    // 全局单例 get 0x571ce74（out ctl, &slot）
+    uint32_t clone_rd_x2desc_off;      // 单例描述符槽 0xa3de0a70（切片偏移）
+    uint32_t clone_rd_x2ctx_off;       // ctx 获取 0x5720308（&p, NULL）
+    uint32_t clone_rd_key_slot;        // consumer_main 帧内 key 串对象的 sp 偏移（0x3a0）
+    uint8_t has_clone_rd;
 } hook_target_t;
 
 // 270099 x86_64 — hook 点 = parse 入口（drive25 地面真值：rsi 直挂 sysmsg
@@ -394,6 +409,14 @@ static int arm64_prologue_relocatable(const uint8_t *p, size_t n) {
         if ((w & 0xFF000000u) == 0x54000000u) return 0;   // b.cond（imm19 PC 相对）
         if ((w & 0xFF000000u) == 0x98000000u) return 0;   // LDRSW literal
         if ((w & 0xFF000000u) == 0xD8000000u) return 0;   // PRFM literal
+        // 111 轮补门（审计 P1）：寄存器间接跳转族（BR/BLR/RET 及 PAC 变体
+        // 全在 0xD6 首字节）与陷阱/系统空间（0xD4=HLT/BRK/DCPS、
+        // 0xD5=MSR/SYS/AT/TLBI——hint/NOP 误拒按「宁拒不挂」接受）。
+        // 动机：补丁态的蹦床重放源 100% 来自行字节（磁盘原 12B 已被入口
+        // 补丁覆盖，运行时无第二信源可比对）——PC 相对门只封了显式转移，
+        // `br x0` 一条即任意控制流。现役行首字节 FF/F8/F6/F4/FD 全不含
+        // 0xD4-D6，零误拒。
+        if ((w >> 24) == 0xD4 || (w >> 24) == 0xD5 || (w >> 24) == 0xD6) return 0;
     }
     return 1;
 }
@@ -512,6 +535,55 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
             if (!parse_hex_u32(ns_u8(csvt), &v) || v == 0) return 0;
             out->clone_svc_vtable = v;
             out->has_clone_svc_vtable = 1;
+        }
+        // R6 读路径直调表（111 轮）：九字段成组——任一在场则全组必须完整
+        //（缺任一 = 行作者笔误，整行拒绝）。全部严格 hex（hook_off 同规：
+        // strtoull 吞尾部垃圾 = 错址直调，身份门锚字节同拒绝半合法值）。
+        // lookup 头锚恰 16B（蹦床重放源同款精确长度纪律）。
+        NSString *rdl = [row[@"clone_rd_lookup"] isKindOfClass:[NSString class]] ? row[@"clone_rd_lookup"] : nil;
+        NSString *rdf = [row[@"clone_rd_lookup_fs"] isKindOfClass:[NSString class]] ? row[@"clone_rd_lookup_fs"] : nil;
+        NSNumber *rdfn = [row[@"clone_rd_lookup_fs"] isKindOfClass:[NSNumber class]] ? row[@"clone_rd_lookup_fs"] : nil;
+        NSString *rdh = [row[@"clone_rd_lookup_head"] isKindOfClass:[NSString class]] ? row[@"clone_rd_lookup_head"] : nil;
+        NSString *rdw = [row[@"clone_rd_wrap"] isKindOfClass:[NSString class]] ? row[@"clone_rd_wrap"] : nil;
+        NSString *rdg = [row[@"clone_rd_getter"] isKindOfClass:[NSString class]] ? row[@"clone_rd_getter"] : nil;
+        NSString *rds = [row[@"clone_rd_x2single"] isKindOfClass:[NSString class]] ? row[@"clone_rd_x2single"] : nil;
+        NSString *rdd = [row[@"clone_rd_x2desc"] isKindOfClass:[NSString class]] ? row[@"clone_rd_x2desc"] : nil;
+        NSString *rdc = [row[@"clone_rd_x2ctx"] isKindOfClass:[NSString class]] ? row[@"clone_rd_x2ctx"] : nil;
+        NSString *rdk = [row[@"clone_rd_key_slot"] isKindOfClass:[NSString class]] ? row[@"clone_rd_key_slot"] : nil;
+        if (rdl || rdh || rdw || rdg || rds || rdd || rdc || rdk || rdf || rdfn) {
+            if (!(rdl && rdh && rdw && rdg && rds && rdd && rdc && rdk)) return 0;
+            uint32_t v;
+            if (!parse_hex_u32(ns_u8(rdl), &v) || v == 0) return 0;
+            out->clone_rd_lookup_off = v;
+            if (!parse_hex_u32(ns_u8(rdw), &v) || v == 0) return 0;
+            out->clone_rd_wrap_off = v;
+            if (!parse_hex_u32(ns_u8(rdg), &v) || v == 0) return 0;
+            out->clone_rd_getter_off = v;
+            if (!parse_hex_u32(ns_u8(rds), &v) || v == 0) return 0;
+            out->clone_rd_x2single_off = v;
+            if (!parse_hex_u32(ns_u8(rdd), &v) || v == 0) return 0;
+            out->clone_rd_x2desc_off = v;
+            if (!parse_hex_u32(ns_u8(rdc), &v) || v == 0) return 0;
+            out->clone_rd_x2ctx_off = v;
+            if (!parse_hex_u32(ns_u8(rdk), &v)) return 0;   // 帧偏移可为小值（0x3a0）
+            out->clone_rd_key_slot = v;
+            // lookup 身份门字段（组内必选，非可选——直调是最重放宽面，身份
+            // 缺失 = 无门直调，比不直调更糟）：fs 为十进制/整数字段，head 恰 16B。
+            unsigned long fs = 0;
+            if (rdfn) {
+                fs = rdfn.unsignedLongValue;
+            } else if (rdf) {
+                uint32_t fv = 0;
+                if (!parse_hex_u32(ns_u8(rdf), &fv)) return 0;
+                fs = fv;
+            } else {
+                return 0;
+            }
+            if (fs == 0 || fs > (1UL << 21)) return 0;
+            out->clone_rd_lookup_fs = (uint32_t)fs;
+            if (parse_hex(ns_u8(rdh), out->clone_rd_lookup_head,
+                          sizeof(out->clone_rd_lookup_head)) != 16) return 0;
+            out->has_clone_rd = 1;
         }
     }
     strlcpy(out->uuid, ns_u8(uuid), sizeof(out->uuid));
@@ -990,10 +1062,71 @@ static int g_sso_layout_arm64;   // 前向声明（定义在 SSO 布局节；ten
 //   它被写点函数原样保全，语义不变。
 // ---------------------------------------------------------------------------
 static uint64_t g_clone_caller_x19;          // thunk 快照（每次写点事件刷新）
+static uint64_t g_clone_caller_sp;           // thunk 快照（caller 帧；111 轮 R6）
 static uintptr_t g_image_base;               // install_hook 记录（slide 后基址）
 static uint32_t g_clone_svc_vt_off;          // 行携带（0x9deeb48）
 static uint8_t g_clone_svc_vt_valid;
 static int g_clone_svc_hits;                 // vtable 身份门命中计数（marker clsvc=）
+
+// ---------------------------------------------------------------------------
+// R6 读路径直调表（111 轮接线，docs/RUNTIME-DESIGN 111 节合同）：
+// 异步工作函数按 msgid 重查消息对象。九个偏移全部来自行数据（成组门 +
+// 安装期 lookup 身份门通过才置 valid）；任何一道门失配 → 表不武装，
+// worker 惰性（clmiss 语义不变——「机制在跑且惰性」的证据面诚实保留）。
+//
+// ABI 合同（270135 arm64 定点反汇编三方核对的直译）：
+//   lookup  big3 sret(x8), x0=svc, x1=&key串, x2=ctx, w3=0   （0x32edaec）
+//           —— C 侧以 >16B struct 返回值强制 sret（真实函数是
+//              non-trivial C++ 类的内存返回；16B C struct 会被 clang 排
+//              进 x0/x1 寄存器返回，与宿主 ABI 错位——big3_t 是刻意的）
+//   wrap    x0=wrapout(≥0x300B), x1=&lookup_out → 返回 wrap   （0x309ac50）
+//   getter  big3 sret(x8)={obj,ctl}, x0=wrap                  （0x102b740）
+//   x2 链   p = x2single(&ctl_out, base+desc)（全局单例）；ctx = x2ctx(&p, NULL)
+//   哨兵    未命中/空 shared_ptr 的预置毒值 0xAAAAAAAAAAAAAAAA（-0x5555..）
+//   命中位  wrap_out + 0x278 bit0；msg_obj +0x6b0/{+0x6b8} = 行集合 inner/ctl
+//
+// 生命周期诚实边界：getter 返回的 pair 已 bump strong count，worker 结束
+// 不做配对 release（错放比泄漏危险）——每事件泄漏一个 strong ref，由
+// kCloneMaxLookups 进程级上界封顶（32 次）；插入接线轮引入 0x129f68 族
+// 配对 release 后收口。consumer 在配对与执行间被销毁的残余竞态在册
+//（charter 风险 #1 同族，毫秒窗 + vtable 复验缓解）。
+// ---------------------------------------------------------------------------
+enum { kCloneMaxLookups = 32 };
+static int kread_buf(uint64_t addr, void *out, size_t n);   // 定义在 R4 节（前向声明）
+static int kread64(uint64_t addr, uint64_t *out);           // 同上
+typedef struct {
+    uint32_t lookup_off, wrap_off, getter_off, x2single_off, x2desc_off, x2ctx_off;
+} clone_rd_table_t;
+static clone_rd_table_t g_clone_rd;         // 安装期填充（base 相对偏移）
+static uint32_t g_clone_rd_key_slot_off;    // 帧内 key 串偏移（与表同批生效）
+static volatile int g_clone_rd_key_slot_live; // 配对捕获侧的启用位（与 valid 同发布序）
+static volatile int g_clone_rd_valid;       // 身份门全过才置位（RELEASE 发布）
+static volatile int g_clone_rd_lookups;     // 进程级调用上界护栏（实验封顶）
+static int g_clone_rd_hits;                 // lookup+wrap 命中（marker clhit=）
+static int g_clone_rd_misses;               // lookup miss / 中途守卫退出（clmissq=）
+static int g_clone_rd_gets;                 // getter 非 null（clget=）
+static int g_clone_rd_inner;                // msg_obj+0x6b0 inner 在位（clinner=）
+static int g_clone_key_caps;                // 帧内 key 串快照成功数（clkey=）
+static int g_clone_last_key_len;            // 最近一次快照的 key 字节数
+static char g_clone_last_key[64];           // 最近一次快照（bootlog 诊断面，不入 marker）
+/// 24B 串对象头（arm64 变体布局，77 续⑧）→ 字节快照。返回长度（0=放弃）。
+static int sso_key_snapshot(const uint8_t head24[24], uint8_t *out, size_t cap) {
+    if ((int8_t)head24[0x17] < 0) {   // 长串：ptr@0 size@8
+        uint64_t ptr = 0, size = 0;
+        memcpy(&ptr, head24, 8);
+        memcpy(&size, head24 + 8, 8);
+        if (ptr <= 0x10000 || size == 0 || size > (1 << 16)) return 0;
+        size_t n = size < cap ? (size_t)size : cap;
+        if (!kread_buf(ptr, out, n > 64 ? 64 : n)) return 0;
+        return (int)(n > 64 ? 64 : n);
+    }
+    // 短串：数据内联 @0，长度 = flag 字节 >>1（libc++ LE 编码；lookup 侧
+    // csel 同读法实证——非零判空一致）
+    size_t n = (size_t)(head24[0x17] >> 1);
+    if (n == 0 || n > 22) return 0;
+    memcpy(out, head24, n);
+    return (int)n;
+}
 
 // ---------------------------------------------------------------------------
 // R5 配对槽：XML 捕获（parse 入口，有 newmsgid）暂存 → 写点捕获（有
@@ -1012,10 +1145,18 @@ static uint64_t g_clone_pending_ts;              // 暂存时刻（epoch 秒）
 static char g_clone_pending_fromusr[64];
 static int g_clone_pairs;                        // 配对完整记录数
 
+static void bootlog_line(const char *msg);   // 定义在武装节（前向声明）
 /// 完整克隆记录（msgid+content 配对产物）：R6 插入直调表的消费单元。
+/// 111 轮扩展：svc/consumer（配对时刻 vtable 门验证过的读路径钥匙）+
+/// key 快照（consumer_main 帧内串对象 → 字节级深拷贝——异步侧免复刻
+/// 键构造 ABI）。
 typedef struct {
     uint64_t msgid;
+    uint64_t svc;           // [consumer+0xb78] pointee（vtable 门过才非 0）
+    uint64_t consumer;      // x19 快照（svc 复验用）
     char fromusr[64];
+    uint32_t key_len;       // 0 = 帧内 key 快照不可得（worker 惰性走 clmissq）
+    char key[64];           // 重查键字节（十进制 svrid 或会话串——真机定案）
     uint32_t len;
     uint8_t content[];      // 深拷贝（≤255B 快照，同 R4 证据口径）
 } clone_full_t;
@@ -1023,13 +1164,18 @@ static void clone_work_full(void *ctx);
 
 /// 配对记录派发（捕获侧调用）：堆拷贝进串行队列。分配失败静默（证据
 /// 计数不虚报）。
-static void clone_dispatch_full(uint64_t msgid, const char *fromusr,
+static void clone_dispatch_full(uint64_t msgid, uint64_t svc, uint64_t consumer,
+                                const char *fromusr, const char *key, uint32_t key_len,
                                 const uint8_t *content, uint32_t len) {
     clone_full_t *rec = malloc(sizeof(clone_full_t) + len);
     if (!rec) return;
     memset(rec, 0, sizeof(*rec));
     rec->msgid = msgid;
+    rec->svc = svc;
+    rec->consumer = consumer;
     if (fromusr) strlcpy(rec->fromusr, fromusr, sizeof(rec->fromusr));
+    rec->key_len = key_len;
+    if (key && key_len > 0) memcpy(rec->key, key, key_len > 64 ? 64 : key_len);
     rec->len = len;
     if (content && len > 0) memcpy(rec->content, content, len);   // len=0 事件合法（109 轮：content 待 R6）
     dispatch_queue_t q = clone_queue();
@@ -1040,10 +1186,130 @@ static void clone_dispatch_full(uint64_t msgid, const char *fromusr,
     }
 }
 
-/// 完整记录 worker：插入直调表仍空置（clmiss 同语义计数）——R6 接表。
+// ---------------------------------------------------------------------------
+// R6 worker：读路径直译（111 轮）。fns = **已解析的绝对地址**函数组（生产
+// 路径由 g_clone_rd + g_image_base 解析；测试缝注入 JIT 桩直驱同一条生产
+// 代码）。返回位掩码：1=clhit 2=clget 4=clinner（测试断言面）；任何中途
+// 守卫退出只计 clmissq，绝不放大为动作。
+// ---------------------------------------------------------------------------
+enum { kRdHit = 1, kRdGet = 2, kRdInner = 4 };
+/// 溢出安全换算：切片偏移 → 绝对 VA（base 已知合法）。
+static uint64_t rd_abs(uint64_t base, uint32_t off) { return base + off; }
+
+typedef struct {
+    void *lookup, *wrap, *getter, *x2single, *x2ctx;
+    const void *x2desc;
+} clone_rd_fns_t;
+
+static int clone_rd_run(const clone_full_t *rec, const clone_rd_fns_t *fns,
+                        uint64_t base, uint32_t svc_vt_off) {
+    // 1) svc 重建与复验（配对与执行之间 consumer 可能销毁——vtable 门重走；
+    //    失配/不可读 → 守卫退出，绝不用未验句柄调宿主）。
+    uint64_t svc = rec->svc;
+    if (svc > 0x10000) {
+        uint64_t vt = 0;
+        if (!kread64(svc, &vt) || vt != rd_abs(base, svc_vt_off)) svc = 0;
+    }
+    if (svc <= 0x10000 && rec->consumer > 0x10000) {
+        uint64_t s = 0, vt = 0;
+        if (kread64(rec->consumer + 0xb78, &s) && s > 0x10000
+            && kread64(s, &vt) && vt == rd_abs(base, svc_vt_off)) {
+            svc = s;
+        }
+    }
+    if (svc <= 0x10000) return 0;
+    if (rec->key_len == 0 || rec->key_len > 63) return 0;   // 键缺失/超快照界——不调
+    // 2) key 串对象重建（短串内联 flag=len<<1；长串 = 进程内静态缓冲 +
+    //    MSB 长 flag——只读消费方仅读 ptr/size/长位，cap 数值不入语义）
+    uint8_t keybuf[64];
+    uint8_t keyobj[24];
+    memset(keyobj, 0, sizeof(keyobj));
+    if (rec->key_len <= 22) {
+        memcpy(keyobj, rec->key, rec->key_len);
+        keyobj[0x17] = (uint8_t)(rec->key_len << 1);
+    } else {
+        memcpy(keybuf, rec->key, rec->key_len);
+        uint64_t ptr = (uint64_t)(uintptr_t)keybuf;
+        uint64_t size = rec->key_len;
+        uint64_t capflag = 0x8000000000000000ULL;
+        memcpy(keyobj, &ptr, 8);
+        memcpy(keyobj + 8, &size, 8);
+        memcpy(keyobj + 16, &capflag, 8);
+    }
+    // 3) x2 上下文（全局单例两跳——生命周期与进程等价，异步可复现）
+    typedef void *(*x2single_t)(void *, const void *);
+    typedef void *(*x2ctx_t)(void *, void *);
+    uint64_t ctl_out = 0;
+    void *p = ((x2single_t)fns->x2single)(&ctl_out, fns->x2desc);
+    if (!p) return 0;
+    uint64_t pslot = (uint64_t)(uintptr_t)p;
+    void *x2 = ((x2ctx_t)fns->x2ctx)(&pslot, NULL);
+    if (!x2) return 0;
+    // 4) lookup（sret 五参直译；出参预置毒值哨兵——consumer_main 同款）
+    typedef struct { uint64_t a, b, c; } big3_t;   // >16B → clang 强制 x8 sret
+    typedef big3_t (*lookup_t)(const void *, const void *, void *, int);
+    typedef void *(*wrap_t)(void *, const void *);
+    typedef big3_t (*getter_t)(const void *);
+    const uint64_t poison = 0xAAAAAAAAAAAAAAAAULL;
+    big3_t out = { poison, poison, poison };
+    out = ((lookup_t)fns->lookup)((const void *)svc, (const void *)keyobj, x2, 0);
+    // 5) wrap + 命中位（wrap 出参 ≥0x280B——0x300 清零缓冲，越界面归零）
+    uint8_t wrapbuf[0x300];
+    memset(wrapbuf, 0, sizeof(wrapbuf));
+    void *w = ((wrap_t)fns->wrap)(wrapbuf, &out);
+    if (!w) return 0;
+    uint8_t hit = 0;
+    if (!kread_buf((uint64_t)w + 0x278, &hit, 1)) return 0;
+    if (!(hit & 1)) return 0;
+    g_clone_rd_hits++;                     // clhit=
+    // 6) getter（sret {obj,ctl}——strong count 由宿主 bump；见节注释的
+    //    生命周期诚实边界：本 worker 不做配对 release）
+    big3_t got = { poison, poison, poison };
+    got = ((getter_t)fns->getter)(w);
+    if (got.a <= 0x10000) return kRdHit;
+    g_clone_rd_gets++;                     // clget=
+    // 7) 行集合持有者证据（+0x6b0 inner——R6 后续行枚举的入口在位性）
+    uint64_t inner = 0;
+    if (kread64(got.a + 0x6b0, &inner) && inner > 0x10000) {
+        g_clone_rd_inner++;                // clinner=
+        return kRdHit | kRdGet | kRdInner;
+    }
+    return kRdHit | kRdGet;
+}
+
+/// 完整记录 worker（生产路径）：直调表未武装/护栏到顶 → clmiss 惰性
+///（109/110 轮语义不变）；表在位 → 读路径重查，证据入 marker。
 static void clone_work_full(void *ctx) {
     clone_full_t *rec = ctx;
-    g_clone_nomethods++;
+    if (!__atomic_load_n(&g_clone_rd_valid, __ATOMIC_ACQUIRE)
+        || __atomic_load_n(&g_clone_rd_lookups, __ATOMIC_RELAXED) >= kCloneMaxLookups
+        || g_image_base == 0) {
+        g_clone_nomethods++;
+        free(rec);
+        return;
+    }
+    __atomic_fetch_add(&g_clone_rd_lookups, 1, __ATOMIC_RELAXED);
+    clone_rd_fns_t fns = {
+        .lookup = (void *)rd_abs(g_image_base, g_clone_rd.lookup_off),
+        .wrap = (void *)rd_abs(g_image_base, g_clone_rd.wrap_off),
+        .getter = (void *)rd_abs(g_image_base, g_clone_rd.getter_off),
+        .x2single = (void *)rd_abs(g_image_base, g_clone_rd.x2single_off),
+        .x2ctx = (void *)rd_abs(g_image_base, g_clone_rd.x2ctx_off),
+        .x2desc = (const void *)rd_abs(g_image_base, g_clone_rd.x2desc_off),
+    };
+    int r = clone_rd_run(rec, &fns, g_image_base, g_clone_svc_vt_off);
+    if (!(r & kRdHit)) g_clone_rd_misses++;   // clmissq=（lookup miss / 守卫退出）
+    {   // bootlog 证据行（key 前缀 12B——「键=svrid 十进制还是会话串」的
+        // 真机定案面；marker 只带长度，内容不进低敏感通道）
+        char kx[25];
+        for (int i = 0; i < 12 && i < (int)rec->key_len; i++)
+            snprintf(kx + i * 2, 3, "%02x", (uint8_t)rec->key[i]);
+        char b[176];
+        snprintf(b, sizeof(b), "r6: msgid=%llu keylen=%u key=%s r=%d hits=%d gets=%d inner=%d",
+                 (unsigned long long)rec->msgid, rec->key_len, kx, r,
+                 g_clone_rd_hits, g_clone_rd_gets, g_clone_rd_inner);
+        bootlog_line(b);
+    }
     free(rec);
 }
 
@@ -1123,11 +1389,45 @@ __attribute__((used)) static void clone_hook_body(void *const *args) {
     if (pid != 0 && pts != 0 && now >= pts && now - pts <= 30) {
         char fromusr_local[64];
         memcpy(fromusr_local, (const void *)g_clone_pending_fromusr, sizeof(fromusr_local));
+        fromusr_local[63] = 0;   // 写侧 strlcpy 覆盖窗可瞬态无 NUL——强制尾零（消费侧有界）
         uint64_t expect = pid;
         if (__atomic_compare_exchange_n(&g_clone_pending_msgid, &expect, 0, 0,
                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
             g_clone_pairs++;
-            clone_dispatch_full(pid, fromusr_local, NULL, 0);
+            // R6 接线（111 轮）：配对成功 = 重查钥匙采集窗（同步、帧活）。
+            // ① key 快照：consumer_main 帧 sp+key_slot 的串对象（thunk 已
+            // 快照 caller sp）——内核读 24B 头 + SSO 解码 → 字节级深拷贝。
+            // ② svc：x19+0xb78 经 vtable 身份门——过门才入记录（worker
+            // 调宿主前复验）。两者任一失败只影响该事件的重查能力（clmissq
+            // 证据面），不阻断配对本身。
+            uint32_t key_len = 0;
+            char key_local[64];
+            uint64_t caller_sp = __atomic_load_n(&g_clone_caller_sp, __ATOMIC_ACQUIRE);
+            if (g_clone_rd_key_slot_live && caller_sp > 0x10000) {
+                uint8_t head24[24];
+                if (kread_buf(caller_sp + 0xE0 + g_clone_rd_key_slot_off,
+                              head24, sizeof(head24))) {
+                    key_len = (uint32_t)sso_key_snapshot(head24,
+                                                         (uint8_t *)key_local, sizeof(key_local));
+                }
+            }
+            if (key_len > 0) {
+                g_clone_key_caps++;
+                g_clone_last_key_len = (int)key_len;
+                memcpy(g_clone_last_key, key_local, key_len);
+                g_clone_last_key[key_len] = 0;
+            }
+            uint64_t svc = 0, x19v = __atomic_load_n(&g_clone_caller_x19, __ATOMIC_ACQUIRE);
+            if (g_clone_svc_vt_valid && g_image_base && x19v > 0x10000) {
+                uint64_t s = 0, vt = 0;
+                if (kread64(x19v + 0xb78, &s) && s > 0x10000
+                    && kread64(s, &vt)
+                    && vt == (uint64_t)g_image_base + g_clone_svc_vt_off) {
+                    svc = s;
+                }
+            }
+            clone_dispatch_full(pid, svc, x19v, fromusr_local,
+                                key_len ? key_local : NULL, key_len, NULL, 0);
         }
     }
 }
@@ -1342,6 +1642,15 @@ __attribute__((naked)) static void *revoke_clone_hook(void *a0, void *a1, void *
         // （非参数位），bl 前 populate 无透传面影响；帧布局零改动。
         "adrp x16, _g_clone_caller_x19@PAGE\n"
         "str x19, [x16, _g_clone_caller_x19@PAGEOFF]\n"
+        // R6 接线（111 轮）：同时快照 sp。此刻 sp = 写点入口 sp = 调用者
+        //（consumer_main）在 bl 处的 sp——其帧内的 key 串对象（clone_rd_
+        // key_slot 偏移）在 body 同步窗口内仍存活，内核读快照即得重查键，
+        // 异步侧无需复刻键构造。body 侧换算：caller_sp = 快照 + 0xE0（本
+        // thunk 帧深）。sp 不能作 str 源操作数——经 x17（IP2 草稿位，尾部
+        // ldar 前无占用）中转。
+        "adrp x16, _g_clone_caller_sp@PAGE\n"
+        "mov x17, sp\n"
+        "str x17, [x16, _g_clone_caller_sp@PAGEOFF]\n"
         "add x0, sp, #0x10\n"
         "bl _clone_hook_body\n"
         "ldp x0, x1, [sp, #0x10]\n"
@@ -1706,8 +2015,18 @@ static void bootlog_line_ns(NSString *s) { bootlog_line([s UTF8String] ?: ""); }
 /// 把环形缓冲里未落盘的行写进 boot log（只在安全上下文调用）。
 static void bootlog_flush(void) {
     @autoreleasepool {
+        // 111 轮审计 P3：flush 的读-改-写在多安全上下文（构造器尾/arm_late/
+        // 20s/30s 定时器）并发时互相覆盖丢行——CAS 抢占式互斥，抢不到就
+        // 跳过本轮（行留在环形缓冲，下个 tick 落盘；诊断面可接受）。
+        static volatile int flushing;
+        int expected = 0;
+        if (!__atomic_compare_exchange_n(&flushing, &expected, 1, 0,
+                                         __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return;
         int head = __atomic_load_n(&g_boot_ring_head, __ATOMIC_RELAXED);
-        if (g_boot_ring_flushed >= head) return;
+        if (g_boot_ring_flushed >= head) {
+            __atomic_store_n(&flushing, 0, __ATOMIC_RELEASE);
+            return;
+        }
         NSString *boot = [NSString stringWithFormat:@"%@/tmp/wxkeep-boot.log",
                           NSHomeDirectory()];
         long long sz = [[[NSFileManager defaultManager]
@@ -1722,6 +2041,7 @@ static void bootlog_flush(void) {
         }
         g_boot_ring_flushed = head;
         [acc writeToFile:boot atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        __atomic_store_n(&flushing, 0, __ATOMIC_RELEASE);
     }
 }
 
@@ -1750,6 +2070,21 @@ static int entry_patch_present(uintptr_t target) {
                                (mach_vm_address_t)(unsigned long)w, &got) != KERN_SUCCESS
         || got != 12) return 0;
     return slotfill_decode(w, target) != 0;
+}
+
+/// 补丁态 + 尾 4B 校验（111 轮审计 P1 修）：补丁态下蹦床重放源 100% 来自
+/// 行字节——磁盘前 12B 已被入口补丁覆盖（原指令只在行里），但 [12..16)
+/// （第 4 条指令）**未被补丁触碰、仍在磁盘上**，是与行 expected 比对的
+/// 唯一在盘信源。失配 = 同 UUID 内容漂移（10-03 事件形态）或行被篡改
+/// ——两种都不得武装。返回 1 = 补丁形态在场且尾 4B 与 expected 一致。
+static int entry_patch_matches(uintptr_t target, const uint8_t expected[16]) {
+    uint32_t w[4] = {0, 0, 0, 0};
+    mach_vm_size_t got = 0;
+    if (mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)target, 16,
+                               (mach_vm_address_t)(unsigned long)w, &got) != KERN_SUCCESS
+        || got != 16) return 0;
+    if (slotfill_decode(w, target) == 0) return 0;
+    return memcmp(((const uint8_t *)w) + 12, expected + 12, 4) == 0;
 }
 
 /// SLOT 武装目标（97 轮）：= naked thunk（revoke_wrapper_hook = hook 逻辑
@@ -1904,9 +2239,11 @@ static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_l
         mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
     }
     // 写后读回：COW remap 写路径的直接验证（写丢失在此即现，不等撤回流量）
+    // （111 轮审计 P3 修：读回失配此前仍返回 0——「armed 但 fires=0」的
+    // 96 轮故障形态被静默放行；与 COW 分支的返回语义对齐）
     const uint8_t *now = (const uint8_t *)target;
     g_stub_alive = (memcmp(now, stub, stub_len) == 0) ? 1 : 0;
-    return 0;
+    return g_stub_alive == 1 ? 0 : -1;
 }
 
 /// V3-M2-R4：克隆写点第二 SLOT 武装（主 hook slot-fill 成功后并行执行）。
@@ -1917,6 +2254,14 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
     uintptr_t ctarget = base + t->clone_hook_off;
     uint8_t cprologue[16];
     int cpatched = entry_patch_present(ctarget);
+    if (cpatched && !entry_patch_matches(ctarget, t->clone_expected)) {
+        // 111 轮审计 P1 修：与主 hook 同门——补丁态尾 4B 必须与行一致。
+        g_hook_status |= kStCloneFail;
+        bootlog_line("clone-arm: 补丁态尾 4B 失配（漂移/篡改？）——拒装；"
+                     "盘上克隆入口补丁在场而 SLOT 未填，写点调用将崩溃；"
+                     "收口：wxkeep runtime remove 或重装");
+        return;
+    }
     if (cpatched) {
         memcpy(cprologue, t->clone_expected, 16);
     } else {
@@ -1958,22 +2303,61 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
                      (void *(*)(void *, void *, void *, void *, void *, void *))ctr.mem,
                      __ATOMIC_RELEASE);
     // R6 证据步：行带 clone_svc_vtable 时启用 [x19+0xb78] vtable 身份门。
+    // （111 轮序修：svc 字段先于 wrapper 的 RELEASE 写——110 序在其后，
+    // thunk 的 ldar 只与 wrapper 边配对，覆盖不了其后写入；首个写点事件
+    // 弱序下可读到陈旧 0 → clsvc 漏计。现字段全部在两条 release 边之前。）
     if (t->has_clone_svc_vtable) {
         g_clone_svc_vt_off = t->clone_svc_vtable;
         g_clone_svc_vt_valid = 1;
     }
+    // R6 读路径直调表（111 轮）：lookup 过双身份门（FUNCTION_STARTS 距离
+    // + 入口 16B 锚）才武装——直调面比挂点更不可逆，门与主 hook 同强度。
+    // 任一门失配 → 表不置 valid（worker 惰性），不置失败位（克隆挂点
+    // 本身不受影响——rd 表是加法实验的加法）。
+    if (t->has_clone_rd) {
+        image_layout_t im;
+        int bad = !image_layout((const struct mach_header_64 *)base, (size_t)-1, &im);
+        if (!bad && func_size_matches(&im, t->clone_rd_lookup_off,
+                                      t->clone_rd_lookup_fs) != 1) bad = 1;
+        image_layout_free(&im);
+        uint8_t head16[16];
+        if (!bad && (!kread_buf(base + t->clone_rd_lookup_off, head16, 16)
+                     || memcmp(head16, t->clone_rd_lookup_head, 16) != 0)) bad = 1;
+        if (bad) {
+            bootlog_line("clone-rd: lookup 身份门失配——直调表不武装（worker 惰性）");
+        } else {
+            g_clone_rd.lookup_off = t->clone_rd_lookup_off;
+            g_clone_rd.wrap_off = t->clone_rd_wrap_off;
+            g_clone_rd.getter_off = t->clone_rd_getter_off;
+            g_clone_rd.x2single_off = t->clone_rd_x2single_off;
+            g_clone_rd.x2desc_off = t->clone_rd_x2desc_off;
+            g_clone_rd.x2ctx_off = t->clone_rd_x2ctx_off;
+            g_clone_rd_key_slot_off = t->clone_rd_key_slot;
+            __atomic_store_n(&g_clone_rd_key_slot_live, 1, __ATOMIC_RELEASE);
+            __atomic_store_n(&g_clone_rd_valid, 1, __ATOMIC_RELEASE);
+            bootlog_line("clone-rd: 直调表已武装（R6 读路径接线，上限 32 次/进程）");
+        }
+    }
     __atomic_store_n(&g_clone_hook_target, ctarget, __ATOMIC_RELEASE);
     int rc = try_slot_fill(ctarget, (void *)&revoke_clone_hook);
     if (rc != 0) {
-        g_hook_status |= kStCloneFail;
         __atomic_store_n(&g_clone_hook_target, 0, __ATOMIC_RELEASE);
         __atomic_store_n(&g_clone_real_wrapper, NULL, __ATOMIC_RELEASE);
         munmap(ctr.mem, 4096);   // 110 轮修：失败路径蹦床页归还（不再泄漏）
-        // 诚实边界：CLI 已在盘上写入克隆入口补丁而 SLOT 恒 0——首次撤回写点
-        // 调用 br x16 → 跳 0 即崩。运行时无 TEXT 写权（W^X），无法中和；唯一
-        // 收口 = `wxkeep runtime remove`（还原入口字节）或重装。bootlog 留痕。
-        bootlog_line("clone-arm: slot-fill 失败（rc≠0）——盘上入口补丁在场而 SLOT 未填，"
-                     "撤回写点调用将崩溃；收口：wxkeep runtime remove 或重装");
+        if (rc == ENOENT && !cpatched) {
+            // 111 轮审计 P3 修：入口本就无补丁（数据先行行/旧版 CLI 装机）——
+            // 原函数字节原封未动，实验未武装 = 安全态，非故障。不置
+            // kStCloneFail（此前与危险态混报「将崩溃」+ 污染状态位）。
+            bootlog_line("clone-arm: 克隆入口未补丁——实验未武装（安全；"
+                         "重跑 wxkeep runtime install 可补装双点）");
+        } else {
+            g_hook_status |= kStCloneFail;
+            // 诚实边界：CLI 已在盘上写入克隆入口补丁而 SLOT 恒 0——首次撤回写点
+            // 调用 br x16 → 跳 0 即崩。运行时无 TEXT 写权（W^X），无法中和；唯一
+            // 收口 = `wxkeep runtime remove`（还原入口字节）或重装。bootlog 留痕。
+            bootlog_line("clone-arm: slot-fill 失败（rc≠0）——盘上入口补丁在场而 SLOT 未填，"
+                         "撤回写点调用将崩溃；收口：wxkeep runtime remove 或重装");
+        }
     } else {
         bootlog_line("clone-arm: OK（写点第二 SLOT 已填）");
     }
@@ -1989,12 +2373,26 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     uintptr_t target = base + t->hook_off;
     size_t len = t->expected_len;               // x64 12 / arm64 16
     uint8_t prologue[16];
+    memset(prologue, 0, sizeof(prologue));   // x64 只填 12B——late20s 的 16B
+                                             // 转储不再带 4B 栈垃圾（审计 P3）
     // T6（95 轮）：arm64 先做内核级补丁态识别。补丁态 = 入口已是我们的
     // 跳板——prologue 用行 expected（蹦床重放原始 16B、跳回 target+len，
     // 与未补丁语义一致），并跳过对目标页的一切用户态触碰（用户态
     // memcpy 读/写已改写签名页 = SIGKILL CS 击杀，95 轮副本实测）。
     int entry_patched = 0;
-    if (t->is_arm64) entry_patched = entry_patch_present(target);
+    if (t->is_arm64 && entry_patch_present(target)) {
+        if (!entry_patch_matches(target, t->expected)) {
+            // 111 轮审计 P1 修：补丁在场而尾 4B ≠ 行 expected——同 UUID 内容
+            // 漂移（10-03 形态）或行篡改。拒装（不再盲信行字节重放）；
+            // 矛盾态如实留痕（W^X 下无中和手段，收口=remove/重装）。
+            bootlog_line("arm: 补丁态尾 4B 失配（内容漂移/行篡改？）——拒装；"
+                         "盘上入口补丁在场而 SLOT 未填，parse 调用将崩溃；"
+                         "收口：wxkeep runtime remove 或重装");
+            g_hook_status |= kStPrologueMismatch;
+            return -1;
+        }
+        entry_patched = 1;
+    }
     if (entry_patched) {
         memcpy(prologue, t->expected, len);
     } else {
@@ -2118,6 +2516,14 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     }
     if (t->is_arm64) {
         g_hook_status |= kStInstallFail;
+        if (slot_rc != ENOENT) {
+            // 111 轮审计 P3 修：EIO 族 = 盘上入口补丁在场而双门拒填 SLOT——
+            // 首次 parse 调用 br x16 → 跳非零垃圾即崩。主 hook 此前没有
+            // clone 同款的矛盾态留痕（排障面不对称）。
+            bootlog_line("arm: slot-fill 被门拒（rc≠ENOENT）——盘上入口补丁在场"
+                         "而 SLOT 未填，parse 调用将崩溃；收口：wxkeep runtime"
+                         " remove 或重装");
+        }
         os_log(OS_LOG_DEFAULT, "[wxkeep-runtime] slot-fill rc=%d — arm64 legacy ladder disabled (CS kill risk)", slot_rc);
         g_hook.trampoline = NULL;
         g_real_wrapper = NULL;
@@ -2246,7 +2652,9 @@ static void on_image_add(const struct mach_header *mh, intptr_t slide) {
         while (p + 8 <= end) {
             uint32_t cmd, size;
             memcpy(&cmd, p, 4); memcpy(&size, p + 4, 4);
-            if (cmd == LC_UUID && size >= 24) {
+            // 与 uuid_matches 同界的 LC_UUID 载荷检查（111 轮审计 P3：
+            // 此循环缺 (end-p)>=size——纯硬化一致性）
+            if (cmd == LC_UUID && size >= 24 && (size_t)(end - p) >= size) {
                 static const char hx[] = "0123456789abcdef";
                 char *o = g_last_uuid;
                 for (int i = 0; i < 16; i++) {
@@ -2318,13 +2726,15 @@ static void write_marker_ex(int loud) {
             groupDir = nil;
         }
     NSString *content = [NSString stringWithFormat:
-        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d clpair=%d clsvc=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
+        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d clpair=%d clsvc=%d clkey=%d clkeylen=%d clhit=%d clmissq=%d clget=%d clinner=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
         [NSDate date].timeIntervalSince1970,
         g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
         g_install_step, g_install_errno,
         g_rewrite_fires, g_rewrite_hits, g_zero_fires,
         g_self_skips, g_clone_captures, g_clone_nomethods,
         g_clone_rows, g_clone_last_len, g_clone_pairs, g_clone_svc_hits,
+        g_clone_key_caps, g_clone_last_key_len,
+        g_clone_rd_hits, g_clone_rd_misses, g_clone_rd_gets, g_clone_rd_inner,
         g_cfg_stamp, g_cfg_hash,
         g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
         g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
@@ -2486,6 +2896,9 @@ static void scan_and_arm(void) {
     if (g_hook_installed) return;
     for (uint32_t i = 0; i < _dyld_image_count(); i++) {
         const struct mach_header *mh = _dyld_get_image_header(i);
+        if (!mh) continue;   // 111 轮审计 P2：count 快照后镜像收缩 → 越界返
+                             // NULL——直读 sizeofcmds 即 NULL 解引用（500ms
+                             // 兜底定时器恰跑在壳程序动态装卸活跃期）
         if (match_target((const struct mach_header_64 *)mh, (size_t)-1) != NULL) {
             try_hook_image((const struct mach_header_64 *)mh,
                            _dyld_get_image_vmaddr_slide(i), (size_t)-1);
@@ -2578,6 +2991,7 @@ __attribute__((constructor)) static void wxkeep_runtime_init(void) {
         int found = 0;
         for (uint32_t i = 0; i < n; i++) {
             const struct mach_header *mh = _dyld_get_image_header(i);
+            if (!mh) continue;   // 与 scan_and_arm 同款 NULL 门（111 轮审计 P2）
             if (match_target((const struct mach_header_64 *)mh, (size_t)-1) != NULL) {
                 found = 1;
                 strlcpy(g_probe_name, "scan-saw-wechat-uuid", sizeof(g_probe_name));
@@ -3163,6 +3577,97 @@ long wxkeep_runtime_test_slot_gate(int prefill) {
 #endif
 
 int wxkeep_runtime_test_quiesce_count(void) { return g_quiesce_threads; }
+
+// ---------------------------------------------------------------------------
+// R6 接线缝（111 轮）
+// ---------------------------------------------------------------------------
+
+/// hooks 行 rd 组读取缝：第 idx 行的九字段（组不存在返回 -1——组在场时
+/// 行解析已保证完整）。
+int wxkeep_runtime_test_hook_row_rd(int idx, unsigned long *lookup_off,
+                                    unsigned long *wrap_off, unsigned long *getter_off,
+                                    unsigned long *x2single_off, unsigned long *x2desc_off,
+                                    unsigned long *x2ctx_off, unsigned long *key_slot,
+                                    unsigned long *lookup_fs) {
+    if (idx < 0 || idx >= g_ext_hook_count) return -1;
+    const hook_target_t *t = &g_ext_hooks[idx];
+    if (!t->has_clone_rd) return -1;
+    if (lookup_off) *lookup_off = (unsigned long)t->clone_rd_lookup_off;
+    if (wrap_off) *wrap_off = (unsigned long)t->clone_rd_wrap_off;
+    if (getter_off) *getter_off = (unsigned long)t->clone_rd_getter_off;
+    if (x2single_off) *x2single_off = (unsigned long)t->clone_rd_x2single_off;
+    if (x2desc_off) *x2desc_off = (unsigned long)t->clone_rd_x2desc_off;
+    if (x2ctx_off) *x2ctx_off = (unsigned long)t->clone_rd_x2ctx_off;
+    if (key_slot) *key_slot = (unsigned long)t->clone_rd_key_slot;
+    if (lookup_fs) *lookup_fs = (unsigned long)t->clone_rd_lookup_fs;
+    return 0;
+}
+
+/// sso_key_snapshot 直驱缝：24B 串对象头 → 字节快照（返回长度）。
+int wxkeep_runtime_test_sso_key_snapshot(const unsigned char *head24,
+                                         char *out, int cap) {
+    if (cap > 64) cap = 64;
+    return sso_key_snapshot(head24, (uint8_t *)out, (size_t)cap);
+}
+
+/// 配对帧注入缝：设置 thunk 同款快照。sp 参数 = **thunk 存进全局的原始
+/// sp**（= caller sp − 0xE0，body 侧 +0xE0 换算——与生产语义一致）；测试
+/// 按「key 对象地址 − key_slot − 0xE0」反推传入。
+void wxkeep_runtime_test_set_clone_frame(unsigned long long x19,
+                                         unsigned long long thunk_sp,
+                                         unsigned int key_slot_off, int enable) {
+    __atomic_store_n(&g_clone_caller_x19, x19, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_clone_caller_sp, thunk_sp, __ATOMIC_RELEASE);
+    g_clone_rd_key_slot_off = key_slot_off;
+    __atomic_store_n(&g_clone_rd_key_slot_live, enable ? 1 : 0, __ATOMIC_RELEASE);
+}
+
+/// 最近一次 key 快照读回（返回长度，0=无）。
+int wxkeep_runtime_test_last_key(char *out, int cap) {
+    if (g_clone_last_key_len <= 0) return 0;
+    int n = g_clone_last_key_len < cap ? g_clone_last_key_len : cap;
+    memcpy(out, g_clone_last_key, n);
+    if (n < cap) out[n] = 0;
+    return g_clone_last_key_len;
+}
+
+/// R6 证据计数读回（clhit/clmissq/clget/clinner/clkey + 直调护栏余量）。
+void wxkeep_runtime_test_clone_rd_counts(int *hits, int *misses, int *gets,
+                                         int *inner, int *keys, int *lookups) {
+    if (hits) *hits = g_clone_rd_hits;
+    if (misses) *misses = g_clone_rd_misses;
+    if (gets) *gets = g_clone_rd_gets;
+    if (inner) *inner = g_clone_rd_inner;
+    if (keys) *keys = g_clone_key_caps;
+    if (lookups) *lookups = __atomic_load_n(&g_clone_rd_lookups, __ATOMIC_RELAXED);
+}
+
+/// worker 直驱缝（生产 clone_rd_run 同一条代码）：fn 全部为**绝对地址**
+//（测试注入 JIT 桩）。svc/consumer/key 由调用方构造（svc 须满足
+// [svc]==base+svc_vt_off 的 vtable 门——与生产同门）。返回 r 位掩码。
+int wxkeep_runtime_test_clone_rd_invoke(unsigned long long svc,
+                                        unsigned long long consumer,
+                                        const char *key, int key_len,
+                                        unsigned long lookup_fn, unsigned long wrap_fn,
+                                        unsigned long getter_fn, unsigned long x2single_fn,
+                                        unsigned long x2ctx_fn,
+                                        unsigned long base, unsigned long svc_vt_off) {
+    clone_full_t rec;
+    memset(&rec, 0, sizeof(rec));
+    rec.svc = svc;
+    rec.consumer = consumer;
+    rec.key_len = (uint32_t)key_len;
+    if (key && key_len > 0) memcpy(rec.key, key, key_len > 64 ? 64 : (size_t)key_len);
+    clone_rd_fns_t fns = {
+        .lookup = (void *)(uintptr_t)lookup_fn,
+        .wrap = (void *)(uintptr_t)wrap_fn,
+        .getter = (void *)(uintptr_t)getter_fn,
+        .x2single = (void *)(uintptr_t)x2single_fn,
+        .x2ctx = (void *)(uintptr_t)x2ctx_fn,
+        .x2desc = (const void *)(uintptr_t)0x10000,   // 桩不消费
+    };
+    return clone_rd_run(&rec, &fns, base, (uint32_t)svc_vt_off);
+}
 long wxkeep_runtime_test_transparency_diff(void) { return g_wxkeep_transparency_diff; }
 long wxkeep_runtime_test_transparency_got(void) { return g_wxkeep_transparency_got; }
 // 槽位：0..7=x0..x7，8=[sp] 栈参，9=d0，10=d1，11=x30，12=sp

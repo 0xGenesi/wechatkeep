@@ -104,3 +104,31 @@ int wxkeep_runtime_test_clone_svc(int vt_mismatch, int *rows);
 // SLOT 落点双门缝（110 轮 P0）：prefill 非 0 = SLOT 预置非零内容——生产
 // try_slot_fill 的真零门必须拒装（返回 1）；prefill 0 = 照常武装（返回 0）。
 long wxkeep_runtime_test_slot_gate(int prefill);
+// R6 接线缝（111 轮）：hooks 行 rd 组字段读回（组不在场返回 -1）。
+int wxkeep_runtime_test_hook_row_rd(int idx, unsigned long *lookup_off,
+                                    unsigned long *wrap_off, unsigned long *getter_off,
+                                    unsigned long *x2single_off, unsigned long *x2desc_off,
+                                    unsigned long *x2ctx_off, unsigned long *key_slot,
+                                    unsigned long *lookup_fs);
+// R6 接线缝：24B 串对象头 → key 字节快照（sso_key_snapshot 直驱；返回长度）。
+int wxkeep_runtime_test_sso_key_snapshot(const unsigned char *head24,
+                                         char *out, int cap);
+// R6 接线缝：注入 thunk 同款帧快照（x19 / caller_sp / key 槽偏移 / 启用位）。
+void wxkeep_runtime_test_set_clone_frame(unsigned long long x19,
+                                         unsigned long long caller_sp,
+                                         unsigned int key_slot_off, int enable);
+// R6 接线缝：最近一次 key 快照读回（返回长度，0=无）。
+int wxkeep_runtime_test_last_key(char *out, int cap);
+// R6 接线缝：证据计数读回（clhit/clmissq/clget/clinner/clkey/直调次数）。
+void wxkeep_runtime_test_clone_rd_counts(int *hits, int *misses, int *gets,
+                                         int *inner, int *keys, int *lookups);
+// R6 接线缝：worker 直驱（fn 全部为绝对地址——测试注入 JIT 桩驱动生产
+// clone_rd_run；svc 须过 [svc]==base+svc_vt_off 的 vtable 门）。返回位掩码
+// 1=clhit 2=clget 4=clinner。
+int wxkeep_runtime_test_clone_rd_invoke(unsigned long long svc,
+                                        unsigned long long consumer,
+                                        const char *key, int key_len,
+                                        unsigned long lookup_fn, unsigned long wrap_fn,
+                                        unsigned long getter_fn, unsigned long x2single_fn,
+                                        unsigned long x2ctx_fn,
+                                        unsigned long base, unsigned long svc_vt_off);

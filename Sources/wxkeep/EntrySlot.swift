@@ -115,14 +115,16 @@ enum EntrySlot {
             throw EntrySlotError.dataSegmentNotFound
         }
         guard let seg = image.segments.first(where: {
-            dataSection.addr >= $0.vmaddr && dataSection.addr < $0.vmaddr + $0.vmsize
+            // 111 轮修：减法式上界（同 MachImage）——加法式在病态段表下溢出 trap
+            dataSection.addr >= $0.vmaddr && dataSection.addr - $0.vmaddr < $0.vmsize
         }) else {
             throw EntrySlotError.dataSegmentNotFound
         }
         // 3) 段内最后 file-backed section 的结尾 → 段文件尾之间的真填充
         let lastEnd = image.sections
             .filter { $0.segment == "__DATA" && $0.offset > 0 }
-            .map { $0.offset + Int($0.size) }
+            // 111 轮修：size 强转前先以文件余量夹取（病态节头防 trap）
+            .map { $0.offset + Int(min($0.size, UInt64(max(0, image.data.count - $0.offset)))) }
             .max() ?? 0
         guard lastEnd > 0 else { throw EntrySlotError.noTailPadding(need: 16, have: 0) }
         // 段文件尾 = 切片内下一个 file-backed 段的 fileoff（与切片尾取小）
@@ -200,16 +202,22 @@ enum EntrySlot {
               }) else { return nil }
         let lastEnd = image.sections
             .filter { $0.segment == "__DATA" && $0.offset > 0 }
-            .map { $0.offset + Int($0.size) }
+            .map { $0.offset + Int(min($0.size, UInt64(max(0, image.data.count - $0.offset)))) }
             .max() ?? 0
         let nextFileOff = image.segments
             .map(\.fileoff)
             .filter { $0 > seg.fileoff }
             .min() ?? UInt64(image.data.count)
         let segFileEnd = min(nextFileOff, UInt64(image.data.count))
+        // 111 轮修（L3⑤）：fileoff 越文件长的病态头使减法下溢/强转 trap——
+        // 先拒；上界改减法式（slotVA ≥ seg.vmaddr 由 padStart ≥ fileoff 段
+        // 内推导 + 前置命中检查保证，双保险再验一次）。
+        guard seg.fileoff <= segFileEnd, seg.fileoff <= UInt64(Int.max),
+              Int(seg.fileoff) <= image.data.count else { return nil }
         let padStart = max(lastEnd, Int(seg.fileoff))
         guard slotVA >= seg.vmaddr + UInt64(padStart - Int(seg.fileoff)),
-              slotVA + 8 <= seg.vmaddr + (segFileEnd - seg.fileoff),
+              slotVA >= seg.vmaddr,
+              slotVA - seg.vmaddr + 8 <= segFileEnd - seg.fileoff,
               image.bytes(va: slotVA, count: 8) == Data(repeating: 0, count: 8) else {
             return nil
         }

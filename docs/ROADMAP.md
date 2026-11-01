@@ -463,6 +463,32 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 111·R6 读路径接线 + 主动体检第五轮（2026-11-01：四路并行审计 P1×4+P2×7+P3 批全修；R6 异步重查链代码全落地（x2 链/key 帧快照/sret ABI 三缺口补全）；279 测全绿 +6）
+
+1. **[R6 接线]**：110 指派的「下轮代码项」完成——HookRow 九字段直调表组
+   （成组门+lookup 双身份门）、thunk 快照 caller sp、配对窗口内核读帧内
+   key 串（异步零键格式假设）、worker 读路径（svc 复验→key 重建→x2 两跳
+   →lookup→wrap→命中位→getter→+0x6b0），marker clkey/clhit/clmissq/
+   clget/clinner，护栏 32 次/进程。插入族按计划留 M4 窗口（队列归属未定
+   案，盲插=违反自家渐进纪律）。RE 增量：x2=全局单例两跳（异步可复现）、
+   key=撤回分支原样拷贝第一字符串字段、sret/哨兵/strong-count 协议全册
+   ——110「直译合同已全册」实缺三前提，本轮定点反汇编补全（详见
+   RUNTIME-DESIGN 111 节）。
+2. **[主动体检第五轮]**：四路并行深审（CLI/引擎/runtime.m/UX 文档——
+   「一次性全找」的加压版）。P1×4：蹦床重放源失控（补丁态尾 4B 无校验+
+   编码门漏 BR/BLR/RET——腾讯可写容器威胁模型下的重放注入面，修三面）；
+   dbkeys 多账号同名库撞键（account/basename 键位+check 同口径）；旧
+   OTA 数据遮蔽新随包数据（遮蔽检测+update-data 前置三处）；recover
+   零文档（README 章节+死胡同指路）。P2×3：变体切换记账洞（partialWrite
+   回调）；guard 委托链不可用态误报成功（如实失败）；--variant keeptip
+   --only update 必败（作用域裁剪）。P3 择要：journal 写前收口单点化/
+   溢出 trap 族 8 点/strictHexVA/verify worker exit(4)/ParseOracle 界/
+   restore 备份/--latest 夹 0/克隆挂点分报/doctor 处方收敛/文案与
+   README 数字-主张修正。3 项裁定缓改入册（RUNTIME-DESIGN 111 节）。
+3. **[诚实边界]**：clsvc/clkey/clhit 真机验证待用户窗口（副本 E2E
+   runbook 不变——一次撤回即全链证据）；插入族（M4）待队列归属定案；
+   键语义（newmsgid 十进制 vs 会话串）由真机 bootlog 的 key 前缀定案。
+
 ## 110·R6 静态正道收口 + 主动体检第四轮（2026-11-01：+0xb78=consumer 成员对象定案（翻案 109「写入者链」定性）+ x19 存活链 + clsvc 证据步；双评审 P0×1+P1×3+P2×5+P3×12 全修（2 项裁定拒改）——275 测全绿 +6）
 
 1. **[R6 静态正道]**：注册表 get-or-create 链（0x268f370→0x4540bd8→闭包

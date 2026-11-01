@@ -1040,3 +1040,226 @@ extension RuntimeHookTests {
                 "尾部垃圾的 hook_off 必须整行拒绝（strtoull 静默吞=错址落地）")
     }
 }
+
+// MARK: - 111 轮：R6 读路径接线（直调表行门 + key 快照 + worker ABI）
+
+extension RuntimeHookTests {
+    /// 九字段成组门：全组在场 → 接受且字段可回读；缺任一/坏 hex/头锚长度
+    /// 不符 → 整行拒绝。直调面是最重的放宽，组不完整 = 行作者笔误。
+    @Test func cloneRdRowParseGate() {
+        let base = #"{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9F85F07A9""#
+        let rd = #","clone_rd_lookup":"0x32edaec","clone_rd_lookup_fs":8484,"clone_rd_lookup_head":"E923B96DFC6F01A9FA6702A9F85F03A9","clone_rd_wrap":"0x309ac50","clone_rd_getter":"0x102b740","clone_rd_x2single":"0x571ce74","clone_rd_x2desc":"0xa3de0a70","clone_rd_x2ctx":"0x5720308","clone_rd_key_slot":"0x3a0""#
+        func parse(_ s: String) -> Int32 {
+            wxkeep_runtime_test_parse_hooks(s, UInt(s.utf8.count))
+        }
+        // 全组在场：接受 + 字段回读
+        let full = #"{"hooks":["# + base + rd + #"}]}"#
+        #expect(parse(full) == 1)
+        var lookup: CUnsignedLong = 0, wrap: CUnsignedLong = 0, getter: CUnsignedLong = 0
+        var x2s: CUnsignedLong = 0, x2d: CUnsignedLong = 0, x2c: CUnsignedLong = 0
+        var keyslot: CUnsignedLong = 0, fs: CUnsignedLong = 0
+        #expect(wxkeep_runtime_test_hook_row_rd(0, &lookup, &wrap, &getter,
+                                                &x2s, &x2d, &x2c, &keyslot, &fs) == 0)
+        #expect(lookup == 0x32edaec)
+        #expect(wrap == 0x309ac50)
+        #expect(getter == 0x102b740)
+        #expect(x2s == 0x571ce74)
+        #expect(x2d == 0xa3de0a70)
+        #expect(x2c == 0x5720308)
+        #expect(keyslot == 0x3a0)
+        #expect(fs == 8484)
+        // 缺任一字段（去掉 x2ctx）：整组拒绝 → 整行拒绝
+        let partial = #"{"hooks":["# + base
+            + #","clone_rd_lookup":"0x32edaec","clone_rd_lookup_fs":8484,"clone_rd_lookup_head":"E923B96DFC6F01A9FA6702A9F85F03A9","clone_rd_wrap":"0x309ac50","clone_rd_getter":"0x102b740","clone_rd_x2single":"0x571ce74","clone_rd_x2desc":"0xa3de0a70","clone_rd_key_slot":"0x3a0"}]}"#
+        #expect(parse(partial) == 0, "九字段缺一（x2ctx）→ 整行拒绝")
+        // 坏 hex（lookup 带尾部垃圾）：拒绝
+        #expect(parse(#"{"hooks":["# + base + rd.replacingOccurrences(
+            of: "\"clone_rd_lookup\":\"0x32edaec\"", with: "\"clone_rd_lookup\":\"0x32edaecZZ\"")
+            + #"}]}"#) == 0)
+        // 头锚长度不符（12B）：拒绝
+        #expect(parse(#"{"hooks":["# + base + rd.replacingOccurrences(
+            of: "E923B96DFC6F01A9FA6702A9F85F03A9", with: "E923B96DFC6F01")
+            + #"}]}"#) == 0)
+        // lookup_fs 缺失（组内必选，非可选）：拒绝
+        #expect(parse(#"{"hooks":["# + base + rd.replacingOccurrences(
+            of: "\"clone_rd_lookup_fs\":8484,", with: "")
+            + #"}]}"#) == 0)
+        // rd 组不在场的行照常接受（向后兼容——旧行不受影响）
+        #expect(parse(#"{"hooks":["# + base + #"}]}"#) == 1)
+    }
+
+    /// sso_key_snapshot 解码器：短串（内联）/长串（ptr+size）/畸形（0 长度、
+    /// 超界 size、坏指针）三态。R6 键快照的唯一解码面。
+    @Test func cloneKeySnapshotDecoder() {
+        // 短串："467688165590285977"（18B）——libc++ LE：flag = len<<1
+        var short = [UInt8](repeating: 0, count: 24)
+        let digits = Array("467688165590285977".utf8)
+        for (i, b) in digits.enumerated() { short[i] = b }
+        short[0x17] = UInt8(digits.count << 1)
+        var out = [CChar](repeating: 0, count: 64)
+        short.withUnsafeBufferPointer { p in
+            out.withUnsafeMutableBufferPointer { o in
+                #expect(wxkeep_runtime_test_sso_key_snapshot(
+                    UnsafeRawPointer(p.baseAddress!).assumingMemoryBound(to: UInt8.self),
+                    o.baseAddress, 64) == 18)
+            }
+        }
+        #expect(String(cString: out) == "467688165590285977")
+        // 长串：ptr@0 size@8 cap|MSB@0x10
+        let longBytes = [UInt8](repeating: 0x61, count: 40)
+        longBytes.withUnsafeBufferPointer { lb in
+            var head = [UInt8](repeating: 0, count: 24)
+            let ptr = UInt64(UInt(bitPattern: lb.baseAddress!))
+            withUnsafeBytes(of: ptr) { for (i, b) in enumerateBytes($0) { head[i] = b } }
+            withUnsafeBytes(of: UInt64(40)) { for (i, b) in enumerateBytes($0) { head[8 + i] = b } }
+            head[0x17] = 0x80   // MSB = 长串
+            var out2 = [CChar](repeating: 0, count: 64)
+            head.withUnsafeBufferPointer { h in
+                out2.withUnsafeMutableBufferPointer { o in
+                    #expect(wxkeep_runtime_test_sso_key_snapshot(
+                        UnsafeRawPointer(h.baseAddress!).assumingMemoryBound(to: UInt8.self),
+                        o.baseAddress, 64) == 40)
+                }
+            }
+            #expect(String(cString: out2) == String(repeating: "a", count: 40))
+            // 空串（flag=0）→ 0
+            head[0x17] = 0
+            head.withUnsafeBufferPointer { h in
+                #expect(wxkeep_runtime_test_sso_key_snapshot(
+                    UnsafeRawPointer(h.baseAddress!).assumingMemoryBound(to: UInt8.self),
+                    nil, 0) == 0)
+            }
+        }
+    }
+
+    private func enumerateBytes(_ buf: UnsafeRawBufferPointer) -> [(Int, UInt8)] {
+        Array(zip(buf.indices, buf))
+    }
+
+    /// 配对事件 → 帧内 key 快照端到端：合成 consumer_main 帧（key 串对象
+    /// @sp+0x3a0）+ thunk 同款 sp 快照 → 写点配对消费 → clkey= 推进 +
+    /// last_key 可回读。svc 捕获在无 vtable 门数据时恒 0（诚实面）。
+    @Test func cloneKeyCaptureEndToEnd() {
+        _ = wxkeep_runtime_test_clone_pair_count(1)   // 清槽隔离
+        // 合成帧：key 短串对象放在 frame+0x3a0
+        var frame = [UInt8](repeating: 0, count: 0x400)
+        let key = Array("467688165590285977".utf8)
+        for (i, b) in key.enumerated() { frame[0x3a0 + i] = b }
+        frame[0x3a0 + 0x17] = UInt8(key.count << 1)
+        frame.withUnsafeMutableBufferPointer { fp in
+            // thunk 原始 sp 语义 = key 地址 − key_slot − 0xE0
+            let thunkSp = UInt64(UInt(bitPattern: fp.baseAddress! + 0x3a0)) - 0x3a0 - 0xE0
+            wxkeep_runtime_test_set_clone_frame(0, thunkSp, 0x3a0, 1)
+            // 暂存 msgid（parse 路径）→ 写点消费（R4 路径）
+            let xml = Array("<msg><newmsgid>467688165590285977</newmsgid><fromusr>wxid_k</fromusr></msg>".utf8)
+            #expect(wxkeep_runtime_test_clone_capture(xml, UInt(xml.count), nil, nil, 0) == 1)
+            var keys: Int32 = 0
+            wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keys, nil)
+            #expect(wxkeep_runtime_test_clone_rows(88, nil, nil, nil) == 1)
+            var keysAfter: Int32 = 0
+            wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keysAfter, nil)
+            #expect(keysAfter == keys + 1, "帧内 key 快照成功计数 +1")
+            var lastKey = [CChar](repeating: 0, count: 64)
+            let len = wxkeep_runtime_test_last_key(&lastKey, 64)
+            #expect(len == 18)
+            #expect(String(cString: lastKey) == "467688165590285977")
+        }
+        // 关闭启用位 → 后续事件不再采集（键通道独立于配对）
+        wxkeep_runtime_test_set_clone_frame(0, 0, 0, 0)
+        _ = wxkeep_runtime_test_clone_pair_count(1)
+    }
+
+    /// R6 worker 读路径 ABI 端到端（arm64）：MAP_JIT 页内合成桩五件
+    ///（x2single/x2ctx/lookup/wrap/getter——wrap 设命中位、getter sret 写
+    /// {obj,ctl}）经**生产 clone_rd_run** 调用：sret 换址（x8）、五参直译、
+    /// 命中位 kread、+0x6b0 证据——任一环节的 ABI 错位即刻红。svc 须过
+    /// vtable 门（与生产同门）。x86_64 宿主跳过（缝面不依赖宿主 arch）。
+    @Test func cloneRdWorkerMarshalingEndToEnd() {
+        #if arch(arm64)
+        // 合成 svc（vtable 词 = base+svc_vt_off）与 msg_obj（+0x6b0=inner）
+        let svc = malloc(16)!.assumingMemoryBound(to: UInt64.self)
+        svc[0] = 0x9deeb48
+        let msgObj = malloc(0x6c0 + 16)!.assumingMemoryBound(to: UInt64.self)
+        memset(msgObj, 0, 0x6d0)
+        msgObj[0x6b0 / 8] = 0x5566_0000   // 指针形值（>0x10000 门）
+        defer { free(svc); free(msgObj) }
+
+        // JIT 桩页：偏移 0=x2single（movz x0,#1; ret）
+        //          +8 =x2ctx（同）；+16=lookup（ret——出参保留调用方哨兵）
+        //          +24=wrap（movz w9,#1; strb w9,[x0,#0x278]; ret）
+        //          +36=getter（ldr x9,[pc,#24]; str x9,[x8]; movz x9,#0x99;
+        //                str x9,[x8,#8]; ret; pad; .quad msgObj）
+        let page = mmap(nil, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                        MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0)
+        #expect(page != MAP_FAILED)
+        defer { munmap(page, 4096) }
+        let code: [UInt32] = [
+            0xD2800020, 0xD65F03C0,                     // x2single: movz x0,#1; ret
+            0xD2800020, 0xD65F03C0,                     // x2ctx:    同
+            0xD65F03C0,                                 // lookup:   ret（哨兵保留）
+            0x52800029, 0x3909E009, 0xD65F03C0,         // wrap: movz w9,#1; strb w9,[x0,#0x278]; ret
+            0x580000C9, 0xF9000109, 0xD2801209, 0xF9000509, 0xD65F03C0, // getter 5 条
+            0x00000000,                                 // 对齐 pad
+        ]
+        let baseAddr = UInt64(UInt(bitPattern: page))
+        code.withUnsafeBufferPointer { cp in
+            guard let base = cp.baseAddress else { return }
+            pthread_jit_write_protect_np(0)
+            memcpy(page, base, code.count * 4)
+            // getter 的 obj 字面量（ldr x9,#24 相对 getter 起点 +24 = 页偏移 56）
+            var objAddr = UInt64(UInt(bitPattern: msgObj))
+            memcpy(page! + 56, &objAddr, 8)
+            sys_icache_invalidate(page, 64)
+            pthread_jit_write_protect_np(1)
+        }
+        // 桩偏移（页内字节）：x2s=0 / x2c=8 / lookup=16 / wrap=20 / getter=32
+        //（lookup 仅 1 字——此前把 wrap 记 24/getter 记 36，起点落在桩中间）
+        let fX2S = baseAddr + 0, fX2C = baseAddr + 8, fLookup = baseAddr + 16
+        let fWrap = baseAddr + 20, fGetter = baseAddr + 32
+
+        var hits: Int32 = 0, misses: Int32 = 0, gets: Int32 = 0, inner: Int32 = 0
+        wxkeep_runtime_test_clone_rd_counts(&hits, &misses, &gets, &inner, nil, nil)
+        // 短键（18 位十进制 svrid——线上主形态）
+        let key = "467688165590285977"
+        let r = key.withCString { kp in
+            wxkeep_runtime_test_clone_rd_invoke(UInt64(UInt(bitPattern: svc)), 0,
+                                                kp, Int32(strlen(kp)),
+                                                CUnsignedLong(fLookup), CUnsignedLong(fWrap),
+                                                CUnsignedLong(fGetter), CUnsignedLong(fX2S),
+                                                CUnsignedLong(fX2C), 0, 0x9deeb48)
+        }
+        #expect(r == 7, "clhit|clget|clinner 全通（got r=\(r)）")
+        var h2: Int32 = 0, mi2: Int32 = 0, g2: Int32 = 0, in2: Int32 = 0
+        wxkeep_runtime_test_clone_rd_counts(&h2, &mi2, &g2, &in2, nil, nil)
+        #expect(h2 == hits + 1 && g2 == gets + 1 && in2 == inner + 1)
+        #expect(mi2 == misses, "全通路径不推进 clmissq")
+        // 长键（40B > SSO 界 22——长串重建分支）
+        let longKey = String(repeating: "s", count: 40)
+        let r2 = longKey.withCString { kp in
+            wxkeep_runtime_test_clone_rd_invoke(UInt64(UInt(bitPattern: svc)), 0,
+                                                kp, Int32(strlen(kp)),
+                                                CUnsignedLong(fLookup), CUnsignedLong(fWrap),
+                                                CUnsignedLong(fGetter), CUnsignedLong(fX2S),
+                                                CUnsignedLong(fX2C), 0, 0x9deeb48)
+        }
+        #expect(r2 == 7, "长键重建分支同样全通（got r=\(r2)）")
+        // vtable 失配的 svc：守卫退出（0），计数不动
+        svc[0] = 0x12345
+        let r3 = "1".withCString { kp in
+            wxkeep_runtime_test_clone_rd_invoke(UInt64(UInt(bitPattern: svc)), 0,
+                                                kp, Int32(strlen(kp)),
+                                                CUnsignedLong(fLookup), CUnsignedLong(fWrap),
+                                                CUnsignedLong(fGetter), CUnsignedLong(fX2S),
+                                                CUnsignedLong(fX2C), 0, 0x9deeb48)
+        }
+        #expect(r3 == 0, "svc vtable 失配 → 守卫退出（绝不用未验句柄调宿主）")
+        var h3: Int32 = 0
+        wxkeep_runtime_test_clone_rd_counts(&h3, nil, nil, nil, nil, nil)
+        #expect(h3 == h2 + 1, "第二次成功调用的 +1 在案；失配路径不推进 clhit")
+        // 空 key：不调（0）
+        let r4 = wxkeep_runtime_test_clone_rd_invoke(UInt64(UInt(bitPattern: svc)), 0,
+                                                     nil, 0, 0, 0, 0, 0, 0, 0, 0x9deeb48)
+        #expect(r4 == 0)
+        #endif
+    }
+}

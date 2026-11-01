@@ -88,5 +88,11 @@ if __name__ == "__main__":
              reverse=True)
     bak = args.config + ".bak." + time.strftime("%Y%m%d%H%M%S")
     shutil.copy(args.config, bak)
+    # 备份轮换 keep=3（111 轮：与 Backup.swift / locate --append 同款——
+    # 此前无轮换，仓库根目录已堆积 7 份 .bak.*）
+    import glob
+    baks = sorted(glob.glob(args.config + ".bak.*"))
+    for old in baks[:-3]:
+        os.remove(old)
     json.dump(cfg, open(args.config, "w"), indent=1, ensure_ascii=False)
     print(f"已写回 {args.config}（备份 {os.path.basename(bak)}）")

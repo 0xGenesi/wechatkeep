@@ -463,6 +463,9 @@ enum Verifier {
         let segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64, exec: Bool)] = data.withUnsafeBytes { raw -> [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64, exec: Bool)] in
             var segs: [(vmaddr: UInt64, vmsize: UInt64, fileoff: Int, filesize: UInt64, exec: Bool)] = []
             var p = 32
+            // 111 轮修：base 闭包有 ≥32 门而这里没有——<20B 输入直接读 ncmds
+            // 越界 trap（worker 崩溃被误分类）。
+            guard raw.count >= 32 else { return segs }
             for _ in 0..<raw.loadUnaligned(fromByteOffset: 16, as: UInt32.self) {
                 guard p + 72 <= raw.count else { break }
                 let cmd = raw.loadUnaligned(fromByteOffset: p, as: UInt32.self)
@@ -667,7 +670,20 @@ enum Verifier {
             let strlenFn = dlsym(resolver, "strlen")
             let memcmpFn = dlsym(resolver, "memcmp")
             for (stubHex, kind) in stubs {
-                guard let stubVA = UInt64(stubHex, radix: 16) else { continue }
+                // 111 轮修（契约对齐）：坏 hex 的 stubVA 此前静默 continue——
+                // 槽位留 chained-fixup 原始值，调用即崩且被父进程误判
+                // workerCrashed；未知 kind 被静默当 strlen——语义错误的返回值
+                // 产出假 mismatch。两者都是 spec 数据问题，按旁注契约 exit(4)。
+                guard let stubVA = UInt64(stubHex, radix: 16) else {
+                    FileHandle.standardError.write(Data(
+                        "wxkeep-verify: spec 桩 VA 非法 hex（\(stubHex)）——specNotApplicable\n".utf8))
+                    exit(4)
+                }
+                guard kind == "memcmp" || kind == "strlen" else {
+                    FileHandle.standardError.write(Data(
+                        "wxkeep-verify: spec 桩 kind 未知（\(kind)）——specNotApplicable\n".utf8))
+                    exit(4)
+                }
                 let fn = kind == "memcmp" ? memcmpFn : strlenFn
                 guard let fn else {
                     FileHandle.standardError.write(Data(

@@ -15,8 +15,9 @@ enum Engine {
         var description: String {
             switch self {
             case .unsupportedBuild(let build, let known):
-                "build \(build) is not in the catalog (\(known) builds known). "
-                + "Run `wxkeep locate` (M2) to auto-locate it, or wait for the catalog to update."
+                "构建 \(build) 不在补丁目录（本地共 \(known) 个构建）。依次尝试："
+                + "1) `wxkeep update-data` 拉取最新补丁数据（新构建 day-0 生效）；"
+                + "2) 仍不支持时 `wxkeep locate` 自动定位（新签名代需等待适配）。"
             case .variantUnavailable(let variant):
                 "this build has no curated entries for variant `\(variant)`"
             case .restoreUnavailable(let detail):
@@ -143,7 +144,8 @@ enum Engine {
     /// keeptip; every non-variant identifier (update, multiInstance, …) always applies.
     /// (`revoke-keeptip2` is deprecated and can no longer be selected — it is kept
     /// in the catalog solely so `restore` can unwind machines that ran the experiments.)
-    static func targets(for version: Config.VersionEntry, variant: String) throws -> [Config.Target] {
+    static func targets(for version: Config.VersionEntry, variant: String,
+                        only: [String]? = nil) throws -> [Config.Target] {
         let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"
         var selected = [Config.Target]()
         for target in version.targets {
@@ -156,8 +158,21 @@ enum Engine {
                 selected.append(target)
             }
         }
-        guard selected.contains(where: { $0.identifier == variantID }) else {
-            throw EngineError.variantUnavailable(variant)
+        // 111 轮修（P2）：--only 作用域不含变体域时跳过变体存在性校验——
+        // `--variant keeptip --only update` 在无 keeptip 条目的构建（如
+        // 270152）此前必抛 variantUnavailable，尽管用户意图（只打 update）
+        // 完全可满足。变体域被显式或经别名（"revoke"）选中时校验照常。
+        let variantInScope: Bool
+        if let effective = effectiveOnlySet(only, variant: variant) {
+            variantInScope = effective.contains(variantID)
+                || effective.contains("revoke")   // 别名（silent 恒映射 revoke；keeptip 见上）
+        } else {
+            variantInScope = true
+        }
+        if variantInScope {
+            guard selected.contains(where: { $0.identifier == variantID }) else {
+                throw EngineError.variantUnavailable(variant)
+            }
         }
         return selected
     }
@@ -214,7 +229,7 @@ enum Engine {
         if variant == "keeptip2" {
             throw EngineError.variantDeprecated(variant)
         }
-        var selected = try targets(for: versionEntry, variant: variant)
+        var selected = try targets(for: versionEntry, variant: variant, only: only)
 
         // 遗留检测：废弃的 revoke-keeptip2 若还有补丁字节在盘上，拒绝应用并在
         // 报错里给出清理路径（而不是默默留下混合状态——今日实测的混淆根源）。
@@ -235,34 +250,43 @@ enum Engine {
             }
         }
 
-        // 变体切换：先还原另一变体的写入（幂等），再应用本变体。
-        // 否则 silent 的 x64 补丁会与 keeptip 并存，静默语义覆盖 keeptip。
-        // 仅当本变体目标在本次作用域内（selected 含 variantID）才还原。
-        let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"
-        let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"
-        if selected.contains(where: { $0.identifier == variantID }),
-           let other = versionEntry.targets.first(where: { $0.identifier == otherID }),
-           !other.entries.isEmpty, !dryRun {
-            var undo = RunSummary()
-            do { undo = try restoreTargets(app: app, targets: [other], dryRun: false) }
-            catch let e as EngineError {
-                if case .restoreUnavailable = e {
-                    // 另一变体缺 expected（如无溯源条目）——跳过还原，不阻塞
-                } else { throw e }
-            }
-            if undo.wroteAnything {
-                summary.lines.append("  [switch] restored previous variant \(otherID) writes")
-                summary.patchedBinaries += undo.patchedBinaries
-                // 还原也是写：混合态机器上（revoke+keeptip 并存）本变体全部
-                // alreadyPatched 时，written=0 会让 CLI 跳过重签；下方失败路径
-                // 的恢复重签同样被 wroteAnything 门掉——字节已改+旧签名 =
-                // 启动必崩态，与该防线要防的半套态同构。
-                summary.wroteAnything = true
-            }
-        }
-
         let grouped = Dictionary(grouping: selected, by: { $0.binary ?? "Contents/MacOS/WeChat" })
         do {
+            // 变体切换：先还原另一变体的写入（幂等），再应用本变体。
+            // 否则 silent 的 x64 补丁会与 keeptip 并存，静默语义覆盖 keeptip。
+            // 仅当本变体目标在本次作用域内（selected 含 variantID）才还原。
+            // （111 轮修：本块从 do{} 外迁入——还原的中途写失败此前穿透
+            // 外层恢复重签 catch（不在其 try 范围），且 undo 丢弃使其内部
+            // 记账不可达；partialWrite 把部分写事实保守记进本 run 的 summary。）
+            let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"
+            let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"
+            if selected.contains(where: { $0.identifier == variantID }),
+               let other = versionEntry.targets.first(where: { $0.identifier == otherID }),
+               !other.entries.isEmpty, !dryRun {
+                var undo = RunSummary()
+                do {
+                    undo = try restoreTargets(app: app, targets: [other], dryRun: false) {
+                        relative in
+                        summary.wroteAnything = true
+                        if !summary.patchedBinaries.contains(relative) {
+                            summary.patchedBinaries.append(relative)
+                        }
+                    }
+                } catch let e as EngineError {
+                    if case .restoreUnavailable = e {
+                        // 另一变体缺 expected（如无溯源条目）——跳过还原，不阻塞
+                    } else { throw e }
+                }
+                if undo.wroteAnything {
+                    summary.lines.append("  [switch] restored previous variant \(otherID) writes")
+                    summary.patchedBinaries += undo.patchedBinaries
+                    // 还原也是写：混合态机器上（revoke+keeptip 并存）本变体全部
+                    // alreadyPatched 时，written=0 会让 CLI 跳过重签；下方失败路径
+                    // 的恢复重签同样被 wroteAnything 门掉——字节已改+旧签名 =
+                    // 启动必崩态，与该防线要防的半套态同构。
+                    summary.wroteAnything = true
+                }
+            }
             for (relative, targets) in grouped.sorted(by: { $0.key < $1.key }) {
                 let binary = WeChatApp.binaryURL(app: app, relative: relative)
                 summary.lines.append("binary: \(relative) (\(targets.map(\.identifier).joined(separator: ", ")))")
@@ -364,9 +388,13 @@ enum Engine {
 
     /// Restore core for an explicit target list. Preflight: every target must
     /// be restorable (all entries carry materializable original bytes) BEFORE
-    /// any write.
+    /// any write.`partialWrite`：Phase-2 中途抛错（字节已部分还原）时在重抛
+    /// 前回调（relative 参数）——变体切换等「结果弃置」的调用方靠它保守
+    /// 记账，外层恢复重签防线才可达（111 轮修：此前 undo=try 抛错时其
+    /// 内部 summary 整体丢失，wroteAnything 恒假）。
     @discardableResult
-    static func restoreTargets(app: URL, targets: [Config.Target], dryRun: Bool) throws -> RunSummary {
+    static func restoreTargets(app: URL, targets: [Config.Target], dryRun: Bool,
+                               partialWrite: ((String) -> Void)? = nil) throws -> RunSummary {
         var summary = RunSummary()
         // Preflight: every target must be restorable.
         for target in targets {
@@ -383,6 +411,31 @@ enum Engine {
         for (relative, group) in grouped.sorted(by: { $0.key < $1.key }) {
             let binary = WeChatApp.binaryURL(app: app, relative: relative)
             summary.lines.append("binary: \(relative)")
+            // 写前备份（111 轮修，与 patch 主循环对齐）：restore 的写入面与
+            // patch 同构（定点写 + expected 门），此前却是仅有的无备份字节写
+            // 路径——catalog 数据事故（expected[0] 错序）下的盲写只能靠官方
+            // dmg 恢复。仅在实际会写时备份（幂等重跑全 pristine 不白拷
+            // 340MB；Backup 轮换 keep=3 也不被无用备份挤占）。
+            if !dryRun {
+                let invertedProbe = group.map { target in
+                    target.entries.map { entry -> Config.PatchEntry in
+                        var copy = entry
+                        copy.asm = restoreAsm(for: entry) ?? entry.asm
+                        copy.expected = Config.ExpectedVariants([entry.asm] + entry.expected!.values)
+                        return copy
+                    }
+                }
+                let willWrite = invertedProbe.contains { entries in
+                    let inspections = (try? Patcher.inspect(
+                        binary: binary, entries: entries, identifier: "restore-probe")) ?? []
+                    return inspections.contains { $0.state != .patched && $0.state != .ambiguous }
+                        || inspections.count != entries.count   // 检查不全 → 按会写处理（保守）
+                }
+                if willWrite {
+                    let backup = try Backup.make(binary: binary)
+                    summary.lines.append("  backup: \(backup.lastPathComponent)")
+                }
+            }
             for target in group {
                 let inverted = target.entries.map { entry -> Config.PatchEntry in
                     var copy = entry
@@ -407,6 +460,7 @@ enum Engine {
                         if !summary.patchedBinaries.contains(relative) {
                             summary.patchedBinaries.append(relative)
                         }
+                        partialWrite?(relative)
                     }
                     throw error
                 }

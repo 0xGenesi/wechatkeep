@@ -178,6 +178,29 @@ struct RuntimeConfigTests {
         }, "expected 长度/字符必须匹配架构——parse_hex 产出长度不符即整行拒绝")
         #expect(rows.allSatisfy { ($0.anchor_va != nil) == ($0.anchor_bytes != nil) },
                 "anchor_va/anchor_bytes 必须成对——半个锚点字段整行拒绝")
+        // R6 读路径直调表（111 轮）：九字段成组——任一在场则全组完整且形制
+        // 合法（hex/16B 头锚/fs 界），否则 dylib 侧整行拒绝（该构建 hook
+        // 静默不武装）。现役仅 270135 arm64 携带。
+        for row in rows {
+            let rdFields: [String?] = [row.clone_rd_lookup, row.clone_rd_wrap,
+                                       row.clone_rd_getter, row.clone_rd_x2single,
+                                       row.clone_rd_x2desc, row.clone_rd_x2ctx,
+                                       row.clone_rd_key_slot]
+            let anyPresent = rdFields.contains { $0 != nil }
+                || row.clone_rd_lookup_fs != nil || row.clone_rd_lookup_head != nil
+            if !anyPresent { continue }
+            #expect(row.arch == "arm64", "rd 组仅 arm64（x64 行带字段=坏行）")
+            #expect(row.clone_rd_lookup_fs != nil && row.clone_rd_lookup_head != nil,
+                    "rd 组身份门字段必选（\(row.build)）")
+            #expect(row.clone_rd_lookup_head?.count == 32
+                    && row.clone_rd_lookup_head?.allSatisfy(\.isHexDigit) == true,
+                    "lookup 头锚恰 16B hex（\(row.build)）")
+            for f in rdFields {
+                #expect(f?.hasPrefix("0x") == true, "rd 组 hex 字段必须 0x 前缀（\(row.build)）")
+                #expect(f.flatMap { UInt64($0.dropFirst(2), radix: 16) } != nil,
+                        "rd 组 hex 必须可解析（\(row.build)）")
+            }
+        }
     }
 }
 

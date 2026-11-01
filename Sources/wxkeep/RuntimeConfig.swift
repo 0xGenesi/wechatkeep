@@ -49,6 +49,24 @@ enum RuntimeConfig {
         /// 命中计数 clsvc= 是「x19=consumer this」运行时假设的真机证据位。
         var clone_svc_vtable: String? = nil
 
+        /// R6 读路径直调表（111 轮，九字段成组——任一在场则 dylib 侧要求
+        /// 全组完整否则整行拒绝）：异步工作函数按 msgid 重查消息对象的
+        /// 宿主函数组。合同与派生值见 RUNTIME-DESIGN 111 节（270135 arm64
+        /// 定点反汇编）：lookup=0x32edaec（sret 五参）、wrap=0x309ac50、
+        /// getter=0x102b740、x2 全局单例链 0x571ce74/0xa3de0a70/0x5720308、
+        /// key 串对象在 consumer_main 帧的 sp 偏移 0x3a0。
+        var clone_rd_lookup: String? = nil
+        /// lookup 的函数级身份门①（LC_FUNCTION_STARTS 距离，8484@270135）
+        var clone_rd_lookup_fs: Int? = nil
+        /// lookup 的函数级身份门②（入口 16B 原像锚 hex）
+        var clone_rd_lookup_head: String? = nil
+        var clone_rd_wrap: String? = nil
+        var clone_rd_getter: String? = nil
+        var clone_rd_x2single: String? = nil
+        var clone_rd_x2desc: String? = nil
+        var clone_rd_x2ctx: String? = nil
+        var clone_rd_key_slot: String? = nil
+
         /// 显式 CodingKeys：case 名与属性一致（本结构属性已是 snake_case，
         /// 恰为 dylib 侧 wire 键），列出即把 wire 键名钉死——未来新增字段
         /// 若忘登记，Decodable 合成直接编译失败（防御位而非装饰；68 轮
@@ -58,6 +76,9 @@ enum RuntimeConfig {
             case func_size, anchor_va, anchor_bytes
             case clone_hook_off, clone_expected, clone_func_size
             case clone_svc_vtable
+            case clone_rd_lookup, clone_rd_lookup_fs, clone_rd_lookup_head
+            case clone_rd_wrap, clone_rd_getter, clone_rd_x2single
+            case clone_rd_x2desc, clone_rd_x2ctx, clone_rd_key_slot
         }
     }
 
@@ -244,7 +265,17 @@ enum RuntimeConfig {
                 // （setter 0x3199f78 内联 new(0x90) 双 vtable 对象，主 vtable
                 // 0x9dee000 页 +0xb48）。行带此字段 → 克隆 hook 体内核读
                 // [x19+0xb78]→[svc+0] 与 base+0x9deeb48 比对，clsvc= 计数。
-                clone_svc_vtable: "0x9deeb48"),
+                clone_svc_vtable: "0x9deeb48",
+                // R6 读路径直调表（111 轮接线，全部 270135 arm64 pristine 切片
+                // 定点派生；ABI 合同见 RUNTIME-DESIGN 111 节）：配对事件异步
+                // 重查 lookup→wrap→+0x278 命中门→getter→+0x6b0 证据，marker
+                // clhit/clmissq/clget/clinner。lookup 双身份门=fs 8484
+                //（0x32edaec..0x32efc10）+入口 16B 锚。
+                clone_rd_lookup: "0x32edaec", clone_rd_lookup_fs: 8484,
+                clone_rd_lookup_head: "E923B96DFC6F01A9FA6702A9F85F03A9",
+                clone_rd_wrap: "0x309ac50", clone_rd_getter: "0x102b740",
+                clone_rd_x2single: "0x571ce74", clone_rd_x2desc: "0xa3de0a70",
+                clone_rd_x2ctx: "0x5720308", clone_rd_key_slot: "0x3a0"),
     ]
 
     /// 微信的 App Group（与其 entitlements application-groups 同源）。
@@ -654,7 +685,16 @@ enum RuntimeConfig {
                            clone_hook_off: row["clone_hook_off"] as? String,
                            clone_expected: row["clone_expected"] as? String,
                            clone_func_size: row["clone_func_size"] as? Int,
-                           clone_svc_vtable: row["clone_svc_vtable"] as? String)
+                           clone_svc_vtable: row["clone_svc_vtable"] as? String,
+                           clone_rd_lookup: row["clone_rd_lookup"] as? String,
+                           clone_rd_lookup_fs: row["clone_rd_lookup_fs"] as? Int,
+                           clone_rd_lookup_head: row["clone_rd_lookup_head"] as? String,
+                           clone_rd_wrap: row["clone_rd_wrap"] as? String,
+                           clone_rd_getter: row["clone_rd_getter"] as? String,
+                           clone_rd_x2single: row["clone_rd_x2single"] as? String,
+                           clone_rd_x2desc: row["clone_rd_x2desc"] as? String,
+                           clone_rd_x2ctx: row["clone_rd_x2ctx"] as? String,
+                           clone_rd_key_slot: row["clone_rd_key_slot"] as? String)
         }
     }
 }

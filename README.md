@@ -7,6 +7,8 @@ macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具�
 ## 安装
 
 ```bash
+# brew 7+ 首次使用第三方 tap 需一次性放行（brew 7.0.11 起默认不信任）：
+brew trust 0xGenesi/tap
 brew install 0xGenesi/tap/wxkeep   # v0.2.16 起从源码构建（需 Command Line Tools，约几分钟）
 wxkeep update-data   # 拉取最新补丁数据（brew 安装的 catalog 随发版冻结；此命令 day-0 跟进新构建）
 ```
@@ -20,13 +22,27 @@ swift build -c release   # 产出 .build/release/wxkeep（含 wxprobe 探针与 
 
 ## 功能
 
-- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）。覆盖 4.1.13 全线 + 4.1.15 全家族 + 4.2.0 线已收录构建（270084-270102/270131-270135 等，121 构建双架构全量清单见 docs/COMPATIBILITY.md，`wxkeep versions` 看本地目录）
+- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）。覆盖 4.1.13 全线 + 4.1.15 全家族（270084-270102/270131-270135）+ 4.2.0 线（270340-270350）共 121 构建（双架构全量清单见 docs/COMPATIBILITY.md，`wxkeep versions` 看本地目录）
 - **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效（x64 探针=补丁后的 isRevokemsg 本体；arm64 探针=喂值给 cbz 分支的独立谓词，家族完整性+输入路径自检，补丁效果由 strict verify 字节级证明承担）
 - **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示。**二进制级 update 目标**（XAppUpdateManager 四方法+访问器对全套 8 点，双架构同构覆盖 4.1.13 全线 + 4.1.15 全家族；270100 真机行为验证；269602 为纯 C++ 更新器时代，双架构周期工人→ret 单点）
 - **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）
 - **多开（克隆式）**——独立数据目录的第二/第 N 个微信，与构建号无关（`clone create`）
 - **体检**——`doctor` 含 AMFI 观察级提示与精确修复指引
-- **运行时组件（可选，默认不装）**——`runtime install` 注入支持 dylib：自定义撤回提示文案（支持 `{from}` 占位符；自发撤回默认不改写，`rewrite_self` 可开）。hook 地址表走 runtime.json 数据通道，新构建 day-0 生效
+- **运行时组件（可选，默认不装）**——`runtime install` 注入支持 dylib：自定义撤回提示文案（支持 `{from}` 占位符；自发撤回默认不改写，`rewrite_self` 可开）。hook 地址表经 runtime.json 数据通道装载——新构建地址行**随工具新版发布**（`brew upgrade wxkeep` 后跑 `wxkeep runtime hooks` 刷新即生效，免退出免重装 dylib）
+
+## 撤回原文复原（被撤回的历史消息导出）
+
+撤回发生时，微信会把消息库里的原文原地覆写为灰条提示——但全文索引（FTS）里往往仍留着原文（实测约半数可复原）。wxkeep 可以捕获数据库密钥并把这些残留导出：
+
+```bash
+brew install sqlcipher            # 前置：SQLCipher 命令行工具
+sudo wxkeep patch                 # 前置：capture 需要调试权限（get-task-allow）
+wxkeep dbkeys capture             # 捕获数据库密钥（会重启微信并要求重新扫码登录，最长等 7 分钟）
+wxkeep dbkeys recover             # 导出被撤回原文（默认写 jsonl 到用户数据目录，0600 权限）
+wxkeep dbkeys audit               # 撤回审计：按会话/联系人统计历史撤回
+```
+
+多账号自动按账号隔离。密钥只落在本机（`~/Library/Application Support/wxkeep/dbkeys.json`，0600）。
 
 ## 快速上手
 
@@ -62,7 +78,7 @@ wxkeep runtime remove    # 完整移除（幂等）
 | `tip_text` | 自定义文案。**必须保持官方骨架** `"<X>" 撤回了一条消息`（渲染层按此模式匹配，非规范形态显示为 Unsupported 占位；`wxkeep runtime tip` 会强制校验）；`{from}` 占位符展开为撤回者昵称（纯 `"{from}"` 形态展开后与原内文恒等长，最稳）；总长 ≤ 原提示内文（约 31B，超长自动放弃保原文）。推荐：`"⚠️" 撤回了一条消息` |
 | `rewrite_self` | `true` 时自发撤回（「你撤回了一条消息」）也改写；默认 false 保持诚实反馈 |
 | `keep_message` | 通用 keeptip（**默认 true**）：解析前清零撤回 XML 的 `<newmsgid>` → 原消息保留（详见下方专节） |
-| `clone_message` | **实验（V3 克隆缝，默认 false）**：撤回 XML 捕获 + 写点 content 捕获 + msgid↔content 配对，marker 证据 `clone=/clrow=/clpair=`。消息行插入（R6）接线前**零消息副作用**——机制在跑且惰性（`clmiss=` 即证据）。开关面：`wxkeep runtime clone on\|off\|status` |
+| `clone_message` | **实验（V3 克隆缝，默认 false）**：撤回 XML 捕获 + 写点事件 + msgid↔content 配对 + 异步按 msgid 重查消息对象（R6 读路径，上限 32 次/进程），marker 证据 `clone=/clrow=/clpair=/clsvc=/clhit=/clget=`。消息行插入接线前**零消息副作用**——机制在跑且惰性（`clmiss=` 即证据）。开关面：`wxkeep runtime clone on\|off\|status`；真共存实验需显式关 keep_message（keep 开时撤回写点不触发、消息由 keep 保留） |
 
 示例：`tip_text = "⚠️" 撤回了一条消息`（实测可渲染形态）。改写是**等长原位替换**（多余长度空格填充），文案长于原提示时放弃保原文；tip/开关类配置 **≤30 秒热生效**（77 续㉘ 双缓冲热重载，无需重启微信；hooks 地址表仍随启动装载）；**自发撤回零干预**（「你撤回」判别门放行原生删除+原生提示，77 续㉘/T5 F1）；hook 按构建 UUID + 入口字节双门匹配，未知构建零作用；11 个构建（270094/097/099/100/101/102/131-135）双架构行另带函数级身份门（func_size 布局指纹）——微信自更新「同 UUID 换函数」时 hook 拒装而非错挂（`runtime status` 诊断位 func-id-mismatch 可见；270100 arm64 曾实测该场景破坏消息渲染，详见 docs/RUNTIME-DESIGN.md）。地址表随 `install` 写入（44 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-270135 × 双架构），新构建由 `tools/derive_runtime_hooks.py` 产出数据行即生效。**格式约束（实测）**：渲染层按官方骨架 `"…" 撤回了一条消息` 匹配显示，非规范形态会显示为 Unsupported 占位。**群聊**：提示文本由服务端在撤回推送里原文下发（群=replacemsg/私=content，16 条实弹捕获零例外），改写与 keep_message 在群聊数据层同构成立（逆向定案 2026-10-28）；渲染校验终验随 T5 真机验证。
 
@@ -93,7 +109,7 @@ catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（
 
 ```bash
 swift build -c release          # 产出 .build/release/wxkeep
-swift test                      # 259 项测试（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件 + 崩溃一致性/确定性/负控/性质深度门；arm64 行为项在非 arm64 主机自动 skip）
+swift test                      # 全部测试（279 项（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件 + 崩溃一致性/确定性/负控/性质深度门；arm64 行为项在非 arm64 主机自动 skip）
 WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路（开发机）
 ```
 
@@ -105,17 +121,17 @@ config.json       双架构补丁库（条目级溯源：zengtianli/tanranv5/wxk
 signatures.json   定位配方 SSOT（x64 imm64 锚点 + arm64 几何三代 + verify 规格）
 tools/            Python 孪生（定位/合并/矩阵，machutil 统一 Mach-O 解析）与 spike 存档
 docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现 / 工具审计记录
-.github/          CI（macos-14/15 build+test）+ 新版本追踪流水线
+.github/          CI（macos-15 双 Xcode 腿 build+test + Rosetta x64 全量测试）+ 新版本追踪流水线
 ```
 
 ## 诚实的限制
 
 - **3.x 主程序时代（3.5.5-3.8.10.17，16 构建）**：撤回链在 ObjC 方法级（非 4.x 的 C++ 谓词）——silent=撤回 sysmsg 入口裸 ret（原消息保留、无灰条、无落库），keeptip=执行体 `DelRevokedMsg:msgData:` 裸 ret（原消息保留+灰条提示并存）。入口选择子四代改名谱系全裁决（FFToNameFavChatZZ→processNewXMLMsg→onRevokeRoomHistory→onSecMsg，`__FUNCTION__` 字面量+xref 双信号验证门）；**update 屏蔽面**=MMUpdateMgr 三方法（onServiceInit 吞 Sparkle 调度+checkForUpdates:+3.8.2 起 startBackgroundUpdatesCheck:，体内 100% update 专属实读）随 patch 附带；引擎级往返 64+32 组全绿；**`wxkeep verify` 行为级可用**——3.x 位点是可调用的方法入口（裸 ret），verify 逐个调用「已打补丁」位点证调用即返回（87 轮；worker 返回类型 UInt8 归一修复裸 ret 垃圾寄存器 UB）。**多开**：3.x 主程序无内建单实例锁（85 轮终裁——already-running 簇两架构死引用、无拦截对话框、无锁原语；4.x 的锁是 4.0.x+ 时代引入），`open -n /Applications/WeChat.app` 原生可多开，无需补丁。**行为差异（vs 4.x）**：静态裸 ret 无法区分自发/他发撤回——自己撤回时自己的视图同样保留原文（对端仍见已撤回）；拍一拍撤回同样被保留。3.x 的 Sparkle 本体在独立 framework（主机侧无法字节触达）——但调度入口 onServiceInit 在主程序，屏蔽面已闭合
-- **keeptip 覆盖**：4.1.13 全线 + 4.1.15 全家族双架构对称（revoke-keeptip 每构建 x64+arm64 各 2 点；私聊提示保留，群聊提示为字节路线已知限制——全生态皆然）；silent 双架构全可用
+- **keeptip 覆盖**：4.1.13 全线 + 4.1.15 全家族双架构对称（revoke-keeptip 每构建 x64+arm64 各 2 点；例外：270152 仅 x64 silent）；私聊提示保留，群聊提示为字节路线已知限制——全生态皆然；silent 双架构全可用。无 keeptip 条目的构建上 `--variant silent`（或 `--only update`——已放行变体域外作用域）
 - **二进制级屏蔽更新**：4.1.13 全线 + 4.1.15 全家族双架构同构 8 点（XAppUpdateManager 四方法+访问器对；270100 真机行为验证，其余同构派生+字节级往返）；269602 为纯 C++ 更新器时代（周期工人→ret 双架构单点）；4.1.12 及更老构建的 arm64 8/9 点来自 zengtianli/fzlzjerry 导入。偏好层三开关（`wxkeep update-guard`，patch 时自动附带）在无二进制目标的构建上兜底
 - verify 的行为验证双架构可用：worker 在 arm64 走 **MAP_JIT 拆分映射**（EXEC 前缀段=MAP_JIT，数据段=普通 RW 匿名映射紧贴其后——macOS 27 的 W^X 是执行级：写态页不可执行、保护态页不可写且 mprotect 全封，代码数据同区即死锁；2026-10-14 最小探针定案），x64 直接 RWX 映射；写入后 `sys_icache_invalidate` + `np(1)` 回保护态再执行。arm64 执行路径已 CI（macos-15）与 **macOS 27 真机**（270100 装机件四探针全对）双端验收；stock arm64 真机无需 AMFI boot-arg
 - **verify spec 按构建变体**（`verify_variants`）：stubs/zero_regions 是绝对 VA、逐构建漂移——legacy spec 覆盖 270099 族，270131-135（当前家族）已各派生双架构变体（arm64 真件端到端 5/5 全绿；x64 走 CI Rosetta 验收）。无变体的构建上 `verify` 优雅跳过并提示（worker 有 stub 形态/越界门；x64 探针条目按配方 asm 匹配，无匹配即跳过；arm64 位点形态不符同样跳过）——补丁效果始终由 strict verify 字节级证明承担，`doctor` / `patch --dry-run` 不受影响。CI 另在 Rosetta 下跑 x86_64 全量测试覆盖 Intel worker 路径
-- 78 个隔离条目缺 expected 溯源字节（tanranv5 x64 + zengtianli arm64，全部为 4.1.12 及更老时代构建）——官方 CDN 无归档；zsbai 社区归档虽有其 dmg 但老线资产**系统性源头损坏**（digest 与 GitHub 一致仍 XZ corrupt，2026-09-19 抽样实证），回填源确认为永久缺口
+- 74 个隔离条目缺 expected 溯源字节（tanranv5 x64 + zengtianli arm64，全部为 4.1.12 及更老时代构建）——早期判「zsbai 归档源头损坏=永久缺口」，2026-10-29 已翻案：这些构建可经 CDN Universal 直链获得（详见 docs/MAINTAINING.md）——回填待做，数量以 `python3 tools/count_quarantined.py` 为准
 - 运行时组件地址表 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-270135 × 双架构 44 行（270101/270102 于 2026-10-20 补齐——CDN 实为在档，旧「无 dmg 工件」结论有误）；M-R2 parse 直挂已实机验证（270100），其余家族行为同构派生（序言门全过，未单独实机验收）
 - 270087/270092 与 4.1.13.1-.4、.12-.49 段（含 269602）、4.1.14 整线（2026-10-19 全区间 CDN 扫描定案无归档）官方 CDN 无归档（疑似从未公开发布）——269602 条目已由历史轮次覆盖，其余为目录永久缺口
 

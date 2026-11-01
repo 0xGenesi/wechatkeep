@@ -194,6 +194,17 @@ svrid/rowid 不受波及。插入落队时机晚于撤回写也安全（内容�
       r6_b78_writers.py（__text 界内 +0xb78 STR/LDR 全量扫描；36 位
       chained-fixup 自解版因 __TEXT 内嵌数据节假阳性废弃，dyld_info
       -fixups 为权威）。
+  - **M2-R6 读路径接线（2026-11-01，111 轮）**：110 合同的三处缺口
+    （lookup 的 x2 必填且来自全局单例两跳 / key 是 sysmsg 字段而异步侧
+    无此对象 / sret-毒值-strong count ABI 细节）由定点反汇编补全后，
+    **异步重查链代码全落地**——配对窗口快照帧内 key 串（thunk 存 caller
+    sp，内核读 sp+0x3a0 → 字节深拷贝，零键格式假设）+ worker 读路径
+    （svc vtable 复验→key 重建→x2 两跳→lookup→wrap 命中位→getter→
+    +0x6b0 证据；护栏 32 次/进程；marker clkey/clhit/clmissq/clget/
+    clinner）。行数据=HookRow 九字段直调表组（成组门+lookup 双身份门，
+    270135 首发）。插入族仍按计划留 M4（队列归属未定案）。真机证据链：
+    clsvc→clkey→clhit→clget，一次撤回全出。合同与诚实边界详见
+    RUNTIME-DESIGN 111 节。
 - **V3-M3（产品化）**：config 键 `clone_message`（默认 off）+自撤
   不克隆（selfskip 先于克隆判定）+重编辑记账对齐+FuzzParseSurfaces
   负控（坏 XML 不触发插入）。

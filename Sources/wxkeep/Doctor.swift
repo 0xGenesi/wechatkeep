@@ -288,7 +288,8 @@ struct Doctor {
             }
         } else {
             overall = Overall.unsupportedBuild
-            verdicts.append("build \(build) is not in the catalog — run `wxkeep locate` to auto-locate via recipes")
+            // 111 轮 UX：先 update-data（新构建 day-0 数据通道，常一步解决）
+            verdicts.append("构建 \(build) 不在补丁目录——先 `wxkeep update-data` 拉最新补丁数据；仍不支持再 `wxkeep locate` 自动定位")
         }
         if signature == "adhoc" { verdicts.append("bundle is re-signed (ad-hoc) — expected after patching") }
         if let amfiRisk, amfiRisk.level == "watch" {
@@ -311,7 +312,7 @@ struct Doctor {
         // next command
         var nextCommand: String? = nil
         if overall == Overall.unsupportedBuild {
-            nextCommand = "wxkeep locate"
+            nextCommand = "wxkeep update-data"
         } else if overall != Overall.protected {
             let sudo = writable ? "" : "sudo "
             let hasKeeptip = versionEntry?.targets.contains { $0.identifier == "revoke-keeptip" } ?? false
@@ -448,10 +449,15 @@ struct Doctor {
         let anyPatched = gatingStates.values.contains { $0 == "patched" }
         switch record.kind {
         case .patch where revokePatched && !byteDamage && record.resigned == true:
+            // 111 轮修（处方收敛）：next_command 原为 `wxkeep verify`——verify
+            // 不触碰 journal，照做后 doctor 每次仍给同一处方，PENDING 永不
+            // 收敛（稀释真事故提示）。verify 降为人读确认步骤，机器可执行
+            // 指令改幂等 patch（重跑即清 journal）。
             return (["journal from an unfinished patch run (started \(started)) — bytes look fully "
                      + "applied and re-signing was confirmed; it likely died before cleanup. "
-                     + "Confirm with `wxkeep verify`; re-running patch (idempotent) clears the journal"],
-                    "patch@\(started)", "wxkeep verify")
+                     + "Re-running patch (idempotent) clears the journal; "
+                     + "`wxkeep verify` afterwards confirms behavior"],
+                    "patch@\(started)", "\(sudo)wxkeep patch")
         case .patch where revokePatched && !byteDamage:
             // 110 轮修（洗白链）：字节完好但重签从未确认（v1 旧记录 nil 同判）——
             // 「重跑 patch 即收口」的旧处方会把陈旧签名洗白成 protected（全部

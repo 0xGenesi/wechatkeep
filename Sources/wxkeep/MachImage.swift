@@ -140,7 +140,9 @@ struct MachImage {
     /// 映射目标——EntrySlot 的 SLOT 选址就在那里，不能按 filesize 收紧；
     /// __bss 类零填充尾由 bytes() 的 data.count 界兜底。
     func sliceRelativeOffset(va: UInt64) -> Int? {
-        for seg in segments where va >= seg.vmaddr && va < seg.vmaddr + seg.vmsize {
+        // 111 轮修（L3⑤ 一致性）：加法式上界在病态段表（vmaddr+vmsize 溢出）下
+        // trap——减法式（前半已保证 va ≥ vmaddr）等价且无溢出面。
+        for seg in segments where va >= seg.vmaddr && va - seg.vmaddr < seg.vmsize {
             // 病态段表（fileoff/差值超 Int 表示域）按不可映射拒绝而非强转
             // trap（L3⑤ 家族：损坏输入必须干净拒绝）。
             let rel = va - seg.vmaddr

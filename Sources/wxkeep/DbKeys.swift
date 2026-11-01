@@ -97,13 +97,26 @@ extension Array where Element == UInt8 {
 
 struct DbKeysStore: Codable, Equatable {
     var secrets: [String] = []          // 账号级 master secret（hex，32B）
-    var dbs: [String: String] = [:]     // 库文件名 → raw key（hex）
+    var dbs: [String: String] = [:]     // "账号/库文件名"（新）或裸库文件名（旧）→ raw key（hex）
 
-    /// 存储钥优先，其次用 secrets 按盐派生并回验页 HMAC
-    func keyFor(basename: String, salt: [UInt8], page: [UInt8]) -> [UInt8]? {
-        if let hex = dbs[basename], let key = [UInt8](hexString: hex),
-           SQLCipherGeometry.verifyPage1(page: page, key: key) {
-            return key
+    /// 键位规则（111 轮多账号修复）：微信每账号目录结构相同、库文件同名
+    /// （账号 A/B 各有一个 message_0.db）——裸 basename 键在多账号下会让
+    /// B 库撞上 A 的钥。新键位 = "account/basename"；旧裸键保留回落（单
+    /// 账号时代存量库无迁移负担）。**每个候选键都验页 HMAC**——验不中
+    /// 即不是本库的钥（盐不同），绝不误用，然后走 secrets 现场派生。
+    static func dbKey(basename: String, account: String) -> String {
+        account.isEmpty ? basename : "\(account)/\(basename)"
+    }
+
+    /// 存储钥优先（限定位 → 裸位，逐个验页），其次用 secrets 按盐派生并回验
+    func keyFor(basename: String, account: String = "", salt: [UInt8], page: [UInt8]) -> [UInt8]? {
+        var candidates = [Self.dbKey(basename: basename, account: account)]
+        if !account.isEmpty { candidates.append(basename) }   // 旧库裸键回落
+        for name in candidates {
+            if let hex = dbs[name], let key = [UInt8](hexString: hex),
+               SQLCipherGeometry.verifyPage1(page: page, key: key) {
+                return key
+            }
         }
         for secretHex in secrets {
             guard let secret = [UInt8](hexString: secretHex) else { continue }
@@ -115,10 +128,13 @@ struct DbKeysStore: Codable, Equatable {
         return nil
     }
 
-    mutating func promote(basename: String, salt: [UInt8], page: [UInt8]) -> Bool {
-        guard dbs[basename] == nil,
-              let key = keyFor(basename: basename, salt: salt, page: page) else { return false }
-        dbs[basename] = key.hexString
+    /// 派生并晋升入库（限定位）。已在限定位（或裸位——keyFor 命中）时不
+    /// 重复写；钥来自 secrets 现场派生时入限定位（含旧裸键的隐式迁移）。
+    mutating func promote(basename: String, account: String = "", salt: [UInt8], page: [UInt8]) -> Bool {
+        let qualified = Self.dbKey(basename: basename, account: account)
+        guard dbs[qualified] == nil,
+              let key = keyFor(basename: basename, account: account, salt: salt, page: page) else { return false }
+        dbs[qualified] = key.hexString
         return true
     }
 }
@@ -288,15 +304,16 @@ extension Wxkeep {
                         guard let page = WeChatDBFinder.page1(of: url) else { continue }
                         if WeChatDBFinder.isPlain(page) { plain += 1; continue }
                         let salt = SQLCipherGeometry.saltOfPage1(page: page)
-                        var ok: Bool
-                        if let hex = store.dbs[url.lastPathComponent],
-                           let key = [UInt8](hexString: hex) {
-                            ok = SQLCipherGeometry.verifyPage1(page: page, key: key)
-                        } else if store.promote(basename: url.lastPathComponent, salt: salt, page: page) {
+                        // 111 轮多账号修复：check 与 audit/recover 同口径（keyFor
+                        /// 验中即用 + secrets 回落），不再因裸 basename 撞键误报 RED
+                        var ok = false
+                        if store.promote(basename: url.lastPathComponent, account: account,
+                                         salt: salt, page: page) {
                             ok = true
                             changed = true
-                        } else {
-                            ok = false
+                        } else if store.keyFor(basename: url.lastPathComponent, account: account,
+                                               salt: salt, page: page) != nil {
+                            ok = true
                         }
                         if ok { green += 1 } else { red.append(url.path) }
                     }
@@ -304,6 +321,10 @@ extension Wxkeep {
                 if changed { try DbKeysFiles.saveStore(store, url: storeURL) }
                 print("green=\(green) plain=\(plain) red=\(red.count)\(changed ? "（派生钥已晋升入库）" : "")")
                 for path in red.prefix(10) { print("  RED \(path)") }
+                if !red.isEmpty {
+                    print("密钥缺失/失效——运行 `wxkeep dbkeys capture` 重新捕获"
+                        + "（需微信已 `wxkeep patch` 并重新扫码登录，最长等 7 分钟）")
+                }
                 if !red.isEmpty { throw ExitCode(1) }
             }
         }
@@ -483,7 +504,7 @@ extension Wxkeep {
                     for db in dbs {
                         guard let page = WeChatDBFinder.page1(of: db), !WeChatDBFinder.isPlain(page) else { continue }
                         let salt = SQLCipherGeometry.saltOfPage1(page: page)
-                        guard let key = store.keyFor(basename: db.lastPathComponent, salt: salt, page: page) else {
+                        guard let key = store.keyFor(basename: db.lastPathComponent, account: account, salt: salt, page: page) else {
                             throw ValidationError("密钥不可用：\(db.lastPathComponent) — 先 `wxkeep dbkeys check` / `capture`")
                         }
                         let tables = try Self.listMsgTables(db: db, exe: exe, key: key)
@@ -515,7 +536,9 @@ extension Wxkeep {
                 let zstdNote = noClassify ? "，--no-classify" : (Zstd.available ? "" : "，zstd 缺席退化")
                 let sysCount = total[.otherSystem, default: 0]
                 print("撤回灰条：xml=\(total[.xmlRevoke, default: 0]) self=\(total[.selfRevoke, default: 0]) other=\(total[.otherRevoke, default: 0])（其余系统行=\(sysCount)，未分类=\(unknownForm)\(zstdNote)）")
-                for row in rows.sorted(by: { $0.ts > $1.ts }).prefix(latest) {
+                // 111 轮修：--latest 负值会让 prefix/suffix 触发 _precondition 崩溃——
+                // 夹到 ≥0（负语义上等价于 0：不导出）
+                for row in rows.sorted(by: { $0.ts > $1.ts }).prefix(max(latest, 0)) {
                     print("  \(row.ts > 0 ? Self.fmt(row.ts) : "?") [\(row.form.rawValue)] \(row.chat) (\(row.db))")
                 }
                 if let sinceTS {

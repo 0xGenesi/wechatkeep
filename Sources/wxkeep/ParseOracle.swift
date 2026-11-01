@@ -704,10 +704,17 @@ enum ParseOracle {
                 guard p + 8 <= raw.count else { break }
                 let cmd = u32(p), cmdsize = Int(u32(p + 4))
                 guard cmdsize > 0 else { break }
-                if cmd == 0x8000_0034 { fixoff = Int(u32(p + 8)); fixlen = Int(u32(p + 12)) }
+                if cmd == 0x8000_0034 {
+                    guard p + 16 <= raw.count else { break }   // 111 轮修：载荷界
+                    fixoff = Int(u32(p + 8)); fixlen = Int(u32(p + 12))
+                }
                 p += cmdsize
             }
+            // 111 轮修：fixlen 来自头字段、此前未对文件长收敛——后续所有
+            // 「≤ fixoff+fixlen」的检查都以文件界为准（imports/page 表读取
+            // 全部落在 raw.count 内，不再依赖 worker 崩溃兜底）。
             guard fixoff >= 0, fixoff + 28 <= raw.count else { return 0 }
+            fixlen = min(fixlen, raw.count - fixoff)
             let startsOff = Int(u32(fixoff + 4))
             let importsOff = Int(u32(fixoff + 8))
             let symbolsOff = Int(u32(fixoff + 12))
@@ -729,6 +736,7 @@ enum ParseOracle {
             // starts_in_image → 段链表
             guard startsOff + 4 <= fixlen else { return 0 }
             let segCount = Int(u32(fixoff + startsOff))
+            guard startsOff + 4 + 4 * segCount <= fixlen else { return 0 }   // 111 轮修：段表界
             guard segCount > 0, segCount <= 16 else { return 0 }
             var applied = 0
             for si in 0..<segCount {
@@ -740,7 +748,8 @@ enum ParseOracle {
                 let ptrFormat = Int(u32(b + 4) >> 16)      // u16 pointer_format
                 let segmentOffset = u64(b + 8)
                 let pageCount = Int(u32(b + 20) & 0xFFFF)  // u16 page_count（b+22 起是 page_start[]）
-                guard ptrFormat == 6, pageSize > 0, pageCount > 0 else { continue }
+                guard ptrFormat == 6, pageSize > 0, pageCount > 0,
+                      b + 22 + 2 * pageCount <= fixoff + fixlen else { continue }   // 111 轮修：page_start[] 界
                 for pi in 0..<pageCount {
                     let ps = Int(u32(b + 22 + 2 * pi) & 0xFFFF)   // u16 page_start
                     if ps == 0xFFFF { continue }

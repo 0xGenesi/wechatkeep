@@ -89,7 +89,7 @@ enum Clone {
 
         // 1. Pre-write: destination directory must be writable (admin /Applications or custom dir)
         guard fm.isWritableFile(atPath: dir.path) else {
-            throw CloneError.copyFailed("\(dir.path) 不可写（标准用户请用 --app 自定义目录，或加 sudo）")
+            throw CloneError.copyFailed("\(dir.path) 不可写——把 WeChat.app 放到可写目录后用 --app 指定该副本路径，或加 sudo 重试")
         }
 
         // 2. Copy 到暂存名再 rename（110 轮修）：copyItem 非原子——340MB 级拷贝

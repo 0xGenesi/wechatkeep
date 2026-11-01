@@ -152,8 +152,15 @@ struct Config {
         do { data = try Data(contentsOf: URL(fileURLWithPath: path)) }
         catch { throw LoadError.malformed("unreadable at \(path): \(error.localizedDescription)") }
         var config = try Config(data: data, origin: path)
+        // OTA 遮蔽检测（111 轮 UX P1）：加载位 = 用户级（update-data 安装位，
+        // 搜索序优先于随包数据）时与随包目录比构建数——旧快照会永久压住
+        // brew upgrade 带来的新数据且无提示，用户会被引向注定可能失败的
+        // locate。提示刷新动作（刷新后本提示自然消失）。
+        if explicit == nil, let notice = staleCatalogNotice(loadedPath: path) {
+            print("⚠️ \(notice)")
+        }
 
-        // 本地定位条目（locate --append 产物）：与签名目录分文件、不走清单门——
+    /// 本地定位条目（locate --append 产物）：与签名目录分文件、不走清单门——
         // 它们派生自用户自己的二进制，expected 门在 patch 时仍然校验真实字节。
         // 本地定位文件固定在用户级数据目录：brew（Cellar root 目录）用户也可写
         let localURL = localOverride ?? Self.userDataURL.appendingPathComponent("config.local.json")
@@ -173,6 +180,31 @@ struct Config {
         return config
     }
 
+
+    /// 用户级 catalog 与随包数据的陈旧比对（见 load 内注释）。返回人话提示；
+    /// 无遮蔽/不可比返回 nil。
+    static func staleCatalogNotice(loadedPath: String) -> String? {
+        let userDataConfig = Self.userDataURL.appendingPathComponent("config.json").path
+        guard loadedPath == userDataConfig else { return nil }
+        let exePath = URL(fileURLWithPath: CommandLine.arguments[0],
+                          relativeTo: nil).resolvingSymlinksInPath().path
+        var dir = URL(fileURLWithPath: exePath).deletingLastPathComponent()
+        var bundledPath: String?
+        for _ in 0..<8 {
+            let p = dir.appendingPathComponent("config.json").path
+            if FileManager.default.fileExists(atPath: p) { bundledPath = p; break }
+            dir.deleteLastPathComponent()
+        }
+        guard let bundledPath, bundledPath != loadedPath,
+              let bData = try? Data(contentsOf: URL(fileURLWithPath: bundledPath)),
+              let bCfg = try? Config(data: bData, origin: bundledPath),
+              let lData = try? Data(contentsOf: URL(fileURLWithPath: loadedPath)),
+              let lCfg = try? Config(data: lData, origin: loadedPath),
+              bCfg.versions.count > lCfg.versions.count
+        else { return nil }
+        return "数据目录补丁库（\(lCfg.versions.count) 构建）旧于随包版本（\(bCfg.versions.count) 构建）——"
+            + "运行 `wxkeep update-data` 刷新（微信升级后的新构建支持可能已在随包数据里）"
+    }
 
     /// 合并本地定位条目：同构建→同 identifier+binary 目标按 (arch, addr) 去重追加；
     /// 新构建→整条插入。

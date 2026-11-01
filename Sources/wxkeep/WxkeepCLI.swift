@@ -42,7 +42,9 @@ extension Wxkeep {
             print("build \(build) (v\(version)) at \(options.app.path)")
             print("------ Catalog (\(config.versions.count) builds) ------")
             let known = config.versions.contains { $0.version == build }
-            print(known ? "(installed build is in the catalog)" : "(installed build is NOT in the catalog — run `wxkeep locate`)")
+            print(known
+                ? "(installed build is in the catalog)"
+                : "(installed build is NOT in the catalog — 先 `wxkeep update-data` 刷新补丁数据，仍未知再 `wxkeep locate`)")
             for entry in config.versions {
                 let marks = entry.targets.map(\.identifier).joined(separator: ",")
                 let quarantine = entry.targets.flatMap(\.entries).contains { $0.expected == nil }
@@ -134,6 +136,12 @@ extension Wxkeep {
                 }
             } catch {
                 Wxkeep.printPermissionHintIfTCC(error)
+                // 写前失败收口（111 轮修，catalog 路径覆盖面）：variant 不可用/
+                // 异变体在位/Patcher Phase-1 全族——引擎从未获得写入机会，
+                // journal 即刻收口，避免 doctor 的 interrupted 噪音与死循环处方。
+                if !dryRun && Wxkeep.isPreWriteFailure(error) {
+                    PatchJournal.complete()
+                }
                 throw error
             }
             summary.lines.forEach { print($0) }
@@ -179,6 +187,16 @@ extension Wxkeep {
         }
     }
 
+    /// runtime hooks 行偏移的严格 0x-hex 解析（111 轮修）：此前 dropFirst(2)
+    /// 硬剥两字符——无前缀的手编/被改 runtime.json 行会被静默截成错址 VA
+    ///（"4cd5e8c"→"d5e8c"），remove 路径上据此误判「入口补丁不在位」后照删
+    /// dylib，留下真跳板在位而 SLOT 恒零的必崩态。与 C 侧 parse_hex_u32
+    /// 宽严一致：必须 "0x" 前缀 + 全程可解析。
+    static func strictHexVA(_ s: String) -> UInt64? {
+        guard s.hasPrefix("0x"), s.count > 2 else { return nil }
+        return UInt64(s.dropFirst(2), radix: 16)
+    }
+
     /// macOS 14+ 的「App 管理」TCC 权限：root 也绕不过（社区高频卡点，
     /// sunnyyoung #1025 / zengtianli user-blockers）。写 /Applications 下的
     /// App 报权限错误时，把指引打在人话层面再抛原错误。
@@ -193,6 +211,27 @@ extension Wxkeep {
         print("⚠️ 写入被系统拒绝（Permission denied）。macOS 14+ 即使 sudo 也会被「App 管理」"
             + "隐私权限拦截：系统设置 → 隐私与安全性 → App 管理 → 打开你所用的终端 App"
             + "（Terminal/iTerm/Warp 等），然后重试。")
+    }
+
+    /// 写前失败判别（111 轮，journal 收口覆盖面补全）：引擎/补丁器在任何
+    /// 字节写入**之前**抛出的错误族——这类失败若不收口 journal，doctor 会
+    /// 把正常失败报成 interrupted transaction、开出注定再失败的重跑处方
+    ///（108 轮修了 auto-locate 路径，110 轮修了 restore 两类；本函数把
+    /// 判别收敛为单点，patch catalog 路径与 restore 一致使用）。
+    /// PatchError 全部是 Phase-1（验证）错误；EngineError 五类均在写前抛出。
+    /// Cocoa/POSIX 错误（磁盘满/EIO）**不判写前**——备份失败（写前）与
+    /// Phase-2 中途写失败（写中）同型不可分，保守留 journal 让 doctor
+    /// 指引收口（重跑幂等，方向安全）。
+    static func isPreWriteFailure(_ error: Error) -> Bool {
+        if error is Patcher.PatchError { return true }
+        if let e = error as? Engine.EngineError {
+            switch e {
+            case .unsupportedBuild, .variantUnavailable, .restoreUnavailable,
+                 .variantDeprecated, .foreignVariantPatched:
+                return true
+            }
+        }
+        return false
     }
 }
 
@@ -229,18 +268,13 @@ extension Wxkeep {
                 summary = try Engine.restore(app: options.app, build: build, config: config, dryRun: dryRun)
             } catch {
                 Wxkeep.printPermissionHintIfTCC(error)
-                // 写前失败即收口（110 轮修，与 patch 的 auto-locate 路径同款）：
-                // unsupportedBuild（构建不在册）/ restoreUnavailable（preflight，
-                // 任何字节未写之前抛出）两类失败若不收口，journal 残留会让
-                // doctor 永久开「重跑 restore」的处方——而它每次都同样失败
-                //（微信自动升级后 / 含隔离条目的构建），死循环。
-                if let e = error as? Engine.EngineError,
-                   case .unsupportedBuild = e {
-                    if !dryRun { PatchJournal.complete() }
-                }
-                if let e = error as? Engine.EngineError,
-                   case .restoreUnavailable = e {
-                    if !dryRun { PatchJournal.complete() }
+                // 写前失败即收口（110 轮修引入；111 轮收敛进 isPreWriteFailure
+                // 单点并扩面）：unsupportedBuild/restoreUnavailable/variant 族
+                // /Patcher Phase-1 全族——字节未写即失败时残留 journal 只会让
+                // doctor 开出注定再失败的重跑处方（微信自动升级后 / 含隔离
+                // 条目的构建 / --variant keeptip 无条目构建）。
+                if !dryRun && Wxkeep.isPreWriteFailure(error) {
+                    PatchJournal.complete()
                 }
                 throw error
             }
@@ -399,7 +433,7 @@ extension Wxkeep {
 
         @OptionGroup var options: Options
 
-        @Option(help: "status / off (default: guard) / on (restore update checks)")
+        @Option(help: "off = 开启防护（关闭微信自动更新，默认）/ on = 恢复更新检查 / status = 查看状态")
         var action: Action = .off
 
         mutating func run() throws {
@@ -724,6 +758,8 @@ extension Wxkeep {
 
         struct RuntimeStatus: ParsableCommand {
             static var _commandName: String { "status" }
+            static let configuration = CommandConfiguration(
+                abstract: "Show runtime injection / hooks / tip / evidence status")
             @OptionGroup var options: Options
             mutating func run() throws {
                 try WeChatApp.validate(options.app)
@@ -825,7 +861,23 @@ extension Wxkeep {
                                 line += " clsvc=\(svc)（R6 服务身份门命中）"
                             }
                         }
-                        line += "（M2 原型缝：捕获/写点/配对；clmiss=插入直调表未接的丢弃计数，非故障）"
+                        // R6 读路径接线（111 轮）：clkey=帧内 key 快照成功数、
+                        // clhit=lookup+wrap 命中、clmissq=未命中/守卫退出、
+                        // clget=getter 拿到 msg_obj、clinner=+0x6b0 行集合在位。
+                        // 非零链 = 异步重查在真机全通——插入族接线（M4）前的
+                        // 最后一道证据。
+                        let rdLine = [("clkey", "key 快照"), ("clhit", "重查命中"),
+                                      ("clmissq", "重查未中"), ("clget", "取到消息对象"),
+                                      ("clinner", "行集合在位")]
+                            .compactMap { key, label -> String? in
+                                guard let v = markerDigits(key).flatMap({ Int($0) }), v > 0 else { return nil }
+                                return "\(key)=\(v)（\(label)）"
+                            }
+                        if !rdLine.isEmpty {
+                            print("克隆读路径:        " + rdLine.joined(separator: " ")
+                                  + "（R6 异步重查；上限 32 次/进程）")
+                        }
+                        line += "（M2 原型缝：捕获/写点/配对；clmiss=插入未接的丢弃计数，非故障）"
                         print(line)
                     }
                     if let cfg = markerDigits("cfg").flatMap({ Int($0) }), cfg > 0 {
@@ -1071,7 +1123,7 @@ extension Wxkeep {
                         }
                         if let cap = digits("clone"), let miss = digits("clmiss"),
                            cap > 0 || miss > 0 {
-                            var line = "hook 证据:       clone=\(cap)（捕获派发） clmiss=\(miss)（插入直调表未接——机制在跑且惰性的证明）"
+                            var line = "hook 证据:       clone=\(cap)（捕获派发） clmiss=\(miss)（插入未接——机制在跑且惰性的证明）"
                             if let rows = digits("clrow"), rows > 0 {
                                 line += " clrow=\(rows)（写点挂点事件）"
                             }
@@ -1082,11 +1134,22 @@ extension Wxkeep {
                                 line += " clsvc=\(svc)（R6 服务身份门命中——consumer this 钥匙实证）"
                             }
                             print(line)
+                            // R6 读路径证据（111 轮）：clkey/clhit/clmissq/clget/clinner
+                            let rd = [("clkey", "key 快照"), ("clhit", "重查命中"),
+                                      ("clmissq", "重查未中"), ("clget", "取到消息对象"),
+                                      ("clinner", "行集合在位")]
+                                .compactMap { key, label -> String? in
+                                    guard let v = digits(key), v > 0 else { return nil }
+                                    return "\(key)=\(v)（\(label)）"
+                                }
+                            if !rd.isEmpty {
+                                print("读路径证据:      " + rd.joined(separator: " ") + "（R6 异步重查接线）")
+                            }
                         }
                     }
-                    print("实验状态:        M2-R6（捕获/写点/配对/服务身份证据链全通）；插入直调表（消息行入库）")
-                    print("                 = R6 残余——数据行入库前克隆不产生任何消息副作用。推荐组合：keep_message 保持缺省开。")
-                    print("                 110 轮定案：consumer this 即读路径钥匙；clsvc= 真机验证后接插入族。")
+                    print("实验状态:        M2-R6+读路径接线（捕获/写点/配对/服务身份/异步重查链全在位）；")
+                    print("                 插入直调表（消息行入库）= R6 残余——数据行入库前克隆不产生任何消息副作用。")
+                    print("                 推荐组合：keep_message 保持缺省开（真共存实验需显式关 keep 后单独开 clone）。")
                 case .on:
                     let written = try RuntimeConfig.writeCloneMessage(true)
                     print("✓ clone_message = on（M2-R5：捕获/写点/配对，插入未接——无消息副作用）")
@@ -1174,7 +1237,7 @@ extension Wxkeep {
                 do {
                     if let row = RuntimeConfig.knownHooks.first(where: {
                         $0.build == build && $0.arch == "arm64" }) {
-                        guard let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16) else {
+                        guard let hookOff = Wxkeep.strictHexVA(row.hook_off) else {
                             throw ValidationError("hooks 行 hook_off 非法: \(row.hook_off)（build \(row.build)）")
                         }
                         entrySlotHookOff = hookOff
@@ -1187,16 +1250,31 @@ extension Wxkeep {
                                 expectedHex: row.expected)
                         }
                         if let cOffHex = row.clone_hook_off, let cExp = row.clone_expected {
-                            guard let cOff = UInt64(cOffHex.dropFirst(2), radix: 16) else {
-                                throw ValidationError("hooks 行 clone_hook_off 非法: \(cOffHex)（build \(row.build)）")
-                            }
-                            cloneSlotHookOff = cOff
-                            if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: cOff) != nil {
-                                cloneSlotIdempotent = true
-                            } else {
-                                cloneSlotPlan = try EntrySlot.planArm64(
-                                    file: wechatDylibURL, hookOff: cOff,
-                                    expectedHex: cExp, slotIndex: 1)
+                            // 克隆第二挂点独立失败面（111 轮修）：主 slot 计划
+                            // 成功而 clone 计划失败（写点字节漂移/尾部填充不足）
+                            // 时，此前吞进同一个 catch——输出「按未补丁路径诊断」
+                            // 与随后照写主 slot 自相矛盾，且 clone 挂点静默缺失
+                            //（M2 实验证据 clsvc/clrow 无源）。分报：主 hook 不
+                            // 受影响，克隆入口补丁未装 + 补装动作。
+                            do {
+                                guard let cOff = Wxkeep.strictHexVA(cOffHex) else {
+                                    throw ValidationError("hooks 行 clone_hook_off 非法: \(cOffHex)（build \(row.build)）")
+                                }
+                                cloneSlotHookOff = cOff
+                                if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: cOff) != nil {
+                                    cloneSlotIdempotent = true
+                                } else {
+                                    cloneSlotPlan = try EntrySlot.planArm64(
+                                        file: wechatDylibURL, hookOff: cOff,
+                                        expectedHex: cExp, slotIndex: 1)
+                                }
+                            } catch {
+                                print("ℹ︎ clone 挂点: \(error)")
+                                print("   克隆实验入口补丁未装（主 hook 不受影响；clsvc/clrow 证据将无源）——"
+                                      + "重跑 wxkeep runtime install 可补装双点")
+                                cloneSlotPlan = nil
+                                cloneSlotIdempotent = false
+                                cloneSlotHookOff = 0
                             }
                         }
                     } else {
@@ -1357,8 +1435,8 @@ extension Wxkeep {
                     var builds: [String] = []
                     for r in rows where !builds.contains(r.build) { builds.append(r.build) }
                     print("  hooks: \(rows.count) 行（runtime.json，构建 \(builds.joined(separator: "/"))）")
-                    print("  文案: 编辑 runtime.json 的 tip_text（支持 {from} 占位符）——双份：")
-                    RuntimeConfig.configWriteTargets.forEach { print("    \($0.path)") }
+                    print("  文案: `wxkeep runtime tip '\"⚠️\" 撤回了一条消息'`（自动双位原子写入；")
+                    print("         手编 runtime.json 需同时改双份且必须是 plist 格式——命令免踩这些坑）")
                 } catch {
                     print("  ⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")
                     print("     dylib 将回落内置地址表（当前构建仍可用）")
@@ -1436,7 +1514,7 @@ extension Wxkeep {
                     let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
                     if let row = RuntimeConfig.knownHooks.first(where: {
                         $0.build == build && $0.arch == "arm64" }) {
-                        if let hookOff = UInt64(row.hook_off.dropFirst(2), radix: 16),
+                        if let hookOff = Wxkeep.strictHexVA(row.hook_off),
                            EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil {
                             guard let expected = Data(hex: String(row.expected.prefix(24))), expected.count >= 12 else {
                                 throw ValidationError("hooks 行 expected 字节不足（build \(row.build)）")
@@ -1457,7 +1535,7 @@ extension Wxkeep {
                             // 态；漏还原 = 写点跳板残留 + SLOT 恒零 = 撤回即崩）
                             var cloneRestoredVA: UInt64?
                             if let cOffHex = row.clone_hook_off,
-                               let cOff = UInt64(cOffHex.dropFirst(2), radix: 16),
+                               let cOff = Wxkeep.strictHexVA(cOffHex),
                                let cExp = row.clone_expected,
                                EntrySlot.detectPatched(file: dylibURL, hookOff: cOff) != nil {
                                 guard let cExpected = Data(hex: String(cExp.prefix(24))), cExpected.count >= 12 else {
@@ -1478,7 +1556,7 @@ extension Wxkeep {
                             if let cOff = cloneRestoredVA {
                                 print(String(format: "entry-slot: 已还原克隆写点 0x%llx（期望字节写回，同帧原子落盘）", cOff))
                             }
-                        } else if UInt64(row.hook_off.dropFirst(2), radix: 16) != nil {
+                        } else if Wxkeep.strictHexVA(row.hook_off) != nil {
                             print("ℹ︎ entry-slot: 入口补丁不在位（无需还原）")
                         } else {
                             print("⚠️ entry-slot: hooks 行 hook_off 非法（build \(row.build)）——无法核对入口，跳过还原")
@@ -1554,7 +1632,7 @@ extension Wxkeep {
         enum Action: String, ExpressibleByArgument { case status, off }
 
         @OptionGroup var options: Options
-        @Option(help: "status / off (default: harden)")
+        @Option(help: "off = 最小化遥测/诊断上报（默认）/ status = 查看状态（本命令无恢复方向——上报键原本默认开）")
         var action: Action = .off
 
         mutating func run() throws {
@@ -1568,7 +1646,14 @@ extension Wxkeep {
                 }
                 let ok = PrivacyGuard.disable()
                 print(PrivacyGuard.render(PrivacyGuard.read()))
-                print(ok ? "✓ 遥测/诊断上报已最小化" : "✗ 未完全生效，请重试")
+                if ok {
+                    print("✓ 遥测/诊断上报已最小化")
+                } else if geteuid() == 0 {
+                    print("✗ 未生效：sudo 语境下无法定位控制台用户（ssh 无 GUI 会话/登录窗口态）——"
+                        + "请在真实用户会话的终端重试（微信偏好域归它所有）")
+                } else {
+                    print("✗ 未完全生效，请重试（微信须已退出）")
+                }
             }
         }
     }

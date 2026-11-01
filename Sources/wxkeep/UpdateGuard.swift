@@ -91,19 +91,29 @@ enum UpdateGuard {
     /// Root context (sudo patch) writes to ROOT's prefs — cfprefd drops or
     /// misroutes them for the user-owned sandboxed domain. Delegate to the
     /// console user via launchctl asuser so the write lands in THEIR plist.
-    private static func defaultsArgs(_ args: [String]) -> [String] {
-        if geteuid() != 0 { return ["/usr/bin/defaults"] + args }
+    /// 委托链不可用（console 为空/root/uid 不可解析——ssh 无 GUI 会话、登录
+    /// 窗口态）返回 nil（111 轮修：写侧此前回落 root 直写 /var/root 域，
+    /// 验证读同域读回「0」互相印证 →「✓ 已写入」而微信读的还是用户域）。
+    private static func consoleUserDelegation() -> (user: String, uid: String)? {
+        guard geteuid() == 0 else { return nil }
         let consoleUser = Shell.run("/usr/bin/stat", ["-f", "%Su", "/dev/console"]).stdout
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !consoleUser.isEmpty, consoleUser != "root",
               let uidNum = Int(Shell.run("/usr/bin/id", ["-u", consoleUser]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            return ["/usr/bin/defaults"] + args
+            return nil
         }
-        return ["/bin/launchctl", "asuser", String(uidNum),
-                "/usr/bin/sudo", "-u", consoleUser, "/usr/bin/defaults"] + args
+        return (consoleUser, String(uidNum))
+    }
+
+    private static func defaultsArgs(_ args: [String]) -> [String] {
+        guard let dlg = consoleUserDelegation() else { return ["/usr/bin/defaults"] + args }
+        return ["/bin/launchctl", "asuser", dlg.uid,
+                "/usr/bin/sudo", "-u", dlg.user, "/usr/bin/defaults"] + args
     }
 
     private static func apply(guarded: Bool) -> Bool {
+        // root 语境委托链不可用 → 如实失败（不写 root 域假成功）。
+        if geteuid() == 0 && consoleUserDelegation() == nil { return false }
         // enable 只恢复两个更新开关（108 轮修）：SUSendProfileInfo 是遥测键，
         // 「恢复更新检查」的用户意图不含顺手打开遥测。
         let targets = guarded ? keys : keys.filter { $0.key != "SUSendProfileInfo" }

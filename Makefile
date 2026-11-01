@@ -8,8 +8,9 @@
 .PHONY: build release clean test
 .ONESHELL:
 
-# 交叉编译双架构需要完整 Xcode（xcbuild）；CLT-only 环境回退单架构，
-# universal 由 CI（runner 带完整 Xcode）产出并挂到 Release。
+# 交叉编译双架构需要完整 Xcode（xcbuild）；CLT-only 环境回退单架构。
+# （111 轮注：release.yml 已随源码-only 发版策略删除——universal 资产
+# 由本地 `make release` 自取，CI 只跑 build+test。）
 XCBUILD = /Library/Developer/SharedFrameworks/XCBuild.framework/Versions/A/Support/xcbuild
 BUILD_FLAGS = $(if $(wildcard $(XCBUILD)),--arch arm64 --arch x86_64,)
 
@@ -17,13 +18,14 @@ build:
 	swift build
 	swift test
 
-# 真 dylib 全链路测试：备份路径存在才启用（本地机器各自指定；CI/无备份
-# 机器自动跳过该组测试）。可用 make test REAL_DYLIB=/path/to/dylib 覆盖。
+# 真 dylib 全链路测试：显式传 REAL_DYLIB 才启用（本地机器各自指定；CI/
+# 无备份机器自动跳过该组测试）。111 轮移除个人机器路径默认值—— unsuspecting
+# 环境静默空跑与「测试通过」假象同源。
 test:
 	@if [ -n "$(REAL_DYLIB)" ]; then \
 	  WXKEEP_REAL_DYLIB="$(REAL_DYLIB)" swift test; \
 	else \
-	  WXKEEP_REAL_DYLIB="$(wildcard $(HOME)/wechattweak-intel/wechat.dylib.orig.backup)" swift test; \
+	  swift test; \
 	fi
 
 # 单文件分发：universal 双架构 → 剥符号 → ad-hoc 重签（无签名的二进制在

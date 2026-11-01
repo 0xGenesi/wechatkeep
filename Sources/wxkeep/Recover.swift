@@ -170,7 +170,7 @@ extension Wxkeep.DbKeysCommand {
                     .first(where: { $0.lastPathComponent == "message_fts.db" }) else { continue }
                 guard let page = WeChatDBFinder.page1(of: fts), !WeChatDBFinder.isPlain(page) else { continue }
                 let salt = SQLCipherGeometry.saltOfPage1(page: page)
-                guard let key = store.keyFor(basename: fts.lastPathComponent, salt: salt, page: page) else { continue }
+                guard let key = store.keyFor(basename: fts.lastPathComponent, account: account, salt: salt, page: page) else { continue }
                 ftsKeyed[account] = (fts, key)
                 var mapping: [String: Int] = [:]
                 for line in try Audit.runSQL(exe, db: fts, key: key,
@@ -182,7 +182,7 @@ extension Wxkeep.DbKeysCommand {
                 ftsUser2Sid[account] = mapping
             }
             guard !ftsUser2Sid.isEmpty else {
-                throw ValidationError("FTS name2id 不可用——先 `wxkeep dbkeys check` 确认密钥")
+                throw ValidationError("FTS name2id 不可用——密钥缺失：运行 `wxkeep dbkeys capture` 重新捕获（需微信已 patch 并重新扫码登录）")
             }
             print("· FTS 会话映射 \(ftsUser2Sid.values.map(\.count).max() ?? 0) 项 × \(ftsUser2Sid.count) 账号")
 
@@ -199,7 +199,7 @@ extension Wxkeep.DbKeysCommand {
                 for db in dbs {
                     guard let page = WeChatDBFinder.page1(of: db), !WeChatDBFinder.isPlain(page) else { continue }
                     let salt = SQLCipherGeometry.saltOfPage1(page: page)
-                    guard let key = store.keyFor(basename: db.lastPathComponent, salt: salt, page: page) else {
+                    guard let key = store.keyFor(basename: db.lastPathComponent, account: account, salt: salt, page: page) else {
                         throw ValidationError("密钥不可用：\(db.lastPathComponent) — 先 `wxkeep dbkeys check` / `capture`")
                     }
                     let tables = try Audit.listMsgTables(db: db, exe: exe, key: key)
@@ -284,7 +284,7 @@ extension Wxkeep.DbKeysCommand {
                     .first(where: { $0.lastPathComponent == "contact.db" }) else { continue }
                 guard let page = WeChatDBFinder.page1(of: contact), !WeChatDBFinder.isPlain(page) else { continue }
                 let salt = SQLCipherGeometry.saltOfPage1(page: page)
-                guard let key = store.keyFor(basename: contact.lastPathComponent, salt: salt, page: page) else { continue }
+                guard let key = store.keyFor(basename: contact.lastPathComponent, account: account, salt: salt, page: page) else { continue }
                 var names: [String: String] = [:]
                 for line in try Audit.runSQL(exe, db: contact, key: key,
                                          statements: "SELECT username, coalesce(remark,''), coalesce(nick_name,''), coalesce(alias,'') FROM contact;") {
@@ -336,7 +336,7 @@ extension Wxkeep.DbKeysCommand {
 
             print("复原结果：成功=\(records.count)（含显示名 \(named)）无 FTS 文档（非文本原文为主）=\(assembled.absent) 文档不可解码=\(assembled.undecodable) 被同步覆盖=\(assembled.synced)")
             print("输出：\(outURL.path)（0600，含聊天内容——注意保管，勿入仓库）")
-            for r in records.suffix(latest).reversed() {
+            for r in records.suffix(max(latest, 0)).reversed() {   // 负值夹 0（同 dbkeys audit）
                 let label = r.name ?? r.chat
                 print("  \(r.time > 0 ? Audit.fmt(r.time) : "?") [\(r.form)] \(label) (\(r.length)B)")
             }

@@ -954,3 +954,111 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
   读——该指针是 parse 的真实参数，sso_head 随后经同指针读同字节；热路径
   加 syscall 换零增益安全。② 区域扫描 sizeofcmds 裸读——probe 刚内核读
   过同页（微秒级 TOCTOU 不成立）；已顺手收紧（回传），非缺陷修复。
+
+## 111 轮（2026-11-01）：R6 读路径接线 + 主动体检第五轮（四路并行）——279 测全绿 +6
+
+### R6 接线（代码）：异步重查链全落地（插入族仍按计划留 M4 窗口）
+
+**RE 增量（110「直译合同已全册」的两处缺口，本轮定点反汇编补全）**：
+
+- **x2 链定案**：lookup（0x32edaec）的 x2 **不可为 NULL**（`cbz x2 → 早退
+  miss`）；consumer_main 中 x2 = `0x4bd8164([sp+0x408])` = `0x5720308(
+  0x8a8b8([sp+0x408]), 0)`，而 [sp+0x408] = `0x571ce74(sp+0x410, 0xa3de0a70)`
+  ——**全局单例两跳，生命周期与进程等价，异步可复现**（非流内对象）。
+- **key 格式定案**：key 构造 0x4a2b524(sysmsg) 的撤回分支（type==10000）
+  = **第一个 optional string 字段原样拷贝**（[x20+8]→[+8] 链，非复合键）。
+  但该字段是 sysmsg 对象的字段——异步侧无此对象。**解法：thunk 快照
+  caller sp**（写点入口 sp = consumer_main 在 bl 处的 sp），配对窗口内
+  内核读帧内 sp+0x3a0 的串对象 → 字节级深拷贝进记录——异步侧零键格式
+  假设（键=newmsgid 十进制还是会话串，由真机 clkey= 证据定案）。
+- **ABI 细节**：lookup/getter 是 non-trivial C++ 类的**内存返回**（sret
+  x8）——C 侧以 >16B struct（big3_t）强制 sret（16B C struct 会被 clang
+  排进 x0/x1 寄存器返回，与宿主 ABI 错位）；出参预置毒值哨兵
+  0xAAAAAAAAAAAAAAAA；wrap=普通两参返回指针；命中位 wrap+0x278 bit0；
+  msg_obj+0x6b0/{+0x6b8}=行集合 inner/ctl。
+
+**机制面**：
+
+- **HookRow 九字段直调表组**（clone_rd_lookup/_fs/_head + wrap/getter/
+  x2single/x2desc/x2ctx/key_slot）：成组出现（缺一整行拒绝）、安装期
+  lookup 双身份门（FUNCTION_STARTS 距离 8484 + 入口 16B 锚 memcmp）——
+  失配只惰性（worker 不武装，clmiss 语义不变），不置失败位。
+- **配对捕获扩展**：thunk 存 caller sp（x17 中转——sp 不可作 str 源）；
+  配对成功（CAS 内）＝key 快照窗：kread 24B 串头 → sso_key_snapshot 解码
+  （短串内联 flag=len<<1 / 长串 ptr+size，libc++ LE 布局）→ 记录深拷贝；
+  svc（vtable 门验证）与 consumer 一并入记录。marker `clkey=/clkeylen=`。
+- **worker 读路径**（clone_rd_run，fns 参数化 = 测试缝可注入 JIT 桩驱动
+  生产代码）：svc 复验（vtable 门重走）→ key 串对象重建（≤22B 短串内联
+  /长串进程内缓冲+MSB flag）→ x2 两跳 → lookup → wrap → 命中位 kread →
+  getter → +0x6b0 inner 证据。marker `clhit=/clmissq=/clget=/clinner=`；
+  进程级护栏 kCloneMaxLookups=32。**诚实边界**：getter 的 strong count
+  由宿主 bump、worker 不做配对 release（错放比泄漏危险）——每事件泄漏
+  一个引用，护栏上界化，插入轮收口；consumer 配对-执行间销毁的残余
+  竞态在册（毫秒窗 + vtable 复验缓解）。
+- **测试缝**：JIT 桩五件（x2s/x2c/lookup/wrap/getter——getter 用字面量
+  槽回传 fake msg_obj）端到端驱动生产 clone_rd_run——sret 换址/五参直译
+  /命中位/+0x6b0 任何 ABI 错位即刻红；行门负例（缺一/坏 hex/头锚长度/
+  fs 缺失全拒）；key 快照合成帧端到端。
+
+### 主动体检第五轮（四路并行：CLI 面/引擎面/runtime.m/UX 文档，第 5 次全找）
+
+全部发现逐项人工复核后修复，分级入册：
+
+- **runtime P1（蹦床重放源失控）**：补丁态下蹦床重放源 100% 信任行字节
+  ——磁盘原 12B 已被入口补丁覆盖（原指令只在行里），[12..16) 从未被任何
+  一侧校验 + 编码门漏寄存器间接跳转族（`br x0` = 0xD6 首字节可整行过门）
+  ——runtime.json 在腾讯可写容器的威胁模型下 = 每次 parse 重放 4 条攻击
+  者指令。修三面：①补丁态尾 4B 校验（entry_patch_matches：补丁形态 +
+  [12..16) 与行 expected 逐字节比对，失配拒装+矛盾态留痕）；②可换址门
+  增补 0xD4/0xD5/0xD6 首字节拒绝（BR/BLR/RET 及 PAC 变体+陷阱/系统空间；
+  现役行零误拒）；③主/克隆两挂点同门。
+- **CLI P1（dbkeys 多账号同名库撞键）**：dbs 字典裸 basename 键——账号
+  B 的 message_0.db 撞上 A 的钥（盐不同 HMAC 必败）→ check 误报 RED +
+  与 audit/recover（keyFor 有 secrets 回落）行为分裂。修：键位改
+  "account/basename"（裸名回落兼容存量）+ check 换 keyFor 同口径。
+- **UX P1（旧 OTA 数据遮蔽新随包数据）**：update-data 装进用户目录的
+  catalog 搜索序优先于随包——brew upgrade 带来的 4.2.0 支持被 10 月旧
+  快照永久压住且无提示，unsupportedBuild/doctor/versions 的指路全是
+  locate（可能失败）而非一步的 update-data。修：Config 加载时遮蔽检测
+  （用户级 vs 随包构建数比对，更旧即提示刷新）+ 三处指引全部 update-data
+  前置。
+- **UX P1（recover 零文档）**：README 加「撤回原文复原」章节（前置链
+  brew sqlcipher→patch→capture→recover）；check 的 RED 分支与 recover
+  的 FTS 报错补 capture 指引（此前是死胡同）。
+- **引擎 P2（变体切换记账洞）**：变体切换还原块在恢复重签 catch 的 try
+  范围外 + restoreTargets 抛错时其内部 summary 整体丢弃（wroteAnything
+  恒假）→ 半还原态无自愈重签。修：块迁入 do{} + restoreTargets 增
+  partialWrite 回调（相对路径保守记账后重抛）。
+- **P2 批**：PrivacyGuard/UpdateGuard 的 root 委托链不可用态（ssh 无 GUI/
+  登录窗口）如实失败（此前写+验同落 root 域互相印证 =「✓ 已写入」空转
+  误报）；`--variant keeptip --only update` 在无 keeptip 条目构建必败——
+  变体域不在 --only 作用域时跳过变体存在性校验。
+- **P3 批（择要）**：journal 写前失败收口收敛为 isPreWriteFailure 单点
+  （patch catalog 路径 + restore 扩面：PatchError 全族/EngineError 五类；
+  Cocoa 错误不判写前——备份失败与中途写失败同型不可分，保守留 journal
+  方向安全）；畸形 Mach-O 溢出 trap 族 8 点（MachImage/RecipeEngine×4/
+  EntrySlot×4/Patcher——减法式比较/文件长夹取，与自家 L3⑤ 不变量一致）；
+  Swift 侧 hook_off 解析换 strictHexVA（dropFirst(2) 对无前缀串静默截成
+  错址——C 侧 110 轮已修 Swift 侧漏）；verify worker 坏 spec 从静默
+  continue/未知 kind 当 strlen 改 exit(4)（契约对齐——假 mismatch 与
+  误判 crash 双杀）；ParseOracle fixups 解析界收敛（fixlen 对文件长夹取
+  + imports/page 表界）；restore 补写前备份（会写才备份，幂等重跑不白拷
+  340MB）；--latest 负值夹 0（prefix/suffix precondition 崩溃）；runtime
+  install 克隆挂点计划失败分报（此前与主 slot 输出自相矛盾+静默缺失）；
+  doctor 处方 verify→patch（verify 不清 journal，PENDING 永不收敛）；
+  --action 帮助文案（off=开防护的反直觉语义明示）；runtime install 的
+  tip 手编指引改 `wxkeep runtime tip` 命令。
+- **UX 文档批**：README 补 brew trust 前置/keeptip 覆盖例外（270152）/
+  4.2.0 编号补正/runtime 地址表「随工具新版发布」主张修正/隔离条目数字
+  与 zsbai 结论翻案同步/CI 描述更新；runtime status 补 abstract；克隆
+  创建不可写文案给真实下一步；Makefile 移除个人机器路径默认 + release
+  注释对齐源码-only 策略；merge_staging 备份保 3 轮换；根目录陈旧
+  ./wxkeep 二进制清除。
+- **裁定缓改（记录理由）**：①runtime install/remove 的 Cocoa 类写前失败
+  （Backup.make）不收口 journal——与 Phase-2 中途写失败同型不可分，而
+  doctor 对这两个 kind 的处方是幂等重跑（自愈），保守留 journal 方向
+  安全；②journal 全局单槽多 app 覆写——doctor 有字节 gating/签名双兜底，
+  盲区仅「字节完好+签名有效+事务语义未收口」窄态，按 app 分文件随
+  多 app 事务模型再议；③无跨进程互斥（flock）——双开 CLI 是操作面小
+  场景且可恢复，doctor 的 mixed 判定兜底。
+

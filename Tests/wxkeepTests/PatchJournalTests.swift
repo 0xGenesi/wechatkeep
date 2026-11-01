@@ -104,15 +104,19 @@ final class PatchJournalTests {
         #expect(g.nextCommand == nil)
     }
 
-    @Test func guidancePatchFullyAppliedSuggestsVerify() {
-        // 重签已确认（110 轮洗白链修复后的良性分支）：死于收口前——verify 确认即可
+    @Test func guidancePatchFullyAppliedSuggestsIdempotentPatch() {
+        // 重签已确认（110 轮洗白链修复后的良性分支）：死于收口前。111 轮修：
+        // 处方从 `wxkeep verify` 改为幂等 patch——verify 不清 journal，照做后
+        // doctor 每次仍给同一处方，PENDING 永不收敛；verify 降为人读确认步骤。
         var r = record(.patch)
         r.resigned = true
         let g = Doctor.interruptedTxGuidance(
             journalExists: true, record: r, gatingStates: patched, sudoRequired: false,
             appPath: appPath)
         #expect(g.verdictLines.first?.contains("fully applied") == true)
-        #expect(g.nextCommand == "wxkeep verify")
+        #expect(g.verdictLines.first?.contains("verify") == true,
+                "verify 作为人读确认步骤仍在 verdict 行内")
+        #expect(g.nextCommand == "wxkeep patch")
         #expect(g.journalSummary?.hasPrefix("patch@") == true)
     }
 

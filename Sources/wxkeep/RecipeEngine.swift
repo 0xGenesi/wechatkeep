@@ -147,7 +147,10 @@ struct RecipeEngine {
         var out: [UInt64] = []
         var pageRegs = [UInt32: UInt64]()   // reg -> adrp page
         var o = text.offset
-        let end = min(text.offset + Int(text.size), image.data.count - 4)
+        // 111 轮修：UInt64 Section.size 强转 Int 在病态节头（>Int.max）下
+        // trap——先以文件长夹取（end 语义不变；与 MachImage 同族）。
+        let textSize = Int(min(text.size, UInt64(image.data.count)))
+        let end = min(text.offset + textSize, image.data.count - 4)
         func le32(_ at: Int) -> UInt32 {   // arm64 Mach-O instructions are LITTLE-endian
             UInt32(image.data[at]) | UInt32(image.data[at+1]) << 8
                 | UInt32(image.data[at+2]) << 16 | UInt32(image.data[at+3]) << 24
@@ -239,7 +242,8 @@ struct RecipeEngine {
                     e += 14
                 }
                 if let text = try? image.section("__text"),
-                   e >= text.offset && e < text.offset + Int(text.size) {
+                   e >= text.offset,
+                   e - text.offset < Int(min(text.size, UInt64(image.data.count))) {
                     out.append(text.addr + UInt64(e - text.offset))
                 }
             }
@@ -293,7 +297,8 @@ struct RecipeEngine {
               d[stub+10] == 0x74, d[stub+11] == 0x02,
               d[stub+12] == 0xFF, d[stub+13] == 0xE0 else { return nil }
         guard let text = try? image.section("__text"),
-              stub >= text.offset, stub < text.offset + Int(text.size) else { return nil }
+              stub >= text.offset,
+              stub - text.offset < Int(min(text.size, UInt64(image.data.count))) else { return nil }
         return text.addr + UInt64(stub - text.offset)
     }
 
@@ -302,7 +307,8 @@ struct RecipeEngine {
         guard let text = try? image.section("__text") else { return 0 }
         var count = 0
         var o = text.offset
-        let end = min(text.offset + Int(text.size), image.data.count - 5)
+        let end = min(text.offset + Int(min(text.size, UInt64(image.data.count))),
+                      image.data.count - 5)
         while o < end {
             if image.data[o] == 0xE8 {
                 let disp = image.data.subdata(in: (o+1)..<(o+5)).withUnsafeBytes {
