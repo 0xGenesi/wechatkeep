@@ -463,6 +463,17 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 121·R16 第六轮实弹 + 补丁态门修复轮（2026-11-01：lu 槽生效但 rd 表静默失武——lookup 入口被 lu 补丁改写后活读比对恒失败（装配顺序交互缺陷首例）；rd 门补丁态感知修复；285 测同轮基线）
+
+1. **[第六轮实弹]**：lu-arm OK 但 `clone-rd: lookup 身份门失配——直调
+   表不武装`——第四 SLOT 补丁写盘后，rd 门活读 lookup 入口读到补丁
+   形态≠原像 → 整表不武装（worker 惰性，px0 无出）。**缺陷=同函数
+   「直调身份门」与「直挂补丁」的装配交互**（四槽架构首例）。
+2. **[修复]**：rd 门补丁态感知——entry_patch_present+matches（SLOT 形
+   态+尾 4B=行原像尾）即身份已证，跳过活读比对。未补丁路径原语义不变。
+3. **[回归]**：285 全绿。下一轮实弹预期：lu thunk（lookup 每消息必经）
+   → src=lu vtable 门直中 → keyctor 键 → 读链 → r8pub/r9pub。
+
 ## 120·R15 第五轮实弹 + lookup 直挂轮（2026-11-01：cm 槽装机成功但 consumer_main 也死锚（candvt=0x0=thunk 未曾执行、零崩溃=入口无人调）——三代锚假设全灭后改挂**共用汇点 lookup 0x32edaec**（六 consumer 必经，svc 直送 x0）；slotIndex 3 零新行字段（复用 rd 组 lookup 偏移+头锚）；285 测全绿）
 
 1. **[第五轮实弹]**：cm-arm OK + SLOT 填装 ✓，但 px0 candvt_off=0x0——

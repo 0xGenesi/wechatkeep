@@ -2968,9 +2968,17 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
         if (!bad && func_size_matches(&im, t->clone_rd_lookup_off,
                                       t->clone_rd_lookup_fs) != 1) bad = 1;
         image_layout_free(&im);
+        // R15 修：lookup 入口即第四 SLOT 的补丁目标（lu 直挂同函数）——
+        // 补丁在场且尾 4B 与行一致时，活字节是补丁形态而非原像，活读比对
+        // 恒失败（120 轮实弹实证：rd 表静默不武装）。补丁态=身份已由
+        // 「SLOT 形态+尾 4B=行原像尾」证明，跳过活读比对。
+        int lu_patched = entry_patch_present(base + t->clone_rd_lookup_off)
+                         && entry_patch_matches(base + t->clone_rd_lookup_off,
+                                                t->clone_rd_lookup_head);
         uint8_t head16[16];
-        if (!bad && (!kread_buf(base + t->clone_rd_lookup_off, head16, 16)
-                     || memcmp(head16, t->clone_rd_lookup_head, 16) != 0)) bad = 1;
+        if (!bad && !lu_patched
+            && (!kread_buf(base + t->clone_rd_lookup_off, head16, 16)
+                || memcmp(head16, t->clone_rd_lookup_head, 16) != 0)) bad = 1;
         if (bad) {
             bootlog_line("clone-rd: lookup 身份门失配——直调表不武装（worker 惰性）");
         } else {
