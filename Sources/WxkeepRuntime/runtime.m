@@ -138,6 +138,12 @@ typedef struct {
     uint32_t clone_ins_pub_vt;      // 可选：publisher 认证 vtable
     uint8_t has_clone_ins_pub_vt;
     uint8_t has_clone_ins;
+    // R14 第三 SLOT（consumer_main 直挂 0x31a96d8）：入口 x0=consumer/
+    // x1=msg 同点全活——R6 读路径对的唯一同点来源（写点缝/parse 锚两代
+    // 假设实弹证伪后）。行成对（off+expected 16B）；缺一整行拒绝。
+    uint32_t clone_cm_off;
+    uint8_t clone_cm_expected[16];
+    uint8_t has_clone_cm;
 } hook_target_t;
 
 // 270099 x86_64 — hook 点 = parse 入口（drive25 地面真值：rsi 直挂 sysmsg
@@ -544,6 +550,7 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
         @"clone_rd_wrap", @"clone_rd_getter", @"clone_rd_x2single",
         @"clone_rd_x2desc", @"clone_rd_x2ctx", @"clone_rd_key_slot",
         @"clone_rd_keyctor", @"clone_rd_keyctor_fs", @"clone_rd_keyctor_head",
+        @"clone_cm_hook_off", @"clone_cm_expected",
         @"clone_ins_ctor", @"clone_ins_ctor_fs", @"clone_ins_ctor_head",
         @"clone_ins_amr", @"clone_ins_amr_fs", @"clone_ins_amr_head",
         @"clone_ins_msg_vt", @"clone_ins_pub_vt",
@@ -700,6 +707,21 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
                 out->clone_ins_pub_vt = pv;
                 out->has_clone_ins_pub_vt = 1;
             }
+        }
+        // R14 第三 SLOT（cm 直挂）：off+expected 成对（单边=笔误整行拒），
+        // arm64 专属（同克隆对纪律）；expected 恰 16B 且可重定位。
+        NSString *cmoff = [row[@"clone_cm_hook_off"] isKindOfClass:[NSString class]] ? row[@"clone_cm_hook_off"] : nil;
+        NSString *cmexp = [row[@"clone_cm_expected"] isKindOfClass:[NSString class]] ? row[@"clone_cm_expected"] : nil;
+        if (cmoff || cmexp) {
+            if (!(cmoff && cmexp)) return 0;
+            if (!out->is_arm64) return 0;
+            uint32_t cv = 0;
+            if (!parse_hex_u32(ns_u8(cmoff), &cv) || cv == 0) return 0;
+            out->clone_cm_off = cv;
+            if (parse_hex(ns_u8(cmexp), out->clone_cm_expected,
+                          sizeof(out->clone_cm_expected)) != 16) return 0;
+            if (!arm64_prologue_relocatable(out->clone_cm_expected, 16)) return 0;
+            out->has_clone_cm = 1;
         }
     }
     strlcpy(out->uuid, ns_u8(uuid), sizeof(out->uuid));
@@ -1090,6 +1112,7 @@ typedef struct {
     char fromusr[64];
     uint64_t consumer_cand;
     uint64_t obj;
+    uint64_t cm_msg;       // R14：cm 直挂的 msg 基址（0=未武装/未取）
 } clone_evt_t;
 
 /// 最近一次捕获的快照（测试缝/诊断读回；与派发事件同内容）。
@@ -1118,6 +1141,9 @@ static int g_clone_rd_misses;                // lookup miss / 中途守卫退出
 static int g_clone_key_caps;                 // key 采集成功数（clkey=）
 static uint64_t g_clone_parse_consumer;      // parse 入口 args[0] 快照（hook 体写）
 static uint64_t g_clone_parse_obj;           // parse 入口 args[1] 快照（hook 体写）
+static volatile uint64_t g_cm_hook_target;   // R14 cm 直挂（tentative；thunk 区零值）
+static uint64_t g_cm_consumer;               // 同上（consumer_main 入口 x0）
+static uint64_t g_cm_msg;                    // 同上（msg 对象基址）
 static volatile int g_clone_svc2_hits;       // clsvc2=（parse 锚定 svc 身份门命中）
 static int sso_key_snapshot(const uint8_t head24[24], uint8_t *out, size_t cap);
 static int kread_buf(uint64_t addr, void *out, size_t n);
@@ -1167,7 +1193,15 @@ static int clone_capture(const uint8_t *ptr, uint64_t size) {
     clone_evt_t *heap = malloc(sizeof(*heap));
     if (!heap) return 1;   // OOM：无派发，但捕获/提取语义已完成
     *heap = evt;
-    heap->consumer_cand = g_clone_parse_consumer;
+    // R14：cm 直挂已武装 → consumer/msg 取 cm 对（consumer_main 入口同点
+    // 快照，嵌套一致由 worker 判）；未武装回落 parse 入口 args 快照。
+    if (__atomic_load_n(&g_cm_hook_target, __ATOMIC_ACQUIRE) != 0) {
+        heap->consumer_cand = g_cm_consumer;
+        heap->cm_msg = g_cm_msg;
+    } else {
+        heap->consumer_cand = g_clone_parse_consumer;
+        heap->cm_msg = 0;
+    }
     heap->obj = g_clone_parse_obj;
     dispatch_queue_t q = clone_queue();
     if (q) {
@@ -1237,23 +1271,37 @@ static uint64_t clone_scan_svc_2hop(uint64_t root, uint64_t root_end,
     return 0;
 }
 
-static int clone_parse_run(uint64_t cand, uint64_t obj) {
+static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
     uint64_t svc = 0, vt = 0;
     int svc_ok = 0;
     int svc_off = -1;
+    const char *src = "scan";
     uint64_t svc_vt = rd_abs(g_image_base, g_clone_svc_vt_off);
-    // 快路（R6 合同位）：cand=consumer this 时 [cand+0xb78] 直中
-    if (cand > 0x10000
-        && kread64(cand + 0xb78, &svc) && svc > 0x10000
-        && kread64(svc, &vt) && vt == svc_vt) {
-        svc_ok = 1;
-        svc_off = 0xb78;
-        g_clone_svc2_hits++;              // clsvc2=
-    }
     // R12 msg 基址还原：parse 的 x1 = msg+0x130（XML SSO 成员地址，
     // wrapper 0x4d1f6c4 直译 x20=x21+0x130）——keyctor 吃的是 msg 基址。
     uint64_t msg = obj;
     if (obj > 0x10000 + 0x130) msg = obj - 0x130;
+    // R14 cm 直挂快路：cm pair 与 parse 嵌套一致（cm_msg==obj-0x130）→
+    // cand=consumer 本体，[cand+0xb78] 即 R6 合同位
+    if (cm_msg > 0x10000 && obj > 0x10000 + 0x130 && cm_msg == obj - 0x130
+        && cand > 0x10000
+        && kread64(cand + 0xb78, &svc) && svc > 0x10000
+        && kread64(svc, &vt) && vt == svc_vt) {
+        svc_ok = 1;
+        svc_off = 0xb78;
+        src = "cm";
+        msg = cm_msg;
+        g_clone_svc2_hits++;              // clsvc2=
+    }
+    // 快路（R11 合同位）：cand=consumer this 时 [cand+0xb78] 直中
+    if (!svc_ok && cand > 0x10000
+        && kread64(cand + 0xb78, &svc) && svc > 0x10000
+        && kread64(svc, &vt) && vt == svc_vt) {
+        svc_ok = 1;
+        svc_off = 0xb78;
+        src = "cand";
+        g_clone_svc2_hits++;              // clsvc2=
+    }
     // 扫描路：L0 本体（cand 头 0x100 / msg 全深 0x240）→ L1 两级
     if (!svc_ok) {
         uint64_t p = clone_scan_svc(cand, cand + 0x100, svc_vt, &svc_off);
@@ -1303,9 +1351,9 @@ static int clone_parse_run(uint64_t cand, uint64_t obj) {
                     if (msg > 0x10000) kread64(msg, &mvt);
                     char b[224];
                     snprintf(b, sizeof(b),
-                             "px0: svc_off=%d candvt_off=0x%llx msgvt_off=0x%llx "
+                             "px0: src=%s svc_off=%d candvt_off=0x%llx msgvt_off=0x%llx "
                              "keylen=%u key=%s",
-                             svc_off,
+                             src, svc_off,
                              (unsigned long long)(cvt > g_image_base ? cvt - g_image_base : 0),
                              (unsigned long long)(mvt > g_image_base ? mvt - g_image_base : 0),
                              key_len, kx);
@@ -1337,7 +1385,8 @@ static int clone_parse_run(uint64_t cand, uint64_t obj) {
         if (msg > 0x10000) kread64(msg, &mvt);
         char b[192];
         snprintf(b, sizeof(b),
-                 "px0: svc=<scan-miss> candvt_off=0x%llx msgvt_off=0x%llx",
+                 "px0: src=%s svc=<miss> candvt_off=0x%llx msgvt_off=0x%llx",
+                 src,
                  (unsigned long long)(cvt > g_image_base ? cvt - g_image_base : 0),
                  (unsigned long long)(mvt > g_image_base ? mvt - g_image_base : 0));
         bootlog_line(b);
@@ -1358,7 +1407,7 @@ static void clone_work(void *ctx) {
         return;
     }
     __atomic_fetch_add(&g_clone_rd_lookups, 1, __ATOMIC_RELAXED);
-    int r = clone_parse_run(evt->consumer_cand, evt->obj);
+    int r = clone_parse_run(evt->consumer_cand, evt->obj, evt->cm_msg);
     if (!(r & kRdHit)) g_clone_rd_misses++;   // clmissq=
     free(evt);
 }
@@ -2185,6 +2234,34 @@ __attribute__((naked)) static void *revoke_clone_hook(void *a0, void *a1, void *
         "ldar x17, [x16]\n"
         "br x17\n");
 }
+
+// ---------------------------------------------------------------------------
+// R14 consumer_main 直挂 thunk（第三 SLOT）：纯被动观察者——存 x0/x1 进
+// 全局（consumer/msg 同点快照）后 ldar 尾跳蹦床。零 C 体调用、零帧改动
+//（consumer_main 每消息都走，热路径纪律）。x16 全程草稿位。解析钩子体
+// 与 consumer_main 同线程嵌套（parse 在 consumer_main 处理流内），全局
+// 读即当前消息对——写读同线程程序序，无同步需求。
+static void *(*volatile g_cm_real_wrapper)(void);
+static volatile uint64_t g_cm_hook_target;   // 非零=cm 挂点已武装
+static uint64_t g_cm_consumer;               // 入口 x0（consumer this）
+static uint64_t g_cm_msg;                    // 入口 x1（msg 对象基址）
+
+#if defined(__arm64__) || defined(__aarch64__)
+__attribute__((naked)) static void *revoke_cm_hook(void) {
+    __asm__ volatile(
+        "adrp x16, _g_cm_consumer@PAGE\n"
+        "str x0, [x16, _g_cm_consumer@PAGEOFF]\n"
+        "adrp x16, _g_cm_msg@PAGE\n"
+        "str x1, [x16, _g_cm_msg@PAGEOFF]\n"
+        "adrp x16, _g_cm_real_wrapper@PAGE\n"
+        "add x16, x16, _g_cm_real_wrapper@PAGEOFF\n"
+        "ldar x16, [x16]\n"
+        "br x16\n");
+}
+#else
+static void *revoke_cm_hook(void) { return NULL; }   // x64 行不带 cm 组
+#endif
+
 #else
 static void *revoke_clone_hook(void *a0, void *a1, void *a2,
                                void *a3, void *a4, void *a5) {
@@ -2932,6 +3009,56 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
     }
 }
 
+/// R14 cm 直挂武装（arm_clone_site 同构）：补丁态识别/expected 门/蹦床
+/// /SLOT 填装，失败复用 kStCloneFail 位（同实验族）。thunk=revoke_cm_hook。
+static void arm_cm_site(const hook_target_t *t, uintptr_t base) {
+    uintptr_t ctarget = base + t->clone_cm_off;
+    uint8_t cprologue[16];
+    int cpatched = entry_patch_present(ctarget);
+    if (cpatched && !entry_patch_matches(ctarget, t->clone_cm_expected)) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("cm-arm: 补丁态尾 4B 失配——拒装；盘上 cm 入口补丁在场"
+                     "而 SLOT 未填，consumer_main 调用将崩溃；收口：remove/重装");
+        return;
+    }
+    if (cpatched) {
+        memcpy(cprologue, t->clone_cm_expected, 16);
+    } else {
+        if (!kread_buf(ctarget, cprologue, 16)) {
+            g_hook_status |= kStCloneFail;
+            bootlog_line("cm-arm: 入口不可读");
+            return;
+        }
+    }
+    if (memcmp(cprologue, t->clone_cm_expected, 16) != 0) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("cm-arm: 序言门失配——拒装");
+        return;
+    }
+    if (!cpatched && !arm64_prologue_relocatable(cprologue, 16)) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("cm-arm: 序言含 PC 相对编码——拒装");
+        return;
+    }
+    hook_trampoline_t ctr;
+    if (prepare_trampoline(ctarget, cprologue, 16, 1, &ctr) != 0) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("cm-arm: 蹦床构造失败");
+        return;
+    }
+    // RELEASE 序（111 轮同款）：wrapper 先于 SLOT 写发布。
+    __atomic_store_n(&g_cm_real_wrapper, (void *(*)(void))ctr.mem, __ATOMIC_RELEASE);
+    int rc = try_slot_fill(ctarget, (void *)&revoke_cm_hook);
+    if (rc != 0) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("cm-arm: slot-fill 失败——cm 入口未补丁为安全态，"
+                     "补丁态在场则撤回处理将崩溃；收口：remove/重装");
+        return;
+    }
+    __atomic_store_n(&g_cm_hook_target, ctarget, __ATOMIC_RELEASE);
+    bootlog_line("cm-arm: OK（consumer_main 第三 SLOT 已填）");
+}
+
 static int install_hook(const hook_target_t *t, uintptr_t base) {
     int32_t expected = 0;
     if (!__atomic_compare_exchange_n(&g_arm_done, &expected, 1, 0,
@@ -3081,6 +3208,7 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
         g_arm_via_slot = 1;
         // V3-M2-R4：克隆写点第二 SLOT 并行武装（独立失败面——不拆主 hook）
         if (t->is_arm64 && t->has_clone) arm_clone_site(t, base);
+        if (t->is_arm64 && t->has_clone_cm) arm_cm_site(t, base);
         return 0;
     }
     if (t->is_arm64) {
@@ -4258,7 +4386,7 @@ int wxkeep_runtime_test_clone_parse_invoke(unsigned long long cand,
     g_clone_rd.getter_off = (uint32_t)(getter_fn - base);
     g_clone_rd.x2single_off = (uint32_t)(x2single_fn - base);
     g_clone_rd.x2ctx_off = (uint32_t)(x2ctx_fn - base);
-    int r = clone_parse_run((uint64_t)cand, (uint64_t)obj);
+    int r = clone_parse_run((uint64_t)cand, (uint64_t)obj, 0);
     g_image_base = savedBase;
     g_clone_svc_vt_off = savedVt;
     g_clone_rd = savedRd;

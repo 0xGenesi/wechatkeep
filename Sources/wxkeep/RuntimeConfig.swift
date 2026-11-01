@@ -100,6 +100,11 @@ enum RuntimeConfig {
         /// 不带此字段 = 探针-only 模式（clpub 证据位采集，插入调用恒惰性）；
         /// clpub 证据派生出该值后带上即激活插入调用。
         var clone_ins_pub_vt: String? = nil
+        /// R14 第三 SLOT（consumer_main 直挂，可选对；缺一整行拒绝）：
+        /// 入口 x0=consumer/x1=msg 同点全活——R6 读路径对的唯一同点来源。
+        var clone_cm_hook_off: String? = nil
+        /// consumer_main 入口原像 hex（16B，可重定位门）
+        var clone_cm_expected: String? = nil
 
         /// 显式 CodingKeys：case 名与属性一致（本结构属性已是 snake_case，
         /// 恰为 dylib 侧 wire 键），列出即把 wire 键名钉死——未来新增字段
@@ -117,6 +122,7 @@ enum RuntimeConfig {
             case clone_ins_ctor, clone_ins_ctor_fs, clone_ins_ctor_head
             case clone_ins_amr, clone_ins_amr_fs, clone_ins_amr_head
             case clone_ins_msg_vt, clone_ins_pub_vt
+            case clone_cm_hook_off, clone_cm_expected
         }
     }
 
@@ -327,7 +333,12 @@ enum RuntimeConfig {
                 clone_ins_ctor_head: "FF0305D1FC6F10A9F65711A9F44F12A9",
                 clone_ins_amr: "0x33fd190", clone_ins_amr_fs: 2788,
                 clone_ins_amr_head: "F85FBCA9F65701A9F44F02A9FD7B03A9",
-                clone_ins_msg_vt: "0x9f24930"),
+                clone_ins_msg_vt: "0x9f24930",
+                // R14 第三 SLOT（116/117 轮写点缝与 parse 锚实弹证伪后的
+                // 正锚）：consumer_main 0x31a96d8（唯一 BL 调用者
+                // 0x45a5910；x0=consumer/x1=msg 同点全活）。
+                clone_cm_hook_off: "0x31a96d8",
+                clone_cm_expected: "FC6FBCA9F65701A9F44F02A9FD7B03A9"),
     ]
 
     /// 微信的 App Group（与其 entitlements application-groups 同源）。
@@ -758,7 +769,9 @@ enum RuntimeConfig {
                            clone_ins_amr_fs: row["clone_ins_amr_fs"] as? Int,
                            clone_ins_amr_head: row["clone_ins_amr_head"] as? String,
                            clone_ins_msg_vt: row["clone_ins_msg_vt"] as? String,
-                           clone_ins_pub_vt: row["clone_ins_pub_vt"] as? String)
+                           clone_ins_pub_vt: row["clone_ins_pub_vt"] as? String,
+                           clone_cm_hook_off: row["clone_cm_hook_off"] as? String,
+                           clone_cm_expected: row["clone_cm_expected"] as? String)
         }
     }
 }

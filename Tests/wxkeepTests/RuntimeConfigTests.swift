@@ -168,6 +168,9 @@ struct RuntimeConfigTests {
         #expect(row.clone_ins_amr_head == "F85FBCA9F65701A9F44F02A9FD7B03A9")
         #expect(row.clone_ins_msg_vt == "0x9f24930")
         #expect(row.clone_ins_pub_vt == nil, "270135 现役=探针-only（pub_vt 待 clpub 证据派生）")
+        // R14 cm 第三挂点对
+        #expect(row.clone_cm_hook_off == "0x31a96d8")
+        #expect(row.clone_cm_expected == "FC6FBCA9F65701A9F44F02A9FD7B03A9")
     }
 
     @Test func knownHooksTableContract() {
@@ -218,6 +221,15 @@ struct RuntimeConfigTests {
                 #expect(f?.hasPrefix("0x") == true, "rd 组 hex 字段必须 0x 前缀（\(row.build)）")
                 #expect(f.flatMap { UInt64($0.dropFirst(2), radix: 16) } != nil,
                         "rd 组 hex 必须可解析（\(row.build)）")
+            }
+        }
+        // R14 cm 对：成对出现且仅 arm64（克隆对同纪律）
+        for row in rows {
+            let cmAny = row.clone_cm_hook_off != nil || row.clone_cm_expected != nil
+            if cmAny {
+                #expect(row.clone_cm_hook_off != nil && row.clone_cm_expected != nil,
+                        "cm 对缺一（\(row.build)）")
+                #expect(row.arch == "arm64", "cm 对仅 arm64（\(row.build)）")
             }
         }
         // M4 插入直调表（113 轮 R8）：七字段成组（ctor/amr 各带 fs+head 双

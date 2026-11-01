@@ -463,6 +463,26 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 119·R14 第四轮实弹 + 第三 SLOT 直挂 consumer_main 轮（2026-11-01：两级扫描实弹 miss 定案（svc 与 parse 时点对象无引用关系，五撤回含 msg 槽瞬态观察）→ 预定手段落地：cm 三号槽（x0=consumer/x1=msg 同点全活）；284→285 测全绿 +1）
+
+1. **[第四轮实弹]**：两级扫描 5 次撤回全 miss（含 msg 槽复用瞬态两拍：
+   msgvt_off=0x0/原始指针值——obj-0x130 在上游复用下并不总指向 msg 类
+   实例）。**结论：svc 与 parse 时点对象（含两级邻接）无引用关系**——
+   经验扫描路线终结，正锚=consumer_main 本体。
+2. **[第三 SLOT 机制]**：install 侧 slotIndex 2（EntrySlot 线性推进既有
+   能力）+ 独立失败面（克隆纪律）+ remove 同帧原子还原；行 schema
+   clone_cm_hook_off/clone_cm_expected 成对（arm64 专属/不可重定位拒/
+   顶层门孤儿键）；270135 值=0x31a96d8 + FC6FBCA9…（fs 5928 未入行，
+   序言门+补丁态门已盖）。
+3. **[dylib 侧]**：revoke_cm_hook 被动 naked thunk（存 x0/x1 双全局 +
+   ldar 尾跳——零 C 体零帧改动，consumer_main 每消息热路径纪律）；
+   arm_cm_site（补丁态门/序言门/蹦床/SLOT 填装，kStCloneFail 复用）；
+   capture 换 cm 对（武装时）回落 parse 快照；worker cm 快路（嵌套一致
+   性判 cm_msg==obj−0x130 → [cand+0xb78] 直中=R6 合同位）——失败回落
+   cand 快路/扫描路（全保留）。px0 行 +src=cm|cand|scan。
+4. **[测试（285 全绿 +1）]**：cm 对组门六态（单边/x64/坏 hex/头锚长）；
+   配置层 cm 对断言（270135 现值）。
+
 ## 118·R13 第三轮实弹 + 类身份解码 + 两级扫描轮（2026-11-01：扫描 miss 换来双类身份（cand=_6385990d/msg=_e0c51525——typeinfo 高位掩码坑）；msg 默认构造器无反引用；worker 升两级扫描（L0 cand 头 0x100/msg 全深 0x240→L1 指针成员再扫 0x100）；284 测同轮基线）
 
 1. **[第三轮实弹]**：扫描 miss 但换回**双类身份**——px0 行 candvt_off=

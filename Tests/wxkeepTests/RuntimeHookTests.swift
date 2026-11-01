@@ -1219,6 +1219,30 @@ extension RuntimeHookTests {
         #expect(parse(#"{"hooks":["# + base + rd + #"}]}"#) == 1)
     }
 
+    /// R14 cm 第三挂点对组门：成对（单边拒）/x64 拒/坏 hex 拒/头锚长度拒/
+    /// 不可重定位序言拒；270135 现役值回读。
+    @Test func cloneCmRowParseGate() {
+        let base = #"{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9F85F07A9""#
+        let cm = #","clone_cm_hook_off":"0x31a96d8","clone_cm_expected":"FC6FBCA9F65701A9F44F02A9FD7B03A9""#
+        func parse(_ s: String) -> Int32 {
+            wxkeep_runtime_test_parse_hooks(s, UInt(s.utf8.count))
+        }
+        #expect(parse(#"{"hooks":["# + base + cm + #"}]}"#) == 1)
+        // 单边拒
+        #expect(parse(#"{"hooks":["# + base + #","clone_cm_hook_off":"0x31a96d8"}]}"#) == 0)
+        #expect(parse(#"{"hooks":["# + base + #","clone_cm_expected":"FC6FBCA9F65701A9F44F02A9FD7B03A9"}]}"#) == 0)
+        // x64 带对拒
+        let x64 = #"{"build":"270135","uuid":"661e436d-ae61-3413-a867-841f042ddc12","arch":"x86_64","hook_off":"0x5503730","msg_arg":1,"xml_sso_off":0,"expected":"554889E54157415641554154""#
+        #expect(parse(#"{"hooks":["# + x64 + cm + #"}]}"#) == 0)
+        // 坏 hex/头锚长度
+        #expect(parse(#"{"hooks":["# + base + cm.replacingOccurrences(
+            of: "\"clone_cm_hook_off\":\"0x31a96d8\"", with: "\"clone_cm_hook_off\":\"0x31a96d8ZZ\"")
+            + #"}]}"#) == 0)
+        #expect(parse(#"{"hooks":["# + base + cm.replacingOccurrences(
+            of: "FC6FBCA9F65701A9F44F02A9FD7B03A9", with: "FC6FBCA9")
+            + #"}]}"#) == 0)
+    }
+
     /// R11 parse 锚定链端到端（arm64）：JIT 桩 keyctor（sret 写 18B 十进
     /// 制 key 短串）经**生产 clone_parse_run**：svc vtable 门→obj 门→
     /// keyctor 直调→sso 快照→读路径 tail（复用 rd 桩）。x86_64 跳过。
