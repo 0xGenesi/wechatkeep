@@ -1284,25 +1284,38 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
     // wrapper 0x4d1f6c4 直译 x20=x21+0x130）——keyctor 吃的是 msg 基址。
     uint64_t msg = obj;
     if (obj > 0x10000 + 0x130) msg = obj - 0x130;
-    // R15 lookup 直挂快路（共用汇点，撤销标记必经）：g_lu_svc 直送 +
-    // vtable 类门。keyctor(msg) 产出本消息键 → 与 g_lu_keyptr 现值对比
-    // 一致则该次 lookup 即本消息的（顺带定案键格式）；不一致仍可用（svc
-    // =存储服务唯一实例假设，vtable 门已认证）。
+    // R15/R16 lookup 直挂快路（共用汇点，撤销标记必经）。双 vtable 门
+    //（121 轮实弹定案）：x0 = 双 vtable 对象的**第二接口视图**
+    //（[x0]=0x9ded4a8=svc_vt−0xa0；主视图 [x−0x18]=0x9deeb48）——
+    // 重查调用保持 x0 原样透传（宿主 lookup 的真实 ABI 形态）。
+    // 键：g_lu_keyptr 的 24B 串对象头 → 字节快照直用（live consumer 已
+    // 构造好的键——绕开 keyctor/msg 存活竞态；121 轮实弹 key=ASCII 文本
+    // "458457…"）。快照失败回落 keyctor(msg)。
+    uint8_t lu_keybytes[64];
+    uint32_t lu_keylen = 0;
     if (__atomic_load_n(&g_lu_svc, __ATOMIC_ACQUIRE) > 0x10000) {
         uint64_t lsvc = g_lu_svc, lvt = 0;
         if (kread64(lsvc, &lvt) && lvt == svc_vt) {
             svc = lsvc;
             svc_ok = 1;
-            svc_off = -2;                 // lu 路径标记
+            svc_off = -2;
             src = "lu";
             g_clone_svc2_hits++;          // clsvc2=
-            uint8_t lk[64];
-            uint64_t kp = g_lu_keyptr;
-            int lkey = 0;
+        } else if (lvt == svc_vt - 0xa0) {
+            svc = lsvc;                   // 二接口视图原样透传（lookup ABI）
+            svc_ok = 1;
+            svc_off = -2;
+            src = "lu";
+            g_clone_svc2_hits++;          // clsvc2=
+        }
+        if (svc_ok) {
+            uint64_t kp = __atomic_load_n(&g_lu_keyptr, __ATOMIC_ACQUIRE);
             uint8_t khead[24];
-            if (kp > 0x10000 && kread_buf(kp, khead, 24))
-                lkey = sso_key_snapshot(khead, lk, sizeof(lk));
-            (void)lkey;                   // 键对比面：px0 行带 keyA 后人工比对
+            if (kp > 0x10000 && kread_buf(kp, khead, 24)
+                && khead[0x17] != 0) {
+                lu_keylen = (uint32_t)sso_key_snapshot(khead, lu_keybytes,
+                                                       sizeof(lu_keybytes));
+            }
         }
     }
     // R14 cm 直挂快路：cm pair 与 parse 嵌套一致（cm_msg==obj-0x130）→
@@ -1354,7 +1367,32 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
     memset(keyobj, 0, sizeof(keyobj));
     int key_ok = 0;
     uint32_t key_len = 0;
-    if (svc_ok && msg > 0x10000) {
+    // R16：live lookup 键直用（字节 → 24B 串对象重建，长串指向本侧栈拷贝）
+    if (svc_ok && lu_keylen > 0) {
+        key_len = lu_keylen;
+        if (key_len <= 22) {
+            memcpy(keyobj, lu_keybytes, key_len);
+            keyobj[0x17] = (uint8_t)(key_len << 1);
+        } else {
+            uint64_t ptr = (uint64_t)(uintptr_t)lu_keybytes;
+            uint64_t size = key_len;
+            uint64_t capflag = 0x8000000000000000ULL;
+            memcpy(keyobj, &ptr, 8);
+            memcpy(keyobj + 8, &size, 8);
+            memcpy(keyobj + 16, &capflag, 8);
+        }
+        key_ok = 1;
+        g_clone_key_caps++;               // clkey=（live 键采集）
+        char kx[25];
+        for (int i = 0; i < 12 && i < (int)key_len; i++)
+            snprintf(kx + i * 2, 3, "%02x", (uint8_t)lu_keybytes[i]);
+        char b[224];
+        snprintf(b, sizeof(b),
+                 "px0: src=%s svc_off=%d lu_seq=%llu keylen=%u key=%s",
+                 src, svc_off, (unsigned long long)g_lu_seq, key_len, kx);
+        bootlog_line(b);
+    }
+    if (svc_ok && !key_ok && msg > 0x10000) {
         typedef void (*keyctor_t)(void *, void *);
         uint64_t obj_head = 0;
         if (kread64(msg, &obj_head) && obj_head != 0) {
