@@ -76,7 +76,8 @@ extension Wxkeep {
         @Flag(help: "Skip re-signing after patching (debug only — the bundle will be killed on launch).")
         var noResign: Bool = false
 
-        @Option(name: .shortAndLong, help: "Path to signatures.json for the auto-locate fallback")
+        @Option(name: [.customShort("s"), .customLong("signatures-path"), .customLong("signatures")],
+                help: "Path to signatures.json for the auto-locate fallback (--signatures alias; unified with verify/locate)")
         var signaturesPath: String?
 
         enum Variant: String, ExpressibleByArgument { case silent, keeptip }
@@ -106,8 +107,19 @@ extension Wxkeep {
                 } else {
                     // Auto-locate fallback: uncatalogued build → run signature recipes.
                     print("build not in catalog — auto-locating via signature recipes…")
-                    let signatures = try Signatures.load(explicit: signaturesPath)
+                    // 写前失败（签名载入/定位不中）= 引擎从未获得写入机会：
+                    // journal 即刻收口（108 轮修）——否则新构建日的正常失败会
+                    // 被 doctor 报成 interrupted patch，把「跑 wxkeep locate」
+                    // 的正确指引覆盖成注定再失败的 re-patch。
+                    let signatures = try {
+                        do { return try Signatures.load(explicit: signaturesPath) }
+                        catch {
+                            if !dryRun { PatchJournal.complete() }
+                            throw error
+                        }
+                    }()
                     guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures) else {
+                        if !dryRun { PatchJournal.complete() }
                         throw Engine.EngineError.unsupportedBuild(build, known: config.versions.count)
                     }
                     print("recipes resolved: \(synthesized.targets.map { t in t.identifier }.joined(separator: ", "))")
@@ -128,7 +140,23 @@ extension Wxkeep {
                     Wxkeep.printPermissionHintIfTCC(error)
                     throw error
                 }
-                // restore 语义 = 回到原始；不附带任何偏好写入
+                // 偏好层防护附带（108 轮复装）：patch 要求微信退出 = cfprefd 安全
+                // 写窗，且 README/update-guard 的报错文案一直承诺「随 patch 附
+                // 带」——dcbad63 审查把 restore 的「不附带偏好写入」正确原则
+                // 误删到了 patch 头上（restore 保持不附带；patch 恢复附带）。
+                // best-effort 如实分报，失败不拆已完成的补丁事务。
+                print("------ Update guard ------")
+                if UpdateGuard.disable() {
+                    print("  更新防护已开启（防升级覆盖补丁；4.1.13+ 两键 best-effort，字节级目标随 patch 已附带）")
+                } else {
+                    print("  ⚠️ 更新防护偏好未完全生效——可稍后 `wxkeep update-guard` 重试")
+                }
+                print("------ Privacy guard ------")
+                if PrivacyGuard.disable() {
+                    print("  遥测/诊断上报已最小化")
+                } else {
+                    print("  ⚠️ 遥测最小化未完全生效——可稍后 `wxkeep privacy-guard` 重试")
+                }
             }
             if !dryRun && summary.wroteAnything {
                 #if arch(arm64)
@@ -222,7 +250,7 @@ extension Wxkeep {
         @Option(name: .shortAndLong, help: "Path to signatures.json (default: ./, user data dir, or next to the executable)")
         var signatures: String?
 
-        @Flag(help: "Append derived entries to config.json (backed up first)")
+        @Flag(help: "Append derived entries to config.local.json in the user data dir (backed up first; with --config: to that file)")
         var append: Bool = false
 
         mutating func run() throws {
@@ -370,8 +398,16 @@ extension Wxkeep {
                     print("✗ 写入未完全生效，请重试或检查权限")
                 }
             case .on:
+                // 108 轮修：与 .off 同款运行守卫——微信运行中写入被 cfprefd
+                // 丢弃，且旧版方向盲的成败判定会把丢弃报成成功。
+                if WeChatApp.isRunning(app: options.app) {
+                    throw ValidationError(
+                        "WeChat 正在运行，偏好写入会被系统丢弃。请先退出微信（⌘Q）再执行。")
+                }
                 let ok = UpdateGuard.enable()   // enable 内部清除改回检测标记
-                print(ok ? "已恢复更新检查（微信将照常提示新版本）" : "恢复未完全生效，请重试")
+                print(UpdateGuard.render(UpdateGuard.read()))
+                print(ok ? "已恢复更新检查（两个更新开关；SUSendProfileInfo 遥测键保持关闭）"
+                         : "✗ 恢复未生效（写入被丢弃或键值未翻转）——确认微信已退出后重试")
             }
         }
 
@@ -430,6 +466,9 @@ extension Wxkeep {
             @Argument(help: "Clone .app 路径或名称（如 'WeChat wxkeep 1.app'）")
             var target: String
             static func resolve(_ t: String, in dir: URL) -> URL {
+                // tilde 展开（108 轮补，100/102 轮清扫漏项）：引号传入的
+                // ~/Applications/… 不展开必报「未找到」。
+                let t = PathUtil.expandTilde(t)
                 if t.hasSuffix(".app"), FileManager.default.fileExists(atPath: t) {
                     return URL(fileURLWithPath: t)
                 }
@@ -652,6 +691,16 @@ extension Wxkeep {
                 print("runtime dylib:     \(dylibExists ? "存在" : "缺失") (\(dylib.path))")
                 let markerLine = RuntimeCommand.runtimeMarkerLine(active: active, markerExists: markerExists)
                 print("加载标记:          \(markerLine)")
+                // 克隆共享面披露（108 轮）：克隆保留同款 entitlements → 与本体
+                // 共用 App Group 容器（runtime.json/marker 双份都在那里）——
+                // 下方全部证据是「最后启动的实例」的快照，remove 会一并清掉
+                // 共享 marker。多实例并跑时计数互混，如实告知而非静默混淆。
+                let clones = Clone.list(in: options.app.deletingLastPathComponent())
+                if !clones.isEmpty {
+                    print("⚠️ 同目录另有 \(clones.count) 个 wxkeep 克隆（\(clones.map { $0.url.lastPathComponent }.joined(separator: "、"))）")
+                    print("   克隆与本体共用 App Group 容器——hook 配置共享、marker/证据计数是最后启动实例的快照；")
+                    print("   `runtime remove` 会清掉共享 marker（本体与克隆的启动证据一并消失，配置与注入态不受影响）。")
+                }
                 // runtime.json 在微信 App Group 容器（98 轮勘误：ad-hoc 装机
                 // 进程内 Group 读写被拒，dylib 真读沙盒容器份——按 dylib 同序
                 // 候选取进程有效配置），plist 格式——与 mergeKnownHooks 同源。
@@ -722,7 +771,7 @@ extension Wxkeep {
                                 line += " clpair=\(pairs)（R5 配对完整记录）"
                             }
                         }
-                        line += "（R1 骨架：捕获+派发；clmiss=无宿主方法表丢弃，非故障）"
+                        line += "（M2 原型缝：捕获/写点/配对；clmiss=插入直调表未接的丢弃计数，非故障）"
                         print(line)
                     }
                     if let cfg = markerDigits("cfg").flatMap({ Int($0) }), cfg > 0 {
@@ -941,13 +990,13 @@ extension Wxkeep {
         }
 
         /// V3-M2 克隆实验开关（docs/V3-CHARTER.md M2）：clone_message 键的
-        /// CLI 面。R1 骨架=配置通道+hook 捕获+异步派发+marker 证据；宿主
-        /// 直调表（消息行读/插入族）在 M2-R2 数据行入库前恒空——机制真实
-        /// 驱动且可证惰性（clmiss= 即证据位），实验开启对消息链零作用面。
+        /// CLI 面。M2-R5=配置通道+hook 捕获+写点捕获+msgid↔content 配对+
+        /// marker 证据；插入直调表（消息行入库）在 R6 接线前恒空——机制
+        /// 真实驱动且可证惰性（clmiss= 即证据位），实验开启对消息链零作用面。
         struct RuntimeClone: ParsableCommand {
             static var _commandName: String { "clone" }
             static let configuration = CommandConfiguration(
-                abstract: "V3-M2 clone experiment switch (default off; prototype seam — inert until M2-R2 data rows)")
+                abstract: "V3-M2 clone experiment switch (default off; prototype seam — inert until R6 insert wiring)")
             @OptionGroup var options: Options
 
             enum Action: String, ExpressibleByArgument { case status, on, off }
@@ -959,7 +1008,7 @@ extension Wxkeep {
                 case .status:
                     let cfg = RuntimeConfig.effectiveConfigDict()
                     let on = (cfg?["clone_message"] as? Bool) ?? false
-                    print("clone_message: \(on ? "on（实验：撤回 XML 捕获+异步派发；R1 无宿主方法表=捕获后丢弃）" : "off（默认）")")
+                    print("clone_message: \(on ? "on（实验：XML 捕获 + 写点 content 捕获 + msgid↔content 配对）" : "off（默认）")")
                     if let marker = RuntimeConfig.readMarkerText() {
                         func digits(_ key: String) -> Int? {
                             guard let r = marker.range(of: "\(key)=") else { return nil }
@@ -968,14 +1017,21 @@ extension Wxkeep {
                         }
                         if let cap = digits("clone"), let miss = digits("clmiss"),
                            cap > 0 || miss > 0 {
-                            print("hook 证据:       clone=\(cap)（捕获派发） clmiss=\(miss)（R1 无方法表丢弃——机制在跑的证明）")
+                            var line = "hook 证据:       clone=\(cap)（捕获派发） clmiss=\(miss)（插入直调表未接——机制在跑且惰性的证明）"
+                            if let rows = digits("clrow"), rows > 0 {
+                                line += " clrow=\(rows)（写点挂点事件）"
+                            }
+                            if let pairs = digits("clpair"), pairs > 0 {
+                                line += " clpair=\(pairs)（msgid↔content 配对完整记录）"
+                            }
+                            print(line)
                         }
                     }
-                    print("实验状态:        M2-R1 骨架（捕获/派发/证据）；消息行读+插入族=M2-R2 RE 目标，")
-                    print("                 数据行入库前克隆不产生任何消息副作用。推荐组合：keep_message 保持缺省开。")
+                    print("实验状态:        M2-R5（捕获/写点/配对/证据链全通）；插入直调表（消息行入库）")
+                    print("                 = R6——数据行入库前克隆不产生任何消息副作用。推荐组合：keep_message 保持缺省开。")
                 case .on:
                     let written = try RuntimeConfig.writeCloneMessage(true)
-                    print("✓ clone_message = on（≤30s 热生效；R1 骨架：捕获+证据，无消息副作用）")
+                    print("✓ clone_message = on（≤30s 热生效；M2-R5：捕获/写点/配对，插入未接——无消息副作用）")
                     written.forEach { print("  \($0.path)") }
                 case .off:
                     let written = try RuntimeConfig.writeCloneMessage(false)
@@ -1201,9 +1257,13 @@ extension Wxkeep {
                     // LC 已注入但 dylib 拷贝/重签失败 = 下次启动 dyld 找不到库必崩的
                     // 混合态——回滚主程序 + 清掉已拷入的 dylib + 还原入口跳板，
                     // 保持原子性（跳板残留 + SLOT 空 = parse 一进即崩，与 LC 混
-                    // 合态同级）。
+                    // 合态同级）。回滚结果如实分报（100 轮原则；与上方两个兄弟
+                    // 失败分支同款——静默 try? 会把「回滚失败」留成无线索的必崩态）。
                     Wxkeep.printPermissionHintIfTCC(error)
-                    try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)
+                    let mainRestored = (try? SafeWrite.overwrite(Data(contentsOf: backup), to: main)) != nil
+                    if !mainRestored {
+                        print("⚠️ 主程序回滚失败——请手工恢复: \(backup.path) → \(main.path)（恢复前勿启动微信）")
+                    }
                     try? fm.removeItem(at: dest)
                     if entrySlotWritten, let dylibBackup = wechatDylibBackup {
                         do {
@@ -1323,14 +1383,11 @@ extension Wxkeep {
                             let fatOff = image.sliceOffset + off
                             var data = try Data(contentsOf: dylibURL)
                             data.replaceSubrange(fatOff..<fatOff+12, with: expected.prefix(12))
-                            try SafeWrite.overwrite(data, to: dylibURL)
-                            entryRestored = true
-                            resignTargets.append("Contents/Resources/wechat.dylib")
-                            print(String(format: "entry-slot: 已还原入口 0x%llx（期望字节写回，备份 %s）",
-                                         hookOff, dylibBackup.lastPathComponent))
-                            // V3-M2 克隆第二挂点同步还原（同一文件已改写——两站
-                            // 一次落盘；漏还原 = 写点跳板残留 + SLOT 恒零 =
-                            // 撤回处理一进即崩，与主点混合态同级）
+                            // V3-M2 克隆第二挂点同步还原（108 轮修：两站合并为
+                            // **一次**原子写——旧实现两次 SafeWrite 的中间窗
+                            // 「主点已还原+克隆跳板在位+未重签」是 95 轮 CS 击杀
+                            // 态；漏还原 = 写点跳板残留 + SLOT 恒零 = 撤回即崩）
+                            var cloneRestoredVA: UInt64?
                             if let cOffHex = row.clone_hook_off,
                                let cOff = UInt64(cOffHex.dropFirst(2), radix: 16),
                                let cExp = row.clone_expected,
@@ -1343,8 +1400,15 @@ extension Wxkeep {
                                 }
                                 let cFatOff = image.sliceOffset + cOffRel
                                 data.replaceSubrange(cFatOff..<cFatOff+12, with: cExpected.prefix(12))
-                                try SafeWrite.overwrite(data, to: dylibURL)
-                                print(String(format: "entry-slot: 已还原克隆写点 0x%llx（期望字节写回）", cOff))
+                                cloneRestoredVA = cOff
+                            }
+                            try SafeWrite.overwrite(data, to: dylibURL)
+                            entryRestored = true
+                            resignTargets.append("Contents/Resources/wechat.dylib")
+                            print(String(format: "entry-slot: 已还原入口 0x%llx（期望字节写回，备份 %s）",
+                                         hookOff, dylibBackup.lastPathComponent))
+                            if let cOff = cloneRestoredVA {
+                                print(String(format: "entry-slot: 已还原克隆写点 0x%llx（期望字节写回，同帧原子落盘）", cOff))
                             }
                         } else if UInt64(row.hook_off.dropFirst(2), radix: 16) != nil {
                             print("ℹ︎ entry-slot: 入口补丁不在位（无需还原）")
@@ -1768,7 +1832,7 @@ extension Wxkeep {
 
     struct DoctorCommand: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Read-only health check: build, SIP, AMFI/taskgated kill prediction, patch state")
+            abstract: "Read-only health check: build, SIP, AMFI watch-level notice, patch state")
         static var _commandName: String { "doctor" }
 
         @OptionGroup var options: Options
@@ -1779,7 +1843,7 @@ extension Wxkeep {
         mutating func run() throws {
             try WeChatApp.validate(options.app)
             let config = try Config.load(explicit: options.config)
-            let report = Doctor.run(app: options.app, config: config)
+            let report = Doctor.run(app: options.app, config: config, explicitConfigPath: options.config)
             if json {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

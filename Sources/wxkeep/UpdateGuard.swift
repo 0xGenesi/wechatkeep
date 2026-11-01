@@ -104,13 +104,22 @@ enum UpdateGuard {
     }
 
     private static func apply(guarded: Bool) -> Bool {
-        for spec in keys {
+        // enable 只恢复两个更新开关（108 轮修）：SUSendProfileInfo 是遥测键，
+        // 「恢复更新检查」的用户意图不含顺手打开遥测。
+        let targets = guarded ? keys : keys.filter { $0.key != "SUSendProfileInfo" }
+        for spec in targets {
             let value = guarded ? "false" : "true"   // defaults CLI 需要 true/false 字面量
             let args = defaultsArgs(["write", domain, spec.key, "-bool", value])
             _ = Shell.run(args[0], Array(args[1...]))
         }
         _ = Shell.run("/usr/bin/killall", ["-hup", "cfprefsd"])
-        return allGuarded
+        // 按方向校验期望终态（108 轮修）：旧实现恒验 allGuarded（全 0）——
+        // enable 成功写入后被报「未生效」，写被 cfprefd 丢弃（微信运行中）
+        // 反被报成功，方向全反。
+        let statuses = read()
+        return guarded
+            ? statuses.allSatisfy(\.guarded)
+            : statuses.filter { $0.key != "SUSendProfileInfo" }.allSatisfy { $0.value == "1" }
     }
 
     static func render(_ statuses: [Status]) -> String {

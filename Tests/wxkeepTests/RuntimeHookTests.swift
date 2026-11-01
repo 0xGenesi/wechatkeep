@@ -338,6 +338,20 @@ import Foundation
         {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
         "arch":"arm64","xml_sso_off":0,"expected":"00000090A9BF7BFDFD7BBFA9FD6F01A9"}]}
         """) == 0)
+        // 108 轮补门三族：b.cond(0x54)/LDRSW-literal(0x98)/PRFM-literal(0xD8)
+        // ——旧 mask 漏判，换址重放即跳错目标。
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
+        "arch":"arm64","xml_sso_off":0,"expected":"020A0054A9BF7BFDFD7BBFA9FD6F01A9"}]}
+        """) == 0)   // b.eq（0x54000A02，imm19 PC 相对）
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
+        "arch":"arm64","xml_sso_off":0,"expected":"00000098A9BF7BFDFD7BBFA9FD6F01A9"}]}
+        """) == 0)   // LDRSW literal（0x98000000）
+        #expect(parseHooks("""
+        {"hooks":[{"uuid":"97e21436-abda-3b79-bec0-ef2653c6b423","hook_off":"0x1",
+        "arch":"arm64","xml_sso_off":0,"expected":"000000D8A9BF7BFDFD7BBFA9FD6F01A9"}]}
+        """) == 0)   // PRFM literal（0xD8000000）
         // 非法 UUID 形制
         #expect(parseHooks("""
         {"hooks":[{"uuid":"not-a-uuid","hook_off":"0x1","xml_sso_off":0,
@@ -847,15 +861,22 @@ extension RuntimeHookTests {
 
 extension RuntimeHookTests {
     /// 行解析门：clone_* 成对接受；单边整行拒绝（宁可不挂也不挂错）。
+    /// 108 轮 P0 回归：clone_expected 必须恰 16B——12B 行在补丁态蹦床重放
+    /// 里是 4B 零（UDF#0=首次撤回写点调用即 SIGILL）。
     @Test func cloneRowParseGate() throws {
         let row = #"{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9""#
-        // 成对 + func_size：接受（parse_hooks 外层 = {"hooks":[...]}）
+        // 成对 + 恰 16B + func_size：接受（parse_hooks 外层 = {"hooks":[...]}）
         let full = #"{"hooks":["# + row
-            + #","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9","clone_func_size":728}]}"#
+            + #","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9F85F07A9","clone_func_size":728}]}"#
         #expect(wxkeep_runtime_test_parse_hooks(full, UInt(full.utf8.count)) == 1)
         // 单边（只有 hook_off）：整行拒绝
         let half = #"{"hooks":["# + row + #","clone_hook_off":"0x4cd5e8c"}]}"#
         #expect(wxkeep_runtime_test_parse_hooks(half, UInt(half.utf8.count)) == 0)
+        // 12B clone_expected（P0 形态：蹦床重放 4B 零）：整行拒绝
+        let twelve = #"{"hooks":["# + row
+            + #","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9"}]}"#
+        #expect(wxkeep_runtime_test_parse_hooks(twelve, UInt(twelve.utf8.count)) == 0,
+                "12B 行=补丁态蹦床重放 4B 零（UDF#0）——必须整行拒绝")
     }
 
     /// 写点捕获体端到端（合成向量走真实内核读路径）：候选 B 形态识别 +
@@ -893,6 +914,80 @@ extension RuntimeHookTests {
         _ = wxkeep_runtime_test_clone_rows(77, nil, nil, nil)
         #expect(wxkeep_runtime_test_clone_pair_count(0) == before + 1,
                 "CAS 消费后槽空——不重复配对")
+        _ = wxkeep_runtime_test_clone_pair_count(1)   // 清场
+    }
+}
+
+// MARK: - V3-M3 负控（108 轮：charter M3「坏 XML 不触发插入」的捕获/配对段）
+
+extension RuntimeHookTests {
+    /// 确定性畸形语料（LCG 字节流 + 真实撤回 XML 的结构化变异）驱动克隆
+    /// 捕获/配对通路，钉死两条不变量：
+    /// ① **捕获判定 ≡ 提取判定**——capture==1 当且仅当缓冲确有可解析的
+    ///    非零 `<newmsgid>`（同一 extract_tag_u64 语义；坏 XML 永不进
+    ///    捕获/派发链，R6 插入直调表接入后断言面自然延伸为「不入队不插入」）；
+    /// ② **提取失败的语料绝不暂存配对槽**——随后写点事件 clpair 零推进
+    ///    （配对=完整记录的唯一起点，负控即「坏输入造不出记录」）。
+    @Test func cloneCaptureFuzzNegativeControl() {
+        // 语料 1：真实撤回 XML 的结构化变异（截断/翻位/空值/全零/非数字）
+        let real = "<sysmsg type=\"revokemsg\"><revokemsg><newmsgid>467688165590285900</newmsgid>"
+            + "<fromusr>wxid_fuzz</fromusr><replacemsg>\"张三\" 撤回了一条消息</replacemsg>"
+            + "</revokemsg></sysmsg>"
+        var corpus: [[UInt8]] = []
+        let realBytes = Array(real.utf8)
+        for frac in [0, 5, 21, 22, 40, 60, 90, 99, 100] {   // 截断（含 <newmsgid> 前后各点）
+            corpus.append(Array(realBytes.prefix(max(0, realBytes.count * frac / 100))))
+        }
+        corpus.append(Array(("<msg><newmsgid></newmsgid></msg>").utf8))          // 空值
+        corpus.append(Array(("<msg><newmsgid>000000</newmsgid></msg>").utf8))    // 全零
+        corpus.append(Array(("<msg><newmsgid>abcdef</newmsgid></msg>").utf8))    // 非数字
+        corpus.append(Array(("<msg><newmsgid>-42</newmsgid></msg>").utf8))       // 符号形态
+        corpus.append(Array(("<msg><newmsgid>123</new-msgid></msg>").utf8))      // 闭标签畸形
+        corpus.append(Array(("<msg><newmsgid>467688165590285900</newmsgid>"
+            + "<newmsgid>1</newmsgid></msg>").utf8))                              // 双 tag（取首段）
+        // 语料 2：LCG 随机字节（大多无 tag；偶发命中由不变量①约束——不预判）
+        var state: UInt64 = 0xF00D_BEEF_CAFE_2026
+        for _ in 0..<400 {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            let n = Int((state >> 33) % 96)
+            corpus.append((0..<n).map { _ in UInt8(truncatingIfNeeded: state &* 2654435761 >> 24) })
+        }
+        // 语料 3：正控（合法可提取——不变量①的双向采样，防「全负例假绿」）
+        corpus.append(Array(("<msg><newmsgid>7</newmsgid></msg>").utf8))
+        corpus.append(realBytes)
+
+        // 分类（提取判定 = 权威）+ 提取确定性（同缓冲两次同果）
+        var extractable = 0
+        for buf in corpus {
+            var v1: UInt64 = 0, v2: UInt64 = 0
+            let e1 = wxkeep_runtime_test_extract_newmsgid(buf, UInt(buf.count), &v1)
+            let e2 = wxkeep_runtime_test_extract_newmsgid(buf, UInt(buf.count), &v2)
+            #expect(e1 == e2 && (e1 == 0 || v1 == v2), "提取必须确定")
+            if e1 == 1 { extractable += 1 }
+        }
+        #expect(extractable >= 3, "正控必须采样到可提取形态（防全负例假绿）")
+
+        // ① 捕获 ≡ 提取（逐缓冲断言——含随机语料偶发命中面）
+        for buf in corpus {
+            var v: UInt64 = 0
+            let ext = wxkeep_runtime_test_extract_newmsgid(buf, UInt(buf.count), &v)
+            let cap = wxkeep_runtime_test_clone_capture(buf, UInt(buf.count), nil, nil, 0)
+            #expect(Int(cap) == Int(ext), "捕获判定必须与提取判定一致（len=\(buf.count)）")
+        }
+        // ② 配对负控：每条提取失败的语料单独归因——清槽 → 喂坏语料 →
+        // 写点事件 → clpair 不得推进（坏输入造不出完整记录）。clpair 是
+        // 进程生命周期计数器，判据=相对基线零推进。
+        let baseline = wxkeep_runtime_test_clone_pair_count(1)   // 清槽 + 基线
+        for buf in corpus {
+            var v: UInt64 = 0
+            guard wxkeep_runtime_test_extract_newmsgid(buf, UInt(buf.count), &v) == 0 else {
+                continue
+            }
+            _ = wxkeep_runtime_test_clone_capture(buf, UInt(buf.count), nil, nil, 0)
+            _ = wxkeep_runtime_test_clone_rows(64, nil, nil, nil)
+            #expect(wxkeep_runtime_test_clone_pair_count(0) == baseline,
+                    "坏 XML（len=\(buf.count)）不得暂存配对槽——写点事件后 clpair 零推进")
+        }
         _ = wxkeep_runtime_test_clone_pair_count(1)   // 清场
     }
 }

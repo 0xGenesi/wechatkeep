@@ -752,3 +752,64 @@ R4 清单：①写点 hook 行派生（新 hook_off=0x4cd5e8c 族）+入口 SLOT
 实验（副本 E2E 窗口内）：GetService 索引枚举（`mov w0,#N; bl` 站点统计
 N 的值域）→ hook 侧以候选索引试探 lookup + marker 证据回读——**运行时
 验证代替猜索引**（猜错索引=错对象进 lookup=崩），实验开关背后零风险。
+
+## 108 轮（2026-11-01）：R6 静态前置完成 + 0x5e1d978 翻案 + 主动体检第三轮
+
+### R6 静态前置：0x5e1d978 = 日志级别门，不是 GetService（M2-R2 勘误）
+
+- **勘误**：M2-R2「服务定位器 0x05e1d978(N)（GetService 按索引）」的判读
+  被 108 轮直接反汇编**推翻**——函数体只有 5 条指令：
+  `adrp x8,0xa125000; ldr w8,[x8,#0x78]; cmp w8,w0; cset w0,ls; ret`，
+  即 `return g_state(0xa125078) <= N`。consumer 反编译（decomp_m2r2_
+  consumer.c:164 等 11 处）的调用形态 `iVar4 = FUN_05e1d978(3); if
+  (iVar4 != 0) { 解混淆字符串表; log }` 实锤：**日志级别门**
+  （0xa125078=全局日志级别，N∈{0..5}=六级严重度）。
+- **全量值域枚举**（var/ab/scan_getservice_idx.py，原始 BL 扫不经 idx——
+  R5「idx 漏边」教训的合规工具）：27553 站点，99.84% 立即数可判读，
+  **N∈{0..5} 恰 6 值**（N=2×13895 / N=4×9101 / N=3×2823 / N=5×1087 /
+  N=1×511 / N=0×93），其余 43 站寄存器流入（mov-reg/call-result/ldr）。
+- **R5 负结果的再解释**：「str+0xb78 × 近程 bl GetService = 0 命中」不是
+  「服务值非近程 GetService 写入」——0x5e1d978 根本不是 GetService，
+  该组合扫描的前提作废。真正的服务获取路径不变：consumer this+0xb78
+  的**写入者**（创建者链）。
+- **R6 正道重述**：静态侧定位 +0xb78 写入者链（76 站点已扫、值自构造参数
+  流入→创建者←分发链 2-3 hop）；或副本窗口运行时试探（对 6 个候选
+  「服务注册表查询函数」逐一试探+marker 证据回读）。索引枚举本身不再是
+  R6 前置——它枚举的是日志级别。
+
+### 主动体检第三轮（108）：P0×1 + P1×4 + P2×5 + P3 批全修（269 测全绿）
+
+双评审（CLI 面 + 引擎面）24 项发现，逐项人工复核后全修：
+
+- **P0 克隆蹦床 UDF**：`clone_expected` 12B 行 × 补丁态 = 蹦床重放
+  12B 真指令 + 4B memset 零（UDF#0）→ 首次撤回写点调用即 SIGILL（与
+  clone_message 开关无关——thunk 透传也尾跳蹦床）。修：行门收紧恰 16B
+  + 装机行扩为 pristine 实读 16B（F85F07A9=stp x24,x23,[sp,#0x70]）+
+  序言门 memcmp 扩 16B + 数据↔切片一致性回归（EntrySlotTests）。
+- **P1 remove 双站还原两次落盘**：中间窗「主点已还原+克隆跳板在位+未
+  重签」= 95 轮 CS 击杀态 → 两站合并单次原子写。
+- **P1 update-guard apply 方向盲**：enable 成功报失败、cfprefd 丢弃反报
+  成功 → 按方向校验期望终态；enable 不再顺手打开 SUSendProfileInfo 遥测
+  键；`.on` 补微信运行守卫。
+- **P1 privacy-guard sudo 探针读 root 域**：全部跳写→「请重试」死循环 →
+  探针与写同走 launchctl-asuser 委托。
+- **P1 patch 附带防护回归复装**：dcbad63 把 restore 的「不附带偏好写入」
+  误删到 patch 头上（README/报错文案一直承诺附带）→ 恢复附带 +
+  如实分报。
+- **P2**：kStCloneFail 被 `= kStArmed` 覆盖（→ `|=`）；SLOT 填充 plain
+  store 无跨核 release（→ `__atomic_store_n RELEASE`，72·L3① 同族窗口
+  封死）；arm64 可换址门漏 b.cond/LDRSW-lit/PRFM-lit 三族（→ 补判，
+  现役行零误拒）；--signatures 显式路径静默回落（→ 存在性门）；
+  install dylib 拷贝失败回滚裸 try?（→ 如实分报）。
+- **P3 批**：tip 双缓冲双读撕裂（一致快照）；配对 fromusr 错配窗口
+  （pending 槽暂存快照，写序 publish）；写点遍历 256 上界只计完整捕获
+  （迭代计数分离，防 65536 次空转内核读）；tick stub-alive 只认旧 stub
+  形态（slot 态恒 alive=0 误导——双形态判读+内核读）；Patcher 重叠门
+  fileOffset 全等（→ 区间交叠）；doctor manifest 目录 vs 显式 --config
+  （→ 验实际装载目录）；journal 写前失败残留（→ locate 失败即收口）；
+  managedKeys 漏 clone_message；locate --append 帮助文本；--signatures
+  别名统一；clone remove/launch tilde 展开；runtime status 克隆共享
+  App Group 披露；doctor abstract「杀机预测」措辞（实现早已 watch 级）。
+- **V3-M3 负控前置**：cloneCaptureFuzzNegativeControl（确定性畸形语料
+  400+ 条：捕获≡提取逐缓冲一致 + 坏 XML 不暂存配对槽）——M3「坏 XML
+  不触发插入」的捕获/配对段先钉死，R6 接表后断言面自然延伸。

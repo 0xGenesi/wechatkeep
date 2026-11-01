@@ -463,6 +463,42 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 108·主动体检第三轮 + R6 静态前置轮（2026-11-01：双评审 24 项全修（P0×1+P1×4+P2×5+P3 批，269 测全绿 +2）；0x5e1d978=日志门翻案（非 GetService）；V3-M3 负控前置落地）
+
+1. **[P0 克隆蹦床 UDF]**：`clone_expected` 12B 行 × 补丁态分支 memcpy 16B
+   ——memset 零当第 4 指令重放 = UDF#0 = **首次撤回写点调用即 SIGILL**
+   （与 clone_message 开关无关，thunk 透传也尾跳蹦床；装机行恰 12B +
+   行门 `>=12` 宽收 + 单测恰好锁了 12B 接受——三方合谋漏过，未实弹所以
+   未爆）。修三面：行门恰 16B / 行数据 pristine 实读 16B（F85F07A9）/
+   序言门 memcmp 16B；回归=行门负例+数据↔切片逐字节一致性测试。
+2. **[R6 静态前置 + 翻案]**：0x5e1d978 **不是 GetService**——函数体
+   `ldr w8,[0xa125078]; cmp w8,w0; cset ls` = 日志级别门（consumer
+   decomp 11 处调用形态 `if(FUN(N)){解混淆串;log}` 实锤；M2-R2 判读
+   勘误入 RUNTIME-DESIGN 108 节）。原始 BL 全量扫（27553 站点，工具
+   var/ab/scan_getservice_idx.py）：N∈{0..5} 恰 6 值，99.84% 立即数可
+   判读。R5「str+0xb78 × 近程 bl」负结果的组合前提作废。R6 正道 =
+   +0xb78 写入者链（创建者←分发 2-3 hop）或副本窗口试探。
+3. **[主动体检第三轮]**：双评审（CLI 面 + 引擎面）24 项逐项复核全修。
+   P1 四连：remove 双站还原两次落盘（95 轮 CS 击杀中间窗→单次原子写）；
+   update-guard apply 方向盲（enable 成功报失败/丢弃报成功+顺手开遥测
+   键+缺运行守卫）；privacy-guard sudo 探针读 root 域（跳写死循环→
+   委托探针）；patch 附带防护复装（dcbad63 误删，README 一直承诺）。
+   P2 五项：kStCloneFail 位被 `=kStArmed` 抹除；SLOT 填充无 release
+   （72·L3① 同族跨核窗）；可换址门漏 b.cond/LDRSW-lit/PRFM-lit；
+   --signatures 显式路径静默回落；install dylib 失败回滚裸 try?。
+   P3 批 14 项（tip 快照撕裂/配对 fromusr 错配/遍历上界分离/tick alive
+   双形态/重叠门区间化/doctor manifest 目录/journal 写前收口/
+   managedKeys/帮助文本/--signatures 别名/tilde/克隆共享披露/杀机预测
+   措辞/runtime clone 状态文案更新到 M2-R5）。详录 RUNTIME-DESIGN 108 节。
+4. **[V3-M3 负控前置]**：cloneCaptureFuzzNegativeControl——确定性畸形
+   语料（LCG 400 条+结构化变异）钉死「捕获≡提取」逐缓冲一致 + 坏 XML
+   不暂存配对槽（写点事件后 clpair 零推进）。M3「坏 XML 不触发插入」的
+   捕获/配对段先钉死，R6 接表后断言面自然延伸为「不入队不插入」。
+5. **[诚实边界]**：插入直调表（R6 本体）仍未接线——服务获取正道改为
+   +0xb78 写入者链（独立 RE 轮）或副本窗口运行时试探（需用户）；
+   0x5e1d978 翻案不改变「写点捕获零服务依赖」的 seam B 价值。真机
+   武装仍待副本 E2E（P0 修复后 runbook 不变）。
+
 ## 107·V3-M2-R5 配对与解桩轮（2026-11-01：msgid↔content 配对落地（clpair，267 测全绿 +1）；stubmap.py 解桩工具；idx 漏边实锤翻案 R3 阻障定性）
 
 1. **[配对]**：配对槽（XML 暂存 msgid+ts → 写点 CAS 消费，>30s 陈旧

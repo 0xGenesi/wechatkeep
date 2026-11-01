@@ -91,6 +91,13 @@ struct Signatures: Codable {
         let exePath = URL(fileURLWithPath: CommandLine.arguments[0],
                           relativeTo: nil).resolvingSymlinksInPath().path
         let explicitPath = explicit.map { ($0 as NSString).expandingTildeInPath }
+        // 显式路径必须真实存在（108 轮修，与 Config.load 同规）：拼错的
+        // --signatures 静默回落候选链 = verify/locate 拿旧份/别份 spec 静默
+        // 跑（旧 spec 在新镜像上必错——见 searchOrder 注释）而无任何提示。
+        if let explicitPath, !FileManager.default.fileExists(atPath: explicitPath) {
+            throw LoadError.malformed(
+                "signatures.json not found at explicit path: \(explicitPath)")
+        }
         let candidates = searchOrder(explicit: explicitPath, cwd: cwd, exePath: exePath)
         guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
             throw LoadError.notFound

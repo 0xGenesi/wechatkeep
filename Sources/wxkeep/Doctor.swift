@@ -133,7 +133,7 @@ struct Doctor {
 
     // MARK: - Collection
 
-    static func run(app: URL, config: Config) -> Report {
+    static func run(app: URL, config: Config, explicitConfigPath: String? = nil) -> Report {
         let fm = FileManager.default
         let build = (try? WeChatApp.buildNumber(app: app)) ?? "unknown"
         let versionEntry = config.entry(build: build)
@@ -223,9 +223,15 @@ struct Doctor {
         if runtimeInjected && !runtimeDylibExists {
             verdicts.append("❌ LC_LOAD_DYLIB 在场但 runtime dylib 缺失 — 下次启动 dyld 必崩。修复：`wxkeep runtime install` 重装，或 `wxkeep runtime remove` 清掉 LC")
         }
-        // 供应链与切片完整性观察
+        // 供应链与切片完整性观察。目录选择（108 轮修）：显式 --config 时验
+        // 实际装载文件所在目录——隐式 locatedDirectory 可能指向另一份候选
+        // （brew exe 旁恒有 config.json），「manifest: verified」就会描述一份
+        // 未被使用的数据。
         var manifestStatus: String? = nil
-        if let cfgDir = Config.locatedDirectory() {
+        let manifestDir: URL? = explicitConfigPath.map {
+            URL(fileURLWithPath: PathUtil.expandTilde($0)).deletingLastPathComponent()
+        } ?? Config.locatedDirectory()
+        if let cfgDir = manifestDir {
             switch Manifest.verify(directory: cfgDir) {
             case .verified: manifestStatus = "verified"
             case .legacy: manifestStatus = "legacy"

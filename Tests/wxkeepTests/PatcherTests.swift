@@ -171,6 +171,13 @@ final class PatcherTests {
         var overlapped = false
         if case .overlappingEntries? = err as? Patcher.PatchError { overlapped = true }
         #expect(overlapped, "expected overlappingEntries, got \(err)")
+        // 部分交叠（108 轮收紧）：旧门只判 fileOffset 全等——off=X len8 与
+        // off=X+4 len4 的「后者静默覆盖前者」漏过，与全等同属数据演进事故。
+        let e3 = MachOFixture.entry(.arm64, addr: "104", asm: "C0035FD6", expected: ["F44FBEA9FD7B01A9"])
+        let err2 = expectThrows(try Patcher.patch(binary: binary, entries: [e1, e3], identifier: "revoke"))
+        var overlapped2 = false
+        if case .overlappingEntries? = err2 as? Patcher.PatchError { overlapped2 = true }
+        #expect(overlapped2, "partial overlap must refuse, got \(err2)")
         // 单条同位合法通过（变体互斥由数据保证，非引擎面职责）
         _ = try Patcher.patch(binary: binary, entries: [e1], identifier: "revoke")
     }

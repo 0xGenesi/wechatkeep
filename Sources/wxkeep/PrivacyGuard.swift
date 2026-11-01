@@ -63,16 +63,22 @@ enum PrivacyGuard {
         let console = asUser
             ? Shell.run("/usr/bin/stat", ["-f", "%Su", "/dev/console"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             : ""
+        let uid = asUser
+            ? Shell.run("/usr/bin/id", ["-u", console]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        /// 与写侧同域的 defaults 参数（108 轮修：exists 探针原先裸读 root 域
+        /// ——sudo 下恒不存在 → 全部跳写 → allGuarded 委托读用户域恒 false
+        /// →「✗ 请重试」死循环。探针与写必须查同一个域）。
+        func delegated(_ args: [String]) -> [String] {
+            guard asUser else { return args }
+            return ["/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", console] + args
+        }
         for spec in keys {
             // unset 的键微信内部默认按关处理——强写反而制造无意义状态，跳过
-            let exists = Shell.run("/usr/bin/defaults", ["read", domain, spec.key]).status == 0
+            let probe = delegated(["/usr/bin/defaults", "read", domain, spec.key])
+            let exists = Shell.run(probe[0], Array(probe[1...])).status == 0
             guard exists else { continue }
-            var args = ["/usr/bin/defaults", "write", domain, spec.key, "-bool", "0"]
-            if asUser {
-                let uid = Shell.run("/usr/bin/id", ["-u", console]).stdout
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                args = ["/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", console] + args
-            }
+            let args = delegated(["/usr/bin/defaults", "write", domain, spec.key, "-bool", "0"])
             _ = Shell.run(args[0], Array(args[1...]))
         }
         _ = Shell.run("/usr/bin/killall", ["-hup", "cfprefsd"])

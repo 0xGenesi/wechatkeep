@@ -231,7 +231,10 @@ enum RuntimeConfig {
                 arch: "arm64", hook_off: "0x4d1f8d8", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380,
                 clone_hook_off: "0x4cd5e8c",
-                clone_expected: "FFC302D1FC6F05A9FA6706A9", clone_func_size: 728),
+                // 108 轮 P0 修：12B 行=补丁态蹦床重放 4B 零（UDF#0）——扩为
+                // pristine 切片实读的完整 16B（第 4 指令 = stp x24,x23,[sp,#0x70]，
+                // 无 PC 相对编码）。
+                clone_expected: "FFC302D1FC6F05A9FA6706A9F85F07A9", clone_func_size: 728),
     ]
 
     /// 微信的 App Group（与其 entitlements application-groups 同源）。
@@ -548,7 +551,7 @@ enum RuntimeConfig {
         guard targets.count == 2,
               let a = readDict(at: targets[0]),
               let b = readDict(at: targets[1]) else { return nil }
-        let managedKeys = ["keep_message", "rewrite_self", "tip_text", "hooks"]
+        let managedKeys = ["keep_message", "rewrite_self", "tip_text", "hooks", "clone_message"]
         var diffs: [String] = []
         for key in managedKeys where !isEqualValue(a[key], b[key]) {
             diffs.append("\(key): Group=\(summarize(a[key])) vs 容器=\(summarize(b[key]))")

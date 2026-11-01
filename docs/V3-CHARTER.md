@@ -152,6 +152,14 @@ svrid/rowid 不受波及。插入落队时机晚于撤回写也安全（内容�
     Resource 业务级全链（逐项→0x3aeddb4 写枢纽→任务对象）。**缝位定
     案：R4 主攻 seam B（0x4cd5e8c 写点 hook）**——捕获零依赖（免服务
     获取），代价=新挂点家族门重走。R4 清单见 RUNTIME-DESIGN R3 节。
+  - **M2-R6 静态前置 + 勘误（2026-11-01，108 轮）**：R5 所记「GetService
+    索引值域枚举」入口完成并**翻案前提**——0x5e1d978 实为日志级别门
+    （`g_log_level(0xa125078) <= N`，N∈{0..5} 六级），非服务定位器；
+    M2-R2 的「服务定位器」归因随勘误（+0x278/+0x248 偏移观察仍有效）。
+    R6 服务获取正道 = consumer this+0xb78 **写入者链**（创建者←分发
+    2-3 hop，独立 RE 轮）或副本窗口运行时试探。另：108 轮修掉克隆蹦床
+    12B 行 UDF P0（补丁态首调即 SIGILL）——见 ROADMAP 108/RUNTIME-
+    DESIGN 108 节；M3 负控的捕获/配对段已先行钉死（fuzz 负控测试）。
 - **V3-M3（产品化）**：config 键 `clone_message`（默认 off，与
   keep_message/zeroing 三通道关系裁决：克隆开启时清零是否让行）+自撤
   不克隆（selfskip 先于克隆判定）+重编辑记账对齐+FuzzParseSurfaces

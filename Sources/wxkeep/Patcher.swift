@@ -211,18 +211,24 @@ struct Patcher {
             plans.append(Plan(entry: entry, va: va, asm: asm, expected: expected, fileOffset: fileOffset))
         }
         guard !plans.isEmpty else { throw PatchError.noArchMatched }
-        // 同 binary 内 fileOffset 重叠检测（102 轮数据完整性门）：Phase 1 的
-        // 全量预读会让重叠位点的两条 entry 都以「原始字节」过门，Phase 2
-        // 顺序写则后者静默覆盖前者（双 written 假账）。现役数据不可达
-        // （variant 互斥、域不交），但数据演进/合并事故必须在这里变成
-        // 干净拒绝而不是静默错写。
-        var seenOffsets: [UInt64: Int] = [:]
-        for (index, plan) in plans.enumerated() {
-            if let first = seenOffsets[plan.fileOffset] {
-                throw PatchError.overlappingEntries(
-                    first: first, second: index, va: plan.va, identifier: identifier)
+        // 同 binary 内写入区间重叠检测（102 轮数据完整性门；108 轮从
+        // 「fileOffset 全等」收紧为区间交叠）：Phase 1 的全量预读会让重叠
+        // 位点的两条 entry 都以「原始字节」过门，Phase 2 顺序写则后者静默
+        // 覆盖前者（双 written 假账）——部分交叠（off=X len16 vs off=X+8
+        // len4）与全等同属这一事故形态。现役数据不可达（variant 互斥、域
+        // 不交），但数据演进/合并事故必须在这里变成干净拒绝而不是静默错写。
+        var spans: [(start: UInt64, end: UInt64, index: Int)] =
+            plans.enumerated().map {
+                ($0.element.fileOffset,
+                 $0.element.fileOffset + UInt64($0.element.asm.count), $0.offset)
             }
-            seenOffsets[plan.fileOffset] = index
+        spans.sort { $0.start < $1.start }
+        for i in 1..<max(1, spans.count) {
+            if spans[i].start < spans[i - 1].end {
+                throw PatchError.overlappingEntries(
+                    first: spans[i - 1].index, second: spans[i].index,
+                    va: plans[spans[i].index].va, identifier: identifier)
+            }
         }
         return plans
     }

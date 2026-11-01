@@ -31,7 +31,7 @@ swift build -c release   # 产出 .build/release/wxkeep（含 wxprobe 探针与 
 ## 快速上手
 
 ```bash
-wxkeep doctor          # 体检：AMFI/taskgated 杀机预测 + 补丁状态 + 精确下一步命令
+wxkeep doctor          # 体检：AMFI 观察级提示（watch 级，非杀机预测）+ 补丁状态 + 精确下一步命令
 sudo wxkeep patch      # 打补丁（自动备份→打点→重签→strict verify，附带更新防护+隐私加固）
 wxkeep verify          # ★ 行为级证明：拉补丁函数出进程直接调用（无需真机撤回测试）
 wxkeep restore         # 全量还原（幂等）
@@ -61,6 +61,8 @@ wxkeep runtime remove    # 完整移除（幂等）
 |---|---|
 | `tip_text` | 自定义文案。**必须保持官方骨架** `"<X>" 撤回了一条消息`（渲染层按此模式匹配，非规范形态显示为 Unsupported 占位；`wxkeep runtime tip` 会强制校验）；`{from}` 占位符展开为撤回者昵称（纯 `"{from}"` 形态展开后与原内文恒等长，最稳）；总长 ≤ 原提示内文（约 31B，超长自动放弃保原文）。推荐：`"⚠️" 撤回了一条消息` |
 | `rewrite_self` | `true` 时自发撤回（「你撤回了一条消息」）也改写；默认 false 保持诚实反馈 |
+| `keep_message` | 通用 keeptip（**默认 true**）：解析前清零撤回 XML 的 `<newmsgid>` → 原消息保留（详见下方专节） |
+| `clone_message` | **实验（V3 克隆缝，默认 false）**：撤回 XML 捕获 + 写点 content 捕获 + msgid↔content 配对，marker 证据 `clone=/clrow=/clpair=`。消息行插入（R6）接线前**零消息副作用**——机制在跑且惰性（`clmiss=` 即证据）。开关面：`wxkeep runtime clone on\|off\|status` |
 
 示例：`tip_text = "⚠️" 撤回了一条消息`（实测可渲染形态）。改写是**等长原位替换**（多余长度空格填充），文案长于原提示时放弃保原文；tip/开关类配置 **≤30 秒热生效**（77 续㉘ 双缓冲热重载，无需重启微信；hooks 地址表仍随启动装载）；**自发撤回零干预**（「你撤回」判别门放行原生删除+原生提示，77 续㉘/T5 F1）；hook 按构建 UUID + 入口字节双门匹配，未知构建零作用；11 个构建（270094/097/099/100/101/102/131-135）双架构行另带函数级身份门（func_size 布局指纹）——微信自更新「同 UUID 换函数」时 hook 拒装而非错挂（`runtime status` 诊断位 func-id-mismatch 可见；270100 arm64 曾实测该场景破坏消息渲染，详见 docs/RUNTIME-DESIGN.md）。地址表随 `install` 写入（44 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-270135 × 双架构），新构建由 `tools/derive_runtime_hooks.py` 产出数据行即生效。**格式约束（实测）**：渲染层按官方骨架 `"…" 撤回了一条消息` 匹配显示，非规范形态会显示为 Unsupported 占位。**群聊**：提示文本由服务端在撤回推送里原文下发（群=replacemsg/私=content，16 条实弹捕获零例外），改写与 keep_message 在群聊数据层同构成立（逆向定案 2026-10-28）；渲染校验终验随 T5 真机验证。
 

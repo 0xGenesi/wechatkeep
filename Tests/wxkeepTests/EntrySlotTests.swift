@@ -106,7 +106,7 @@ extension EntrySlotTests {
             expectedHex: "F85FBCA9F65701A9F44F02A9FD7B03A9")
         let clone = try EntrySlot.planArm64(
             file: url, hookOff: 0x4cd5e8c,
-            expectedHex: "FFC302D1FC6F05A9FA6706A9", slotIndex: 1)
+            expectedHex: "FFC302D1FC6F05A9FA6706A9F85F07A9", slotIndex: 1)
         #expect(clone.entryVA == 0x4cd5e8c)
         #expect(clone.slotVA == main.slotVA + 8,
                 "槽位 1 与槽位 0 相邻（同区 8B 步进）")
@@ -121,5 +121,26 @@ extension EntrySlotTests {
         #expect(decode(clone) == clone.slotVA)
         #expect(decode(main) == main.slotVA)
         #expect(clone.original12.count == 12)
+    }
+
+    /// 108 轮 P0 数据回归：knownHooks 270135 行的 clone_expected 必须与
+    /// pristine 切片 0x4cd5e8c 处的**完整 16B**逐字节一致——12B 行会让补丁态
+    /// 蹦床把 4B 零当第 4 指令重放（UDF#0 = 首次撤回写点调用即 SIGILL）。
+    /// 数据与二进制的一致性在此锁死，杜绝「行缩回 12B」的回归。
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: "var/wxarm/270135_arm64.dylib")),
+          .disabled(if: ProcessInfo.processInfo.environment["CI"] != nil))
+    func cloneRowMatchesPristineSlice16B() throws {
+        guard let row = RuntimeConfig.knownHooks.first(where: {
+            $0.build == "270135" && $0.arch == "arm64" }) else {
+            Issue.record("270135 arm64 行缺失")
+            return
+        }
+        let exp = try #require(row.clone_expected)
+        #expect(exp.count == 32, "clone_expected 必须恰 16B（32 hex）——实际 \(exp.count/2)B")
+        let url = URL(fileURLWithPath: "var/wxarm/270135_arm64.dylib")
+        let image = try MachImage(file: url, arch: .arm64)
+        let real = try #require(image.bytes(va: 0x4cd5e8c, count: 16))
+        #expect(real.hexUppercase == exp.uppercased(),
+                "行字节与 pristine 切片不一致：行=\(exp) 实=\(real.hexUppercase)")
     }
 }
