@@ -121,7 +121,19 @@ void wxkeep_runtime_test_set_clone_frame(unsigned long long x19,
 int wxkeep_runtime_test_last_key(char *out, int cap);
 // R6 接线缝：证据计数读回（clhit/clmissq/clget/clinner/clkey/直调次数）。
 void wxkeep_runtime_test_clone_rd_counts(int *hits, int *misses, int *gets,
-                                         int *inner, int *keys, int *lookups);
+                                         int *inner, int *keys, int *lookups,
+                                         int *svc2);
+// R11 parse 锚定缝：clone_parse_run 直驱（注入式武装，serialized 纪律）。
+int wxkeep_runtime_test_clone_parse_invoke(unsigned long long cand,
+                                           unsigned long long obj,
+                                           unsigned long keyctor_fn,
+                                           unsigned long lookup_fn,
+                                           unsigned long wrap_fn,
+                                           unsigned long getter_fn,
+                                           unsigned long x2single_fn,
+                                           unsigned long x2ctx_fn,
+                                           unsigned long base,
+                                           unsigned long svc_vt_off);
 // R6 接线缝：worker 直驱（fn 全部为绝对地址——测试注入 JIT 桩驱动生产
 // clone_rd_run；svc 须过 [svc]==base+svc_vt_off 的 vtable 门）。返回位掩码
 // 1=clhit 2=clget 4=clinner。

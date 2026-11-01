@@ -463,6 +463,40 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 116·R11 实弹判决 + parse 锚定换链轮（2026-11-01：写点 0x4cd5e8c 实弹零触发（clrow=0）——seam B 死缝定案；配对架构换锚 parse 入口（args[0]/args[1] 快照 + keyctor 0x4a2b524 宿主直调）；282→284 测全绿 +2）
+
+1. **[实弹判决（真机一次撤回×2）]**：rd/ins 表武装 ✓、克隆写点 SLOT
+   填装 ✓、零崩溃 ✓；XML 捕获正常（clone=2）——但 **clrow=0**：写点
+   0x4cd5e8c 在 270135 实弹撤回流**从未被调用**（seam B 为静态分析
+   假象——函数存在、序言匹配，但不在活路径）。R4-R6 的写点配对架构
+   就此失去锚点；clmiss=2=XML 捕获路径的 nomethods 桩计数（桩语义
+   与 marker 呈现一致，无虚报）。
+2. **[附带实弹观察]**：keep=off + tip_text 在役时——群聊=正常撤回显示
+   + 自定义 tip ✓；私聊=双自定义 tip + 原消息视觉保留（tip 改写与
+   keep=off 的私聊渲染交互；DB 语义未验，独立观察项非阻塞）。证据
+   采集不受影响。
+3. **[换锚静态验证]**：consumer_main x20=x1=消息对象（key 构造与
+   getter 的输入即 parse 收到的对象族）；getter 0x102b740 直调 x20
+   （R6 假设的 wrap→getter 中间态修正为 lookup 命中判定 + 对象直取）；
+   keyctor 0x4a2b524(sret 24B 串对象, x0=对象) fs=640 + 入口 16B 锚。
+4. **[parse 锚定链接线]**：hook 体 args[0]/args[1] 纯寄存器快照（主热
+   路径零宿主调用零内核读）；clone_work 桩退役 → clone_parse_run
+   （svc 验证 [cand+0xb78]→vtable 门→obj 门→keyctor 直调→sso 快照→
+   px0 bootlog 行（keylen+key 前缀=「svrid 十进制还是会话串」最终定案
+   面）→ clone_rd_run_core tail→M4 探针）。行 schema +clone_rd_keyctor/
+   _fs/_head 可选三件套（脱离 rd 主组=整行拒；孤儿=顶层门，体检六轮
+   同洞防复发）。marker +clsvc2=；counts 缝 +第 7 参；parse 直驱缝
+   （注入式武装，serialized 纪律）。
+5. **[JIT 桩第三课（坑连三）]**：LDR 字面量偏移**相对各 ldr 自身 PC**
+   ——字面量落绝对 32/40/48 时三条 ldr 全是 #32；按页绝对思考写
+   #40/#48 → 汇编器忠实编码成 PC+40/48 → 读到 48/64（24B dump 实证：
+   cap 槽落 rd 桩指令字）。113 轮「汇编器生成」教训不覆盖源偏移思考
+   错误——补「objdump 注释逐条核对目标地址」。同轮 base=0 传参使
+   rd_abs 截断 64 位桩地址 = SEGV（生产合同=同镜像 base+uint32）。
+6. **[测试（284 全绿 +2）]**：keyctor 三件套组门七态；parse 链端到端
+   （单页桩布局：keyctor@0/rd 族@0x40-0x78/key 字节@0x210；正路径
+   clsvc2/clkey+1、svc 失配守卫、obj 死守卫；桩合同自测直驱+dump）。
+
 ## 115·R10 execute 数据流定案轮（2026-11-01：AMR pair=订阅+0x78 句柄对（0x40B 读法作废）；publisher=[sub+0x38]；同步内联派发实锤；0x340a008=静态串构造器；ctor 对 source 仅 +0x20 一写→风险#7 降级浅堆拷贝；M4 最小组装图六行成册）
 
 1. **[AMR pair 来源定案]**：0x345818c-0x345820c 逐寄存器精读——pair=

@@ -1178,6 +1178,174 @@ extension RuntimeHookTests {
         parse(full)
     }
 
+    /// R11 parse 锚定三件套组门（116 轮）：keyctor/fs/head 可选加订——
+    /// 任一在场则全三必须完整且合法（缺一/坏 hex/头锚长度不符/fs 域外
+    /// → 整行拒绝；rd 组不在场而 keyctor 在场 → 拒绝——加订不脱离主组）。
+    @Test func cloneKeyctorRowParseGate() {
+        let base = #"{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9F85F07A9""#
+        let rd = #","clone_rd_lookup":"0x32edaec","clone_rd_lookup_fs":8484,"clone_rd_lookup_head":"E923B96DFC6F01A9FA6702A9F85F03A9","clone_rd_wrap":"0x309ac50","clone_rd_getter":"0x102b740","clone_rd_x2single":"0x571ce74","clone_rd_x2desc":"0xa3de0a70","clone_rd_x2ctx":"0x5720308","clone_rd_key_slot":"0x3a0""#
+        let kc = #","clone_rd_keyctor":"0x4a2b524","clone_rd_keyctor_fs":640,"clone_rd_keyctor_head":"FF0302D1F65705A9F44F06A9FD7B07A9""#
+        func parse(_ s: String) -> Int32 {
+            wxkeep_runtime_test_parse_hooks(s, UInt(s.utf8.count))
+        }
+        // 全组 + 三件套：接受（270135 现役形态）
+        #expect(parse(#"{"hooks":["# + base + rd + kc + #"}]}"#) == 1)
+        var off: CUnsignedLong = 0, fs: CUnsignedLong = 0
+        #expect(wxkeep_runtime_test_hook_row_rd(0, nil, nil, nil, nil, nil, nil,
+                                               nil, nil) == 0)
+        // 三缺一（去掉 head 整对）：整行拒绝
+        #expect(parse(#"{"hooks":["# + base + rd + kc.replacingOccurrences(
+            of: ",\"clone_rd_keyctor_head\":\"FF0302D1F65705A9F44F06A9FD7B07A9\"", with: "")
+            + #"}]}"#) == 0, "keyctor 三件套缺 head → 整行拒绝")
+        // 坏 hex：拒绝
+        #expect(parse(#"{"hooks":["# + base + rd + kc.replacingOccurrences(
+            of: "\"clone_rd_keyctor\":\"0x4a2b524\"", with: "\"clone_rd_keyctor\":\"0x4a2b52Z\"")
+            + #"}]}"#) == 0)
+        // 头锚长度不符（8B）：拒绝
+        #expect(parse(#"{"hooks":["# + base + rd + kc.replacingOccurrences(
+            of: "FF0302D1F65705A9F44F06A9FD7B07A9", with: "FF0302D1F65705A9")
+            + #"}]}"#) == 0)
+        // fs 域外（0 与越 2MB）：拒绝
+        #expect(parse(#"{"hooks":["# + base + rd + kc.replacingOccurrences(
+            of: "\"clone_rd_keyctor_fs\":640", with: "\"clone_rd_keyctor_fs\":0")
+            + #"}]}"#) == 0)
+        #expect(parse(#"{"hooks":["# + base + rd + kc.replacingOccurrences(
+            of: "\"clone_rd_keyctor_fs\":640", with: "\"clone_rd_keyctor_fs\":2097153")
+            + #"}]}"#) == 0)
+        // keyctor 在场而 rd 组不在场：拒绝（加订不脱离主组）
+        #expect(parse(#"{"hooks":["# + base + kc + #"}]}"#) == 0,
+                "keyctor 无 rd 主组 → 整行拒绝")
+        // rd 组在而 keyctor 不在：照常接受（向后兼容）
+        #expect(parse(#"{"hooks":["# + base + rd + #"}]}"#) == 1)
+    }
+
+    /// R11 parse 锚定链端到端（arm64）：JIT 桩 keyctor（sret 写 18B 十进
+    /// 制 key 短串）经**生产 clone_parse_run**：svc vtable 门→obj 门→
+    /// keyctor 直调→sso 快照→读路径 tail（复用 rd 桩）。x86_64 跳过。
+    @Test func cloneParseChainEndToEnd() {
+        #if arch(arm64)
+        // 合成 consumer（+0xb78→svc）与 msg 对象（+0=非零头；0x6d0 布局
+        // 使 +0x6b0 inner=0——inner 门负例确定性）
+        let consumer = malloc(0xc00)!.assumingMemoryBound(to: UInt64.self)
+        let svc = malloc(16)!.assumingMemoryBound(to: UInt64.self)
+        let msgObj = malloc(0x6d0)!.assumingMemoryBound(to: UInt64.self)
+        defer { free(consumer); free(svc); free(msgObj) }
+        memset(UnsafeMutableRawPointer(consumer), 0, 0xc00)
+        memset(UnsafeMutableRawPointer(msgObj), 0, 0x6d0)
+        consumer[0xb78 / 8] = UInt64(UInt(bitPattern: svc))
+        msgObj[0] = 0x1122334455
+
+        // JIT 桩**单页**布局（生产合同 = 同一镜像 base+uint32 offset——
+        // base 传 0 会让 rd_abs 截断 64 位桩地址 = SEGV，首版实证）：
+        //   0x00 keyctor（7 指令 + 字面量 @32/40/48——clang 汇编器编码）
+        //   0x40 x2single  0x48 x2ctx  0x50 lookup(ret)
+        //   0x54 wrap      0x60 getter（字面量 @0x78 = msgObj）
+        //   0x210 key 字节（18B 十进制 svrid）
+        let page = mmap(nil, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                        MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0)
+        #expect(page != MAP_FAILED)
+        defer { munmap(page, 4096) }
+        let baseAddr = UInt64(UInt(bitPattern: page))
+        pthread_jit_write_protect_np(0)
+        // keyctor（MAP_JIT 页全部写在 protect(0) 之后——113 轮 SIGBUS 纪律）
+        // 字面量偏移是**相对各 ldr 自身 PC**——三 literal 落在绝对 32/40/48，
+        // 则三条 ldr 全是 #32（PC@0/8/16 各 +32）。首版 #40/#48=按页绝对
+        // 思考，汇编器忠实编码成 PC+40/48 → 读到 48/64（dump 实证）。
+        let kcCode: [UInt32] = [
+            0x58000109,   // ldr x9, #32（PC@0 → 页+32 = keyAddr）
+            0xF9000009,   // str x9, [x0]
+            0x5800010A,   // ldr x10, #32（PC@8 → 页+40 = size）
+            0xF900040A,   // str x10, [x0, #8]
+            0x58000109,   // ldr x9, #32（PC@16 → 页+48 = capflag）
+            0xF9000809,   // str x9, [x0, #0x10]
+            0xD65F03C0,   // ret
+        ]
+        kcCode.withUnsafeBufferPointer { cp in
+            memcpy(page!, cp.baseAddress, cp.count * 4)
+        }
+        var litKey = baseAddr + 0x210
+        var litSize: UInt64 = 18
+        var litCap: UInt64 = 0x8000_0000_0000_0000
+        memcpy(page! + 32, &litKey, 8)
+        memcpy(page! + 40, &litSize, 8)
+        memcpy(page! + 48, &litCap, 8)
+        // rd 桩族
+        let rdCode: [UInt32] = [
+            0xD2800020, 0xD65F03C0,                     // 0x40 x2single
+            0xD2800020, 0xD65F03C0,                     // 0x48 x2ctx
+            0xD65F03C0,                                 // 0x50 lookup: ret（哨兵保留）
+            0x52800029, 0x3909E009, 0xD65F03C0,         // 0x54 wrap: 设命中位
+            0x580000C9, 0xF9000109, 0xD2801209, 0xF9000509, 0xD65F03C0, // 0x60 getter
+        ]
+        rdCode.withUnsafeBufferPointer { cp in
+            memcpy(page! + 0x40, cp.baseAddress, cp.count * 4)
+        }
+        var objAddr = UInt64(UInt(bitPattern: msgObj))
+        memcpy(page! + 0x78, &objAddr, 8)
+        let keyStr = Array("467688165590285977".utf8)
+        memcpy(page! + 0x210, keyStr, keyStr.count)
+        // vtable 门比较 base+off 绝对形（生产=镜像内地址）——合成 base 自洽
+        svc[0] = baseAddr + 0x9deeb48
+        sys_icache_invalidate(page, 0x220)
+        pthread_jit_write_protect_np(1)
+
+        func invoke(_ consumer: UnsafeMutablePointer<UInt64>,
+                    _ obj: UnsafeMutablePointer<UInt64>) -> Int32 {
+            wxkeep_runtime_test_clone_parse_invoke(
+                CUnsignedLongLong(UInt(bitPattern: consumer)),
+                CUnsignedLongLong(UInt(bitPattern: obj)),
+                CUnsignedLong(baseAddr),                    // keyctor @0
+                CUnsignedLong(baseAddr + 0x50),             // lookup
+                CUnsignedLong(baseAddr + 0x54),             // wrap
+                CUnsignedLong(baseAddr + 0x60),             // getter
+                CUnsignedLong(baseAddr + 0x40),             // x2single
+                CUnsignedLong(baseAddr + 0x48),             // x2ctx
+                CUnsignedLong(baseAddr), CUnsignedLong(0x9deeb48))
+        }
+
+        // 桩本体单测（锁 keyctor 桩合同）：直调 → 24B sret = 长串形态 →
+        // 生产 sso_key_snapshot 解出 18B
+        typealias KC = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
+        let kc = unsafeBitCast(baseAddr, to: KC.self)
+        var keyobjDbg = [UInt8](repeating: 0, count: 24)
+        var snapLen: Int32 = 0
+        keyobjDbg.withUnsafeMutableBufferPointer { kp in
+            kc(kp.baseAddress!, msgObj)
+        }
+        snapLen = keyobjDbg.withUnsafeBufferPointer { kp in
+            var out = [CChar](repeating: 0, count: 64)
+            return wxkeep_runtime_test_sso_key_snapshot(
+                UnsafeRawPointer(kp.baseAddress!).assumingMemoryBound(to: UInt8.self),
+                &out, 64)
+        }
+        var stubWord0: UInt32 = 0
+        memcpy(&stubWord0, page!, 4)
+        #expect(stubWord0 == 0x58000109, "页首=桩首指令（got 0x\(String(stubWord0, radix: 16))）")
+        let hex = keyobjDbg.map { String(format: "%02x", $0) }.joined()
+        #expect(keyobjDbg[0x17] == 0x80, "桩写 capflag MSB（got 0x\(String(keyobjDbg[0x17], radix: 16))；dump=\(hex)）")
+        #expect(snapLen == 18, "sso 快照 18B（got \(snapLen)）")
+
+        var svc2: Int32 = 0, keys: Int32 = 0
+        wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keys, nil, &svc2)
+        // 正路径：keyctor 桩产出 18B 十进制 key（长串形态）→ sso 快照 →
+        // tail（lookup ret=哨兵→wrap 桩设命中位→getter 返回 msgObj→
+        // inner(+0x6b0)=0 → kRdHit|kRdGet = 3，inner 门负例确定性）
+        let r = invoke(consumer, msgObj)
+        #expect(r == 3, "parse 链 tail 全通（got r=\(r)）")
+        var svc2b: Int32 = 0, keysb: Int32 = 0
+        wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keysb, nil, &svc2b)
+        #expect(svc2b == svc2 + 1, "clsvc2 +1")
+        #expect(keysb == keys + 1, "clkey +1（keyctor 产出快照）")
+        // 候选身份错：svc vtable 失配 → r=0（px0 行 vtable-miss）
+        svc[0] = baseAddr + 0x12345
+        #expect(invoke(consumer, msgObj) == 0, "svc vtable 失配 → 守卫退出")
+        // obj 死：obj=0 → 守卫退出（不带病直调 keyctor）
+        svc[0] = baseAddr + 0x9deeb48
+        #expect(invoke(consumer, UnsafeMutablePointer<UInt64>(bitPattern: 8)!) == 0,
+                "obj 死 → 守卫退出")
+        #endif
+    }
+
     /// M4 插入 ABI 端到端（arm64）：MAP_JIT 桩 ctor（sret 写 vtable+ctl）/
     /// amr（计数器自增）经**生产 clone_ins_run** 调用——sret 换址（x8）、
     /// 三参直译、vtable 双读门、pair/outvec 装配。探针分支用合成 svc 形态
@@ -1465,10 +1633,10 @@ extension RuntimeHookTests {
             let xml = Array("<msg><newmsgid>467688165590285977</newmsgid><fromusr>wxid_k</fromusr></msg>".utf8)
             #expect(wxkeep_runtime_test_clone_capture(xml, UInt(xml.count), nil, nil, 0) == 1)
             var keys: Int32 = 0
-            wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keys, nil)
+            wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keys, nil, nil)
             #expect(wxkeep_runtime_test_clone_rows(88, nil, nil, nil) == 1)
             var keysAfter: Int32 = 0
-            wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keysAfter, nil)
+            wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keysAfter, nil, nil)
             #expect(keysAfter == keys + 1, "帧内 key 快照成功计数 +1")
             var lastKey = [CChar](repeating: 0, count: 64)
             let len = wxkeep_runtime_test_last_key(&lastKey, 64)
@@ -1529,7 +1697,7 @@ extension RuntimeHookTests {
         let fWrap = baseAddr + 20, fGetter = baseAddr + 32
 
         var hits: Int32 = 0, misses: Int32 = 0, gets: Int32 = 0, inner: Int32 = 0
-        wxkeep_runtime_test_clone_rd_counts(&hits, &misses, &gets, &inner, nil, nil)
+        wxkeep_runtime_test_clone_rd_counts(&hits, &misses, &gets, &inner, nil, nil, nil)
         // 短键（18 位十进制 svrid——线上主形态）
         let key = "467688165590285977"
         let r = key.withCString { kp in
@@ -1541,7 +1709,7 @@ extension RuntimeHookTests {
         }
         #expect(r == 7, "clhit|clget|clinner 全通（got r=\(r)）")
         var h2: Int32 = 0, mi2: Int32 = 0, g2: Int32 = 0, in2: Int32 = 0
-        wxkeep_runtime_test_clone_rd_counts(&h2, &mi2, &g2, &in2, nil, nil)
+        wxkeep_runtime_test_clone_rd_counts(&h2, &mi2, &g2, &in2, nil, nil, nil)
         #expect(h2 == hits + 1 && g2 == gets + 1 && in2 == inner + 1)
         #expect(mi2 == misses, "全通路径不推进 clmissq")
         // 长键（40B > SSO 界 22——长串重建分支）
@@ -1565,7 +1733,7 @@ extension RuntimeHookTests {
         }
         #expect(r3 == 0, "svc vtable 失配 → 守卫退出（绝不用未验句柄调宿主）")
         var h3: Int32 = 0
-        wxkeep_runtime_test_clone_rd_counts(&h3, nil, nil, nil, nil, nil)
+        wxkeep_runtime_test_clone_rd_counts(&h3, nil, nil, nil, nil, nil, nil)
         #expect(h3 == h2 + 1, "第二次成功调用的 +1 在案；失配路径不推进 clhit")
         // 空 key：不调（0）
         let r4 = wxkeep_runtime_test_clone_rd_invoke(UInt64(UInt(bitPattern: svc)), 0,

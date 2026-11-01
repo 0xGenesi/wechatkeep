@@ -1322,3 +1322,32 @@ pair.obj=句柄节点而非消息对象，AMR 语义=「经句柄投递」而非
 「AMR 经句柄投递」vs「投递 pair.obj 本体」未定案——决定克隆内容如何
 进入存储，是 E2E 前最后一个语义问号。0x3456d00 全链（查询描述符→
 holder 交付）仍是宿主逐元素交付的正文，M4 不复用它。
+
+
+## R11 parse 锚定换链（2026-11-01，116 轮；284 测基线）
+
+> 实弹判决：写点缝死 → 配对架构换锚 parse 入口。本节取代 R4-R6 的
+> 「write-point thunk + 帧内 key 快照」设计（设计保留、代码在位，但
+> 270135 实弹零触发——其它构建或其它消息流不排除，故不删）。
+
+### 链路（v2）
+
+```
+parse 入口（主钩子）:
+  args[0]→g_clone_parse_consumer、args[1]→g_clone_parse_obj（纯寄存器快照）
+  clone_capture: newmsgid/fromusr 提取 + consumer/obj 入事件 → 串行队列
+worker（clone_parse_run，宿主调用合法面）:
+  ①svc: [cand+0xb78]→[svc]==base+clone_svc_vtable（否 = px0 vtable-miss 行）
+  ②obj: [obj] 非零可读（存活竞态如实暴露——死即 clmissq）
+  ③key: keyctor0x4a2b524(sret 24B 串对象, x0=obj)——行身份门（fs 640+锚）
+    → sso_key_snapshot → px0 行（keylen+12B 前缀=键格式最终定案面）
+  ④tail: clone_rd_run_core（x2 链→lookup→wrap→getter→inner）→ M4 探针
+```
+
+### 诚实边界
+
+①args[0] 是否=consumer this 未证——px0 行的 vtable 门即裁决（第一轮
+  实弹见分晓）；②obj 在 worker 时点的存活竞态（parse 返回后上游可能
+  释放）——门②如实暴露，死则考虑浅拷贝 v2；③key 格式（svrid 十进制
+  vs 会话串）由 px0 行 + lookup 命中与否联合定案；④写点版全保留
+  （其它构建/其它流的可能锚）。

@@ -66,6 +66,14 @@ enum RuntimeConfig {
         var clone_rd_x2desc: String? = nil
         var clone_rd_x2ctx: String? = nil
         var clone_rd_key_slot: String? = nil
+        /// R11 parse 锚定加订（可选三件套；在场必须 rd 组完整否则整行拒绝）：
+        /// key 构造 0x4a2b524（sret 24B 串对象, x0=parse msg 对象——实弹
+        /// 判决写点缝死后的换锚，RUNTIME-DESIGN R11/116 轮）。
+        var clone_rd_keyctor: String? = nil
+        /// keyctor 函数级身份门①（LC_FUNCTION_STARTS 距离，640@270135）
+        var clone_rd_keyctor_fs: Int? = nil
+        /// keyctor 函数级身份门②（入口 16B 原像锚 hex）
+        var clone_rd_keyctor_head: String? = nil
 
         /// M4 插入直调表（113 轮 R8 RE 定案，RUNTIME-DESIGN R8 节合同；
         /// 七字段成组——任一在场则 dylib 侧要求全组完整否则整行拒绝）：
@@ -105,6 +113,7 @@ enum RuntimeConfig {
             case clone_rd_lookup, clone_rd_lookup_fs, clone_rd_lookup_head
             case clone_rd_wrap, clone_rd_getter, clone_rd_x2single
             case clone_rd_x2desc, clone_rd_x2ctx, clone_rd_key_slot
+            case clone_rd_keyctor, clone_rd_keyctor_fs, clone_rd_keyctor_head
             case clone_ins_ctor, clone_ins_ctor_fs, clone_ins_ctor_head
             case clone_ins_amr, clone_ins_amr_fs, clone_ins_amr_head
             case clone_ins_msg_vt, clone_ins_pub_vt
@@ -305,6 +314,11 @@ enum RuntimeConfig {
                 clone_rd_wrap: "0x309ac50", clone_rd_getter: "0x102b740",
                 clone_rd_x2single: "0x571ce74", clone_rd_x2desc: "0xa3de0a70",
                 clone_rd_x2ctx: "0x5720308", clone_rd_key_slot: "0x3a0",
+                // R11 parse 锚定（116 轮换锚）：keyctor=0x4a2b524（sret 24B
+                // 串对象, x0=消息对象——consumer_main x20 直译），fs 640
+                //（0x4a2b524..0x4a2b7a4）+ 入口 16B 锚。
+                clone_rd_keyctor: "0x4a2b524", clone_rd_keyctor_fs: 640,
+                clone_rd_keyctor_head: "FF0302D1F65705A9F44F06A9FD7B07A9",
                 // M4 插入直调表（113 轮 R8 接线，270135 arm64 pristine 定点
                 // 派生）：ctor=0x34597c8（fs 348）双身份门 + amr=0x33fd190
                 //（fs 2788）双身份门 + msg_vt 0x9f24930。pub_vt 不带 =
@@ -734,6 +748,9 @@ enum RuntimeConfig {
                            clone_rd_x2desc: row["clone_rd_x2desc"] as? String,
                            clone_rd_x2ctx: row["clone_rd_x2ctx"] as? String,
                            clone_rd_key_slot: row["clone_rd_key_slot"] as? String,
+                           clone_rd_keyctor: row["clone_rd_keyctor"] as? String,
+                           clone_rd_keyctor_fs: row["clone_rd_keyctor_fs"] as? Int,
+                           clone_rd_keyctor_head: row["clone_rd_keyctor_head"] as? String,
                            clone_ins_ctor: row["clone_ins_ctor"] as? String,
                            clone_ins_ctor_fs: row["clone_ins_ctor_fs"] as? Int,
                            clone_ins_ctor_head: row["clone_ins_ctor_head"] as? String,
