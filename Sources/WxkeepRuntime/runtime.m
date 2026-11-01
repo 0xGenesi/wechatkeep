@@ -1465,7 +1465,7 @@ static int g_clone_ins_calls;                 // clins=（AMR 实际调用）
 /// 候选 pair、cnt=[c78]=container、cnt20=[container+0x20]；全链可读才
 /// 计 g_clone_cnt_caps（测试断言面）。msg20=[msg_obj+0x20]=原消息上下
 /// 文现值——与 cnt20 对比=源变异风险锚（相等则 ctor 的覆写无实际效果）。
-/// 链断/形状不合 = r9pub 字段带 0，证据面不虚报。
+/// 链断 = cnt 记 chain-broken（其余字段照实带值/0），caps 不计——证据面不虚报。
 static void clone_ins_probe(uint64_t svc, uint64_t msg_obj) {
     uint64_t sub = 0, sub_vt = 0;
     if (!kread64(svc + 8, &sub) || sub <= 0x10000) return;
@@ -1508,7 +1508,7 @@ static void clone_ins_probe(uint64_t svc, uint64_t msg_obj) {
                  (unsigned long long)cnt20, (unsigned long long)msg20);
         bootlog_line(b2);
     } else {
-        char b2[128];
+        char b2[160];
         snprintf(b2, sizeof(b2),
                  "r9pub: pub38=0x%llx c78=0x%llx b80=0x%llx cnt=<chain-broken> "
                  "msg20=0x%llx",

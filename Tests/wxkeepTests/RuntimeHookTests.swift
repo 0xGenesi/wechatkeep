@@ -1386,6 +1386,16 @@ extension RuntimeHookTests {
         var probes3: Int32 = 0, caps3: Int32 = 0
         wxkeep_runtime_test_clone_ins_counts(&probes3, nil, nil, nil, &caps3)
         #expect(probes3 == probes2 && caps3 == caps2, "链断不计探针不计容器链")
+        // 链中段断（[holder+0x78] 指向空槽）：探针照计、caps 冻结——
+        // r9pub 走 chain-broken 分支（bootlog 面无断言，执行覆盖即可）
+        svc[1] = UInt64(UInt(bitPattern: holder))
+        c78Slot.pointee = 0
+        wxkeep_runtime_test_clone_ins_probe(CUnsignedLongLong(UInt(bitPattern: svc)),
+                                            CUnsignedLongLong(UInt(bitPattern: msgObj)),
+                                            0x100000, 0x9f24930)
+        var probes4: Int32 = 0, caps4: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes4, nil, nil, nil, &caps4)
+        #expect(probes4 == probes3 + 1 && caps4 == caps3, "链中段断：探针+1、caps 冻结")
         #endif
     }
 
