@@ -1289,6 +1289,10 @@ extension RuntimeHookTests {
         sys_icache_invalidate(page, 0x220)
         pthread_jit_write_protect_np(1)
 
+        // obj 参数语义（R12）= parse 的 x1 = msg+0x130（XML SSO 成员地址）——
+        // worker 内部还原 msg 基址 = x1-0x130 后才喂 keyctor
+        let parseX1 = msgObj + 0x130 / 8   // UInt64 步进
+
         func invoke(_ consumer: UnsafeMutablePointer<UInt64>,
                     _ obj: UnsafeMutablePointer<UInt64>) -> Int32 {
             wxkeep_runtime_test_clone_parse_invoke(
@@ -1330,7 +1334,7 @@ extension RuntimeHookTests {
         // 正路径：keyctor 桩产出 18B 十进制 key（长串形态）→ sso 快照 →
         // tail（lookup ret=哨兵→wrap 桩设命中位→getter 返回 msgObj→
         // inner(+0x6b0)=0 → kRdHit|kRdGet = 3，inner 门负例确定性）
-        let r = invoke(consumer, msgObj)
+        let r = invoke(consumer, parseX1)
         #expect(r == 3, "parse 链 tail 全通（got r=\(r)）")
         var svc2b: Int32 = 0, keysb: Int32 = 0
         wxkeep_runtime_test_clone_rd_counts(nil, nil, nil, nil, &keysb, nil, &svc2b)
@@ -1338,11 +1342,19 @@ extension RuntimeHookTests {
         #expect(keysb == keys + 1, "clkey +1（keyctor 产出快照）")
         // 候选身份错：svc vtable 失配 → r=0（px0 行 vtable-miss）
         svc[0] = baseAddr + 0x12345
-        #expect(invoke(consumer, msgObj) == 0, "svc vtable 失配 → 守卫退出")
+        #expect(invoke(consumer, parseX1) == 0, "svc vtable 失配 → 守卫退出")
         // obj 死：obj=0 → 守卫退出（不带病直调 keyctor）
         svc[0] = baseAddr + 0x9deeb48
-        #expect(invoke(consumer, UnsafeMutablePointer<UInt64>(bitPattern: 8)!) == 0,
+        #expect(invoke(consumer, UnsafeMutablePointer<UInt64>(bitPattern: 8 + 0x130 / 8)!) == 0,
                 "obj 死 → 守卫退出")
+        // R12 扫描路：consumer2 无 +0xb78 合同位、svc 指针在 +0x20——
+        // 扫描发现后全链照通（svc2 计数走快路口径不重复，见实现）
+        let consumer2 = malloc(0xc00)!.assumingMemoryBound(to: UInt64.self)
+        defer { free(consumer2) }
+        memset(UnsafeMutableRawPointer(consumer2), 0, 0xc00)
+        consumer2[0x20 / 8] = UInt64(UInt(bitPattern: svc))
+        let r4 = invoke(consumer2, parseX1)
+        #expect(r4 == 3, "扫描路（svc@+0x20）全通（got r=\(r4)）")
         #endif
     }
 

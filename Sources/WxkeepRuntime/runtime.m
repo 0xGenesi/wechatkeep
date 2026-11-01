@@ -1193,25 +1193,64 @@ static int clone_capture(const uint8_t *ptr, uint64_t size) {
 ///     门武装后）；24B key 串对象直送 lookup，sso 快照进 px0 行
 ///    （「键=svrid 十进制还是会话串」最终定案面）
 ///   ④读路径 tail = 写点版同一条 clone_rd_run_core
+/// R12：经验 svc 发现（parse 锚定的 cand/msg 都不是 consumer 本体——
+/// 116 轮实弹 vtable-miss）。扫描 [base+off]（off∈0x00..0xF8 步 8）的
+/// 指针 P，[P]==svc_vtable 即命中（svc 类唯一实例假设）。命中偏移入
+/// px0 行（=consumer/svc 在该对象内的成员偏移，回填静态合同）。
+static uint64_t clone_scan_svc(uint64_t base, uint64_t svc_vt, int *found_off) {
+    if (base <= 0x10000) return 0;
+    for (int off = 0; off < 0x100; off += 8) {
+        uint64_t p = 0, v = 0;
+        if (!kread64(base + (uint64_t)off, &p) || p <= 0x10000) continue;
+        if (kread64(p, &v) && v == svc_vt) {
+            if (found_off) *found_off = off;
+            return p;
+        }
+    }
+    return 0;
+}
+
 static int clone_parse_run(uint64_t cand, uint64_t obj) {
     uint64_t svc = 0, vt = 0;
     int svc_ok = 0;
+    int svc_off = -1;
+    uint64_t svc_vt = rd_abs(g_image_base, g_clone_svc_vt_off);
+    // 快路（R6 合同位）：cand=consumer this 时 [cand+0xb78] 直中
     if (cand > 0x10000
         && kread64(cand + 0xb78, &svc) && svc > 0x10000
-        && kread64(svc, &vt) && vt == rd_abs(g_image_base, g_clone_svc_vt_off)) {
+        && kread64(svc, &vt) && vt == svc_vt) {
         svc_ok = 1;
+        svc_off = 0xb78;
         g_clone_svc2_hits++;              // clsvc2=
+    }
+    // R12 msg 基址还原：parse 的 x1 = msg+0x130（XML SSO 成员地址，
+    // wrapper 0x4d1f6c4 直译 x20=x21+0x130）——keyctor 吃的是 msg 基址。
+    uint64_t msg = obj;
+    if (obj > 0x10000 + 0x130) msg = obj - 0x130;
+    // 扫描路：cand/msg 前 0x100B 内找 [P]==svc_vt
+    if (!svc_ok) {
+        uint64_t p = clone_scan_svc(cand, svc_vt, &svc_off);
+        if (p > 0x10000) {
+            svc = p;
+            svc_ok = 1;
+        } else {
+            p = clone_scan_svc(msg, svc_vt, &svc_off);
+            if (p > 0x10000) {
+                svc = p;
+                svc_ok = 1;
+            }
+        }
     }
     uint8_t keyobj[24];
     memset(keyobj, 0, sizeof(keyobj));
     int key_ok = 0;
     uint32_t key_len = 0;
-    if (svc_ok && obj > 0x10000) {
+    if (svc_ok && msg > 0x10000) {
         typedef void (*keyctor_t)(void *, void *);
         uint64_t obj_head = 0;
-        if (kread64(obj, &obj_head) && obj_head != 0) {
+        if (kread64(msg, &obj_head) && obj_head != 0) {
             ((keyctor_t)rd_abs(g_image_base, g_clone_rd.keyctor_off))(
-                (void *)keyobj, (void *)obj);
+                (void *)keyobj, (void *)msg);
             uint8_t flag = keyobj[0x17];   // 串对象头合法性（短 len<<1/长 MSB）
             if (flag != 0) {
                 uint8_t kb[64];
@@ -1222,11 +1261,16 @@ static int clone_parse_run(uint64_t cand, uint64_t obj) {
                     char kx[25];
                     for (int i = 0; i < 12 && i < (int)key_len; i++)
                         snprintf(kx + i * 2, 3, "%02x", kb[i]);
-                    char b[160];
+                    uint64_t cvt = 0, mvt = 0;
+                    if (cand > 0x10000) kread64(cand, &cvt);
+                    if (msg > 0x10000) kread64(msg, &mvt);
+                    char b[224];
                     snprintf(b, sizeof(b),
-                             "px0: cand=0x%llx svcvt_off=0x%llx keylen=%u key=%s",
-                             (unsigned long long)cand,
-                             (unsigned long long)g_clone_svc_vt_off,
+                             "px0: svc_off=%d candvt_off=0x%llx msgvt_off=0x%llx "
+                             "keylen=%u key=%s",
+                             svc_off,
+                             (unsigned long long)(cvt > g_image_base ? cvt - g_image_base : 0),
+                             (unsigned long long)(mvt > g_image_base ? mvt - g_image_base : 0),
                              key_len, kx);
                     bootlog_line(b);
                 }
@@ -1251,10 +1295,14 @@ static int clone_parse_run(uint64_t cand, uint64_t obj) {
         }
     }
     if (!svc_ok) {
-        char b[128];
+        uint64_t cvt = 0, mvt = 0;
+        if (cand > 0x10000) kread64(cand, &cvt);
+        if (msg > 0x10000) kread64(msg, &mvt);
+        char b[192];
         snprintf(b, sizeof(b),
-                 "px0: cand=0x%llx svc=<vtable-miss> obj=0x%llx",
-                 (unsigned long long)cand, (unsigned long long)obj);
+                 "px0: svc=<scan-miss> candvt_off=0x%llx msgvt_off=0x%llx",
+                 (unsigned long long)(cvt > g_image_base ? cvt - g_image_base : 0),
+                 (unsigned long long)(mvt > g_image_base ? mvt - g_image_base : 0));
         bootlog_line(b);
     }
     return r;

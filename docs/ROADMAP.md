@@ -463,6 +463,24 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 117·R12 第二轮实弹 + 扫描式 svc 发现轮（2026-11-01：parse 锚定链实弹跑通到 svc 门（px0 两行、clmissq=2）——args[0]≠consumer 定案；msg 基址=x1−0x130 换算 + worker 经验扫描 [P]==svc_vt；284 测同轮基线）
+
+1. **[第二轮实弹]**：keyctor 武装 ✓、parse 链实弹跑通到 svc 门（px0 两
+   行、clmissq=2、clmiss=0=nomethods 桩退役确认）；**svc=<vtable-miss>
+   —args[0]≠consumer this**（第二锚假设证伪）；obj 两撤回同值=复用的
+   解析上下文（非每消息独立）。
+2. **[wrapper 直译]**：parse 0x4d1f8d8 唯一调用者=wrapper 0x4d1f6c4——
+   `parse(x0=wrapper this, x1=msg+0x130, x2=&bool)`；wrapper 本体=XML
+   needle 预处理（0xa4b0d85）+解析产物落 this+0x1d0 串。**msg 基址=
+   parse_x1−0x130**（keyctor 输入修正）；wrapper 零 BL 调用者、
+   consumer_main 链上界全 vtable 派发——纯静态再上溯不可达。
+3. **[扫描式 svc 发现]**：worker 内经验扫描 [base+off]（off∈0x00..0xF8
+   步 8、双对象 cand/msg）找 [P]==svc_vt——命中即全链自洽（svc 类唯一
+   实例假设），命中偏移回 px0 行=成员偏移回填静态合同；+0xb78 快路
+   保留在前。px0 行升级：svc_off/candvt_off/msgvt_off/keylen/key。
+4. **[测试]**：obj 参数语义改 parse_x1（+0x130 模拟）+ 扫描路用例
+   （consumer2 无合同位、svc@+0x20 照通）。
+
 ## 116·R11 实弹判决 + parse 锚定换链轮（2026-11-01：写点 0x4cd5e8c 实弹零触发（clrow=0）——seam B 死缝定案；配对架构换锚 parse 入口（args[0]/args[1] 快照 + keyctor 0x4a2b524 宿主直调）；282→284 测全绿 +2）
 
 1. **[实弹判决（真机一次撤回×2）]**：rd/ins 表武装 ✓、克隆写点 SLOT
