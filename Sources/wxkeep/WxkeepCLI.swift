@@ -1291,6 +1291,10 @@ extension Wxkeep {
                 var cmSlotPlan: EntrySlot.Plan?
                 var cmSlotIdempotent = false
                 var cmSlotHookOff: UInt64 = 0
+                // R15 第四挂点（lookup 直挂）：rd 组在即装
+                var luSlotPlan: EntrySlot.Plan?
+                var luSlotIdempotent = false
+                var luSlotHookOff: UInt64 = 0
                 do {
                     if let row = RuntimeConfig.knownHooks.first(where: {
                         $0.build == build && $0.arch == "arm64" }) {
@@ -1332,6 +1336,20 @@ extension Wxkeep {
                                 cloneSlotPlan = nil
                                 cloneSlotIdempotent = false
                                 cloneSlotHookOff = 0
+                            }
+                        }
+                        // R15 第四挂点（lookup 直挂 0x32edaec 共用汇点）：
+                        // 复用 rd 组的 lookup 偏移+头锚，slotIndex 3。
+                        if let lHead = row.clone_rd_lookup_head,
+                           let lOffHex = row.clone_rd_lookup,
+                           let lOff = Wxkeep.strictHexVA(lOffHex) {
+                            luSlotHookOff = lOff
+                            if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: lOff) != nil {
+                                luSlotIdempotent = true
+                            } else {
+                                luSlotPlan = try EntrySlot.planArm64(
+                                    file: wechatDylibURL, hookOff: lOff,
+                                    expectedHex: lHead, slotIndex: 3)
                             }
                         }
                         // R14 第三挂点（consumer_main 直挂）：slotIndex 2，独立
@@ -1392,7 +1410,7 @@ extension Wxkeep {
                 // 入口补丁将改写 wechat.dylib（340MB 级资源文件）——同样先备份
                 // + 原子写（撕裂写/无备份 = 修不好也回不去；主可执行同款防线）。
                 var wechatDylibBackup: URL?
-                if entrySlotPlan != nil || cloneSlotPlan != nil || cmSlotPlan != nil {
+                if entrySlotPlan != nil || cloneSlotPlan != nil || cmSlotPlan != nil || luSlotPlan != nil {
                     wechatDylibBackup = try Backup.make(binary: wechatDylibURL)
                     print("backup: \(wechatDylibBackup!.lastPathComponent)")
                 }
@@ -1425,7 +1443,7 @@ extension Wxkeep {
                 // 进程内写化被策略封死后的唯一武装通道（dylib 启动时数据写
                 // SLOT）。计划已在写前预检（blocked 门依赖其结果）；此处仅落盘。
                 var entrySlotWritten = false
-                if entrySlotPlan != nil || cloneSlotPlan != nil || cmSlotPlan != nil {
+                if entrySlotPlan != nil || cloneSlotPlan != nil || cmSlotPlan != nil || luSlotPlan != nil {
                     do {
                         var data = try Data(contentsOf: wechatDylibURL)
                         if let plan = entrySlotPlan {
@@ -1439,6 +1457,10 @@ extension Wxkeep {
                         // R14 第三挂点同帧原子落盘（槽位 2）
                         if let mplan = cmSlotPlan {
                             data.replaceSubrange(mplan.entryFileOffset..<mplan.entryFileOffset+12, with: mplan.patch12)
+                        }
+                        // R15 第四挂点同帧原子落盘（槽位 3）
+                        if let lplan = luSlotPlan {
+                            data.replaceSubrange(lplan.entryFileOffset..<lplan.entryFileOffset+12, with: lplan.patch12)
                         }
                         try SafeWrite.overwrite(data, to: wechatDylibURL)
                         entrySlotWritten = true
@@ -1459,6 +1481,12 @@ extension Wxkeep {
                                          mplan.entryVA, mplan.slotVA, mplan.slotFileOffset))
                         } else if cmSlotIdempotent {
                             print(String(format: "entry-slot: consumer_main 0x%llx 已在位（幂等）", cmSlotHookOff))
+                        }
+                        if let lplan = luSlotPlan {
+                            print(String(format: "entry-slot: lookup 0x%llx ← 跳板（SLOT 0x%llx @文件 0x%x）",
+                                         lplan.entryVA, lplan.slotVA, lplan.slotFileOffset))
+                        } else if luSlotIdempotent {
+                            print(String(format: "entry-slot: lookup 0x%llx 已在位（幂等）", luSlotHookOff))
                         }
                     } catch {
                         print("ℹ︎ entry-slot: \(error)——dylib 将按未补丁路径诊断")
@@ -1640,6 +1668,22 @@ extension Wxkeep {
                             }
                             // R14 cm 第三挂点同步还原（同帧原子——漏还原 =
                             // cm 跳板残留 + SLOT 恒零 = 下一条消息即崩）
+                            // R15 lookup 第四挂点同步还原（同帧原子）
+                            var luRestoredVA: UInt64?
+                            if let lOffHex = row.clone_rd_lookup,
+                               let lOff = Wxkeep.strictHexVA(lOffHex),
+                               let lHead = row.clone_rd_lookup_head,
+                               EntrySlot.detectPatched(file: dylibURL, hookOff: lOff) != nil {
+                                guard let lExpected = Data(hex: String(lHead.prefix(24))), lExpected.count >= 12 else {
+                                    throw ValidationError("hooks 行 clone_rd_lookup_head 字节不足（build \(row.build)）")
+                                }
+                                guard let lOffRel = image.sliceRelativeOffset(va: lOff) else {
+                                    throw ValidationError("clone_rd_lookup 无法换算为文件偏移")
+                                }
+                                let lFatOff = image.sliceOffset + lOffRel
+                                data.replaceSubrange(lFatOff..<lFatOff+12, with: lExpected.prefix(12))
+                                luRestoredVA = lOff
+                            }
                             var cmRestoredVA: UInt64?
                             if let mOffHex = row.clone_cm_hook_off,
                                let mOff = Wxkeep.strictHexVA(mOffHex),
@@ -1665,6 +1709,9 @@ extension Wxkeep {
                             }
                             if let mOff = cmRestoredVA {
                                 print(String(format: "entry-slot: 已还原 consumer_main 0x%llx（期望字节写回，同帧原子落盘）", mOff))
+                            }
+                            if let lOff = luRestoredVA {
+                                print(String(format: "entry-slot: 已还原 lookup 0x%llx（期望字节写回，同帧原子落盘）", lOff))
                             }
                         } else if Wxkeep.strictHexVA(row.hook_off) != nil {
                             print("ℹ︎ entry-slot: 入口补丁不在位（无需还原）")

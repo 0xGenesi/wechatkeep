@@ -1144,6 +1144,9 @@ static uint64_t g_clone_parse_obj;           // parse 入口 args[1] 快照（ho
 static volatile uint64_t g_cm_hook_target;   // R14 cm 直挂（tentative；thunk 区零值）
 static uint64_t g_cm_consumer;               // 同上（consumer_main 入口 x0）
 static uint64_t g_cm_msg;                    // 同上（msg 对象基址）
+static volatile uint64_t g_lu_svc;           // R15 lookup 直挂（tentative）
+static volatile uint64_t g_lu_keyptr;        // 同上（key 串对象指针）
+static volatile uint64_t g_lu_seq;           // 同上（调用序号）
 static volatile int g_clone_svc2_hits;       // clsvc2=（parse 锚定 svc 身份门命中）
 static int sso_key_snapshot(const uint8_t head24[24], uint8_t *out, size_t cap);
 static int kread_buf(uint64_t addr, void *out, size_t n);
@@ -1281,9 +1284,30 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
     // wrapper 0x4d1f6c4 直译 x20=x21+0x130）——keyctor 吃的是 msg 基址。
     uint64_t msg = obj;
     if (obj > 0x10000 + 0x130) msg = obj - 0x130;
+    // R15 lookup 直挂快路（共用汇点，撤销标记必经）：g_lu_svc 直送 +
+    // vtable 类门。keyctor(msg) 产出本消息键 → 与 g_lu_keyptr 现值对比
+    // 一致则该次 lookup 即本消息的（顺带定案键格式）；不一致仍可用（svc
+    // =存储服务唯一实例假设，vtable 门已认证）。
+    if (__atomic_load_n(&g_lu_svc, __ATOMIC_ACQUIRE) > 0x10000) {
+        uint64_t lsvc = g_lu_svc, lvt = 0;
+        if (kread64(lsvc, &lvt) && lvt == svc_vt) {
+            svc = lsvc;
+            svc_ok = 1;
+            svc_off = -2;                 // lu 路径标记
+            src = "lu";
+            g_clone_svc2_hits++;          // clsvc2=
+            uint8_t lk[64];
+            uint64_t kp = g_lu_keyptr;
+            int lkey = 0;
+            uint8_t khead[24];
+            if (kp > 0x10000 && kread_buf(kp, khead, 24))
+                lkey = sso_key_snapshot(khead, lk, sizeof(lk));
+            (void)lkey;                   // 键对比面：px0 行带 keyA 后人工比对
+        }
+    }
     // R14 cm 直挂快路：cm pair 与 parse 嵌套一致（cm_msg==obj-0x130）→
     // cand=consumer 本体，[cand+0xb78] 即 R6 合同位
-    if (cm_msg > 0x10000 && obj > 0x10000 + 0x130 && cm_msg == obj - 0x130
+    if (!svc_ok && cm_msg > 0x10000 && obj > 0x10000 + 0x130 && cm_msg == obj - 0x130
         && cand > 0x10000
         && kread64(cand + 0xb78, &svc) && svc > 0x10000
         && kread64(svc, &vt) && vt == svc_vt) {
@@ -2264,6 +2288,36 @@ __attribute__((naked)) static void *revoke_cm_hook(void) {
 static void *revoke_cm_hook(void) { return NULL; }   // x64 行不带 cm 组
 #endif
 
+// ---------------------------------------------------------------------------
+// R15 lookup 直挂 thunk（第四 SLOT，0x32edaec 共用汇点）：六个 lookup 调用
+// 者（consumer 族）全走此函数——撤销标记路径必经（实测撤回被处理）。被动
+// 存 x0(svc)/x1(key 串对象指针)+序列计数后 ldar 尾跳。worker 用 [x0] 的
+// vtable 门 + keyctor(msg) 的键做自身重查——consumer 身份从此无关。
+__attribute__((used)) static volatile uint64_t g_lu_svc;
+__attribute__((used)) static volatile uint64_t g_lu_keyptr;
+__attribute__((used)) static volatile uint64_t g_lu_seq;
+__attribute__((used)) static void *(*volatile g_lu_real_wrapper)(void);
+
+#if defined(__arm64__) || defined(__aarch64__)
+__attribute__((naked)) static void *revoke_lu_hook(void) {
+    __asm__ volatile(
+        "adrp x16, _g_lu_svc@PAGE\n"
+        "str x0, [x16, _g_lu_svc@PAGEOFF]\n"
+        "adrp x16, _g_lu_keyptr@PAGE\n"
+        "str x1, [x16, _g_lu_keyptr@PAGEOFF]\n"
+        "adrp x16, _g_lu_seq@PAGE\n"
+        "ldr x17, [x16, _g_lu_seq@PAGEOFF]\n"
+        "add x17, x17, #1\n"
+        "str x17, [x16, _g_lu_seq@PAGEOFF]\n"
+        "adrp x16, _g_lu_real_wrapper@PAGE\n"
+        "add x16, x16, _g_lu_real_wrapper@PAGEOFF\n"
+        "ldar x16, [x16]\n"
+        "br x16\n");
+}
+#else
+static void *revoke_lu_hook(void) { return NULL; }   // x64 行不带 lu 组
+#endif
+
 #else
 static void *revoke_clone_hook(void *a0, void *a1, void *a2,
                                void *a3, void *a4, void *a5) {
@@ -3061,6 +3115,53 @@ static void arm_cm_site(const hook_target_t *t, uintptr_t base) {
     bootlog_line("cm-arm: OK（consumer_main 第三 SLOT 已填）");
 }
 
+/// R15 lookup 直挂武装：期望序言=行 clone_rd_lookup_head（同一函数的
+/// 16B 原像——rd 组身份门②复用），SLOT 填装走同管（第四槽）。
+static void arm_lu_site(const hook_target_t *t, uintptr_t base) {
+    if (!t->has_clone_rd) return;   // lu 挂点是 rd 组的加购（无 rd 组不装）
+    uintptr_t ctarget = base + t->clone_rd_lookup_off;
+    uint8_t cprologue[16];
+    int cpatched = entry_patch_present(ctarget);
+    if (cpatched && !entry_patch_matches(ctarget, t->clone_rd_lookup_head)) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("lu-arm: 补丁态尾 4B 失配——拒装；收口：remove/重装");
+        return;
+    }
+    if (cpatched) {
+        memcpy(cprologue, t->clone_rd_lookup_head, 16);
+    } else {
+        if (!kread_buf(ctarget, cprologue, 16)) {
+            g_hook_status |= kStCloneFail;
+            bootlog_line("lu-arm: 入口不可读");
+            return;
+        }
+    }
+    if (memcmp(cprologue, t->clone_rd_lookup_head, 16) != 0) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("lu-arm: 序言门失配——拒装");
+        return;
+    }
+    if (!cpatched && !arm64_prologue_relocatable(cprologue, 16)) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("lu-arm: 序言含 PC 相对编码——拒装");
+        return;
+    }
+    hook_trampoline_t ctr;
+    if (prepare_trampoline(ctarget, cprologue, 16, 1, &ctr) != 0) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("lu-arm: 蹦床构造失败");
+        return;
+    }
+    __atomic_store_n(&g_lu_real_wrapper, (void *(*)(void))ctr.mem, __ATOMIC_RELEASE);
+    int rc = try_slot_fill(ctarget, (void *)&revoke_lu_hook);
+    if (rc != 0) {
+        bootlog_line("lu-arm: slot-fill 失败（入口未补丁=安全态；补丁态在场则"
+                     "消息查找将崩溃——收口 remove/重装）");
+        return;
+    }
+    bootlog_line("lu-arm: OK（lookup 第四 SLOT 已填——svc 直送面启用）");
+}
+
 static int install_hook(const hook_target_t *t, uintptr_t base) {
     int32_t expected = 0;
     if (!__atomic_compare_exchange_n(&g_arm_done, &expected, 1, 0,
@@ -3211,6 +3312,7 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
         // V3-M2-R4：克隆写点第二 SLOT 并行武装（独立失败面——不拆主 hook）
         if (t->is_arm64 && t->has_clone) arm_clone_site(t, base);
         if (t->is_arm64 && t->has_clone_cm) arm_cm_site(t, base);
+        if (t->is_arm64 && t->has_clone_rd) arm_lu_site(t, base);
         return 0;
     }
     if (t->is_arm64) {

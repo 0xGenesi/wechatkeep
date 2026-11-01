@@ -463,6 +463,27 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 120·R15 第五轮实弹 + lookup 直挂轮（2026-11-01：cm 槽装机成功但 consumer_main 也死锚（candvt=0x0=thunk 未曾执行、零崩溃=入口无人调）——三代锚假设全灭后改挂**共用汇点 lookup 0x32edaec**（六 consumer 必经，svc 直送 x0）；slotIndex 3 零新行字段（复用 rd 组 lookup 偏移+头锚）；285 测全绿）
+
+1. **[第五轮实弹]**：cm-arm OK + SLOT 填装 ✓，但 px0 candvt_off=0x0——
+   g_cm_consumer 恒零 = **thunk 从未执行 = consumer_main 不在活路径**
+   （零崩溃佐证入口无人调）。110 轮的 consumer_main 契约=同代静态锚
+   第三次证伪（写点缝→parse args→consumer_main）。
+2. **[wrapper 归属]**：0x4d1f6c4 ∈ 解析器类自身 vtable（0x9eb5ec8+0x18）
+   ——wrapper=this 类方法，cand=解析器对象确认（无新外推）。
+3. **[共用汇点思路]**：不再追 consumer——lookup 0x32edaec 是六个
+   consumer 族函数的共同汇点（109 轮六调用者清单+本轮活路径实测撤销
+   被处理=lookup 必被调），入口 x0=svc 直送。第四 SLOT（slotIndex 3）
+   **零新行字段**（复用 rd 组 lookup 偏移+16B 头锚——同一函数的既有
+   身份材料）。被动 thunk：x0→g_lu_svc/x1→g_lu_keyptr/seq++，ldar 尾跳。
+4. **[worker lu 快路]**：g_lu_svc vtable 门直中（svc 类唯一实例假设，
+   门已认证）→ src="lu"；keyctor(msg) 键与 g_lu_keyptr 现值快照的人工
+   对比面保留（键格式定案双保险）。cm/cand/扫描路全保留回落。
+5. **[符号内化坑（LTO）]**：release -Os+LTO 把只被 naked thunk 汇编引用
+   的 static 全局内化改名（debug 过 release 挂 Undefined symbols，五轮
+   首见）——`used` 属性 + 导出读回缝（wxkeep_runtime_test_cm_globals）
+   双保险入册。
+
 ## 119·R14 第四轮实弹 + 第三 SLOT 直挂 consumer_main 轮（2026-11-01：两级扫描实弹 miss 定案（svc 与 parse 时点对象无引用关系，五撤回含 msg 槽瞬态观察）→ 预定手段落地：cm 三号槽（x0=consumer/x1=msg 同点全活）；284→285 测全绿 +1）
 
 1. **[第四轮实弹]**：两级扫描 5 次撤回全 miss（含 msg 槽复用瞬态两拍：
