@@ -700,6 +700,9 @@ extension Wxkeep {
             @Option(help: "on: 自发撤回（「你撤回了一条消息」）也改写；off: 保持诚实反馈（默认）")
             var rewriteSelf: Mode?
 
+            @Option(help: "on: 通用 keeptip（解析前清零 newmsgid，原消息保留，默认）；off: 撤回原生处理——V3 克隆实验的写点链（clone_message=on 时）需要 off 才触发")
+            var keep: Mode?
+
             enum Mode: String, ExpressibleByArgument { case on, off }
 
             @Flag(help: "Remove tip_text (hook stays armed; universal keeptip unaffected)")
@@ -713,10 +716,18 @@ extension Wxkeep {
                     return
                 }
                 guard let text else {
-                    if rewriteSelf != nil {
-                        // 只读查看分支不落盘——静默忽略开关会让「带 --rewrite-self
-                        // 跑查看」的用户误以为已切换。如实提示。
-                        print("ℹ︎ --rewrite-self 需与文案一起提供才会写入；本次仅查看当前配置")
+                    if rewriteSelf != nil || keep != nil {
+                        // 开关单独写（无需文案）：runtime tip --keep off 是克隆
+                        // 实验文档指路的标准动作，必须有独立命令面。
+                        let written = try RuntimeConfig.writeTip(
+                            text: nil,
+                            rewriteSelf: rewriteSelf.map { $0 == .on },
+                            keep: keep.map { $0 == .on })
+                        print("✓ 开关已写入（tip_text 不变）")
+                        if let keep { print("  keep_message: \(keep == .on ? "on" : "off")") }
+                        if let rewriteSelf { print("  rewrite_self: \(rewriteSelf == .on ? "on" : "off")") }
+                        written.forEach { print("  \($0.path)") }
+                        return
                     }
                     let tip = RuntimeConfig.readTip()
                     print("runtime.json: \(RuntimeConfig.configWriteTargets.map(\.path).joined(separator: "\n              "))")

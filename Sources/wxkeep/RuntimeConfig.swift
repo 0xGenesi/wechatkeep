@@ -560,12 +560,13 @@ enum RuntimeConfig {
     /// nil = 不动文案；微信运行中也可写：30s 热重载生效。返回实写成功的
     /// 目标；全部失败抛末次错误。
     @discardableResult
-    static func writeTip(text: String?, rewriteSelf: Bool?,
+    static func writeTip(text: String?, rewriteSelf: Bool?, keep: Bool? = nil,
                          at targets: [URL] = configWriteTargets,
                          base candidates: [URL]? = nil) throws -> [URL] {
         var dict = mergedWriteBaseSeeded(explicitBase: candidates, defaultTargets: targets)
         if let text { dict["tip_text"] = text }
         if let rewriteSelf { dict["rewrite_self"] = rewriteSelf }
+        if let keep { dict["keep_message"] = keep }
         return try writePlist(dict, to: targets)
     }
 
