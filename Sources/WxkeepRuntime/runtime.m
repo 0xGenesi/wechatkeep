@@ -1409,13 +1409,28 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
         uint64_t cvt = 0, mvt = 0;
         if (cand > 0x10000) kread64(cand, &cvt);
         if (msg > 0x10000) kread64(msg, &mvt);
-        char b[256];
+        uint64_t lsvc = __atomic_load_n(&g_lu_svc, __ATOMIC_ACQUIRE);
+        uint64_t lvt = 0;
+        if (lsvc > 0x10000) kread64(lsvc, &lvt);
+        // key 字节 dump（g_lu_keyptr 的 24B 串对象头 → 快照）：键格式定案面
+        uint64_t kp = __atomic_load_n(&g_lu_keyptr, __ATOMIC_ACQUIRE);
+        char khex[8] = {0};
+        if (kp > 0x10000) {
+            uint8_t khead[24];
+            if (kread_buf(kp, khead, 24)) {
+                for (int i = 0; i < 6; i++) snprintf(khex + i * 2, 3, "%02x", khead[i]);
+            }
+        }
+        char b[320];
         snprintf(b, sizeof(b),
                  "px0: src=%s svc=<miss> lu_seq=%llu lu_svc=0x%llx "
+                 "lu_svcvt_off=0x%llx lu_key6=%s "
                  "candvt_off=0x%llx msgvt_off=0x%llx",
                  src,
                  (unsigned long long)g_lu_seq,
-                 (unsigned long long)__atomic_load_n(&g_lu_svc, __ATOMIC_ACQUIRE),
+                 (unsigned long long)lsvc,
+                 (unsigned long long)(lvt > g_image_base ? lvt - g_image_base : 0),
+                 khex,
                  (unsigned long long)(cvt > g_image_base ? cvt - g_image_base : 0),
                  (unsigned long long)(mvt > g_image_base ? mvt - g_image_base : 0));
         bootlog_line(b);
