@@ -1171,7 +1171,7 @@ extension Wxkeep {
                                 }
                             if !ins.isEmpty {
                                 print("插入链证据:      " + ins.joined(separator: " ")
-                                      + "（M4；bootlog r8pub 行=认证值派生输入：微信容器 tmp/wxkeep-boot.log）")
+                                      + "（M4；bootlog r8pub/r9pub 行=认证值+容器候选派生输入：微信容器 tmp/wxkeep-boot.log）")
                             }
                             // clpub=0 三义性消歧（113 轮体检）：读链已通（clget>0）
                             // 而探针零计数 = 插入表未武装或 [svc+8] 链断——

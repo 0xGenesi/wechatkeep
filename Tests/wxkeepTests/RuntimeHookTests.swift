@@ -1319,7 +1319,7 @@ extension RuntimeHookTests {
 
         // 护栏：kCloneMaxInserts=8 次进程封顶（attempts 计——含失败尝试）
         var inserts0: Int32 = 0
-        wxkeep_runtime_test_clone_ins_counts(nil, nil, nil, &inserts0)
+        wxkeep_runtime_test_clone_ins_counts(nil, nil, nil, &inserts0, nil)
         var refused = false
         for _ in 0..<(16 - Int(inserts0)) {
             let r = wxkeep_runtime_test_clone_ins_invoke(
@@ -1333,7 +1333,7 @@ extension RuntimeHookTests {
         }
         #expect(refused, "插入护栏 8 次/进程封顶后拒绝再调")
         var inserts1: Int32 = 0
-        wxkeep_runtime_test_clone_ins_counts(nil, nil, nil, &inserts1)
+        wxkeep_runtime_test_clone_ins_counts(nil, nil, nil, &inserts1, nil)
         #expect(inserts1 >= 8, "attempts 计数越过封顶（含被拒尝试，got \(inserts1)）")
         counter = counterSlot.pointee
         #expect(counter == 6, "恰 8 次 admitted：首调 1 + 循环 prev=3..7 共 5 次全达 AMR（got \(counter)）")
@@ -1341,40 +1341,51 @@ extension RuntimeHookTests {
         // 探针：合成 svc（[svc+8]=holder、[holder]=vtable 词）驱动生产
         // clone_ins_probe——认证门命中/失配/链断三态。
         let svc = malloc(0x20)!.assumingMemoryBound(to: UInt64.self)
-        let holder = malloc(0x10)!.assumingMemoryBound(to: UInt64.self)
-        let msgObj = malloc(0x20)!.assumingMemoryBound(to: UInt64.self)
-        defer { free(svc); free(holder); free(msgObj) }
+        let holder = malloc(0x90)!.assumingMemoryBound(to: UInt64.self)   // 0x90：+0x78 容器链槽
+        let msgObj = malloc(0x30)!.assumingMemoryBound(to: UInt64.self)
+        // R9 容器候选链三跳实体：[holder+0x78]=P → *P=container → [container+0x20]
+        let c78Slot = malloc(8)!.assumingMemoryBound(to: UInt64.self)
+        let cntObj = malloc(0x30)!.assumingMemoryBound(to: UInt64.self)
+        defer { free(svc); free(holder); free(msgObj); free(c78Slot); free(cntObj) }
         memset(UnsafeMutableRawPointer(svc), 0, 0x20)
-        memset(UnsafeMutableRawPointer(holder), 0, 0x10)
-        memset(UnsafeMutableRawPointer(msgObj), 0, 0x20)
+        memset(UnsafeMutableRawPointer(holder), 0, 0x90)
+        memset(UnsafeMutableRawPointer(msgObj), 0, 0x30)
+        memset(UnsafeMutableRawPointer(cntObj), 0, 0x30)
         svc[1] = UInt64(UInt(bitPattern: holder))           // [svc+8] = holder
         holder[0] = 0x100000 + 0x9f24930                    // [[svc+8]] = vtable
         msgObj[0] = 0x100000 + 0x9f24930                    // msg vtable 证据字
         msgObj[2] = 0x1234                                  // +0x10 形态证据字
-        var probes0: Int32 = 0, matches0: Int32 = 0
-        wxkeep_runtime_test_clone_ins_counts(&probes0, &matches0, nil, nil)
-        // 命中：base=0x100000、pub_vt=0x9f24930 与 holder vtable 一致
+        msgObj[4] = 0xAABB_CCDD                             // +0x20 原消息上下文证据字
+        c78Slot.pointee = UInt64(UInt(bitPattern: cntObj))
+        holder[0x78 / 8] = UInt64(UInt(bitPattern: c78Slot))  // [holder+0x78] = P
+        cntObj[4] = 0x4455_6677                               // [container+0x20]
+        var probes0: Int32 = 0, matches0: Int32 = 0, caps0: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes0, &matches0, nil, nil, &caps0)
+        // 命中：base=0x100000、pub_vt=0x9f24930 与 holder vtable 一致；
+        // 容器链三跳全读 → cnt_caps +1（r9pub 行）
         wxkeep_runtime_test_clone_ins_probe(CUnsignedLongLong(UInt(bitPattern: svc)),
                                             CUnsignedLongLong(UInt(bitPattern: msgObj)),
                                             0x100000, 0x9f24930)
-        var probes1: Int32 = 0, matches1: Int32 = 0
-        wxkeep_runtime_test_clone_ins_counts(&probes1, &matches1, nil, nil)
+        var probes1: Int32 = 0, matches1: Int32 = 0, caps1: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes1, &matches1, nil, nil, &caps1)
         #expect(probes1 == probes0 + 1 && matches1 == matches0 + 1, "探针成功 + 认证门命中")
-        // 失配：pub_vt 给错值 → probes +1、matches 不动
+        #expect(caps1 == caps0 + 1, "容器候选链三跳全读计数 +1")
+        // 失配：pub_vt 给错值 → probes +1、matches 不动（容器链独立于门，caps 继续 +1）
         wxkeep_runtime_test_clone_ins_probe(CUnsignedLongLong(UInt(bitPattern: svc)),
                                             CUnsignedLongLong(UInt(bitPattern: msgObj)),
                                             0x100000, 0x111)
-        var probes2: Int32 = 0, matches2: Int32 = 0
-        wxkeep_runtime_test_clone_ins_counts(&probes2, &matches2, nil, nil)
+        var probes2: Int32 = 0, matches2: Int32 = 0, caps2: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes2, &matches2, nil, nil, &caps2)
         #expect(probes2 == probes1 + 1 && matches2 == matches1, "失配只计探针不计命中")
+        #expect(caps2 == caps1 + 1, "容器链与认证门正交")
         // 链断：[svc+8]=0 → 零计数推进（证据面不虚报）
         svc[1] = 0
         wxkeep_runtime_test_clone_ins_probe(CUnsignedLongLong(UInt(bitPattern: svc)),
                                             CUnsignedLongLong(UInt(bitPattern: msgObj)),
                                             0x100000, 0x9f24930)
-        var probes3: Int32 = 0
-        wxkeep_runtime_test_clone_ins_counts(&probes3, nil, nil, nil)
-        #expect(probes3 == probes2, "链断不计探针")
+        var probes3: Int32 = 0, caps3: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes3, nil, nil, nil, &caps3)
+        #expect(probes3 == probes2 && caps3 == caps2, "链断不计探针不计容器链")
         #endif
     }
 

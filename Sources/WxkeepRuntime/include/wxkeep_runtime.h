@@ -139,7 +139,7 @@ int wxkeep_runtime_test_hook_row_ins(int idx, unsigned long *ctor_off,
                                      unsigned long *amr_fs, int *pub_gated);
 // M4 接线缝：clpub/clins 证据计数 + 插入护栏读回。
 void wxkeep_runtime_test_clone_ins_counts(int *probes, int *matches,
-                                          int *calls, int *inserts);
+                                          int *calls, int *inserts, int *cnt_caps);
 // M4 接线缝：探针直驱（生产 clone_ins_probe 同一条代码；base 非 0 时按
 // 认证门形态走，pub_vt_off=认证 vtable 切片偏移，0=门关闭）。
 void wxkeep_runtime_test_clone_ins_probe(unsigned long long svc,

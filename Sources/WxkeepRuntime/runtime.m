@@ -1371,6 +1371,7 @@ static int clone_rd_run(const clone_full_t *rec, const clone_rd_fns_t *fns,
 /// 完整记录 worker（生产路径）：直调表未武装/护栏到顶 → clmiss 惰性
 ///（109/110 轮语义不变）；表在位 → 读路径重查，证据入 marker。
 static void clone_ins_probe(uint64_t svc, uint64_t msg_obj);   // M4 节（后置定义）
+static int g_clone_cnt_caps;   // 同上（tentative 合并；R9 节零初始化）
 static volatile int g_clone_ins_valid;   // 同上（tentative 合并；M4 节零初始化）
 static void clone_work_full(void *ctx) {
     clone_full_t *rec = ctx;
@@ -1443,14 +1444,26 @@ static uint8_t g_clone_ins_pub_gated;         // pub_vt 行在位（认证门启
 static volatile int g_clone_ins_inserts;      // 进程级插入调用上界护栏（实验封顶）
 static int g_clone_pub_probes;                // clpub=（探针成功：读服务+8 链两跳可读）
 static int g_clone_pub_matches;               // 认证门命中计数（pub_gated 时）
+static int g_clone_cnt_caps;                  // R9 容器候选链三跳全读计数（r9pub 行）
 static int g_clone_ins_calls;                 // clins=（AMR 实际调用）
 
 /// M4 探针（纯内核读）：①publisher 形态证据——[svc+8]（写枢纽协议位）→
 /// [[svc+8]] vtable 切片偏移（bootlog r8pub 行；pub_vt 认证值 + 与 AMR
 /// 同对象的判别面）；②msg 对象形态证据——vtable 偏移（0x9f24930 类主张
-/// 的真机核对面）与 +0x10 形态字（R9 容器合同派生面）。认证门在位且
-/// 命中 → g_clone_pub_matches+（clpub 计数独立——证据与判定分开报）。
-/// 插入调用不在本函数：见节注释的「pub 认证与容器合同双落地」前提。
+/// 的真机核对面）与 +0x10 形态字。认证门在位且命中 → g_clone_pub_matches+
+///（clpub 计数独立——证据与判定分开报）。插入调用不在本函数：见节注释
+/// 的「pub 认证与容器合同双落地」前提。
+///
+/// R9 探针-2（114 轮）：容器链候选 + 原消息上下文取证（bootlog r9pub 行，
+/// 独立成行——r8pub 行不动，两轮证据按前缀分账）。合同：宿主流
+/// container = *(*(subThis+0x78))（订阅发起者 this 的 +0x78 pair 首成员
+/// 再解引），ctor 读 [container+0x20] 盖进源对象 +0x20。sub（=[svc+8]）
+/// 若与订阅发起者同类则该链从 svc 可达——三跳 kread 候选取证：
+/// c78=[sub+0x78] → cnt=[c78] → cnt20=[cnt+0x20]；全链可读才计
+/// g_clone_cnt_caps（测试断言面）。同批记 msg20=[msg_obj+0x20]（原消息
+/// 的上下文现值——与 cnt20 对比的语义锚：ctor 会用后者覆写前者，两者
+/// 相等则源变异无实际效果）。链断/形状不合 = r9pub 不出或字段带 0，
+/// 证据面不虚报。
 static void clone_ins_probe(uint64_t svc, uint64_t msg_obj) {
     uint64_t sub = 0, sub_vt = 0;
     if (!kread64(svc + 8, &sub) || sub <= 0x10000) return;
@@ -1472,6 +1485,21 @@ static void clone_ins_probe(uint64_t svc, uint64_t msg_obj) {
              (unsigned long long)(mvt > g_image_base ? mvt - g_image_base : 0),
              (unsigned long long)m10, match);
     bootlog_line(b);
+    // 探针-2：容器候选链 + 原消息 +0x20（r9pub 行）
+    uint64_t msg20 = 0;
+    kread64(msg_obj + 0x20, &msg20);
+    uint64_t c78 = 0, cnt = 0, cnt20 = 0;
+    if (kread64(sub + 0x78, &c78) && c78 > 0x10000
+        && kread64(c78, &cnt) && cnt > 0x10000
+        && kread64(cnt + 0x20, &cnt20)) {
+        g_clone_cnt_caps++;
+        char b2[160];
+        snprintf(b2, sizeof(b2),
+                 "r9pub: c78=0x%llx cnt=0x%llx cnt20=0x%llx msg20=0x%llx",
+                 (unsigned long long)c78, (unsigned long long)cnt,
+                 (unsigned long long)cnt20, (unsigned long long)msg20);
+        bootlog_line(b2);
+    }
 }
 
 /// M4 插入 ABI 直译（生产路径由 g_clone_ins + g_image_base 解析；测试缝
@@ -3933,11 +3961,12 @@ int wxkeep_runtime_test_clone_rd_invoke(unsigned long long svc,
 
 /// M4 插入链证据计数读回（clpub/clins + 护栏余量 + 认证门命中）。
 void wxkeep_runtime_test_clone_ins_counts(int *probes, int *matches,
-                                          int *calls, int *inserts) {
+                                          int *calls, int *inserts, int *cnt_caps) {
     if (probes) *probes = g_clone_pub_probes;
     if (matches) *matches = g_clone_pub_matches;
     if (calls) *calls = g_clone_ins_calls;
     if (inserts) *inserts = __atomic_load_n(&g_clone_ins_inserts, __ATOMIC_RELAXED);
+    if (cnt_caps) *cnt_caps = g_clone_cnt_caps;
 }
 
 /// M4 探针直驱缝（生产 clone_ins_probe 同一条代码）：构造 svc/holder/
