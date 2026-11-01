@@ -146,6 +146,12 @@ svrid/rowid 不受波及。插入落队时机晚于撤回写也安全（内容�
     撤回写点 0x4cd5e8c（对象向量在手写前可读）、插入族业务入口
     0x33fd190=AddMessageResource。缝位比较（parse 入口 vs 写点 hook）
     成册；R3=服务索引定案+插入全链+jumptable 补课+接线。
+  - **M2-R3 服务攻坚与缝位定案完成（2026-11-01，105 轮）**：调用点判读
+    翻案（「4 调用者」=libc++abi 桩，idx 反演须桩层感知）；服务获取三
+    层阻障判独立轮（构造链未定位/偏移太泛/桩层遮蔽调用图）；AddMessage
+    Resource 业务级全链（逐项→0x3aeddb4 写枢纽→任务对象）。**缝位定
+    案：R4 主攻 seam B（0x4cd5e8c 写点 hook）**——捕获零依赖（免服务
+    获取），代价=新挂点家族门重走。R4 清单见 RUNTIME-DESIGN R3 节。
 - **V3-M3（产品化）**：config 键 `clone_message`（默认 off，与
   keep_message/zeroing 三通道关系裁决：克隆开启时清零是否让行）+自撤
   不克隆（selfskip 先于克隆判定）+重编辑记账对齐+FuzzParseSurfaces
