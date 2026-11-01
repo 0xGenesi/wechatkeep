@@ -1194,17 +1194,44 @@ static int clone_capture(const uint8_t *ptr, uint64_t size) {
 ///    （「键=svrid 十进制还是会话串」最终定案面）
 ///   ④读路径 tail = 写点版同一条 clone_rd_run_core
 /// R12：经验 svc 发现（parse 锚定的 cand/msg 都不是 consumer 本体——
-/// 116 轮实弹 vtable-miss）。扫描 [base+off]（off∈0x00..0xF8 步 8）的
-/// 指针 P，[P]==svc_vtable 即命中（svc 类唯一实例假设）。命中偏移入
-/// px0 行（=consumer/svc 在该对象内的成员偏移，回填静态合同）。
-static uint64_t clone_scan_svc(uint64_t base, uint64_t svc_vt, int *found_off) {
+/// 116 轮实弹 vtable-miss）。L0=本体直扫（msg 全深 0x240——类尺寸
+/// 0x248+，cand 头 0x100）；L1=两级（对 L0 的每个指针形成员 P，扫
+/// [P..P+0xF8]）。命中路径入 px0 行（如 cand+0x38->P+0xb0），回填静态
+/// 合同。kread 上界 ~2.5k/次（一次撤回一次，异步面可承受）。
+static uint64_t clone_scan_svc(uint64_t base, uint64_t base_end,
+                               uint64_t svc_vt, int *found_off) {
     if (base <= 0x10000) return 0;
-    for (int off = 0; off < 0x100; off += 8) {
+    if (base_end <= base) base_end = base + 0x100;
+    for (uint64_t a = base; a < base_end; a += 8) {
         uint64_t p = 0, v = 0;
-        if (!kread64(base + (uint64_t)off, &p) || p <= 0x10000) continue;
+        if (!kread64(a, &p) || p <= 0x10000) continue;
         if (kread64(p, &v) && v == svc_vt) {
-            if (found_off) *found_off = off;
+            if (found_off) *found_off = (int)(a - base);
             return p;
+        }
+    }
+    return 0;
+}
+
+/// L1 两级扫描：对 root 的指针形成员 P，再扫 [P..P+0x100)。命中返回
+/// svc，hop1_off/hop2_off 记两级偏移。
+static uint64_t clone_scan_svc_2hop(uint64_t root, uint64_t root_end,
+                                    uint64_t svc_vt, int *hop1_off,
+                                    int *hop2_off) {
+    if (root <= 0x10000) return 0;
+    if (root_end <= root) root_end = root + 0x100;
+    for (uint64_t a = root; a < root_end; a += 8) {
+        uint64_t p = 0;
+        if (!kread64(a, &p) || p <= 0x10000) continue;
+        for (int off = 0; off < 0x100; off += 8) {
+            uint64_t v = 0;
+            if (kread64(p + (uint64_t)off, &v) && v == svc_vt) {
+                if (hop1_off) *hop1_off = (int)(a - root);
+                if (hop2_off) *hop2_off = off;
+                return p + (uint64_t)off;   // 注意：返回的是 vtable 所在
+                                            // 对象头？否——P+off 即 svc
+                                            // 候选本体（[P+off]==vt）
+            }
         }
     }
     return 0;
@@ -1227,17 +1254,27 @@ static int clone_parse_run(uint64_t cand, uint64_t obj) {
     // wrapper 0x4d1f6c4 直译 x20=x21+0x130）——keyctor 吃的是 msg 基址。
     uint64_t msg = obj;
     if (obj > 0x10000 + 0x130) msg = obj - 0x130;
-    // 扫描路：cand/msg 前 0x100B 内找 [P]==svc_vt
+    // 扫描路：L0 本体（cand 头 0x100 / msg 全深 0x240）→ L1 两级
     if (!svc_ok) {
-        uint64_t p = clone_scan_svc(cand, svc_vt, &svc_off);
+        uint64_t p = clone_scan_svc(cand, cand + 0x100, svc_vt, &svc_off);
         if (p > 0x10000) {
-            svc = p;
-            svc_ok = 1;
+            svc = p; svc_ok = 1;
         } else {
-            p = clone_scan_svc(msg, svc_vt, &svc_off);
+            p = clone_scan_svc(msg, msg + 0x240, svc_vt, &svc_off);
             if (p > 0x10000) {
-                svc = p;
-                svc_ok = 1;
+                svc = p; svc_ok = 1;
+            } else {
+                int h1 = -1, h2 = -1;
+                p = clone_scan_svc_2hop(cand, cand + 0x100, svc_vt, &h1, &h2);
+                if (p <= 0x10000)
+                    p = clone_scan_svc_2hop(msg, msg + 0x240, svc_vt, &h1, &h2);
+                if (p > 0x10000) {
+                    // L1 命中：P+off 即 [P+off]==vt 的对象（svc 类实例头）；
+                    // 路径（root+hop1 → P+hop2）随下轮 px0 行回填合同。
+                    svc = p;
+                    svc_ok = 1;
+                    (void)h1; (void)h2;
+                }
             }
         }
     }

@@ -463,6 +463,21 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 118·R13 第三轮实弹 + 类身份解码 + 两级扫描轮（2026-11-01：扫描 miss 换来双类身份（cand=_6385990d/msg=_e0c51525——typeinfo 高位掩码坑）；msg 默认构造器无反引用；worker 升两级扫描（L0 cand 头 0x100/msg 全深 0x240→L1 指针成员再扫 0x100）；284 测同轮基线）
+
+1. **[第三轮实弹]**：扫描 miss 但换回**双类身份**——px0 行 candvt_off=
+   0x9eb5ec8（解析器类 `_6385990d`，基 `_a6022c39`）/ msgvt_off=
+   0x9eb04f0（消息类 `_e0c51525`，基 `_2dcc1cda`）。typeinfo 名字槽
+   带高位标志位（0x8000...）——deref 需掩码（坑四）。
+2. **[msg 类布局]**：默认构造器 0xac6038（0x248+ 全零成员 + 0xb8 float
+   1.0f/0x240 bool 标志/+0x208..0x210 内嵌对象）——**构造期无外部反
+   引用**（consumer/svc 不在构造面）。
+3. **[两级扫描]**：L0 本体（cand 头 0x100/msg 全深 0x240）→L1 指针
+   成员（dedup 无、kread 上界 ~2.5k/次）再扫 0x100。命中即全链自洽。
+4. **[若 L1 仍 miss 的下一手（预定）]**：第三 SLOT 直挂 consumer_main
+   0x31a96d8（x0=consumer/x1=msg 同点全活——唯一 BL 调用者 0x45a5910，
+   序言无可重定位编码）——需要 install 侧三号槽位机制。
+
 ## 117·R12 第二轮实弹 + 扫描式 svc 发现轮（2026-11-01：parse 锚定链实弹跑通到 svc 门（px0 两行、clmissq=2）——args[0]≠consumer 定案；msg 基址=x1−0x130 换算 + worker 经验扫描 [P]==svc_vt；284 测同轮基线）
 
 1. **[第二轮实弹]**：keyctor 武装 ✓、parse 链实弹跑通到 svc 门（px0 两
