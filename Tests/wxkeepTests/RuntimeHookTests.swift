@@ -871,3 +871,28 @@ extension RuntimeHookTests {
                 "0 长度 content 不捕获")
     }
 }
+
+// MARK: - V3-M2-R5 配对通路（XML 暂存 → 写点消费）
+
+extension RuntimeHookTests {
+    /// 真实 XML 捕获暂存 msgid → 写点捕获消费 → clpair 推进。
+    /// 陈旧槽防串绑语义由 30s 时窗保证（真机时间尺度，单测不模拟时钟）。
+    @Test func clonePairingEndToEnd() {
+        _ = wxkeep_runtime_test_clone_pair_count(1)   // 清槽隔离
+        // 1. 真实 XML 捕获（R1 路径，暂存 msgid=467688165590285977）
+        let xml = Array("<msg><newmsgid>467688165590285977</newmsgid><fromusr>wxid_pair</fromusr></msg>".utf8)
+        var msgid: UInt64 = 0
+        #expect(wxkeep_runtime_test_clone_capture(xml, UInt(xml.count), &msgid, nil, 0) == 1)
+        #expect(msgid == 467688165590285977)
+        let before = wxkeep_runtime_test_clone_pair_count(0)
+        // 2. 写点捕获消费（R4 路径）
+        #expect(wxkeep_runtime_test_clone_rows(88, nil, nil, nil) == 1)
+        #expect(wxkeep_runtime_test_clone_pair_count(0) == before + 1,
+                "配对完整记录 +1")
+        // 3. 槽已消费：再驱动一次写点不重复配对
+        _ = wxkeep_runtime_test_clone_rows(77, nil, nil, nil)
+        #expect(wxkeep_runtime_test_clone_pair_count(0) == before + 1,
+                "CAS 消费后槽空——不重复配对")
+        _ = wxkeep_runtime_test_clone_pair_count(1)   // 清场
+    }
+}

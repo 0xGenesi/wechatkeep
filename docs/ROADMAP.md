@@ -463,6 +463,22 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 107·V3-M2-R5 配对与解桩轮（2026-11-01：msgid↔content 配对落地（clpair，267 测全绿 +1）；stubmap.py 解桩工具；idx 漏边实锤翻案 R3 阻障定性）
+
+1. **[配对]**：配对槽（XML 暂存 msgid+ts → 写点 CAS 消费，>30s 陈旧
+   不配对）；clone_full_t 完整记录 {msgid, fromusr, content} 深拷贝入
+   队——R6 插入直调表消费单元就位。marker clpair=；端到端测试（暂存→
+   消费→不重复配对）。
+2. **[解桩]**：stubmap.py——1745 桩全外部 bind、内部 rebase=0：**R3
+   「桩层遮蔽」假说证伪**（GOT 只挂外部符号，内部调用不经桩）。
+3. **[idx 漏边实锤]**：consumer 体内五条直连 BL（0x31aa5f0 起，读写
+   全链）在 idx calls 图缺失——capstone 重同步失步（家族缺陷）；R3
+   「外部调用者=0」一层阻障实为工具缺陷。**入册：idx calls 反演必须
+   capstone 直扫复核**。
+4. **[服务获取负结果]**：str+0xb78 × 近程 bl GetService 组合扫描 0 命
+   中——服务构造参数流入。R6 入口：GetService 索引值域枚举 + 副本窗口
+   运行时试探（marker 证据回读，实验开关背后零风险）。
+
 ## 106·V3-M2-R4 写点 hook 落地轮（2026-11-01：克隆第二挂点全链——数据行/EntrySlot 二点化/第二 SLOT/thunk/内核读捕获体，266 测全绿 +3）
 
 > R3 定案 seam B 的机制落地。测试分层：单测全链（合成向量走真实内核读）

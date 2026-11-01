@@ -93,3 +93,7 @@ void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods)
 // 返回捕获对象数。content_bytes = 合成 content 字节数（≤1MB）。
 int wxkeep_runtime_test_clone_rows(unsigned long long content_bytes,
                                    int *rows, int *skips, int *objcaps);
+// V3-M2-R5 配对缝：配对完整记录数（XML 暂存 → 写点消费）。clear_pending
+// 非 0 时先清配对槽（测试隔离）。配对通路测试 = 先 wxkeep_runtime_test_
+// clone_capture（真实 XML 捕获暂存 msgid）再 wxkeep_runtime_test_clone_rows。
+int wxkeep_runtime_test_clone_pair_count(int clear_pending);

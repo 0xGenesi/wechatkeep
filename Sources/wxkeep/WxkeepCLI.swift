@@ -718,6 +718,9 @@ extension Wxkeep {
                             if let len = markerDigits("cllastlen").flatMap({ Int($0) }), len > 0 {
                                 line += " lastlen=\(len)B"
                             }
+                            if let pairs = markerDigits("clpair").flatMap({ Int($0) }), pairs > 0 {
+                                line += " clpair=\(pairs)（R5 配对完整记录）"
+                            }
                         }
                         line += "（R1 骨架：捕获+派发；clmiss=无宿主方法表丢弃，非故障）"
                         print(line)

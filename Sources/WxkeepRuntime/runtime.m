@@ -142,6 +142,11 @@ static void tip_store_write(const char *src, size_t len) {
 // 起头 = 本机自发——keep/zero 门对其放行原生行为（本地删除+原生提示），
 // 不再误伤（T5 实测：清零自发 XML 使提示落「暂不支持该内容」占位）。
 static const char kSelfNeedle[] = "\xe4\xbd\xa0\xe6\x92\xa4\xe5\x9b\x9e";  // “你撤回”
+
+// R5 配对槽前置声明（定义在 R4 写点捕获节；tentative 合并）——
+// clone_capture 暂存侧在本节，先声明后用。
+static uint64_t g_clone_pending_msgid;
+static uint64_t g_clone_pending_ts;
 static int g_self_skips;
 static int g_rewrite_self;         // 自发撤回提示是否也改写（默认 0=不改）
 static int g_rewrite_hits;         // 撤回 needle 命中计数（含自发跳过/超长放弃）
@@ -870,6 +875,9 @@ static int clone_capture(const uint8_t *ptr, uint64_t size) {
                      evt.fromusr, sizeof(evt.fromusr));
     g_clone_last = evt;
     g_clone_last_valid = 1;
+    // R5 配对：暂存 msgid 供写点捕获消费（撤回流 parse 先于写点）
+    __atomic_store_n(&g_clone_pending_msgid, evt.newmsgid, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_clone_pending_ts, (uint64_t)time(NULL), __ATOMIC_RELAXED);
     clone_evt_t *heap = malloc(sizeof(*heap));
     if (!heap) return 1;   // OOM：无派发，但捕获/提取语义已完成
     *heap = evt;
@@ -903,6 +911,51 @@ static int g_clone_rows;      // 写点事件数（挂点命中即计，含遍�
 static int g_clone_obj_caps;  // 捕获到的消息对象 content 数
 static volatile int g_clone_last_len;   // 最近一次捕获的 content 字节数
 static int g_sso_layout_arm64;   // 前向声明（定义在 SSO 布局节；tentative 合并）
+
+// ---------------------------------------------------------------------------
+// R5 配对槽：XML 捕获（parse 入口，有 newmsgid）暂存 → 写点捕获（有
+// content）读取并消费。撤回流内 parse 先于写点（同流毫秒级）；陈旧槽
+// （>30s）不配对（防跨撤回串绑）。CAS 清零消费——多对象写点只配首捕。
+// __atomic 内建要求非 _Atomic 限定指针——裸 uint64 + 内建序语义（配对槽
+// 单写多读、CAS 消费，无 _Atomic 类型需求）。
+static uint64_t g_clone_pending_msgid;           // 0 = 无待配对
+static uint64_t g_clone_pending_ts;              // 暂存时刻（epoch 秒）
+static int g_clone_pairs;                        // 配对完整记录数
+
+/// 完整克隆记录（msgid+content 配对产物）：R6 插入直调表的消费单元。
+typedef struct {
+    uint64_t msgid;
+    char fromusr[64];
+    uint32_t len;
+    uint8_t content[];      // 深拷贝（≤255B 快照，同 R4 证据口径）
+} clone_full_t;
+static void clone_work_full(void *ctx);
+
+/// 配对记录派发（捕获侧调用）：堆拷贝进串行队列。分配失败静默（证据
+/// 计数不虚报）。
+static void clone_dispatch_full(uint64_t msgid, const char *fromusr,
+                                const uint8_t *content, uint32_t len) {
+    clone_full_t *rec = malloc(sizeof(clone_full_t) + len);
+    if (!rec) return;
+    memset(rec, 0, sizeof(*rec));
+    rec->msgid = msgid;
+    if (fromusr) strlcpy(rec->fromusr, fromusr, sizeof(rec->fromusr));
+    rec->len = len;
+    memcpy(rec->content, content, len);
+    dispatch_queue_t q = clone_queue();
+    if (q) {
+        dispatch_async_f(q, rec, clone_work_full);
+    } else {
+        free(rec);
+    }
+}
+
+/// 完整记录 worker：插入直调表仍空置（clmiss 同语义计数）——R6 接表。
+static void clone_work_full(void *ctx) {
+    clone_full_t *rec = ctx;
+    g_clone_nomethods++;
+    free(rec);
+}
 
 /// 内核级 8B 读。1=成功 0=目标页不可读（垃圾指针/越界）。
 static int kread64(uint64_t addr, uint64_t *out) {
@@ -996,9 +1049,23 @@ __attribute__((used)) static void clone_hook_body(void *const *args) {
             continue;
         }
         // 内容不落 marker（隐私面）；只计证据。捕获即深拷贝完成——异步
-        // 派发给未来的插入直调表（R5），当前生命周期到 worker 释放为止。
+        // 派发给未来的插入直调表（R6），当前生命周期到 worker 释放为止。
         g_clone_obj_caps++;
         g_clone_last_len = (int)snap;
+        // R5 配对：消费暂存 msgid（CAS 清零——多对象写点只配首捕；陈旧
+        // 槽 >30s 不配对，防跨撤回串绑）。配对成功=完整记录入队（R6 直调
+        // 表消费单元）。
+        uint64_t pid = __atomic_load_n(&g_clone_pending_msgid, __ATOMIC_ACQUIRE);
+        uint64_t pts = __atomic_load_n(&g_clone_pending_ts, __ATOMIC_RELAXED);
+        uint64_t now = (uint64_t)time(NULL);
+        if (pid != 0 && pts != 0 && now >= pts && now - pts <= 30) {
+            uint64_t expect = pid;
+            if (__atomic_compare_exchange_n(&g_clone_pending_msgid, &expect, 0, 0,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                g_clone_pairs++;
+                clone_dispatch_full(pid, g_clone_last.fromusr, buf, (uint32_t)snap);
+            }
+        }
         free(buf);
         n++;
     }
@@ -2072,13 +2139,13 @@ static void write_marker_ex(int loud) {
             groupDir = nil;
         }
     NSString *content = [NSString stringWithFormat:
-        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
+        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d clpair=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
         [NSDate date].timeIntervalSince1970,
         g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
         g_install_step, g_install_errno,
         g_rewrite_fires, g_rewrite_hits, g_zero_fires,
         g_self_skips, g_clone_captures, g_clone_nomethods,
-        g_clone_rows, g_clone_last_len,
+        g_clone_rows, g_clone_last_len, g_clone_pairs,
         g_cfg_stamp, g_cfg_hash,
         g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
         g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
@@ -2494,6 +2561,15 @@ void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods)
     if (nomethods) *nomethods = g_clone_nomethods;
 }
 
+/// V3-M2-R5 配对缝：配对完整记录数读回；可选清槽（测试隔离）。
+int wxkeep_runtime_test_clone_pair_count(int clear_pending) {
+    if (clear_pending) {
+        __atomic_store_n(&g_clone_pending_msgid, 0, __ATOMIC_RELEASE);
+        __atomic_store_n(&g_clone_pending_ts, 0, __ATOMIC_RELAXED);
+    }
+    return g_clone_pairs;
+}
+
 /// V3-M2-R4 写点捕获缝：对合成向量直接驱动 clone_hook_body。
 /// 构造（全部真实堆分配，走同一条内核读路径）：
 ///   vec 对象（8B）→ outer（32B：候选 A begin/end @0/8、候选 B @16/24）
@@ -2502,6 +2578,9 @@ void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods)
 /// rows/skips/objcaps 回传证据计数。返回本次调用捕获对象数（增量，非累计）。
 int wxkeep_runtime_test_clone_rows(unsigned long long content_bytes,
                                    int *rows, int *skips, int *objcaps) {
+    // 配对预置：非零 = 先走一次真实 XML 捕获暂存 msgid（R5 配对通路）。
+    // 用全局量传参（签名零改）：调用方先 wxkeep_runtime_test_clone_capture
+    // 即已暂存——本参数保留 0。
     // 开关：body 在 g_clone_message 关时直接透传——测试内强制开
     int saved = g_clone_message;
     g_clone_message = 1;

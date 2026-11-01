@@ -715,3 +715,40 @@ R4 清单：①写点 hook 行派生（新 hook_off=0x4cd5e8c 族）+入口 SLOT
   立轮。
 - 真机验证分层：单测全链（合成向量走真实内核读路径）+ 副本 E2E（用户
   窗口）→ 真机实弹（M4）。
+
+## V3-M2-R5 配对与解桩轮（2026-11-01，107 轮）
+
+> 两题：msgid↔content 配对（完成，267 测全绿 +1）与解桩调用图（工具
+> 建成 + idx 漏边实锤 + 组合扫描负结果）。服务获取仍未闭合——但阻障
+> 定性被本轮部分翻案。
+
+### 配对（R5 核心，已落地）
+
+- **配对槽**：XML 捕获（parse 入口）暂存 msgid+时间戳 → 写点捕获读取
+  并 CAS 清零消费（多对象写点只配首捕）；**陈旧槽 >30s 不配对**（防跨
+  撤回串绑）。完整记录 `clone_full_t {msgid, fromusr, content[≤255]}`
+  深拷贝入队——**R6 插入直调表的消费单元已就位**。
+- 证据：marker `clpair=`；CLI 展示。测试：真实 XML 捕获→写点消费→
+  clpair 推进→CAS 后不重复配对（端到端，267 全绿）。
+
+### 解桩与调用图（工具 + 两个实锤）
+
+- **stubmap.py**（var/ab）：解析 __stubs 1745 桩（adrp/ldr/br x16 →
+  GOT 槽 → `xcrun dyld_info -fixups` 绑定）——**全部为外部 bind，内部
+  rebase=0**：GOT 只挂外部符号，wechat.dylib 内部调用不经桩（R3 的
+  「桩层遮蔽」假说**证伪**）。
+- **idx 漏边实锤**：consumer 0x31a96d8 体内五条直连 BL（lookup/wrap/
+  getter/writer 全链，0x31aa5f0 起）在 idx calls 图中**缺失**——capstone
+  线性扫描重同步失步（家族缺陷）。R3「外部调用者=0」的一层阻障实为
+  **扫描工具缺陷**。**后续 RE 凡用 idx calls 反演必须 capstone 直扫复核**
+  （本轮已有 stubmap 反演双保险）。
+- **服务获取组合扫描负结果**：`str xN,[xM,#0xb78]` 76 站点 × 近程
+  `bl GetService(0x5e1d978)` = 0 命中——服务值非 GetService 近程写入，
+  构造参数流入（链在创建者侧）。
+
+### 服务获取（R6 入口，诚实未闭合）
+
+残余路径：consumer 构造参数 ← 创建者 ← 分发链（2-3 hop）。低成本候选
+实验（副本 E2E 窗口内）：GetService 索引枚举（`mov w0,#N; bl` 站点统计
+N 的值域）→ hook 侧以候选索引试探 lookup + marker 证据回读——**运行时
+验证代替猜索引**（猜错索引=错对象进 lookup=崩），实验开关背后零风险。
