@@ -463,6 +463,38 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 103·V3-M2-R1 克隆原型缝骨架轮（2026-11-01：机制面全落地——捕获/派发/证据/CLI 面，263 测全绿 +4；插入族 RE=M2-R2 显式前置）
+
+> 用户令「开工」（V3-M2 原型缝，charter §2）。按仓库有界轮方法论收口：
+> 机制骨架+单测缝+文档，GUI 副本 E2E runbook 留用户窗口（soak 工具自身
+> 约定「真实浸泡是用户触发动作」）。
+
+1. **[盘点]**：runtime.m 结构全清（hook 体/配置/marker/测试缝四面）；
+   charter §1 读路径锚点在案但为 x64 基线；**插入族确认缺位**——75 轮
+   存储族全图与 var/wxarm/decomp_mac_insert*.c 全是 revokemessage 表
+   （表注册器串解码 "revokemessage" 实证），消息表插入族从未定位。
+2. **[C 侧机制]**：`clone_message` 键（默认关）；hook 体捕获点=非自发
+   分支、**先于 keep_message 清零**（顺序即语义：清零会改写捕获目标）；
+   `extract_tag_u64`/`extract_tag_text` 只读提取孪生；深拷贝堆事件
+   `dispatch_async_f` 到私有串行队列（风险#2 时序解耦：hook 线程零宿主
+   调用零 DB 触碰，事件不引用 XML 缓冲）；marker 增 `clone=`/`clmiss=`
+   证据位；自发不克隆由 selfskip 门序天然成立（M3 语义提前钉入）。
+3. **[R2 前置显式空置]**：`clone_work` 宿主直调表有意未接——clmiss=
+   递增=「机制全程真实驱动且可证惰性」证据。数据行拟走 hooks 行扩展
+   字段（同 hook_off 机制）。插入族 RE（arm64 270135 快路）=R2 首题。
+4. **[Swift 侧]**：`writeCloneMessage`（writeTip 同链）；`wxkeep runtime
+   clone on|off|status` 子命令；`runtime status` 克隆证据行。
+5. **[测试]**：+4——提取正负例（19 位截断/全零已清零形态/无 tag）、
+   捕获端到端（快照位语义缺陷在首版测试当场抓出：返回值改直返本次
+   结果，连续调用互不污染）、配置端到端（**XML plist**——JSON 不是
+   plist，dictionaryWithContentsOfFile 拒之，跨格式静默回落契约顺带
+   锁死）、writeCloneMessage 往返。**263 测全绿**（+4）。
+6. **[产物]**：release dylib 87KB clone 符号在位；E2E runbook 入
+   RUNTIME-DESIGN M2-R1 节（副本 install→启动→marker→实弹增量→清场）。
+7. **[遗留]**：M2-R2=插入族 RE 对位（Ghidra 快路）+宿主直调表接入+
+   shared_ptr/队列归属实证（风险#1#2 的 M1 实证项）；M3 产品化裁决
+   （克隆/清零/keep 三通道关系）；M4 实弹（runbook 已备）。
+
 ## 102·主动体检第二轮 + 发版遗留清账（2026-11-01：双评审 P1×4+P2×6+P3 批全修——259 测全绿；v0.2.16 资产事故清账 + Formula E2E 修通）
 
 **背景**：用户令「读全部源码、完成未完项、一次性找全问题、对齐完美软件」。

@@ -510,3 +510,24 @@ extension RuntimeConfigTests {
         #expect(PathUtil.expandTilde(nil as String?) == nil)
     }
 }
+
+extension RuntimeConfigTests {
+    /// V3-M2：writeCloneMessage 写链往返（mergedWriteBaseSeeded 真源收敛，
+    /// 既有键原样保留）。
+    @Test func writeCloneMessageRoundTrip() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-clonecfg-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let target = dir.appendingPathComponent("runtime.json")
+        _ = try RuntimeConfig.writeCloneMessage(true, at: [target])
+        var d = try PropertyListSerialization.propertyList(from: Data(contentsOf: target), format: nil) as! [String: Any]
+        #expect(d["clone_message"] as? Bool == true)
+        // 第二写不丢既有键（tip 同链语义）
+        _ = try RuntimeConfig.writeTip(text: "「⚠️」撤回了一条消息", rewriteSelf: nil, at: [target])
+        _ = try RuntimeConfig.writeCloneMessage(false, at: [target])
+        d = try PropertyListSerialization.propertyList(from: Data(contentsOf: target), format: nil) as! [String: Any]
+        #expect(d["clone_message"] as? Bool == false)
+        #expect(d["tip_text"] as? String == "「⚠️」撤回了一条消息")
+    }
+}

@@ -489,3 +489,63 @@ setBody 扩体），全过程见 var/ghidra-wx/*.log 与 MAINTAINING 77 续⑲�
 4. **[机器终态]**：runtime 注入清零（LC 引用 0）、v1 双补丁在役
    （doctor overall protected）、微信退出。三份 dylib 变体（BASE/T5A/
    T5B）与预构建管线留档 var/t5/ 可复跑。
+
+## V3-M2-R1 克隆原型缝骨架（2026-11-01，103 轮）
+
+> 立项与机械设计见 docs/V3-CHARTER.md §1-§2。本节记 R1（骨架轮）的
+> 落地面与边界。**上轮修正回顾**：M0 实弹定案「群聊 suppression 与 tip
+> 是同键事件」（清零双杀/放行双活）——单实例不可兼得，克隆=群聊兼得
+> 的唯一路；插入族 RE 未对位是 R2 前置。
+
+### 机制面（全部落地）
+
+- **配置键 `clone_message`**（默认关）：apply_policy_dict 应用；CLI 面
+  `wxkeep runtime clone on|off|status`；写链 writeCloneMessage（与
+  writeTip 同 mergedWriteBaseSeeded 真源收敛）。
+- **hook 体捕获点**：非自发分支、**先于 keep_message 清零**（清零会改写
+  我们捕获的数字——顺序即语义）。自发撤回不克隆：selfskip 门在分支
+  之前，M3「自撤不克隆」由门序天然成立。
+- **只读提取**：`extract_tag_u64`（zero_tag_digits 的提取孪生：非数字
+  停/全零=无）/ `extract_tag_text`（截断安全恒 NUL 尾）。捕获
+  `<newmsgid>` + `<fromusr>`。
+- **时序解耦（风险#2）**：hook 线程零宿主调用、零 DB 触碰——深拷贝成
+  堆事件后 `dispatch_async_f` 到私有串行队列 `wxkeep.clone`（dispatch_once
+  惰性建队）。事件不引用 XML 缓冲（parse 返回后生命周期不归我们）。
+- **证据位**：marker 增 `clone=`（捕获派发）/`clmiss=`（工作函数无宿主
+  方法表丢弃）两字段；`runtime status`/`runtime clone status` 展示。
+- **失败面收敛**：提取失败=skips 计数；OOM=放弃本次（计数不虚报派发）；
+  任何路径不阻断 hook 主体——克隆是加法实验，绝不放大为消息链故障。
+
+### R2 前置（显式未接）
+
+工作函数 `clone_work` 的宿主直调表**有意空置**：消息表读/插入族是 R2
+的 RE 目标（charter §1 只对位了读路径锚点 0x32edaec/0x309ac50/0x102b740
+[x64 基线]；插入族从未定位——75 轮存储族全图与 decomp_mac_insert*.c 全
+是 revokemessage 表）。数据行拟走 runtime.json hooks 行扩展字段（同
+hook_off 机制，derive_runtime_hooks.py 产出）。无方法表 → clmiss= 递增
+=「机制全程真实驱动且可证惰性」的证据，非故障。
+
+### 测试与验证
+
+- +4 单测（263 全绿）：提取正负例（含 19 位截断/全零已清零形态/无 tag）、
+  捕获端到端（快照派发前可见、连续调用结果互不污染——快照位语义缺陷
+  在首版测试中当场抓出改直返）、配置端到端（**XML plist**——JSON 不是
+  plist，跨格式静默回落契约顺带锁死）、writeCloneMessage 往返（既有键
+  保留）。
+- release 产物：libwxkeep_runtime.dylib 87KB，clone 符号在位。
+
+### E2E runbook（用户窗口；机制在役验证=M2-R2 前门）
+
+```bash
+swift build -c release
+# 微信退出后（副本路线，不碰在役装机件）：
+wxkeep clone create                          # 独立 bundle id + 数据目录
+wxkeep runtime install --app <副本路径>      # LC+dylib+entry-slot+重签
+wxkeep runtime clone on                      # 主实例或副本的 runtime.json
+open <副本路径>                              # 启动（弹登录窗）
+wxkeep runtime status --app <副本路径>       # marker 含 clone=0 clmiss=0 + hook 武装
+python3 tools/launch_soak.py                 # 可选：对照浸泡
+# 实弹增量（M4 语义面）：对副本账号发一条消息并撤回 →
+wxkeep runtime clone status                  # clone≥1 clmiss≥1 = 捕获链真机贯通
+wxkeep runtime remove --app <副本路径>       # 清场（幂等）
+```

@@ -779,3 +779,66 @@ extension RuntimeHookTests {
         #endif
     }
 }
+
+// MARK: - V3-M2 克隆原型缝（R1 骨架：捕获/派发/证据；宿主直调=M2-R2）
+
+extension RuntimeHookTests {
+    /// newmsgid 只读提取的正负例：与 zero 同形态门（非数字停）、全零=无。
+    @Test func cloneExtractNewmsgidPositiveAndNegative() {
+        var msgid: UInt64 = 0
+        let xml = Array("<msg><newmsgid>467688165590285950</newmsgid><fromusr>wxid_abc</fromusr></msg>".utf8)
+        #expect(wxkeep_runtime_test_extract_newmsgid(xml, UInt(xml.count), &msgid) == 1)
+        #expect(msgid == 467688165590285950)
+        // 全零（已被 keep_message 清零的形态）= 提取失败（克隆放行——撤回态）
+        let zeroed = Array("<msg><newmsgid>000000</newmsgid></msg>".utf8)
+        #expect(wxkeep_runtime_test_extract_newmsgid(zeroed, UInt(zeroed.count), &msgid) == 0)
+        // 无 tag（普通消息形态）
+        let plain = Array("<msg><content>hello</content></msg>".utf8)
+        #expect(wxkeep_runtime_test_extract_newmsgid(plain, UInt(plain.count), &msgid) == 0)
+        // 截断数字（>19 位高位丢弃不崩）
+        let long = Array("<newmsgid>123456789012345678901234567890</newmsgid>".utf8)
+        #expect(wxkeep_runtime_test_extract_newmsgid(long, UInt(long.count), &msgid) == 1)
+    }
+
+    /// 捕获入口端到端：提取→快照（派发前可见）→计数推进；负例走 skips。
+    @Test func cloneCaptureEndToEndAndCounts() {
+        var captures: Int32 = 0, skips: Int32 = 0, nomethods: Int32 = 0
+        wxkeep_runtime_test_clone_counts(&captures, &skips, &nomethods)
+        let xml = Array("<msg><newmsgid>467688165590285951</newmsgid><fromusr>wxid_cap</fromusr></msg>".utf8)
+        var msgid: UInt64 = 0
+        var from = [CChar](repeating: 0, count: 64)
+        #expect(wxkeep_runtime_test_clone_capture(xml, UInt(xml.count), &msgid, &from, 64) == 1)
+        #expect(msgid == 467688165590285951)
+        #expect(String(cString: from) == "wxid_cap")
+        // 负例：无 newmsgid → skips 推进、快照不动
+        let plain = Array("<msg><content>x</content></msg>".utf8)
+        #expect(wxkeep_runtime_test_clone_capture(plain, UInt(plain.count), nil, nil, 0) == 0)
+        var after: (Int32, Int32, Int32) = (0, 0, 0)
+        wxkeep_runtime_test_clone_counts(&after.0, &after.1, &after.2)
+        #expect(after.0 == captures + 1, "捕获计数 +1")
+        #expect(after.1 == skips + 1, "跳过计数 +1")
+        #expect(after.2 >= nomethods, "R1 无方法表：worker 计数单调（异步时序不承载语义）")
+    }
+
+    /// 配置端到端：clone_message 键经生产 load 路径应用（plist 语义）。
+    /// 断言面=证据计数可从外部观测（开启→捕获推进；R1 恒无方法表）。
+    @Test func cloneConfigKeyEndToEnd() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-clone-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cfgURL = dir.appendingPathComponent("runtime.json")
+        // 生产同格式：XML plist（JSON 不是 plist——dictionaryWithContentsOfFile
+        // 会拒，返回 -1；本断言顺带锁住「跨格式静默回落」契约）
+        let plist = try PropertyListSerialization.data(
+            fromPropertyList: ["clone_message": true, "keep_message": false],
+            format: .xml, options: 0)
+        try plist.write(to: cfgURL)
+        #expect(wxkeep_runtime_test_load_config_file(cfgURL.path) == 0,
+                "无 hooks 行的配置合法接受 0 行")
+        var msgid: UInt64 = 0
+        let xml = Array("<msg><newmsgid>42</newmsgid></msg>".utf8)
+        #expect(wxkeep_runtime_test_clone_capture(xml, UInt(xml.count), &msgid, nil, 0) == 1)
+        #expect(msgid == 42)
+    }
+}

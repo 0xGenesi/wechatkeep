@@ -79,3 +79,13 @@ int wxkeep_runtime_test_keep_gate(const unsigned char *xml, unsigned long len);
 int wxkeep_runtime_test_reload_config(const char *path);
 // 当前外部 hooks 表行数（热重载契约断言用）。
 int wxkeep_runtime_test_ext_hooks_count(void);
+// V3-M2 克隆缝：newmsgid 提取（只读孪生）。1=提取到非零值；0=无 tag/全零。
+int wxkeep_runtime_test_extract_newmsgid(const unsigned char *data, unsigned long len,
+                                         unsigned long long *out);
+// V3-M2 克隆缝：捕获入口端到端驱动（提取→深拷贝→派发；快照派发前落盘，
+// 返回即可读）。1=捕获成功；0=无 newmsgid（skips 计）。
+int wxkeep_runtime_test_clone_capture(const unsigned char *data, unsigned long len,
+                                      unsigned long long *msgid,
+                                      char *from, unsigned long fromcap);
+// V3-M2 克隆缝：证据计数读回（captures/skips/nomethods；任一出口可 NULL）。
+void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods);

@@ -152,6 +152,23 @@ static int g_zero_fires;           // 清零计数（newmsgid 与 msgid 共用�
 static char g_last_fired[96];      // 最后一次改写后的内文前 95B（渲染问题取证）
 static char g_last_inner[96];      // 最后一次 needle 命中时的原始内文前 95B
 static int g_hook_installed;
+
+// ---------------------------------------------------------------------------
+// V3-M2 克隆原型缝（R1 骨架，2026-11-01，docs/V3-CHARTER.md M2）：
+// 实验键 clone_message（默认关）。hook 体在非自发分支、**先于 keep_message
+// 清零**（清零会改写我们捕获的数字）只读提取撤回 XML 的 <newmsgid>/
+// <fromusr>，深拷贝成堆事件后派发到私有串行队列——hook 线程零宿主调用、
+// 零 DB 触碰（风险#2 线程亲和的时序解耦，charter §1）。工作函数的宿主
+// 直调表有意未接：消息表读/插入族是 M2-R2 的 RE 目标（charter §1 只对位
+// 了读路径锚点，插入族从未定位）。无方法 → 计 g_clone_nomethods 丢弃：
+// 机制链（配置→hook→捕获→队列→工作→marker）全程被真实驱动且可证惰性，
+// 数据行入库即活。
+// 自发撤回不克隆——selfskip 门先于克隆判定（M3「自撤不克隆」提前钉入）。
+static int g_clone_message;        // 实验开关（runtime.json clone_message，默认关）
+static volatile int g_clone_captures;    // 捕获派发计数
+static volatile int g_clone_skips;       // 无 newmsgid（非撤回形态/短串）跳过计数
+static volatile int g_clone_nomethods;   // 工作函数无宿主方法表丢弃计数（R2 接表后归零语义）
+static int g_hook_installed;
 // 诊断（marker 回写）——独立 bit 位形（77 续修复）。旧编码 kStInstallFail=3
 // 是「值」不是位，与 uuid(1)+prologue(2) 的组合同形：status=11 曾被误读为
 // 「回调+序言门」排障方向，实为 callback(8)+install-fail(3)——77 轮靠
@@ -476,6 +493,11 @@ static void apply_policy_dict(NSDictionary *cfg) {
     // allow_runtime_prologue：壳改写入口后的自适应开关（默认关，见全局注释）
     id ar = cfg[@"allow_runtime_prologue"];
     g_allow_runtime_prologue = (ar == nil) ? 0 : [ar boolValue];
+    // clone_message：V3-M2 克隆原型缝（默认关；R1 骨架=捕获+异步派发+证据，
+    // 宿主直调表在 M2-R2 数据行入库前恒空——clmiss= 是「机制在跑且惰性」
+    // 的证据位，非故障）
+    id cm = cfg[@"clone_message"];
+    g_clone_message = (cm == nil) ? 0 : [cm boolValue];
 }
 
 static void apply_config_dict(NSDictionary *cfg) {
@@ -738,6 +760,110 @@ static int zero_newmsgid_digits(uint8_t *buf, uint64_t size) {
 }
 
 // ---------------------------------------------------------------------------
+// V3-M2 克隆捕获（只读面）：zero_tag_digits 的提取孪生 + 文本标签提取。
+// 与 zero 的区别：不改写缓冲（hook 体在清零**前**调用，顺序即语义）。
+// ---------------------------------------------------------------------------
+
+/// <tag> 的数字提取（等长清零的只读孪生）。返回 1 = 提到非零值；0 = 无
+/// 该 tag / 全零 / 非数字形态。
+static int extract_tag_u64(const uint8_t *buf, uint64_t size, const char *tag,
+                           uint64_t taglen, uint64_t *out) {
+    const uint8_t *p = find_bytes((uint8_t *)buf, size, tag, taglen);
+    if (!p) return 0;
+    uint64_t i = (uint64_t)(p - buf) + taglen;
+    uint64_t v = 0;
+    int digits = 0;
+    while (i < size && buf[i] != '<') {
+        if (buf[i] >= '0' && buf[i] <= '9') {
+            if (digits < 19) v = v * 10 + (uint64_t)(buf[i] - '0');
+            digits++;
+        } else break;   // 非数字即停（与 zero 的形态门一致）
+        i++;
+    }
+    if (digits == 0 || v == 0) return 0;
+    *out = v;
+    return 1;
+}
+
+/// <tag> 文本内容提取（截断安全：恒 NUL 尾）。返回 1 = 提到非空内容。
+static int extract_tag_text(const uint8_t *buf, uint64_t size, const char *tag,
+                            uint64_t taglen, char *out, uint64_t cap) {
+    if (cap == 0) return 0;
+    out[0] = 0;
+    const uint8_t *p = find_bytes((uint8_t *)buf, size, tag, taglen);
+    if (!p) return 0;
+    uint64_t i = (uint64_t)(p - buf) + taglen;
+    uint64_t o = 0;
+    while (i < size && buf[i] != '<') {
+        if (o < cap - 1) out[o++] = (char)buf[i];
+        i++;
+    }
+    out[o] = 0;
+    return o > 0;
+}
+
+/// 克隆事件（深拷贝——hook 线程只做提取，队列 worker 只持堆拷贝；
+/// 事件不得引用 XML 缓冲，parse 返回后缓冲生命周期不归我们）。
+typedef struct {
+    uint64_t newmsgid;
+    char fromusr[64];
+} clone_evt_t;
+
+/// 最近一次捕获的快照（测试缝/诊断读回；与派发事件同内容）。
+static clone_evt_t g_clone_last;
+static volatile int g_clone_last_valid;
+
+static void clone_work(void *ctx);
+
+/// 队列惰性单例（hook 多线程首触竞态由 dispatch_once 收敛）。
+static dispatch_queue_t clone_queue(void) {
+    static dispatch_queue_t q;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        q = dispatch_queue_create("wxkeep.clone", DISPATCH_QUEUE_SERIAL);
+    });
+    return q;
+}
+
+/// hook 体捕获入口：提取 → 深拷贝 → 异步派发。返回本次捕获结果
+/// （1=已派发，0=无 newmsgid 跳过——**不是**持久快照位，连续两次调用
+/// 的结果互不污染）。任何失败路径都不阻断 hook 主体（放行原生
+/// parse——克隆是加法实验，绝不放大为消息链故障）。
+static int clone_capture(const uint8_t *ptr, uint64_t size) {
+    clone_evt_t evt;
+    memset(&evt, 0, sizeof(evt));
+    if (!extract_tag_u64(ptr, size, "<newmsgid>", sizeof("<newmsgid>") - 1,
+                         &evt.newmsgid)) {
+        g_clone_skips++;
+        return 0;
+    }
+    extract_tag_text(ptr, size, "<fromusr>", sizeof("<fromusr>") - 1,
+                     evt.fromusr, sizeof(evt.fromusr));
+    g_clone_last = evt;
+    g_clone_last_valid = 1;
+    clone_evt_t *heap = malloc(sizeof(*heap));
+    if (!heap) return 1;   // OOM：无派发，但捕获/提取语义已完成
+    *heap = evt;
+    dispatch_queue_t q = clone_queue();
+    if (q) {
+        g_clone_captures++;
+        dispatch_async_f(q, heap, clone_work);
+    } else {
+        free(heap);
+    }
+    return 1;
+}
+
+/// 队列 worker：R1 无宿主方法表——计数后丢弃。M2-R2 在这里接直调表
+/// （svrid 读 → 内容捕获 → 消息行插入），数据行走 runtime.json hooks 行
+/// 扩展字段（同 hook_off 机制，derive_runtime_hooks.py 产出）。
+static void clone_work(void *ctx) {
+    clone_evt_t *evt = ctx;
+    g_clone_nomethods++;
+    free(evt);
+}
+
+// ---------------------------------------------------------------------------
 // 串对象头读取（per-arch 布局，77 续⑧——T4 x1 取证 + 参考切片反汇编双证）：
 //   x86_64（标准 libc++，drive17/22 实测）：byte0 奇 = 长串；size@+8；ptr@+0x10
 //   arm64（变体，0x4a7d6ac 形态 + 0x17=+0x10 qword MSB 实证）：
@@ -824,7 +950,7 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
     // 杜绝「他核已见入口 stub 却读到陈旧 g_real_wrapper=NULL → 跳 0」
     // 的弱序窗口（arm64 弱内存序下 C 语义无保证的路径）。
     if (__atomic_load_n(&g_hook.target, __ATOMIC_ACQUIRE)
-        && (tip_len_active() > 0 || g_keep_message)) {
+        && (tip_len_active() > 0 || g_keep_message || g_clone_message)) {
         uint8_t *msg = (uint8_t *)args[g_hook.msg_arg];
         if (msg > (uint8_t *)0x10000) {
             uint8_t *sso = msg + g_hook.xml_sso_off;
@@ -835,6 +961,10 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
                     if (find_bytes(ptr, size, kSelfNeedle, sizeof(kSelfNeedle) - 1)) {
                         g_self_skips++;   // 自发撤回：放行原生删除+原生提示（T5 F1）
                     } else {
+                        // V3-M2 克隆捕获必须先于 keep_message 清零（清零会把
+                        // 我们要捕获的 newmsgid 数字改写成 0）。自发分支已在
+                        // 上方放行——自撤不克隆的语义由门序天然成立。
+                        if (g_clone_message) clone_capture(ptr, size);
                         if (g_keep_message) {
                             if (zero_newmsgid_digits(ptr, size) > 0) g_zero_fires++;
                         }
@@ -1694,20 +1824,21 @@ static void write_marker_ex(int loud) {
         } @catch (NSException *e) {
             groupDir = nil;
         }
-        NSString *content = [NSString stringWithFormat:
-            @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
-            [NSDate date].timeIntervalSince1970,
-            g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
-            g_install_step, g_install_errno,
-            g_rewrite_fires, g_rewrite_hits, g_zero_fires,
-            g_self_skips, g_cfg_stamp, g_cfg_hash,
-            g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
-            g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
-            [NSString stringWithFormat:@"cb=%d last=%@ scanmiss=%d probe=%@",
-                g_cb_count,
-                g_last_uuid[0] ? @(g_last_uuid) : @"<none>",
-                g_scan_missed,
-                g_probe_name[0] ? @(g_probe_name) : @"<none>"]];
+    NSString *content = [NSString stringWithFormat:
+        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
+        [NSDate date].timeIntervalSince1970,
+        g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
+        g_install_step, g_install_errno,
+        g_rewrite_fires, g_rewrite_hits, g_zero_fires,
+        g_self_skips, g_clone_captures, g_clone_nomethods,
+        g_cfg_stamp, g_cfg_hash,
+        g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
+        g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
+        [NSString stringWithFormat:@"cb=%d last=%@ scanmiss=%d probe=%@",
+            g_cb_count,
+            g_last_uuid[0] ? @(g_last_uuid) : @"<none>",
+            g_scan_missed,
+            g_probe_name[0] ? @(g_probe_name) : @"<none>"]];
         NSString *legacyDir = legacyMarkerDir();
         NSString *dirs[2];
         int n = 0;
@@ -2079,6 +2210,40 @@ int wxkeep_runtime_test_zero(unsigned char *data, unsigned long len) {
 /// 全局，测试直接驱动改写逻辑本身。
 int wxkeep_runtime_test_zero_msgid(unsigned char *data, unsigned long len) {
     return zero_tag_digits(data, (uint64_t)len, "<msgid>", sizeof("<msgid>") - 1);
+}
+
+/// V3-M2 克隆缝：newmsgid 提取（只读孪生的直接驱动）。返回 1/0，out 填值。
+int wxkeep_runtime_test_extract_newmsgid(const unsigned char *data, unsigned long len,
+                                         unsigned long long *out) {
+    uint64_t v = 0;
+    if (!extract_tag_u64(data, (uint64_t)len, "<newmsgid>", sizeof("<newmsgid>") - 1, &v))
+        return 0;
+    if (out) *out = v;
+    return 1;
+}
+
+/// V3-M2 克隆缝：捕获入口直接驱动（含派发）。返回本次捕获结果（1/0，
+/// 与生产 clone_capture 同源）；msgid/from 回传最近快照（仅成功时语义
+/// 成立）。队列异步——快照在派发前写入，本函数返回即可读（不需要等
+/// worker）。
+int wxkeep_runtime_test_clone_capture(const unsigned char *data, unsigned long len,
+                                      unsigned long long *msgid,
+                                      char *from, unsigned long fromcap) {
+    int captured = clone_capture(data, (uint64_t)len);
+    if (!captured) return 0;
+    if (msgid) *msgid = g_clone_last.newmsgid;
+    if (from && fromcap > 0) {
+        strncpy(from, g_clone_last.fromusr, fromcap - 1);
+        from[fromcap - 1] = 0;
+    }
+    return 1;
+}
+
+/// V3-M2 克隆缝：证据计数读回（captures/skips/nomethods）。
+void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods) {
+    if (captures) *captures = g_clone_captures;
+    if (skips) *skips = g_clone_skips;
+    if (nomethods) *nomethods = g_clone_nomethods;
 }
 
 /// 配置文件端到端缝：按生产路径（dictionaryWithContentsOfFile 的 plist

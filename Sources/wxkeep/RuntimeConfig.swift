@@ -484,6 +484,19 @@ enum RuntimeConfig {
         return try writePlist(dict, to: targets)
     }
 
+    /// V3-M2 克隆实验开关（docs/V3-CHARTER.md M2）：clone_message 键，
+    /// 默认关。写链与 writeTip 同款（mergedWriteBaseSeeded 进程有效真源
+    /// 向双份收敛）。实验语义：克隆开启时撤回正常进行（推荐 keep_message
+    /// 保持缺省开——克隆捕获先于清零，两键正交；真共存组合的裁决在 M3）。
+    @discardableResult
+    static func writeCloneMessage(_ on: Bool,
+                                  at targets: [URL] = configWriteTargets,
+                                  base candidates: [URL]? = nil) throws -> [URL] {
+        var dict = mergedWriteBaseSeeded(explicitBase: candidates, defaultTargets: targets)
+        dict["clone_message"] = on
+        return try writePlist(dict, to: targets)
+    }
+
     /// plist 原子写多目标；至少一份成功即返回成功清单，全败抛末次错误。
     /// **部分失败如实告警**：单目标写失败（权限/容器缺失）会让双份从此分
     /// 歧——dylib 读到的一份可能仍是旧值，静默成功 = 配置面「看似写了没

@@ -485,7 +485,7 @@ extension Wxkeep {
         static var _commandName: String { "runtime" }
         static let configuration = CommandConfiguration(
             abstract: "Runtime component (optional): inject a support dylib into WeChat",
-            subcommands: [RuntimeStatus.self, RuntimeHooks.self, RuntimeTip.self, RuntimeProbe.self, RuntimeInstall.self, RuntimeRemove.self])
+            subcommands: [RuntimeStatus.self, RuntimeHooks.self, RuntimeTip.self, RuntimeClone.self, RuntimeProbe.self, RuntimeInstall.self, RuntimeRemove.self])
 
         static func mainExecURL(_ app: URL) -> URL {
             WeChatApp.binaryURL(app: app, relative: "Contents/MacOS/WeChat")
@@ -708,6 +708,11 @@ extension Wxkeep {
                     }
                     print("hook 证据:         fires=\(markerInt("fires")) hits=\(markerInt("hits")) "
                         + "zero=\(markerInt("zero")) selfskip=\(markerInt("selfskip"))（本次启动累计，30s 粒度回写）")
+                    // V3-M2 克隆证据（仅实验开启时可见非零——默认关时两值恒 0）
+                    if let cloneCap = markerDigits("clone").flatMap({ Int($0) }), cloneCap > 0 {
+                        print("克隆实验:          clone=\(cloneCap) clmiss=\(markerInt("clmiss"))"
+                            + "（R1 骨架：捕获+派发；clmiss=无宿主方法表丢弃，非故障）")
+                    }
                     if let cfg = markerDigits("cfg").flatMap({ Int($0) }), cfg > 0 {
                         let t = Date(timeIntervalSince1970: TimeInterval(cfg))
                         let df = DateFormatter(); df.dateFormat = "HH:mm:ss"
@@ -921,6 +926,51 @@ extension Wxkeep {
                 lines.append("  ⇒ 判定: 探针输出不完整——能力未知")
             }
             return (verdict, lines)
+        }
+
+        /// V3-M2 克隆实验开关（docs/V3-CHARTER.md M2）：clone_message 键的
+        /// CLI 面。R1 骨架=配置通道+hook 捕获+异步派发+marker 证据；宿主
+        /// 直调表（消息行读/插入族）在 M2-R2 数据行入库前恒空——机制真实
+        /// 驱动且可证惰性（clmiss= 即证据位），实验开启对消息链零作用面。
+        struct RuntimeClone: ParsableCommand {
+            static var _commandName: String { "clone" }
+            static let configuration = CommandConfiguration(
+                abstract: "V3-M2 clone experiment switch (default off; prototype seam — inert until M2-R2 data rows)")
+            @OptionGroup var options: Options
+
+            enum Action: String, ExpressibleByArgument { case status, on, off }
+            @Option(help: "status (default) / on / off")
+            var action: Action = .status
+
+            mutating func run() throws {
+                switch action {
+                case .status:
+                    let cfg = RuntimeConfig.effectiveConfigDict()
+                    let on = (cfg?["clone_message"] as? Bool) ?? false
+                    print("clone_message: \(on ? "on（实验：撤回 XML 捕获+异步派发；R1 无宿主方法表=捕获后丢弃）" : "off（默认）")")
+                    if let marker = RuntimeConfig.readMarkerText() {
+                        func digits(_ key: String) -> Int? {
+                            guard let r = marker.range(of: "\(key)=") else { return nil }
+                            let d = marker[r.upperBound...].prefix(while: \.isNumber)
+                            return d.isEmpty ? nil : Int(d)
+                        }
+                        if let cap = digits("clone"), let miss = digits("clmiss"),
+                           cap > 0 || miss > 0 {
+                            print("hook 证据:       clone=\(cap)（捕获派发） clmiss=\(miss)（R1 无方法表丢弃——机制在跑的证明）")
+                        }
+                    }
+                    print("实验状态:        M2-R1 骨架（捕获/派发/证据）；消息行读+插入族=M2-R2 RE 目标，")
+                    print("                 数据行入库前克隆不产生任何消息副作用。推荐组合：keep_message 保持缺省开。")
+                case .on:
+                    let written = try RuntimeConfig.writeCloneMessage(true)
+                    print("✓ clone_message = on（≤30s 热生效；R1 骨架：捕获+证据，无消息副作用）")
+                    written.forEach { print("  \($0.path)") }
+                case .off:
+                    let written = try RuntimeConfig.writeCloneMessage(false)
+                    print("✓ clone_message = off")
+                    written.forEach { print("  \($0.path)") }
+                }
+            }
         }
 
         struct RuntimeProbe: ParsableCommand {
