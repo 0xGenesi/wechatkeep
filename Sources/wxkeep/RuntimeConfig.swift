@@ -35,6 +35,16 @@ enum RuntimeConfig {
         /// 或其引用的常量——重编译几乎必动的位置）。
         var anchor_bytes: String? = nil
 
+        /// V3-M2 克隆第二挂点（可选，arm64；105 轮缝位定案 seam B）：
+        /// 撤回写点（0x4cd5e8c 族=消息对象原地改写执行体）的入口 VM 偏移。
+        /// 与主 hook 同点武装第二 SLOT——写点入参=消息对象 shared_ptr 向量，
+        /// content @+0x7e 写前可读（克隆捕获零服务依赖）。
+        var clone_hook_off: String? = nil
+        /// 写点入口原像 hex（12B；防漂移门语义同 expected）
+        var clone_expected: String? = nil
+        /// 写点函数级身份门（LC_FUNCTION_STARTS 距离；可选，语义同 func_size）
+        var clone_func_size: Int? = nil
+
         /// 显式 CodingKeys：case 名与属性一致（本结构属性已是 snake_case，
         /// 恰为 dylib 侧 wire 键），列出即把 wire 键名钉死——未来新增字段
         /// 若忘登记，Decodable 合成直接编译失败（防御位而非装饰；68 轮
@@ -42,6 +52,7 @@ enum RuntimeConfig {
         private enum CodingKeys: String, CodingKey {
             case build, uuid, arch, hook_off, msg_arg, xml_sso_off, expected
             case func_size, anchor_va, anchor_bytes
+            case clone_hook_off, clone_expected, clone_func_size
         }
     }
 
@@ -218,7 +229,9 @@ enum RuntimeConfig {
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270135", uuid: "0c2f01c0-c197-3286-901d-70e1d007a1c0",
                 arch: "arm64", hook_off: "0x4d1f8d8", msg_arg: 1, xml_sso_off: 0,
-                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380,
+                clone_hook_off: "0x4cd5e8c",
+                clone_expected: "FFC302D1FC6F05A9FA6706A9", clone_func_size: 728),
     ]
 
     /// 微信的 App Group（与其 entitlements application-groups 同源）。

@@ -89,3 +89,7 @@ int wxkeep_runtime_test_clone_capture(const unsigned char *data, unsigned long l
                                       char *from, unsigned long fromcap);
 // V3-M2 克隆缝：证据计数读回（captures/skips/nomethods；任一出口可 NULL）。
 void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods);
+// V3-M2-R4 写点捕获缝：合成向量（候选 B 形态）直接驱动 clone_hook_body，
+// 返回捕获对象数。content_bytes = 合成 content 字节数（≤1MB）。
+int wxkeep_runtime_test_clone_rows(unsigned long long content_bytes,
+                                   int *rows, int *skips, int *objcaps);

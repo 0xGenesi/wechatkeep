@@ -83,6 +83,14 @@ typedef struct {
     uint8_t anchor[64];         //     锚点期望字节（hex ≤64B；建议取目标函数
                                 //     体内 distinctive 指令序列或其引用常量）
     uint8_t anchor_len;
+    // V3-M2 克隆第二挂点（可选；105 轮缝位定案 seam B）——撤回写点（消息
+    // 对象原地改写执行体）的入口三件。行不带 = 单点武装（向后兼容）；
+    // 带则 arm 期与主 hook 并行填第二 SLOT（槽位 1），指针指向克隆 thunk。
+    uint64_t clone_hook_off;
+    uint8_t clone_expected[16]; // 写点入口原像（arm64 12B 门 + 16B 蹦床原像源）
+    uint8_t has_clone;
+    uint32_t clone_func_size;   // 写点函数级身份门（可选）
+    uint8_t has_clone_func_size;
 } hook_target_t;
 
 // 270099 x86_64 — hook 点 = parse 入口（drive25 地面真值：rsi 直挂 sysmsg
@@ -423,6 +431,27 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
         size_t n = parse_hex(aby.UTF8String, out->anchor, sizeof(out->anchor));
         if (n == 0) return 0;
         out->anchor_len = (uint8_t)n;
+    }
+    // V3-M2 克隆第二挂点（可选）：clone_hook_off + clone_expected 成对出现；
+    // 单边 = 行作者笔误，整行拒绝（宁可不挂也不挂错）。arm64 行专属——
+    // x64 行带此字段按坏行处理（克隆缝仅 arm64 布局派生）。
+    NSString *coff = [row[@"clone_hook_off"] isKindOfClass:[NSString class]] ? row[@"clone_hook_off"] : nil;
+    NSString *cexp = [row[@"clone_expected"] isKindOfClass:[NSString class]] ? row[@"clone_expected"] : nil;
+    if (coff || cexp) {
+        if (!(coff && cexp)) return 0;
+        if (!out->is_arm64) return 0;
+        out->clone_hook_off = strtoull(coff.UTF8String, NULL, 16);
+        if (out->clone_hook_off == 0 || out->clone_hook_off >= (1ULL << 32)) return 0;
+        if (parse_hex(cexp.UTF8String, out->clone_expected, sizeof(out->clone_expected)) < 12) return 0;
+        if (!arm64_prologue_relocatable(out->clone_expected, 16)) return 0;
+        out->has_clone = 1;
+        NSNumber *cfsz = [row[@"clone_func_size"] isKindOfClass:[NSNumber class]] ? row[@"clone_func_size"] : nil;
+        if (cfsz) {
+            unsigned long v = cfsz.unsignedLongValue;
+            if (v == 0 || v > (1UL << 21)) return 0;
+            out->clone_func_size = (uint32_t)v;
+            out->has_clone_func_size = 1;
+        }
     }
     strlcpy(out->uuid, uuid.UTF8String, sizeof(out->uuid));
     NSString *build = [row[@"build"] isKindOfClass:[NSString class]] ? row[@"build"] : @"?";
@@ -864,6 +893,118 @@ static void clone_work(void *ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// V3-M2-R4 写点捕获（seam B，105 轮定案）：clone_hook_off 第二挂点武装后
+// 的 hook 体。入参 = 撤回写点（0x4cd5e8c 族）的 x0/x1/x2 镜像；x1 = 消息
+// 对象 shared_ptr 向量，content std::string @ obj+0x7e（arm64 SSO 与 XML
+// 串同构——sso 布局读共用）。**全部解引用走内核级读**（mach_vm_read_
+// overwrite）：遍历宿主容器时用户态裸读垃圾指针 = 进程崩溃，内核读只返
+// 错——实验缝绝不放大为消息链故障（与 R1 失败面收敛同哲学）。
+static int g_clone_rows;      // 写点事件数（挂点命中即计，含遍历零对象）
+static int g_clone_obj_caps;  // 捕获到的消息对象 content 数
+static volatile int g_clone_last_len;   // 最近一次捕获的 content 字节数
+static int g_sso_layout_arm64;   // 前向声明（定义在 SSO 布局节；tentative 合并）
+
+/// 内核级 8B 读。1=成功 0=目标页不可读（垃圾指针/越界）。
+static int kread64(uint64_t addr, uint64_t *out) {
+    if (addr <= 0x10000) return 0;
+    uint64_t v = 0;
+    mach_vm_size_t got = 0;
+    if (mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)addr, 8,
+                               (mach_vm_address_t)(unsigned long)&v, &got) != KERN_SUCCESS
+        || got != 8) return 0;
+    *out = v;
+    return 1;
+}
+
+/// 内核级块读（≤64B）。1=成功。
+static int kread_buf(uint64_t addr, void *out, size_t n) {
+    if (addr <= 0x10000 || n > 64) return 0;
+    mach_vm_size_t got = 0;
+    if (mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)addr, n,
+                               (mach_vm_address_t)(unsigned long)out, &got) != KERN_SUCCESS
+        || got != n) return 0;
+    return 1;
+}
+
+/// 从本地缓冲套用 per-arch SSO 布局（sso_head 的内核读版——原函数裸解引用，
+/// 只可用于自身缓冲）。buf = 对象头 24B 快照。1=长串且 (size,off) 已填
+/// （off 相对对象基址的 content 起始——长串数据指针在头内）。
+static int sso_head_buf(const uint8_t *head24, uint64_t *size) {
+    if (g_sso_layout_arm64) {
+        if ((int8_t)head24[0x17] >= 0) return 0;
+        memcpy(size, head24 + 8, 8);
+    } else {
+        if (!(head24[0] & 1)) return 0;
+        memcpy(size, head24 + 8, 8);
+    }
+    return 1;
+}
+
+/// 克隆 hook 体（与形态无关）：args = 写点整型参镜像（x0/x1/x2……）。
+/// 只读 args[1]（消息对象向量）；捕获走内核读 + 深拷贝 + 异步派发
+/// （队列复用 R1 的 wxkeep.clone 串行队列）。
+__attribute__((used)) static void clone_hook_body(void *const *args) {
+    if (!g_clone_message) return;   // 实验开关关 = 纯透传（挂点命中也不动）
+    g_clone_rows++;
+    uint64_t v = (uint64_t)(uintptr_t)args[1];
+    if (v <= 0x10000) { g_clone_skips++; return; }
+    uint64_t outer = 0;
+    if (!kread64(v, &outer) || outer <= 0x10000) { g_clone_skips++; return; }
+    // 向量形态双候选（R2 伪代码：plVar13=*param_2 后 [2]/[3] 比较 begin/end；
+    // 消息对象 shared_ptr 步进 0x10）。形态门：begin<=end、跨度 ≤1MB、
+    // 各自 8 对齐——两候选都不满足按 skips 计（宁可不捕也不误捕）。
+    uint64_t cand[2][2] = {
+        { 0, 0 },   // (outer+0x00, outer+0x08)
+        { 0, 0 },   // (outer+0x10, outer+0x18)
+    };
+    if (!kread64(outer, &cand[0][0])) { g_clone_skips++; return; }
+    if (!kread64(outer + 8, &cand[0][1])) { g_clone_skips++; return; }
+    if (!kread64(outer + 0x10, &cand[1][0])) { g_clone_skips++; return; }
+    if (!kread64(outer + 0x18, &cand[1][1])) { g_clone_skips++; return; }
+    int shape = -1;
+    for (int i = 0; i < 2; i++) {
+        uint64_t b = cand[i][0], e = cand[i][1];
+        if (b > 0x10000 && e >= b && e - b <= (1UL << 20) && (b & 7) == 0 && (e & 7) == 0) {
+            shape = i; break;
+        }
+    }
+    if (shape < 0) { g_clone_skips++; return; }
+    uint64_t p = cand[shape][0], end = cand[shape][1];
+    int n = 0;
+    while (p + 16 <= end && n < 256) {   // 对象数上界 256（防形态误判巨遍历）
+        uint64_t elem = 0;
+        if (!kread64(p, &elem)) break;
+        p += 16;
+        if (elem <= 0x10000) continue;
+        uint8_t head[24];
+        if (!kread_buf(elem + 0x7e, head, sizeof(head))) continue;
+        uint64_t csize = 0;
+        if (!sso_head_buf(head, &csize)) continue;
+        if (csize == 0 || csize > (1UL << 20)) continue;
+        // 长串数据指针：arm64 布局 data@[head+0x00]，x64 @+0x10（sso_head 同源）
+        uint64_t dataPtr = 0;
+        if (!kread_buf(elem + 0x7e + (g_sso_layout_arm64 ? 0 : 0x10), &dataPtr, 8)) continue;
+        if (dataPtr <= 0x10000) continue;
+        uint64_t snap = csize > 255 ? 255 : csize;
+        uint8_t *buf = malloc((size_t)snap);
+        if (!buf) break;
+        mach_vm_size_t got = 0;
+        if (mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)dataPtr, (mach_vm_size_t)snap,
+                                   (mach_vm_address_t)(unsigned long)buf, &got) != KERN_SUCCESS
+            || got != snap) {
+            free(buf);
+            continue;
+        }
+        // 内容不落 marker（隐私面）；只计证据。捕获即深拷贝完成——异步
+        // 派发给未来的插入直调表（R5），当前生命周期到 worker 释放为止。
+        g_clone_obj_caps++;
+        g_clone_last_len = (int)snap;
+        free(buf);
+        n++;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 串对象头读取（per-arch 布局，77 续⑧——T4 x1 取证 + 参考切片反汇编双证）：
 //   x86_64（标准 libc++，drive17/22 实测）：byte0 奇 = 长串；size@+8；ptr@+0x10
 //   arm64（变体，0x4a7d6ac 形态 + 0x17=+0x10 qword MSB 实证）：
@@ -1037,6 +1178,53 @@ static void *revoke_wrapper_hook(void *a0, void *a1, void *a2,
     void *args[6] = {a0, a1, a2, a3, a4, a5};
     revoke_hook_body(args);
     return g_real_wrapper(a0, a1, a2, a3, a4, a5);
+}
+#endif
+
+// ---------------------------------------------------------------------------
+// V3-M2-R4 克隆写点 thunk（seam B 第二挂点）：结构 = revoke_wrapper_hook
+// 全参透传同款（写点签名未知——透传是结构前提），SLOT 2 指向它；尾跳
+// g_clone_real_wrapper = 写点蹦床（arm 期自 clone_expected 重建，重放原始
+// 16B 跳回 target+16）。
+static void *(*g_clone_real_wrapper)(void *, void *, void *, void *, void *, void *);
+static volatile uint64_t g_clone_hook_target;   // 非零=克隆挂点已武装
+
+#if defined(__arm64__) || defined(__aarch64__)
+__attribute__((naked)) static void *revoke_clone_hook(void *a0, void *a1, void *a2,
+                                                      void *a3, void *a4, void *a5) {
+    __asm__ volatile(
+        "stp x29, x30, [sp, #-0xe0]!\n"
+        "stp x0, x1, [sp, #0x10]\n"
+        "stp x2, x3, [sp, #0x20]\n"
+        "stp x4, x5, [sp, #0x30]\n"
+        "stp x6, x7, [sp, #0x40]\n"
+        "str x8,      [sp, #0x50]\n"
+        "stp q0, q1, [sp, #0x60]\n"
+        "stp q2, q3, [sp, #0x80]\n"
+        "stp q4, q5, [sp, #0xa0]\n"
+        "stp q6, q7, [sp, #0xc0]\n"
+        "add x0, sp, #0x10\n"
+        "bl _clone_hook_body\n"
+        "ldp x0, x1, [sp, #0x10]\n"
+        "ldp x2, x3, [sp, #0x20]\n"
+        "ldp x4, x5, [sp, #0x30]\n"
+        "ldp x6, x7, [sp, #0x40]\n"
+        "ldr x8,      [sp, #0x50]\n"
+        "ldp q0, q1, [sp, #0x60]\n"
+        "ldp q2, q3, [sp, #0x80]\n"
+        "ldp q4, q5, [sp, #0xa0]\n"
+        "ldp q6, q7, [sp, #0xc0]\n"
+        "ldp x29, x30, [sp], #0xe0\n"
+        "adrp x16, _g_clone_real_wrapper@PAGE\n"
+        "ldr x16, [x16, _g_clone_real_wrapper@PAGEOFF]\n"
+        "br x16\n");
+}
+#else
+static void *revoke_clone_hook(void *a0, void *a1, void *a2,
+                               void *a3, void *a4, void *a5) {
+    void *args[6] = {a0, a1, a2, a3, a4, a5};
+    clone_hook_body(args);
+    return g_clone_real_wrapper(a0, a1, a2, a3, a4, a5);
 }
 #endif
 
@@ -1506,6 +1694,63 @@ static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_l
     return 0;
 }
 
+/// V3-M2-R4：克隆写点第二 SLOT 武装（主 hook slot-fill 成功后并行执行）。
+/// 独立失败面：任何一步失败只置 kStCloneFail 位 + bootlog，**不拆主 hook**
+/// （两个挂点互不承载——克隆是加法实验）。
+enum { kStCloneFail = 128 };
+static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
+    uintptr_t ctarget = base + t->clone_hook_off;
+    uint8_t cprologue[16];
+    int cpatched = entry_patch_present(ctarget);
+    if (cpatched) {
+        memcpy(cprologue, t->clone_expected, 16);
+    } else {
+        if (!kread_buf(ctarget, cprologue, 16)) {
+            g_hook_status |= kStCloneFail;
+            bootlog_line("clone-arm: 入口不可读（行偏移漂移？）");
+            return;
+        }
+    }
+    if (memcmp(cprologue, t->clone_expected, 12) != 0) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("clone-arm: 序言门失配——拒装");
+        return;
+    }
+    if (!cpatched && !arm64_prologue_relocatable(cprologue, 16)) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("clone-arm: 序言含 PC 相对编码——拒装");
+        return;
+    }
+    if (t->has_clone_func_size) {
+        image_layout_t im;
+        if (!image_layout((const struct mach_header_64 *)base, (size_t)-1, &im)
+            || func_size_matches(&im, t->clone_hook_off, t->clone_func_size) != 1) {
+            g_hook_status |= kStCloneFail;
+            bootlog_line("clone-arm: 函数身份门失配——拒装");
+            image_layout_free(&im);
+            return;
+        }
+        image_layout_free(&im);
+    }
+    hook_trampoline_t ctr;
+    if (prepare_trampoline(ctarget, cprologue, 16, 1, &ctr) != 0) {
+        g_hook_status |= kStCloneFail;
+        bootlog_line("clone-arm: 蹦床构造失败");
+        return;
+    }
+    g_clone_real_wrapper = (void *(*)(void *, void *, void *, void *, void *, void *))ctr.mem;
+    __atomic_store_n(&g_clone_hook_target, ctarget, __ATOMIC_RELEASE);
+    int rc = try_slot_fill(ctarget, (void *)&revoke_clone_hook);
+    if (rc != 0) {
+        g_hook_status |= kStCloneFail;
+        __atomic_store_n(&g_clone_hook_target, 0, __ATOMIC_RELEASE);
+        g_clone_real_wrapper = NULL;
+        bootlog_line("clone-arm: slot-fill 失败");
+    } else {
+        bootlog_line("clone-arm: OK（写点第二 SLOT 已填）");
+    }
+}
+
 static int install_hook(const hook_target_t *t, uintptr_t base) {
     int32_t expected = 0;
     if (!__atomic_compare_exchange_n(&g_arm_done, &expected, 1, 0,
@@ -1624,6 +1869,8 @@ static int install_hook(const hook_target_t *t, uintptr_t base) {
     { char b[128]; snprintf(b, sizeof(b), "arm: slot_rc=%d", slot_rc); bootlog_line(b); }
     if (slot_rc == 0) {
         g_arm_via_slot = 1;
+        // V3-M2-R4：克隆写点第二 SLOT 并行武装（独立失败面——不拆主 hook）
+        if (t->is_arm64 && t->has_clone) arm_clone_site(t, base);
         return 0;
     }
     if (t->is_arm64) {
@@ -1825,12 +2072,13 @@ static void write_marker_ex(int loud) {
             groupDir = nil;
         }
     NSString *content = [NSString stringWithFormat:
-        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
+        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
         [NSDate date].timeIntervalSince1970,
         g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
         g_install_step, g_install_errno,
         g_rewrite_fires, g_rewrite_hits, g_zero_fires,
         g_self_skips, g_clone_captures, g_clone_nomethods,
+        g_clone_rows, g_clone_last_len,
         g_cfg_stamp, g_cfg_hash,
         g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
         g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
@@ -2244,6 +2492,54 @@ void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods)
     if (captures) *captures = g_clone_captures;
     if (skips) *skips = g_clone_skips;
     if (nomethods) *nomethods = g_clone_nomethods;
+}
+
+/// V3-M2-R4 写点捕获缝：对合成向量直接驱动 clone_hook_body。
+/// 构造（全部真实堆分配，走同一条内核读路径）：
+///   vec 对象（8B）→ outer（32B：候选 A begin/end @0/8、候选 B @16/24）
+///   → begin 指向 shared_ptr 数组（{obj,ctl} 对）→ obj = 24B 头 + 0x7e 偏移
+///     的对象（content SSO @+0x7e，arm64 布局：flag[0x17]/size[8]/data[0]）
+/// rows/skips/objcaps 回传证据计数。返回本次调用捕获对象数（增量，非累计）。
+int wxkeep_runtime_test_clone_rows(unsigned long long content_bytes,
+                                   int *rows, int *skips, int *objcaps) {
+    // 开关：body 在 g_clone_message 关时直接透传——测试内强制开
+    int saved = g_clone_message;
+    g_clone_message = 1;
+    int before = g_clone_obj_caps;
+    // 合成对象：0x100 头区（+0x7e 处放 24B SSO 头）+ 独立 data 区
+    uint8_t *obj = calloc(1, 0x200);
+    uint8_t *data = malloc(content_bytes > 0 ? (size_t)content_bytes : 1);
+    memset(data, 'A', (size_t)content_bytes);
+    uint64_t size = content_bytes;
+    if (g_sso_layout_arm64) {
+        memcpy(obj + 0x7e, data, 8);              // data ptr @+0
+        memcpy(obj + 0x7e + 8, &size, 8);          // size @+8
+        obj[0x7e + 0x17] = 0xFF;                   // 长串旗标（符号负）
+    } else {
+        obj[0x7e] = 0x01;                          // 奇=长串
+        memcpy(obj + 0x7e + 8, &size, 8);
+        memcpy(obj + 0x7e + 0x10, &data, 8);
+    }
+    // shared_ptr 数组（{obj, ctl=NULL}）
+    uint64_t *elem = malloc(16);
+    elem[0] = (uint64_t)(uintptr_t)obj;
+    elem[1] = 0;
+    // outer：候选 B 形态（begin@end @+0x10/+0x18——R2 伪代码口径）
+    uint64_t *outer = calloc(1, 64);
+    outer[2] = (uint64_t)(uintptr_t)elem;
+    outer[3] = (uint64_t)(uintptr_t)(elem + 2);
+    // vec：*vec = outer
+    uint64_t *vec = malloc(8);
+    vec[0] = (uint64_t)(uintptr_t)outer;
+    void *args[6] = { (void *)0x1111, vec, (void *)0x2222, NULL, NULL, NULL };
+    clone_hook_body(args);
+    g_clone_message = saved;
+    int r = g_clone_obj_caps - before;
+    if (rows) *rows = g_clone_rows;
+    if (skips) *skips = g_clone_skips;
+    if (objcaps) *objcaps = g_clone_obj_caps;
+    free(vec); free(outer); free(elem); free(obj); free(data);
+    return r;
 }
 
 /// 配置文件端到端缝：按生产路径（dictionaryWithContentsOfFile 的 plist

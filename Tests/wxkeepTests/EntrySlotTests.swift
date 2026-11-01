@@ -93,3 +93,33 @@ struct EntrySlotTests {
                 "SLOT 内容非零 = 非 planArm64 选址（objc_stubs 的 ldr 目标不满足零内容）")
     }
 }
+
+extension EntrySlotTests {
+    /// V3-M2-R4：克隆写点第二 SLOT（slotIndex 1）——与主槽同区不相交、
+    /// 各自 8B、自解码回各自 SLOT；真切片上 270135 写点几何全链验证。
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: "var/wxarm/270135_arm64.dylib")),
+          .disabled(if: ProcessInfo.processInfo.environment["CI"] != nil))
+    func cloneSiteSecondSlotPlan270135() throws {
+        let url = URL(fileURLWithPath: "var/wxarm/270135_arm64.dylib")
+        let main = try EntrySlot.planArm64(
+            file: url, hookOff: 0x4d1f8d8,
+            expectedHex: "F85FBCA9F65701A9F44F02A9FD7B03A9")
+        let clone = try EntrySlot.planArm64(
+            file: url, hookOff: 0x4cd5e8c,
+            expectedHex: "FFC302D1FC6F05A9FA6706A9", slotIndex: 1)
+        #expect(clone.entryVA == 0x4cd5e8c)
+        #expect(clone.slotVA == main.slotVA + 8,
+                "槽位 1 与槽位 0 相邻（同区 8B 步进）")
+        #expect(clone.slotFileOffset == main.slotFileOffset + 8)
+        // 双槽自解码回各自 SLOT
+        func decode(_ p: EntrySlot.Plan) -> UInt64? {
+            let w: [UInt32] = (0..<3).map { i in
+                p.patch12.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: i * 4, as: UInt32.self) }
+            }
+            return EntrySlot.decodeSlotVA(pc: p.entryVA, w0: w[0], w1: w[1], w2: w[2])
+        }
+        #expect(decode(clone) == clone.slotVA)
+        #expect(decode(main) == main.slotVA)
+        #expect(clone.original12.count == 12)
+    }
+}

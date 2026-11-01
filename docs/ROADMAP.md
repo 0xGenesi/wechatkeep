@@ -463,6 +463,30 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 106·V3-M2-R4 写点 hook 落地轮（2026-11-01：克隆第二挂点全链——数据行/EntrySlot 二点化/第二 SLOT/thunk/内核读捕获体，266 测全绿 +3）
+
+> R3 定案 seam B 的机制落地。测试分层：单测全链（合成向量走真实内核读）
+> + 副本 E2E runbook（用户窗口）；真机武装待副本验证。
+
+1. **[数据]**：HookRow 增 clone_hook_off/clone_expected/clone_func_size
+   （成对门，单边整行拒）；270135 arm64 首发克隆数据（写点 0x4cd5e8c/
+   原像 FFC302D1…/func_size 728，pristine+idx 派生）。
+2. **[EntrySlot]**：planArm64(slotIndex:) 参数化——槽 1 与槽 0 同区 8B
+   步进；真切片双槽互证（slotVA 恰差 8、双补丁自解码各归各槽）；install
+   一次原子落盘双补丁、remove 双站还原。
+3. **[runtime.m]**：行解析门；revoke_clone_hook naked thunk（全参透传）；
+   clone_hook_body 全解引用走 mach_vm_read_overwrite（用户态裸读垃圾
+   指针=崩溃——实验缝绝不放大为消息链故障）；向量形态双候选+对象数
+   上界 256；content @+0x7e SSO 读出（证据入 marker clrow=/cllastlen=，
+   内容零落盘）；arm_clone_site 独立失败面（kStCloneFail=128，不拆主
+   hook）；开关关=纯透传。
+4. **[测试 +3]**：真切片双槽几何（270135 实际 slotVA 差 8 实证）、行解
+   析门（成对/单边）、捕获体端到端（合成向量→内核读→计数推进；累计值
+   语义缺陷在首版测试抓出→seam 改增量返回）。
+5. **[诚实边界]**：content/XML 两路捕获的 msgid 配对未实现（随 R5 插入
+   直调轮）；插入直调表仍空置（clmiss= 语义不变）；真机武装=副本 E2E
+   待用户窗口。
+
 ## 105·V3-M2-R3 服务获取攻坚与缝位定案轮（2026-11-01：调用点翻案=libc++abi 桩；服务获取三层阻障判独立轮；AddMessageResource 业务级全链；缝位定案 R4 主攻写点 hook）
 
 > 用户令「继续」（R3 接线）。接线前置=服务获取，本轮攻坚三层后诚实

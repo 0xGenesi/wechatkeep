@@ -525,6 +525,7 @@ extension Wxkeep {
             if status & 16 != 0 { flags.append("callback") }
             if status & 32 != 0 { flags.append("scan-missed") }
             if status & 64 != 0 { flags.append("func-id-mismatch") }
+            if status & 128 != 0 { flags.append("clone-fail") }
             return flags.isEmpty ? ["idle"] : flags
         }
 
@@ -708,10 +709,18 @@ extension Wxkeep {
                     }
                     print("hook 证据:         fires=\(markerInt("fires")) hits=\(markerInt("hits")) "
                         + "zero=\(markerInt("zero")) selfskip=\(markerInt("selfskip"))（本次启动累计，30s 粒度回写）")
-                    // V3-M2 克隆证据（仅实验开启时可见非零——默认关时两值恒 0）
+                    // V3-M2 克隆证据（仅实验开启时可见非零——默认关时恒 0）
                     if let cloneCap = markerDigits("clone").flatMap({ Int($0) }), cloneCap > 0 {
-                        print("克隆实验:          clone=\(cloneCap) clmiss=\(markerInt("clmiss"))"
-                            + "（R1 骨架：捕获+派发；clmiss=无宿主方法表丢弃，非故障）")
+                        let rows = markerDigits("clrow").flatMap({ Int($0) }) ?? 0
+                        var line = "克隆实验:          clone=\(cloneCap) clmiss=\(markerInt("clmiss"))"
+                        if rows > 0 {
+                            line += " clrow=\(rows)（R4 写点挂点事件）"
+                            if let len = markerDigits("cllastlen").flatMap({ Int($0) }), len > 0 {
+                                line += " lastlen=\(len)B"
+                            }
+                        }
+                        line += "（R1 骨架：捕获+派发；clmiss=无宿主方法表丢弃，非故障）"
+                        print(line)
                     }
                     if let cfg = markerDigits("cfg").flatMap({ Int($0) }), cfg > 0 {
                         let t = Date(timeIntervalSince1970: TimeInterval(cfg))
@@ -1031,6 +1040,13 @@ extension Wxkeep {
                 var entrySlotPlan: EntrySlot.Plan?
                 var entrySlotIdempotent = false
                 var entrySlotHookOff: UInt64 = 0
+                // V3-M2 克隆第二挂点（seam B，105 轮定案）：行带 clone_* 字段
+                // 时与主 hook 同装——第二 SLOT（slotIndex 1）、独立 expected 门。
+                // 行不带 = 单点安装（旧行向后兼容，零行为差）。
+                var cloneSlotPlan: EntrySlot.Plan?
+                var cloneSlotIdempotent = false
+                var cloneSlotHookOff: UInt64 = 0
+                var cloneExpected12 = ""
                 do {
                     if let row = RuntimeConfig.knownHooks.first(where: {
                         $0.build == build && $0.arch == "arm64" }) {
@@ -1045,6 +1061,20 @@ extension Wxkeep {
                             entrySlotPlan = try EntrySlot.planArm64(
                                 file: wechatDylibURL, hookOff: hookOff,
                                 expectedHex: row.expected)
+                        }
+                        if let cOffHex = row.clone_hook_off, let cExp = row.clone_expected {
+                            guard let cOff = UInt64(cOffHex.dropFirst(2), radix: 16) else {
+                                throw ValidationError("hooks 行 clone_hook_off 非法: \(cOffHex)（build \(row.build)）")
+                            }
+                            cloneSlotHookOff = cOff
+                            cloneExpected12 = cExp
+                            if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: cOff) != nil {
+                                cloneSlotIdempotent = true
+                            } else {
+                                cloneSlotPlan = try EntrySlot.planArm64(
+                                    file: wechatDylibURL, hookOff: cOff,
+                                    expectedHex: cExp, slotIndex: 1)
+                            }
                         }
                     } else {
                         print("ℹ︎ entry-slot: 当前构建无 arm64 hooks 行——入口补丁跳过")
@@ -1078,7 +1108,7 @@ extension Wxkeep {
                 // 入口补丁将改写 wechat.dylib（340MB 级资源文件）——同样先备份
                 // + 原子写（撕裂写/无备份 = 修不好也回不去；主可执行同款防线）。
                 var wechatDylibBackup: URL?
-                if entrySlotPlan != nil {
+                if entrySlotPlan != nil || cloneSlotPlan != nil {
                     wechatDylibBackup = try Backup.make(binary: wechatDylibURL)
                     print("backup: \(wechatDylibBackup!.lastPathComponent)")
                 }
@@ -1111,16 +1141,31 @@ extension Wxkeep {
                 // 进程内写化被策略封死后的唯一武装通道（dylib 启动时数据写
                 // SLOT）。计划已在写前预检（blocked 门依赖其结果）；此处仅落盘。
                 var entrySlotWritten = false
-                if entrySlotIdempotent {
-                    print(String(format: "entry-slot: arm64 入口 0x%llx 跳板已在位（幂等）", entrySlotHookOff))
-                } else if let plan = entrySlotPlan {
+                if entrySlotPlan != nil || cloneSlotPlan != nil {
                     do {
                         var data = try Data(contentsOf: wechatDylibURL)
-                        data.replaceSubrange(plan.entryFileOffset..<plan.entryFileOffset+12, with: plan.patch12)
+                        if let plan = entrySlotPlan {
+                            data.replaceSubrange(plan.entryFileOffset..<plan.entryFileOffset+12, with: plan.patch12)
+                        }
+                        // 克隆第二挂点与主 hook 一次落盘（同一原子写；SLOT 槽位
+                        // 1 与槽位 0 同区不相交——planArm64 slotIndex 保证）
+                        if let cplan = cloneSlotPlan {
+                            data.replaceSubrange(cplan.entryFileOffset..<cplan.entryFileOffset+12, with: cplan.patch12)
+                        }
                         try SafeWrite.overwrite(data, to: wechatDylibURL)
                         entrySlotWritten = true
-                        print(String(format: "entry-slot: arm64 入口 0x%llx ← 跳板（SLOT 0x%llx @文件 0x%x）",
-                                     plan.entryVA, plan.slotVA, plan.slotFileOffset))
+                        if let plan = entrySlotPlan {
+                            print(String(format: "entry-slot: arm64 入口 0x%llx ← 跳板（SLOT 0x%llx @文件 0x%x）",
+                                         plan.entryVA, plan.slotVA, plan.slotFileOffset))
+                        } else {
+                            print(String(format: "entry-slot: arm64 入口 0x%llx 跳板已在位（幂等）", entrySlotHookOff))
+                        }
+                        if let cplan = cloneSlotPlan {
+                            print(String(format: "entry-slot: 克隆写点 0x%llx ← 跳板（SLOT 0x%llx @文件 0x%x）",
+                                         cplan.entryVA, cplan.slotVA, cplan.slotFileOffset))
+                        } else if cloneSlotIdempotent {
+                            print(String(format: "entry-slot: 克隆写点 0x%llx 已在位（幂等）", cloneSlotHookOff))
+                        }
                     } catch {
                         print("ℹ︎ entry-slot: \(error)——dylib 将按未补丁路径诊断")
                         if verdict == "blocked" && !force {
@@ -1280,6 +1325,24 @@ extension Wxkeep {
                             resignTargets.append("Contents/Resources/wechat.dylib")
                             print(String(format: "entry-slot: 已还原入口 0x%llx（期望字节写回，备份 %s）",
                                          hookOff, dylibBackup.lastPathComponent))
+                            // V3-M2 克隆第二挂点同步还原（同一文件已改写——两站
+                            // 一次落盘；漏还原 = 写点跳板残留 + SLOT 恒零 =
+                            // 撤回处理一进即崩，与主点混合态同级）
+                            if let cOffHex = row.clone_hook_off,
+                               let cOff = UInt64(cOffHex.dropFirst(2), radix: 16),
+                               let cExp = row.clone_expected,
+                               EntrySlot.detectPatched(file: dylibURL, hookOff: cOff) != nil {
+                                guard let cExpected = Data(hex: String(cExp.prefix(24))), cExpected.count >= 12 else {
+                                    throw ValidationError("hooks 行 clone_expected 字节不足（build \(row.build)）")
+                                }
+                                guard let cOffRel = image.sliceRelativeOffset(va: cOff) else {
+                                    throw ValidationError("clone_hook_off 无法换算为文件偏移")
+                                }
+                                let cFatOff = image.sliceOffset + cOffRel
+                                data.replaceSubrange(cFatOff..<cFatOff+12, with: cExpected.prefix(12))
+                                try SafeWrite.overwrite(data, to: dylibURL)
+                                print(String(format: "entry-slot: 已还原克隆写点 0x%llx（期望字节写回）", cOff))
+                            }
                         } else if UInt64(row.hook_off.dropFirst(2), radix: 16) != nil {
                             print("ℹ︎ entry-slot: 入口补丁不在位（无需还原）")
                         } else {

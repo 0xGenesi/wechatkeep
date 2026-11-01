@@ -678,3 +678,40 @@ objc_stubs 无标注同族坑）。
 R4 清单：①写点 hook 行派生（新 hook_off=0x4cd5e8c 族）+入口 SLOT 二
 点；②克隆工作函数接真实 content 捕获（sso_head 直读 +0x7e）；③插入
 路径随解桩轮定案后接直调表；④副本 E2E。
+
+## V3-M2-R4 写点 hook 落地轮（2026-11-01，106 轮）
+
+> R3 定案 seam B 的机制落地：克隆第二挂点全链（数据行→EntrySlot 二点化
+> →install/remove→runtime.m 第二 SLOT+thunk+内核读捕获体）。266 测全绿
+> （+3）。真机武装=副本 E2E（runbook 在 M2-R1 节，待用户窗口）。
+
+### 机制面
+
+- **数据行**：HookRow 增 `clone_hook_off/clone_expected/clone_func_size`
+  （成对出现，单边整行拒绝；x64 行带字段=坏行）。270135 arm64 行首发
+  克隆数据：写点 0x4cd5e8c、入口原像 FFC302D1FC6F05A9FA6706A9（12B，
+  pristine+idx 派生）、func_size 728（LC_FUNCTION_STARTS 距离）。
+- **EntrySlot**：`planArm64(slotIndex:)` 参数化——槽 0=主 hook、槽 1=克
+  隆写点，同区 8B 步进（真切片双槽互证：slotVA 恰差 8、双补丁自解码各
+  归各槽）。install 一次落盘双补丁（同一原子写）；remove 双站还原。
+- **runtime.m**：`hook_target_t` 克隆字段 + 行解析门（relocatable 门
+  同主点）；`revoke_clone_hook` naked thunk（全参透传，同主点结构）→
+  `clone_hook_body`：**全部解引用走 mach_vm_read_overwrite 内核级读**
+  （遍历宿主容器用户态裸读垃圾指针=崩溃，内核读只返错——实验缝绝不放
+  大为消息链故障）；向量形态双候选（{b,e}@0/8 与 @0x10/0x18，decomp 口
+  径）形态门择优；对象 content @+0x7e SSO 读出、深拷贝证据（长度入
+  marker `clrow=`/`cllastlen=`，内容不落盘不落 marker——隐私面）。
+  `arm_clone_site`：序言门+函数身份门+蹦床重建+第二 slot-fill，独立失
+  败面（kStCloneFail=128 位，不拆主 hook）。实验开关 clone_message 关=
+  纯透传（挂点命中零动作）。
+- **CLI**：runtime status 克隆证据行扩 clrow/cllastlen；status flags 判
+  读位 clone-fail。
+
+### 诚实边界
+
+- **content 捕获与 XML 捕获（R1）的关联**（msgid↔content 事件配对）未
+  实现——当前两路证据独立计数；配对设计随插入直调轮（R5）。
+- 插入直调表仍空置（clmiss= 语义不变）；解桩调用图重建（服务获取）独
+  立轮。
+- 真机验证分层：单测全链（合成向量走真实内核读路径）+ 副本 E2E（用户
+  窗口）→ 真机实弹（M4）。

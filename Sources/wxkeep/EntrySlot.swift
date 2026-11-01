@@ -92,8 +92,10 @@ enum EntrySlot {
     /// 完整计划：arm64 切片 + hooks 行（hook_off/expected）→ Plan。
     /// 应用：`plan.patch12` 写入 `plan.entryFileOffset`；
     /// 恢复：`plan.original12` 写回同位（或已知补丁态时按行 expected 恢复）。
+    /// `slotIndex`：多挂点共用同一填充区时的槽位序（0=主 hook，1=克隆写点
+    /// ……每槽 8B，真零验证各自独立；V3-M2 第二挂点引入）。
     static func planArm64(file url: URL, hookOff: UInt64,
-                          expectedHex: String) throws -> Plan {
+                          expectedHex: String, slotIndex: Int = 0) throws -> Plan {
         let image = try MachImage(file: url, arch: .arm64)
         let entry = hookOff
         // 1) 现场字节 == expected 前 12B（原始态门）
@@ -131,12 +133,13 @@ enum EntrySlot {
         let segFileEnd = min(nextFileOff, UInt64(image.data.count))
         let padStart = max(lastEnd, Int(seg.fileoff))
         let pad = Int(segFileEnd) - padStart
-        guard pad >= 16 else {
-            throw EntrySlotError.noTailPadding(need: 16, have: max(pad, 0))
+        guard pad >= 16 + slotIndex * 8 else {
+            throw EntrySlotError.noTailPadding(need: 16 + slotIndex * 8, have: max(pad, 0))
         }
-        // 8 对齐向上的 SLOT + 真零验证（不覆盖任何有值数据）
-        var slotOff = (padStart + 7) & ~7
-        if slotOff < padStart { slotOff = padStart }
+        // 8 对齐向上的 SLOT + 真零验证（不覆盖任何有值数据）；slotIndex
+        // 线性推进（每槽 8B）——基址 8 对齐，slotIndex*8 后仍对齐。
+        let slotBase = (padStart + 7) & ~7
+        let slotOff = slotBase + slotIndex * 8
         guard slotOff + 8 <= segFileEnd else {
             throw EntrySlotError.noTailPadding(need: 8, have: Int(segFileEnd) - slotOff)
         }

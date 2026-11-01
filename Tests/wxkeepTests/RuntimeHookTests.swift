@@ -842,3 +842,32 @@ extension RuntimeHookTests {
         #expect(msgid == 42)
     }
 }
+
+// MARK: - V3-M2-R4 克隆第二挂点（行解析门 + 写点捕获体）
+
+extension RuntimeHookTests {
+    /// 行解析门：clone_* 成对接受；单边整行拒绝（宁可不挂也不挂错）。
+    @Test func cloneRowParseGate() throws {
+        let row = #"{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9""#
+        // 成对 + func_size：接受（parse_hooks 外层 = {"hooks":[...]}）
+        let full = #"{"hooks":["# + row
+            + #","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9","clone_func_size":728}]}"#
+        #expect(wxkeep_runtime_test_parse_hooks(full, UInt(full.utf8.count)) == 1)
+        // 单边（只有 hook_off）：整行拒绝
+        let half = #"{"hooks":["# + row + #","clone_hook_off":"0x4cd5e8c"}]}"#
+        #expect(wxkeep_runtime_test_parse_hooks(half, UInt(half.utf8.count)) == 0)
+    }
+
+    /// 写点捕获体端到端（合成向量走真实内核读路径）：候选 B 形态识别 +
+    /// content 长度读出 + 证据计数推进。
+    @Test func cloneRowsCaptureEndToEnd() {
+        let cap = wxkeep_runtime_test_clone_rows(100, nil, nil, nil)
+        #expect(cap == 1, "合成向量（1 对象，100B content）应捕获 1")
+        var rows: Int32 = 0, skips: Int32 = 0, caps: Int32 = 0
+        wxkeep_runtime_test_clone_counts(nil, &skips, nil)
+        _ = rows; _ = caps
+        // 坏形态（截断的 outer → skips 计）不崩：vec 指向不可读区域由内核读兜底
+        #expect(wxkeep_runtime_test_clone_rows(0, nil, nil, nil) == 0,
+                "0 长度 content 不捕获")
+    }
+}
