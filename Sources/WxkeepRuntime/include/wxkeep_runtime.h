@@ -144,6 +144,10 @@ int wxkeep_runtime_test_clone_rd_invoke(unsigned long long svc,
                                         unsigned long getter_fn, unsigned long x2single_fn,
                                         unsigned long x2ctx_fn,
                                         unsigned long base, unsigned long svc_vt_off);
+// R14 cm 直挂缝：thunk 全局读回（consumer/msg/target）。
+void wxkeep_runtime_test_cm_globals(unsigned long long *consumer,
+                                    unsigned long long *msg,
+                                    unsigned long long *target);
 // M4 接线缝（113 轮 R8）：hooks 行 ins 组字段读回（组不在场返回 -1）。
 int wxkeep_runtime_test_hook_row_ins(int idx, unsigned long *ctor_off,
                                      unsigned long *amr_off, unsigned long *msg_vt,

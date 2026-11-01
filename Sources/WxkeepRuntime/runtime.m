@@ -2241,10 +2241,12 @@ __attribute__((naked)) static void *revoke_clone_hook(void *a0, void *a1, void *
 //（consumer_main 每消息都走，热路径纪律）。x16 全程草稿位。解析钩子体
 // 与 consumer_main 同线程嵌套（parse 在 consumer_main 处理流内），全局
 // 读即当前消息对——写读同线程程序序，无同步需求。
-static void *(*volatile g_cm_real_wrapper)(void);
-static volatile uint64_t g_cm_hook_target;   // 非零=cm 挂点已武装
-static uint64_t g_cm_consumer;               // 入口 x0（consumer this）
-static uint64_t g_cm_msg;                    // 入口 x1（msg 对象基址）
+// used：符号被 naked thunk 内联汇编按名引用——LTO 对汇编不透明，静态
+// 定义若无 C 侧地址逃逸会被内化改名（release 实证 Undefined symbols）。
+__attribute__((used)) static void *(*volatile g_cm_real_wrapper)(void);
+__attribute__((used)) static volatile uint64_t g_cm_hook_target;   // 非零=cm 挂点已武装
+__attribute__((used)) static uint64_t g_cm_consumer;   // 入口 x0（consumer this）
+__attribute__((used)) static uint64_t g_cm_msg;        // 入口 x1（msg 对象基址）
 
 #if defined(__arm64__) || defined(__aarch64__)
 __attribute__((naked)) static void *revoke_cm_hook(void) {
@@ -4418,6 +4420,16 @@ int wxkeep_runtime_test_clone_rd_invoke(unsigned long long svc,
         .x2desc = (const void *)(uintptr_t)0x10000,   // 桩不消费
     };
     return clone_rd_run(&rec, &fns, base, (uint32_t)svc_vt_off, NULL, NULL);
+}
+
+/// R14 cm 直挂缝：thunk 全局读回（consumer/msg/target——符号保活的双
+/// 保险 + 测试断言面）。
+void wxkeep_runtime_test_cm_globals(unsigned long long *consumer,
+                                    unsigned long long *msg,
+                                    unsigned long long *target) {
+    if (consumer) *consumer = g_cm_consumer;
+    if (msg) *msg = g_cm_msg;
+    if (target) *target = g_cm_hook_target;
 }
 
 /// M4 插入链证据计数读回（clpub/clins + 护栏余量 + 认证门命中）。
