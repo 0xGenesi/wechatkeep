@@ -132,3 +132,24 @@ int wxkeep_runtime_test_clone_rd_invoke(unsigned long long svc,
                                         unsigned long getter_fn, unsigned long x2single_fn,
                                         unsigned long x2ctx_fn,
                                         unsigned long base, unsigned long svc_vt_off);
+// M4 接线缝（113 轮 R8）：hooks 行 ins 组字段读回（组不在场返回 -1）。
+int wxkeep_runtime_test_hook_row_ins(int idx, unsigned long *ctor_off,
+                                     unsigned long *amr_off, unsigned long *msg_vt,
+                                     unsigned long *pub_vt, unsigned long *ctor_fs,
+                                     unsigned long *amr_fs, int *pub_gated);
+// M4 接线缝：clpub/clins 证据计数 + 插入护栏读回。
+void wxkeep_runtime_test_clone_ins_counts(int *probes, int *matches,
+                                          int *calls, int *inserts);
+// M4 接线缝：探针直驱（生产 clone_ins_probe 同一条代码；base 非 0 时按
+// 认证门形态走，pub_vt_off=认证 vtable 切片偏移，0=门关闭）。
+void wxkeep_runtime_test_clone_ins_probe(unsigned long long svc,
+                                         unsigned long long msg_obj,
+                                         unsigned long base,
+                                         unsigned long pub_vt_off);
+// M4 接线缝：插入 ABI 直驱（ctor/amr 为绝对地址 JIT 桩）。返回位掩码
+// 1=ctor sret 双读门过 2=AMR 已调。
+int wxkeep_runtime_test_clone_ins_invoke(unsigned long long publisher,
+                                         unsigned long long container,
+                                         unsigned long long source,
+                                         unsigned long ctor_fn, unsigned long amr_fn,
+                                         unsigned long base, unsigned long msg_vt_off);

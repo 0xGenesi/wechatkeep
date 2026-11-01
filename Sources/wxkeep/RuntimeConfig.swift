@@ -67,6 +67,32 @@ enum RuntimeConfig {
         var clone_rd_x2ctx: String? = nil
         var clone_rd_key_slot: String? = nil
 
+        /// M4 插入直调表（113 轮 R8 RE 定案，RUNTIME-DESIGN R8 节合同；
+        /// 七字段成组——任一在场则 dylib 侧要求全组完整否则整行拒绝）：
+        /// ctor=0x34597c8（x0=源消息对象、x1=容器、w2=0xa 文本分支、
+        /// sret 32B{vtable=clone_ins_msg_vt@+0, 自引用槽@+8, ctl@+0x18——
+        /// 宿主 execute 体对 +0x18 做非空判别）；amr=0x33fd190（x0=publisher、
+        /// x1=&16B pair{obj,ctl}、x2=&24B 零置 outvec——体内=32B 任务包装
+        /// vtable 0x9df7c38→写枢纽 post，纯异步投递，任意线程同步调用安全）。
+        var clone_ins_ctor: String? = nil
+        /// ctor 函数级身份门①（LC_FUNCTION_STARTS 距离，348@270135）
+        var clone_ins_ctor_fs: Int? = nil
+        /// ctor 函数级身份门②（入口 16B 原像锚 hex）
+        var clone_ins_ctor_head: String? = nil
+        var clone_ins_amr: String? = nil
+        /// amr 函数级身份门①（距离，2788@270135）
+        var clone_ins_amr_fs: Int? = nil
+        /// amr 函数级身份门②（入口 16B 原像锚 hex）
+        var clone_ins_amr_head: String? = nil
+        /// msg 类 vtable 切片偏移（0x9f24930@270135）——ctor sret 产物与
+        /// getter 消息对象共用的类身份门。
+        var clone_ins_msg_vt: String? = nil
+        /// publisher 认证门（可选）：写枢纽协议位 [[读svc+8]] 的 vtable 切片
+        /// 偏移。R8 定案 publisher=订阅期绑定（静态对象图不可达）→ 270135
+        /// 不带此字段 = 探针-only 模式（clpub 证据位采集，插入调用恒惰性）；
+        /// clpub 证据派生出该值后带上即激活插入调用。
+        var clone_ins_pub_vt: String? = nil
+
         /// 显式 CodingKeys：case 名与属性一致（本结构属性已是 snake_case，
         /// 恰为 dylib 侧 wire 键），列出即把 wire 键名钉死——未来新增字段
         /// 若忘登记，Decodable 合成直接编译失败（防御位而非装饰；68 轮
@@ -79,6 +105,9 @@ enum RuntimeConfig {
             case clone_rd_lookup, clone_rd_lookup_fs, clone_rd_lookup_head
             case clone_rd_wrap, clone_rd_getter, clone_rd_x2single
             case clone_rd_x2desc, clone_rd_x2ctx, clone_rd_key_slot
+            case clone_ins_ctor, clone_ins_ctor_fs, clone_ins_ctor_head
+            case clone_ins_amr, clone_ins_amr_fs, clone_ins_amr_head
+            case clone_ins_msg_vt, clone_ins_pub_vt
         }
     }
 
@@ -275,7 +304,16 @@ enum RuntimeConfig {
                 clone_rd_lookup_head: "E923B96DFC6F01A9FA6702A9F85F03A9",
                 clone_rd_wrap: "0x309ac50", clone_rd_getter: "0x102b740",
                 clone_rd_x2single: "0x571ce74", clone_rd_x2desc: "0xa3de0a70",
-                clone_rd_x2ctx: "0x5720308", clone_rd_key_slot: "0x3a0"),
+                clone_rd_x2ctx: "0x5720308", clone_rd_key_slot: "0x3a0",
+                // M4 插入直调表（113 轮 R8 接线，270135 arm64 pristine 定点
+                // 派生）：ctor=0x34597c8（fs 348）双身份门 + amr=0x33fd190
+                //（fs 2788）双身份门 + msg_vt 0x9f24930。pub_vt 不带 =
+                // 探针-only（clpub 证据位；publisher 认证值由该证据派生）。
+                clone_ins_ctor: "0x34597c8", clone_ins_ctor_fs: 348,
+                clone_ins_ctor_head: "FF0305D1FC6F10A9F65711A9F44F12A9",
+                clone_ins_amr: "0x33fd190", clone_ins_amr_fs: 2788,
+                clone_ins_amr_head: "F85FBCA9F65701A9F44F02A9FD7B03A9",
+                clone_ins_msg_vt: "0x9f24930"),
     ]
 
     /// 微信的 App Group（与其 entitlements application-groups 同源）。
@@ -694,7 +732,15 @@ enum RuntimeConfig {
                            clone_rd_x2single: row["clone_rd_x2single"] as? String,
                            clone_rd_x2desc: row["clone_rd_x2desc"] as? String,
                            clone_rd_x2ctx: row["clone_rd_x2ctx"] as? String,
-                           clone_rd_key_slot: row["clone_rd_key_slot"] as? String)
+                           clone_rd_key_slot: row["clone_rd_key_slot"] as? String,
+                           clone_ins_ctor: row["clone_ins_ctor"] as? String,
+                           clone_ins_ctor_fs: row["clone_ins_ctor_fs"] as? Int,
+                           clone_ins_ctor_head: row["clone_ins_ctor_head"] as? String,
+                           clone_ins_amr: row["clone_ins_amr"] as? String,
+                           clone_ins_amr_fs: row["clone_ins_amr_fs"] as? Int,
+                           clone_ins_amr_head: row["clone_ins_amr_head"] as? String,
+                           clone_ins_msg_vt: row["clone_ins_msg_vt"] as? String,
+                           clone_ins_pub_vt: row["clone_ins_pub_vt"] as? String)
         }
     }
 }

@@ -1114,3 +1114,83 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
 终实证面。0x34597c8 的 type=0xa 分支只覆盖文本消息——非文本克隆（图
 片等）需独立分支勘察，M4 首发限定文本克隆。
 
+
+## R8 M4 插入族合同定案与接线（2026-11-01，113 轮；279→281 测同轮基线）
+
+> 目标：charter M4 前置——插入族直调表数据行派生 + 三缺口定案
+> （container 语义 / 0xa 判别面 / svc 运行时获取）。方法：rel32 BL 全扫
+> + dyld_info -fixups 权威 vtable 定位 + ctor/AMR/写枢纽全函数反汇编
+> （工具 var/ab/r8_m4_contract.py）。
+
+### R7 三缺口的定案与勘误
+
+- **勘误 R7「AddMessageResource 的 this = 入库服务 [this+8]」**：
+  `ldp x0, x26, [x0, #8]` 实读 = x0←[this+8]（只喂 0x347c898 的 sret
+  构造）、x26←[this+0x10]（**AMR 的 this**）。且 0x34579d0 并非「入库
+  服务」本体，而是**观察者任务的 execute**：类 `_84c4e89c`（Itanium
+  vtable 0x9df8d20，混淆类名 `_84c4e89c`@0x88dfa4d，si_class），0x28B
+  布局 {vtable@0, arg1@+8, publisher@+0x10, 槽@+0x18, arg2@+0x20}——
+  构造点 = **订阅派发器 0x3416724**（new(0x28) 装 vtable → 写枢纽 post）。
+  拷贝构造器 0x3457964（vtable 槽 f2）与取 subscriber 0x3457964 邻槽
+  互证布局。
+- **ctor 0x34597c8 合同定案（348B，全二进制唯一调用点=0x34579d0+0x118）**：
+  `ctor(x0=源消息对象, x1=容器, w2=0xa→文本分支, sret=x8→32B)`。
+  sret = {vtable@+0（=**0x9f24930**，msg 类——与 R7 主张一致）, 自引用
+  槽@+8, ctl@+0x18}；文本分支先 `ldr x8,[x1,#0x20]; str x8,[x0,#0x20]`
+  （容器 +0x20 盖进源对象 +0x20）再做内容重建（0x347cd3c→
+  0x56fa6fc(…,0x20)→0x2f717e8→0x56fa308）。宿主 execute 体对 sret+0x18
+  做非空判别（0x3457aec `cbz` 失败路径）——本侧双读门同款。
+- **AMR 0x33fd190 合同定案（2788B，唯一调用点=0x34579d0+0x83c）**：
+  `AMR(x0=publisher, x1=&16B pair{obj,ctl}, x2=&24B 零置 outvec)`。体内
+  = new(0x20) 任务 {vtable **0x9df7c38**, svc, &pair, &outvec} → 写枢纽
+  0x3aeddb4 post——**纯异步投递**（charter 风险 #2 的最终实证面：AMR 自身
+  零 DB 触碰、零队列亲和，任意线程同步调用安全）。pair 的 strong count
+  由 AMR 体内自行 bump（ldadd）。
+- **写枢纽 0x3aeddb4 publisher 协议（268B 直译）**：`[publisher+8]` =
+  订阅者持有者对象 S；`[S]`=S 的 vtable；虚调 vtable[0x10]（经
+  0x56f412c 分派任务）。→ **publisher 认证谓词** = `[[svc+8]]` 与常量
+  vtable 比对。
+- **svc 运行时获取：静态不可达，定案为证据步**。publisher = 订阅期绑定
+  （0x3416724 的 x0 ← 订阅发起者 0x3479fc4 的 [obj+0x38]；该链全 vtable/
+  observer 到达——ctor/AMR/0x3416724/0x3479fc4 的 BL 调用者分别为
+  1/1/1/0 处，0x34579d0 零 BL 调用者）。**结论：M4 走 clpub 证据步**——
+  一次真机撤回的 r8pub bootlog 行（subvt_off/msgvt_off/msg10）即派生
+  publisher 认证值（若 [读svc+8] 形态成立）或暴露真实获取路径。
+
+### M4 接线（代码全落地）
+
+- **行 schema**（RuntimeConfig.HookRow + runtime.m hook_row_parse，七
+  字段成组 + pub_vt 可选）：clone_ins_ctor/ctor_fs/ctor_head、
+  clone_ins_amr/amr_fs/amr_head、clone_ins_msg_vt、clone_ins_pub_vt
+  （可选=认证门）。270135 首发携带：ctor=0x34597c8(fs 348)/
+  amr=0x33fd190(fs 2788)/msg_vt=0x9f24930，**pub_vt 不带=探针-only**。
+  pub_vt 单独在场而组不在场 = 整行拒绝（认证门不脱离组存在）。
+- **安装期**：ctor/amr 双身份门（FUNCTION_STARTS 距离 + 入口 16B 锚，
+  rd 表同强度——直调面两个入口都要门）全过才置 g_clone_ins_valid；
+  失配 → 表不武装（探针惰性），不影响克隆挂点/rd 表。
+- **worker 探针**（clone_rd_run 拿到 svc+msg_obj 后；纯内核读零宿主
+  调用）：`[svc+8]→[[svc+8]]` 两跳可读 → clpub++ + bootlog r8pub 行
+  （subvt_off/msgvt_off/msg10 切片偏移）；pub_vt 在位且命中 → 认证计数。
+- **插入 ABI runner**（clone_ins_run；生产未接调用点——见诚实边界）：
+  句柄门 → 护栏（kCloneMaxInserts=8 次/进程，attempts 计）→ ctor 三参
+  直译（big4_t 32B 强制 x8 sret）→ sret 双读门（vtable==base+msg_vt 且
+  ctl 指针形）→ AMR(publisher, &pair{sret_obj,sret_ctl}, &outvec24)。
+  marker：clpub=/clins=（CLI runtime status 与 clone status 双面）。
+- **测试面（281 全绿）**：行组门全/缺/坏 hex/坏头锚/pub_vt 三态；
+  JIT 桩 ABI 端到端（ctor 双字面量桩写 sret + amr 堆计数器桩）正路径
+  /vtable 失配/ctl 空/零句柄四态 + 护栏恰 8 次封顶；探针命中/失配/
+  链断三态。
+
+### 诚实边界（R9 待办）
+
+1. **publisher 认证值未定**——270135 行不带 pub_vt，插入调用生产侧恒
+   惰性（clins= 0 直到认证值派生并入行）。
+2. **容器（ctor x1）合同未定案**——宿主流的容器 = [[[观察者任务+0x20]]]
+   （订阅侧 pair 的首成员再解引），其获取链与 0x3456d00 大处理函数
+   （ctor 产物→AMR pair 的装配段，≈0x6D8B）未解码；R8 的 clone_ins_run
+   以显式参数承接，生产调用点在「认证值+容器合同」双落地后接线。
+3. **AMR pair 语义**——宿主流 AMR 的 pair 来自订阅侧 wrapper（0x3456d00
+   产物）而非 ctor sret；clone_ins_run 以 ctor 产物 pair 直投（自洽形
+   态），实际克隆效果（新行 vs 原行更新）由副本 E2E 裁决——AMR 体首读
+   [pair.obj] 与 [pair.obj+0x10]（懒初始化门），形态不合走日志门路径，
+   不放大为崩溃。

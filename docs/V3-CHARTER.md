@@ -225,13 +225,21 @@ svrid/rowid 不受波及。插入落队时机晚于撤回写也安全（内容�
   （安全方向）；克隆构造器候选 0x34597c8(source, container, 0xa, sret，
   msg vtable=0x9f24930) + 入库链 AddMessageResource 全图——下轮派生
   M4 直调表数据行（insert/ctor/svc 链）后接副本 E2E。首发限定文本克隆。
+  - **M4-1 插入表接线完成（2026-11-01，113 轮 R8）**：三缺口定案+
+    勘误（R7 的「[this+8]」实为任务 execute 的 [task+0x10]=publisher，
+    0x34579d0=观察者任务 execute 而非服务本体）；ctor/AMR ABI 全定案
+    （AMR=纯异步投递——风险#2 最终实证）；**直调表数据行入库**
+    （clone_ins_* 七字段组，270135 首发携带，pub_vt 认证值待 clpub 证据
+    派生=探针-only）；插入 ABI runner+护栏+marker（clpub/clins）全落地，
+    281 测全绿。R9 待办=认证值派生+容器合同（0x3456d00 处理链）后接
+    生产调用点与副本 E2E（RUNTIME-DESIGN R8 节诚实边界三条）。
 
 ## 3. 风险登记
 
 | # | 风险 | 缓解 |
 |---|---|---|
 | 1 | C++ ABI 直调：对象生命周期/shared_ptr 引用计数/隐参 sret | M1 优先 ObjC 层入口；C++ 直调逐项列调用约定，透传契约缝（revoke_wrapper_hook 全寄存器保存）是结构前提 |
-| 2 | 线程亲和：消息 DB 插入可能要求特定队列；hook 线程同步插=死锁面 | 时序设计已解耦：hook 内只同步**读**，INSERT 异步派发；**R7 静态定案**（2026-11-01）：插入链全族零 GCD/零 pthread、纯 vtable/observer post + WCDB handle 池下游——异步串行队列调用安全方向，副本 E2E 终证（RUNTIME-DESIGN R7 节） |
+| 2 | 线程亲和：消息 DB 插入可能要求特定队列；hook 线程同步插=死锁面 | 时序设计已解耦：hook 内只同步**读**，INSERT 异步派发；**R7 静态定案**（2026-11-01）：插入链全族零 GCD/零 pthread、纯 vtable/observer post + WCDB handle 池下游——异步串行队列调用安全方向，副本 E2E 终证（RUNTIME-DESIGN R7 节）；**R8 补证**：AMR 体内=任务包装→写枢纽 post（纯异步投递、零 DB 触碰），任意线程同步调用安全（RUNTIME-DESIGN R8 节） |
 | 3 | schema 漂移：克隆行列集随构建漂移 | 按行 expected 模式入 config（地址表同机制）；func_size/anchor 身份门复用 |
 | 4 | 同步语义：伪造 svrid 的克隆行被服务器重同步清理/判孤儿 | M1 svrid 冲突面对位；M4 长期观察；最坏=本地行带标注的「随取随灭」语义 |
 | 5 | 视觉重复：撤回 tip+克隆气泡并存的信息密度 | tip 文案可自定义（tip_text 已在役）；克隆行标注可配 |

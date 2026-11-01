@@ -877,6 +877,19 @@ extension Wxkeep {
                             print("克隆读路径:        " + rdLine.joined(separator: " ")
                                   + "（R6 异步重查；上限 32 次/进程）")
                         }
+                        // M4 插入链（113 轮 R8）：clpub=publisher 形态探针成功数
+                        //（bootlog r8pub 行携带 subvt/msgvt 切片偏移——publisher
+                        // 认证值与容器合同的派生输入）；clins=插入调用数
+                        //（认证门与容器合同落地前恒 0）。
+                        let insLine = [("clpub", "publisher 探针"), ("clins", "插入调用")]
+                            .compactMap { key, label -> String? in
+                                guard let v = markerDigits(key).flatMap({ Int($0) }), v > 0 else { return nil }
+                                return "\(key)=\(v)（\(label)）"
+                            }
+                        if !insLine.isEmpty {
+                            print("克隆插入链:        " + insLine.joined(separator: " ")
+                                  + "（M4；认证门待 clpub 证据派生）")
+                        }
                         line += "（M2 原型缝：捕获/写点/配对；clmiss=插入未接的丢弃计数，非故障）"
                         print(line)
                     }
@@ -1145,10 +1158,23 @@ extension Wxkeep {
                             if !rd.isEmpty {
                                 print("读路径证据:      " + rd.joined(separator: " ") + "（R6 异步重查接线）")
                             }
+                            // M4 插入链证据（R8）：clpub=publisher 形态探针
+                            //（bootlog r8pub 行携带 subvt/msgvt 偏移——认证值
+                            // 派生输入）；clins=插入调用（认证+容器合同前恒 0）。
+                            let ins = [("clpub", "publisher 探针"), ("clins", "插入调用")]
+                                .compactMap { key, label -> String? in
+                                    guard let v = digits(key), v > 0 else { return nil }
+                                    return "\(key)=\(v)（\(label)）"
+                                }
+                            if !ins.isEmpty {
+                                print("插入链证据:      " + ins.joined(separator: " ")
+                                      + "（M4；bootlog r8pub 行=认证值派生输入）")
+                            }
                         }
                     }
-                    print("实验状态:        M2-R6+读路径接线（捕获/写点/配对/服务身份/异步重查链全在位）；")
-                    print("                 插入直调表（消息行入库）= R6 残余——数据行入库前克隆不产生任何消息副作用。")
+                    print("实验状态:        M2-R6+读路径接线+M4 插入表（捕获/写点/配对/服务身份/异步重查/插入 ABI 全在位）；")
+                    print("                 插入激活剩两步：publisher 认证值（clpub 证据派生）+ 容器合同（R9 RE）——")
+                    print("                 两者落地前克隆不产生任何消息副作用（探针-only，clins= 恒 0）。")
                     print("                 推荐组合：keep_message 保持缺省开（真共存实验需显式关 keep 后单独开 clone）。")
                 case .on:
                     let written = try RuntimeConfig.writeCloneMessage(true)

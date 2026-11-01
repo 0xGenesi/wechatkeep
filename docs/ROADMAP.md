@@ -463,6 +463,46 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 113·R8 M4 插入族合同定案与接线轮（2026-11-01：三缺口定案+R7 勘误——ctor/AMR ABI 全定案、publisher=订阅期绑定（clpub 证据步）；插入直调表数据行入库+探针+ABI runner+护栏全落地；281 测全绿 +2）
+
+1. **[R7 勘误（RE 翻案）]**：`ldp x0, x26, [x0, #8]` 实读——AMR 的 this
+   =x26=[this+0x10]（非 R7 记的 [this+8]）；且 0x34579d0 并非「入库服务」
+   而是**观察者任务 execute**（类 `_84c4e89c`，Itanium vtable 0x9df8d20，
+   0x28B {vt, arg1@+8, publisher@+0x10, 槽@+0x18, arg2@+0x20}，构造点=
+   订阅派发器 0x3416724——new(0x28)+写枢纽 post；拷贝构造器 0x3457964
+   互证布局）。工具坑：adrp 扫描必须用 `0x9F000000` 掩码——`w>>24==0x90`
+   漏 immlo≠0 形态（top byte 0xB0/0xD0/0xF0），R8 首扫「vtable 零引用」
+   全为假阴性，修正后 ctor 拷贝构造器/订阅派发器 19 处命中即翻案起点。
+2. **[ctor 合同（348B 全反汇编）]**：`ctor(x0=源, x1=容器, w2=0xa, sret
+   32B)`；sret={vtable 0x9f24930@+0, 自引用槽@+8, ctl@+0x18}；文本分支
+   =[容器+0x20]盖进[源+0x20]+内容重建四连（0x347cd3c→0x56fa6fc→
+   0x2f717e8→0x56fa308）；宿主 execute 对 sret+0x18 非空判别=本侧双读门。
+3. **[AMR 合同（2788B）]**：`AMR(x0=publisher, x1=&pair16{obj,ctl}, x2=
+   &24B 零置 outvec)`；体内=new(0x20) 任务{vt 0x9df7c38, svc, &pair,
+   &outvec}→写枢纽 post=**纯异步投递**（风险#2 最终实证：零 DB 触碰零
+   队列亲和）；pair strong count 由 AMR 自行 bump。写枢纽 0x3aeddb4
+   直译=publisher 协议位 [pub+8]→订阅者持有者→[[S]] vtable[0x10] 虚调
+   ——**认证谓词=[[svc+8]] vtable 常量比对**。
+4. **[svc 获取：静态不可达定案]**：publisher=订阅期绑定（订阅发起者
+   0x3479fc4 的 [obj+0x38]；ctor/AMR/0x3416724/0x3479fc4 BL 调用者
+   1/1/1/0，0x34579d0 零 BL——全 observer 到达）。**M4 走 clpub 证据步**：
+   一次真机撤回的 r8pub bootlog（subvt_off/msgvt_off/msg10）即派生认证值。
+5. **[接线全落地]**：行 schema 七字段组+pub_vt 可选（单独在场=整行拒）；
+   安装期 ctor/amr 双身份门（fs+16B 锚，rd 表同强度）；worker 探针
+   （纯内核读，clpub= + r8pub 证据行）；clone_ins_run ABI runner（句柄门
+   →护栏 8 次/进程 attempts 计→ctor big4 sret 直译→双读门→AMR）；marker
+   clpub=/clins=（CLI 双显示面）。270135 行首发（pub_vt 不带=探针-only，
+   插入调用生产侧恒惰性——「机制真实驱动且可证惰性」口径不变）。
+6. **[测试（281 全绿 +2）]**：行组门六态（含 pub_vt 三态）；JIT 桩 ABI
+   端到端（ctor 双字面量桩+amr 堆计数器桩——MAP_JIT 页写保护纪律：桩的
+   数据副作用必须落堆，页内计数器=写保护态 SIGBUS）；护栏恰 8 封顶；
+   探针命中/失配/链断三态。
+7. **[诚实边界（R9 待办）]**：①publisher 认证值未定（clpub 证据派生）
+   ②容器合同未定案（宿主容器=[[[task+0x20]]]，0x3456d00 处理链≈0x6D8B
+   未解码）③AMR pair 语义（宿主流用订阅侧 pair 非 ctor sret；自洽直投
+   的实际效果=新行 vs 更新由副本 E2E 裁决）。生产调用点在①②双落地后
+   接线。工具 var/ab/r8_m4_contract.py。
+
 ## 112·R7 插入族队列归属定案轮（2026-11-01：M4 前置 RE——插入链全族零 GCD/零 pthread（风险 #2 静态收敛）；克隆构造器候选 0x34597c8 定位（msg vtable 0x9f24930）；AddMessageResource 唯一调用者入库服务 0x34579d0 全图）
 
 1. **[队列归属（风险 #2）]**：stubmap 驱动的 GCD/pthread 调用全扫——

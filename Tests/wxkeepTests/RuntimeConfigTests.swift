@@ -201,6 +201,36 @@ struct RuntimeConfigTests {
                         "rd 组 hex 必须可解析（\(row.build)）")
             }
         }
+        // M4 插入直调表（113 轮 R8）：七字段成组（ctor/amr 各带 fs+head 双
+        // 身份门 + msg_vt），pub_vt 可选。现役仅 270135 arm64 携带（探针-only
+        // 形态——不带 pub_vt）。
+        for row in rows {
+            let insFields: [String?] = [row.clone_ins_ctor, row.clone_ins_amr,
+                                        row.clone_ins_msg_vt]
+            let anyPresent = insFields.contains { $0 != nil }
+                || row.clone_ins_ctor_fs != nil || row.clone_ins_ctor_head != nil
+                || row.clone_ins_amr_fs != nil || row.clone_ins_amr_head != nil
+            if !anyPresent {
+                // pub_vt 单独在场而组不在场 = 认证门脱离组（dylib 侧整行拒绝）
+                #expect(row.clone_ins_pub_vt == nil,
+                        "pub_vt 不得脱离 ins 组单独出现（\(row.build)）")
+                continue
+            }
+            #expect(row.arch == "arm64", "ins 组仅 arm64（x64 行带字段=坏行）")
+            #expect(row.clone_ins_ctor_fs != nil && row.clone_ins_ctor_head != nil
+                    && row.clone_ins_amr_fs != nil && row.clone_ins_amr_head != nil,
+                    "ins 组身份门字段必选（\(row.build)）")
+            #expect(row.clone_ins_ctor_head?.count == 32
+                    && row.clone_ins_ctor_head?.allSatisfy(\.isHexDigit) == true
+                    && row.clone_ins_amr_head?.count == 32
+                    && row.clone_ins_amr_head?.allSatisfy(\.isHexDigit) == true,
+                    "ctor/amr 头锚恰 16B hex（\(row.build)）")
+            for f in insFields.compactMap({ $0 }) + [row.clone_ins_pub_vt].compactMap({ $0 }) {
+                #expect(f.hasPrefix("0x"), "ins 组 hex 字段必须 0x 前缀（\(row.build)）")
+                #expect(UInt64(f.dropFirst(2), radix: 16) != nil,
+                        "ins 组 hex 必须可解析（\(row.build)）")
+            }
+        }
     }
 }
 

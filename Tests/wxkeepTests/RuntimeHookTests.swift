@@ -1088,6 +1088,220 @@ extension RuntimeHookTests {
         #expect(parse(#"{"hooks":["# + base + #"}]}"#) == 1)
     }
 
+    /// M4 插入直调表七字段组门（113 轮 R8）：全组在场 → 接受且回读；
+    /// 缺任一/坏 hex/头锚长度不符 → 整行拒绝。pub_vt 可选（在/不在均接受，
+    /// 回读 pub_gated 区分）。直调面与 rd 组同强度——组不完整 = 行作者笔误。
+    @Test func cloneInsRowParseGate() {
+        let base = #"{"build":"270135","uuid":"0c2f01c0-c197-3286-901d-70e1d007a1c0","arch":"arm64","hook_off":"0x4d1f8d8","msg_arg":1,"xml_sso_off":0,"expected":"F85FBCA9F65701A9F44F02A9FD7B03A9","clone_hook_off":"0x4cd5e8c","clone_expected":"FFC302D1FC6F05A9FA6706A9F85F07A9""#
+        let ins = #","clone_ins_ctor":"0x34597c8","clone_ins_ctor_fs":348,"clone_ins_ctor_head":"FF0305D1FC6F10A9F65711A9F44F12A9","clone_ins_amr":"0x33fd190","clone_ins_amr_fs":2788,"clone_ins_amr_head":"F85FBCA9F65701A9F44F02A9FD7B03A9","clone_ins_msg_vt":"0x9f24930""#
+        func parse(_ s: String) -> Int32 {
+            wxkeep_runtime_test_parse_hooks(s, UInt(s.utf8.count))
+        }
+        // 全组在场（pub_vt 不带 = 探针-only 形态，270135 现役）：接受 + 回读
+        let full = #"{"hooks":["# + base + ins + #"}]}"#
+        #expect(parse(full) == 1)
+        var ctorOff: CUnsignedLong = 0, amrOff: CUnsignedLong = 0, msgVt: CUnsignedLong = 0
+        var pubVt: CUnsignedLong = 0, ctorFs: CUnsignedLong = 0, amrFs: CUnsignedLong = 0
+        var pubGated: Int32 = 0
+        #expect(wxkeep_runtime_test_hook_row_ins(0, &ctorOff, &amrOff, &msgVt,
+                                                 &pubVt, &ctorFs, &amrFs, &pubGated) == 0)
+        #expect(ctorOff == 0x34597c8)
+        #expect(amrOff == 0x33fd190)
+        #expect(msgVt == 0x9f24930)
+        #expect(ctorFs == 348)
+        #expect(amrFs == 2788)
+        #expect(pubGated == 0, "pub_vt 不带 = 探针-only（认证门关闭）")
+        // pub_vt 带上（认证门形态）：同样接受，回读 pub_gated=1
+        let gated = #"{"hooks":["# + base + ins + #","clone_ins_pub_vt":"0x9deeb48"}]}"#
+        #expect(parse(gated) == 1)
+        #expect(wxkeep_runtime_test_hook_row_ins(0, nil, nil, nil,
+                                                 &pubVt, nil, nil, &pubGated) == 0)
+        #expect(pubVt == 0x9deeb48 && pubGated == 1)
+        // 缺任一字段（去掉 amr_head 带尾逗号）：整组拒绝 → 整行拒绝
+        let partial = #"{"hooks":["# + base + ins.replacingOccurrences(
+            of: "\"clone_ins_amr_head\":\"F85FBCA9F65701A9F44F02A9FD7B03A9\",", with: "")
+            + #"}]}"#
+        #expect(parse(partial) == 0, "七字段缺一（amr_head）→ 整行拒绝")
+        // 坏 hex（ctor 带尾部垃圾）：拒绝
+        #expect(parse(#"{"hooks":["# + base + ins.replacingOccurrences(
+            of: "\"clone_ins_ctor\":\"0x34597c8\"", with: "\"clone_ins_ctor\":\"0x34597c8ZZ\"")
+            + #"}]}"#) == 0)
+        // 头锚长度不符（ctor_head 8B）：拒绝
+        #expect(parse(#"{"hooks":["# + base + ins.replacingOccurrences(
+            of: "FF0305D1FC6F10A9F65711A9F44F12A9", with: "FF0305D1FC6F10A9")
+            + #"}]}"#) == 0)
+        // amr_fs 缺失（组内必选）：拒绝
+        #expect(parse(#"{"hooks":["# + base + ins.replacingOccurrences(
+            of: "\"clone_ins_amr_fs\":2788,", with: "")
+            + #"}]}"#) == 0)
+        // pub_vt 单独在场而组不在场：拒绝（认证门不脱离组存在）
+        #expect(parse(#"{"hooks":["# + base + #","clone_ins_pub_vt":"0x9deeb48"}]}"#) == 0)
+    }
+
+    /// M4 插入 ABI 端到端（arm64）：MAP_JIT 桩 ctor（sret 写 vtable+ctl）/
+    /// amr（计数器自增）经**生产 clone_ins_run** 调用——sret 换址（x8）、
+    /// 三参直译、vtable 双读门、pair/outvec 装配。探针分支用合成 svc 形态
+    /// 驱生产 clone_ins_probe（含认证门命中/失配）。x86_64 宿主跳过。
+    @Test func cloneInsAbiAndProbeEndToEnd() {
+        #if arch(arm64)
+        // JIT 桩页布局（字节偏移；ctor 桩 40B = 5 指令 + pad + 双字面量
+        //@+24(vtable 词)/@+32(ctl 词)——ctl 是指针形控制块，门判别
+        // >0x10000；amr 桩 32B 单字面量@+24）：
+        //   0:  ctor_ok     —— [x8]=lit1(msg_vt 词)、[x8+0x18]=lit2(ctl)
+        //   40: ctor_badctl —— 同上但 ctl 字面量=0（空路径）
+        //   80: ctor_badvt  —— vtable 字面量 = 毒值 0xdeadbeef
+        //   120: amr        —— ldr x9,#24; ldr x10,[x9]; add x10,#1;
+        //                       str x10,[x9]; ret（字面量 = 计数器地址）
+        let page = mmap(nil, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                        MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0)
+        #expect(page != MAP_FAILED)
+        defer { munmap(page, 4096) }
+        // ctor：双字面量写 sret
+        let ctorStub: [UInt32] = [
+            0x580000C9,              // ldr x9, #24（字面量1 @+24 = vtable 词）
+            0x580000EA,              // ldr x10, #28（PC@+4 → 字面量2 @+32 = ctl 词）
+            0xF9000109,              // str x9, [x8]
+            0xF9000D0A,              // str x10, [x8, #0x18]
+            0xD65F03C0,              // ret
+        ]
+        // amr：计数器自增
+        let amrStub: [UInt32] = [
+            0x580000C9,              // ldr x9, #24（字面量 @+24）
+            0xF940012A,              // ldr x10, [x9]
+            0x9100054A,              // add x10, x10, #1
+            0xF900012A,              // str x10, [x9]
+            0xD65F03C0,              // ret
+        ]
+        let baseAddr = UInt64(UInt(bitPattern: page))
+        // amr 计数器放**堆**（不在 JIT 页）：桩执行时页已回到写保护态，
+        // 页内写 = SIGBUS（桩只许执行，数据副作用落堆）。
+        var counter: UInt64 = 0
+        let counterSlot = malloc(8)!.assumingMemoryBound(to: UInt64.self)
+        counterSlot.pointee = 0
+        defer { free(counterSlot) }
+        let counterAddr = UInt64(UInt(bitPattern: counterSlot))
+        func writeCtor(_ off: Int, vt: UInt64, ctl: UInt64) {
+            ctorStub.withUnsafeBufferPointer { cp in
+                memcpy(page! + off, cp.baseAddress, ctorStub.count * 4)
+            }
+            var v1 = vt, v2 = ctl
+            memcpy(page! + off + 24, &v1, 8)
+            memcpy(page! + off + 32, &v2, 8)
+        }
+        let msgVtOff: UInt64 = 0x9f24930
+        pthread_jit_write_protect_np(0)
+        writeCtor(0, vt: baseAddr + msgVtOff, ctl: 0x1122_3000)
+        writeCtor(40, vt: baseAddr + msgVtOff, ctl: 0)
+        writeCtor(80, vt: 0xdeadbeef, ctl: 0x1122_3000)
+        amrStub.withUnsafeBufferPointer { cp in
+            memcpy(page! + 120, cp.baseAddress, amrStub.count * 4)
+        }
+        var litCounter = counterAddr
+        memcpy(page! + 120 + 24, &litCounter, 8)
+        sys_icache_invalidate(page, 0x100)
+        pthread_jit_write_protect_np(1)
+
+        let publisher = UnsafeMutableRawPointer(bitPattern: 0x5566_0000)!
+        let container = UnsafeMutableRawPointer(bitPattern: 0x7788_0000)!
+        let source = UnsafeMutableRawPointer(bitPattern: 0x99aa_0000)!
+
+        // 正路径：ctor 门过 + AMR 调用（计数器 +1）
+        let r1 = wxkeep_runtime_test_clone_ins_invoke(
+            CUnsignedLongLong(UInt(bitPattern: publisher)),
+            CUnsignedLongLong(UInt(bitPattern: container)),
+            CUnsignedLongLong(UInt(bitPattern: source)),
+            CUnsignedLong(baseAddr), CUnsignedLong(baseAddr + 120),
+            CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
+        #expect(r1 == 3, "ctor 门过 + AMR 已调（got r=\(r1)）")
+        counter = counterSlot.pointee
+        #expect(counter == 1, "AMR 桩恰好被调一次")
+
+        // 负控 ①：sret vtable 失配 → 守卫退出（AMR 不调）
+        let r2 = wxkeep_runtime_test_clone_ins_invoke(
+            CUnsignedLongLong(UInt(bitPattern: publisher)),
+            CUnsignedLongLong(UInt(bitPattern: container)),
+            CUnsignedLongLong(UInt(bitPattern: source)),
+            CUnsignedLong(baseAddr + 80), CUnsignedLong(baseAddr + 120),
+            CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
+        #expect(r2 == 0, "ctor sret vtable 失配 → 绝不进入 AMR")
+        counter = counterSlot.pointee
+        #expect(counter == 1, "负控路径 AMR 计数不动")
+
+        // 负控 ②：ctl@+0x18 空（宿主 execute 体同款判别位）→ 守卫退出
+        let r3 = wxkeep_runtime_test_clone_ins_invoke(
+            CUnsignedLongLong(UInt(bitPattern: publisher)),
+            CUnsignedLongLong(UInt(bitPattern: container)),
+            CUnsignedLongLong(UInt(bitPattern: source)),
+            CUnsignedLong(baseAddr + 40), CUnsignedLong(baseAddr + 120),
+            CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
+        #expect(r3 == 0, "ctl 空 → 守卫退出")
+
+        // 负控 ③：非法句柄（container=0——ctor 会读 [x1+0x20]，绝不透传）
+        let r4 = wxkeep_runtime_test_clone_ins_invoke(
+            CUnsignedLongLong(UInt(bitPattern: publisher)), 0,
+            CUnsignedLongLong(UInt(bitPattern: source)),
+            CUnsignedLong(baseAddr), CUnsignedLong(baseAddr + 120),
+            CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
+        #expect(r4 == 0, "句柄门在宿主调用之前——零指针绝不进 ctor")
+
+        // 护栏：kCloneMaxInserts=8 次进程封顶（attempts 计——含失败尝试）
+        var inserts0: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(nil, nil, nil, &inserts0)
+        var refused = false
+        for _ in 0..<(16 - Int(inserts0)) {
+            let r = wxkeep_runtime_test_clone_ins_invoke(
+                CUnsignedLongLong(UInt(bitPattern: publisher)),
+                CUnsignedLongLong(UInt(bitPattern: container)),
+                CUnsignedLongLong(UInt(bitPattern: source)),
+                CUnsignedLong(baseAddr), CUnsignedLong(baseAddr + 120),
+                CUnsignedLong(baseAddr), CUnsignedLong(msgVtOff))
+            if r == 0 { refused = true; break }
+        }
+        #expect(refused, "插入护栏 8 次/进程封顶后拒绝再调")
+        var inserts1: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(nil, nil, nil, &inserts1)
+        #expect(inserts1 == 8, "attempts 计数恰封顶（got \(inserts1)）")
+
+        // 探针：合成 svc（[svc+8]=holder、[holder]=vtable 词）驱动生产
+        // clone_ins_probe——认证门命中/失配/链断三态。
+        let svc = malloc(0x20)!.assumingMemoryBound(to: UInt64.self)
+        let holder = malloc(0x10)!.assumingMemoryBound(to: UInt64.self)
+        let msgObj = malloc(0x20)!.assumingMemoryBound(to: UInt64.self)
+        defer { free(svc); free(holder); free(msgObj) }
+        memset(UnsafeMutableRawPointer(svc), 0, 0x20)
+        memset(UnsafeMutableRawPointer(holder), 0, 0x10)
+        memset(UnsafeMutableRawPointer(msgObj), 0, 0x20)
+        svc[1] = UInt64(UInt(bitPattern: holder))           // [svc+8] = holder
+        holder[0] = 0x100000 + 0x9f24930                    // [[svc+8]] = vtable
+        msgObj[0] = 0x100000 + 0x9f24930                    // msg vtable 证据字
+        msgObj[2] = 0x1234                                  // +0x10 形态证据字
+        var probes0: Int32 = 0, matches0: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes0, &matches0, nil, nil)
+        // 命中：base=0x100000、pub_vt=0x9f24930 与 holder vtable 一致
+        wxkeep_runtime_test_clone_ins_probe(CUnsignedLongLong(UInt(bitPattern: svc)),
+                                            CUnsignedLongLong(UInt(bitPattern: msgObj)),
+                                            0x100000, 0x9f24930)
+        var probes1: Int32 = 0, matches1: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes1, &matches1, nil, nil)
+        #expect(probes1 == probes0 + 1 && matches1 == matches0 + 1, "探针成功 + 认证门命中")
+        // 失配：pub_vt 给错值 → probes +1、matches 不动
+        wxkeep_runtime_test_clone_ins_probe(CUnsignedLongLong(UInt(bitPattern: svc)),
+                                            CUnsignedLongLong(UInt(bitPattern: msgObj)),
+                                            0x100000, 0x111)
+        var probes2: Int32 = 0, matches2: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes2, &matches2, nil, nil)
+        #expect(probes2 == probes1 + 1 && matches2 == matches1, "失配只计探针不计命中")
+        // 链断：[svc+8]=0 → 零计数推进（证据面不虚报）
+        svc[1] = 0
+        wxkeep_runtime_test_clone_ins_probe(CUnsignedLongLong(UInt(bitPattern: svc)),
+                                            CUnsignedLongLong(UInt(bitPattern: msgObj)),
+                                            0x100000, 0x9f24930)
+        var probes3: Int32 = 0
+        wxkeep_runtime_test_clone_ins_counts(&probes3, nil, nil, nil)
+        #expect(probes3 == probes2, "链断不计探针")
+        #endif
+    }
+
     /// sso_key_snapshot 解码器：短串（内联）/长串（ptr+size）/畸形（0 长度、
     /// 超界 size、坏指针）三态。R6 键快照的唯一解码面。
     @Test func cloneKeySnapshotDecoder() {
