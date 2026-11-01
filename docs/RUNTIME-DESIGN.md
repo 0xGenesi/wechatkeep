@@ -813,3 +813,56 @@ N 的值域）→ hook 侧以候选索引试探 lookup + marker 证据回读—�
 - **V3-M3 负控前置**：cloneCaptureFuzzNegativeControl（确定性畸形语料
   400+ 条：捕获≡提取逐缓冲一致 + 坏 XML 不暂存配对槽）——M3「坏 XML
   不触发插入」的捕获/配对段先钉死，R6 接表后断言面自然延伸。
+
+## 109 轮（2026-11-01）：写点合同三方互证定案 + R4 捕获体合同修正（269 测全绿）
+
+> R6 静态正道轮（+0xb78 写入者链追踪的铺垫轮）。产出 = 写点全合同修正
+> （disasm + decomp + 调用点三方互证）与 R4 捕获体的诚实化重写。
+
+### 写点 0x4cd5e8c 全合同（109 定案，三方互证）
+
+- **签名**：`write_point(msg_obj, &shared_ptr{inner,ctl}, wrap)`。
+  caller = consumer_main 体内 **0x31aa680**（0x102b740 getter 的 sret 结果
+  经 `ldr x0,[sp,#8]` 直通 BL；x1 = `{obj+0x6b0, obj+0x6b8}` 栈拷贝且
+  caller 已 bump ctl+8；x2 = +0x278 命中 wrap）。写点体内 x0 仅自递归
+  透传（0x4cd60c0 `mov x0,x20`）。
+- **M2-R2 勘误①**：「0x713cb34 = 写点调用者」是 **idx calls 图假象**（R5
+  入册的 idx 漏边家族缺陷第三实例）——原始 BL 全量扫证明写点直连调用者
+  只有 2 站（0x31aa680 + 自递归 0x4cd60c8）。0x713cb34 本尊在 0x713xxxx
+  区（自有 3 个调用者），与写点无直连。
+- **M2-R2 勘误②**：「content @+0x7e / 标记 +0x7d/+0x87/+0x3e9 属消息对
+  象」归因错误——这些字段在**行对象**上（体内 0x714012c 按列名取出的
+  返回值，基址 [sp,#0x40]/x0）；msg_obj（args[0]）体内只写 +0x3e8/+0x438。
+- **行对象链**：inner（=msg_obj+0x6b0 pointee）→ vtable[0x10] 调用返回
+  行向量 → 逐元素 `0x714012c(元素, 列名A@0x9c4cbe0, 列名B@0x9eba3c8, 0)`
+  取出行对象 → 写撤回标记 +0x3e8/+0x3e9/+0x438 + `0x4cd5d88` 合并
+  config 字符串 → **行 +0x7e ← config+0x20 覆写**（撤回提示文案落行）。
+- **配置对象链（新发现）**：`[[0xa51f728]+0x38]` = 撤回提示配置——
+  +0xc(u32)/+0x10/+0x14(mode，写点按 ==3/==4 分支)/+0x18/+0x20(文案串)。
+  行+0x7e 的 content 即此来源——**写点不携带原文**，原文在撤回前已在行上
+  （覆写即失）。宿主自己的提示文案机制就在这条链上。
+
+### R4 捕获体合同修正（代码，269 测全绿）
+
+- **旧体前提作废**：「args[1] = 对象向量（begin/end 双候选 + 256 上界遍
+  历）」是对 caller 伪代码的误读。真实 args[1] 解一次引用即 inner 单对；
+  旧形态门在 (vtable,next-qword) 邻域上碰运气 = 假捕获/垃圾 cllastlen
+  证据污染（kread 全程兜底不崩，但证据不可信）。
+- **新体（诚实能力面）**：事件（clrow）+ msgid 配对（CAS 消费不变）+
+  `clone_dispatch_full(msgid, fromusr, NULL, 0)`——**content 采集移交
+  R6 工作函数**（异步侧宿主调用合法）按 msgid 重查；本缝零宿主调用红线
+  不破（行枚举需 vtable[0x10] 调用，hook 体禁）。cllastlen/objcaps 恒 0
+  待 R6 真源。测试缝（clone_rows）与两测同步重写为合成 pair 形态。
+- **设计含义（R6 铸型）**：seam B 捕不到原文（行+0x7e 在 hook 体可及范
+  围外且覆写即失）→ **克隆事件必须以 msgid 为键、R6 工作函数异步重查**
+  （读路径合同 0x32edaec(out, service, key, x3, 0) + 0x102b740 getter，
+  查得即插）——R5 的配对架构（msgid 通道）由此成为唯一正道，本轮证据
+  反而加固了它。
+
+### 服务获取负结果（确认，R6 残余）
+
+0x32edaec 全部 6 个直连调用者的服务句柄全部 = 各自 this+0xb78（x19/x21/
+x25 对象派生），**无全局捷径**。+0xb78 写入者链（consumer 构造 ← 创建者
+← 分发 2-3 hop）仍是 R6 静态目标；或副本窗口运行时试探（hook 侧从
+consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直连调用
+者，写入者链大概率短）。

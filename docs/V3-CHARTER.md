@@ -160,6 +160,15 @@ svrid/rowid 不受波及。插入落队时机晚于撤回写也安全（内容�
     2-3 hop，独立 RE 轮）或副本窗口运行时试探。另：108 轮修掉克隆蹦床
     12B 行 UDF P0（补丁态首调即 SIGILL）——见 ROADMAP 108/RUNTIME-
     DESIGN 108 节；M3 负控的捕获/配对段已先行钉死（fuzz 负控测试）。
+  - **M2-R6 写点合同定案（2026-11-01，109 轮）**：写点签名/调用者/行对
+    象链三方互证定案；M2-R2 双勘误（「0x713cb34 调用者」=idx 假象、
+    「content @+0x7e 属消息对象」实为行对象字段）；R4 捕获体诚实化重写
+    （args[1]=shared_ptr 单对非向量，content 采集移交 R6 工作函数异步
+    按 msgid 重查）——**R5 配对架构（msgid 通道）由此升格为克隆的唯一
+    正道**（seam B 捕不到原文：行 +0x7e 覆写即失+行枚举需宿主调用）。
+    服务获取负结果确认（0x32edaec 全 6 调用者=this+0xb78 派生，无全局
+    捷径）；consumer_main 唯一直连调用者 0x45a5910——写入者链大概率短，
+    下轮主攻。详见 RUNTIME-DESIGN 109 节。
 - **V3-M3（产品化）**：config 键 `clone_message`（默认 off，与
   keep_message/zeroing 三通道关系裁决：克隆开启时清零是否让行）+自撤
   不克隆（selfskip 先于克隆判定）+重编辑记账对齐+FuzzParseSurfaces

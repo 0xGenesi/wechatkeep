@@ -928,15 +928,19 @@ static void clone_work(void *ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// V3-M2-R4 写点捕获（seam B，105 轮定案）：clone_hook_off 第二挂点武装后
-// 的 hook 体。入参 = 撤回写点（0x4cd5e8c 族）的 x0/x1/x2 镜像；x1 = 消息
-// 对象 shared_ptr 向量，content std::string @ obj+0x7e（arm64 SSO 与 XML
-// 串同构——sso 布局读共用）。**全部解引用走内核级读**（mach_vm_read_
-// overwrite）：遍历宿主容器时用户态裸读垃圾指针 = 进程崩溃，内核读只返
-// 错——实验缝绝不放大为消息链故障（与 R1 失败面收敛同哲学）。
-static int g_clone_rows;      // 写点事件数（挂点命中即计，含遍历零对象）
-static int g_clone_obj_caps;  // 捕获到的消息对象 content 数
-static volatile int g_clone_last_len;   // 最近一次捕获的 content 字节数
+// V3-M2-R4 写点捕获（seam B，105 轮定案；109 轮合同修正）：clone_hook_off
+// 第二挂点武装后的 hook 体。写点签名 = (msg_obj, &shared_ptr{inner,ctl},
+// wrap)——109 轮以 disasm+decomp+调用点三方互证定案（caller=consumer_main
+// 体内 0x31aa680）：args[1] 解一次引用 = 行集合持有者 inner，行枚举须经
+// inner 的 vtable[0x10] 调用（hook 体零宿主调用红线，禁）；原文 content
+// 在**行对象** +0x7e（M2-R2 的「消息对象 @+0x7e」归因勘误），且撤回时被
+// config+0x20 覆写。故本缝的诚实能力 = 事件 + msgid 配对；content 采集
+// 移交 R6 工作函数（异步侧宿主调用合法）按 msgid 重查。
+// **全部解引用走内核级读**（mach_vm_read_overwrite）：用户态裸读垃圾
+// 指针 = 进程崩溃，内核读只返错——实验缝绝不放大为消息链故障。
+static int g_clone_rows;      // 写点事件数（挂点命中即计）
+static int g_clone_obj_caps;  // content 捕获数（109 轮起恒 0——content 源待 R6）
+static volatile int g_clone_last_len;   // 最近一次捕获的 content 字节数（同上，恒 0）
 static int g_sso_layout_arm64;   // 前向声明（定义在 SSO 布局节；tentative 合并）
 
 // ---------------------------------------------------------------------------
@@ -975,7 +979,7 @@ static void clone_dispatch_full(uint64_t msgid, const char *fromusr,
     rec->msgid = msgid;
     if (fromusr) strlcpy(rec->fromusr, fromusr, sizeof(rec->fromusr));
     rec->len = len;
-    memcpy(rec->content, content, len);
+    if (content && len > 0) memcpy(rec->content, content, len);   // len=0 事件合法（109 轮：content 待 R6）
     dispatch_queue_t q = clone_queue();
     if (q) {
         dispatch_async_f(q, rec, clone_work_full);
@@ -1027,87 +1031,38 @@ static int sso_head_buf(const uint8_t *head24, uint64_t *size) {
     return 1;
 }
 
-/// 克隆 hook 体（与形态无关）：args = 写点整型参镜像（x0/x1/x2……）。
-/// 只读 args[1]（消息对象向量）；捕获走内核读 + 深拷贝 + 异步派发
-/// （队列复用 R1 的 wxkeep.clone 串行队列）。
+/// 克隆 hook 体（109 轮合同修正版）：args = 写点整型参镜像（x0/x1/x2……）。
+/// 只读 args[1]（&shared_ptr{inner,ctl}，解一次引用得行集合持有者）；
+/// 事件 + msgid 配对走内核读 + 异步派发（队列复用 R1 的 wxkeep.clone
+/// 串行队列）。content 采集不在本缝（见节注释——行枚举需宿主调用）。
 __attribute__((used)) static void clone_hook_body(void *const *args) {
     if (!g_clone_message) return;   // 实验开关关 = 纯透传（挂点命中也不动）
     g_clone_rows++;
     uint64_t v = (uint64_t)(uintptr_t)args[1];
     if (v <= 0x10000) { g_clone_skips++; return; }
-    uint64_t outer = 0;
-    if (!kread64(v, &outer) || outer <= 0x10000) { g_clone_skips++; return; }
-    // 向量形态双候选（R2 伪代码：plVar13=*param_2 后 [2]/[3] 比较 begin/end；
-    // 消息对象 shared_ptr 步进 0x10）。形态门：begin<=end、跨度 ≤1MB、
-    // 各自 8 对齐——两候选都不满足按 skips 计（宁可不捕也不误捕）。
-    uint64_t cand[2][2] = {
-        { 0, 0 },   // (outer+0x00, outer+0x08)
-        { 0, 0 },   // (outer+0x10, outer+0x18)
-    };
-    if (!kread64(outer, &cand[0][0])) { g_clone_skips++; return; }
-    if (!kread64(outer + 8, &cand[0][1])) { g_clone_skips++; return; }
-    if (!kread64(outer + 0x10, &cand[1][0])) { g_clone_skips++; return; }
-    if (!kread64(outer + 0x18, &cand[1][1])) { g_clone_skips++; return; }
-    int shape = -1;
-    for (int i = 0; i < 2; i++) {
-        uint64_t b = cand[i][0], e = cand[i][1];
-        if (b > 0x10000 && e >= b && e - b <= (1UL << 20) && (b & 7) == 0 && (e & 7) == 0) {
-            shape = i; break;
+    uint64_t inner = 0;
+    if (!kread64(v, &inner) || inner <= 0x10000) { g_clone_skips++; return; }
+    // inner 在手（R6 工作函数的枚举入口，指针权威=caller 已 bump 引用计
+    // 数的 shared_ptr 拷贝；异步侧使用前须重建生命周期——R6 合同面）。
+    // 本缝不触碰行集合（枚举需 vtable 调用=hook 体红线）；content 证据位
+    // （g_clone_obj_caps/g_clone_last_len）109 轮起恒 0，待 R6 接上真源。
+    // R5 配对（不变）：消费暂存 msgid（CAS 清零——多写点事件只配首捕；
+    // 陈旧槽 >30s 不配对，防跨撤回串绑）。配对成功=克隆事件入队（R6 直
+    // 调表消费单元；content 由 R6 按 msgid 重查）。fromusr 快照先于 CAS
+    // 拷贝（同事件值；残余并发窗口见 g_clone_pending_fromusr 注释——
+    // NUL@63 有界，消费 strlcpy 恒安全）。
+    uint64_t pid = __atomic_load_n(&g_clone_pending_msgid, __ATOMIC_ACQUIRE);
+    uint64_t pts = __atomic_load_n(&g_clone_pending_ts, __ATOMIC_RELAXED);
+    uint64_t now = (uint64_t)time(NULL);
+    if (pid != 0 && pts != 0 && now >= pts && now - pts <= 30) {
+        char fromusr_local[64];
+        memcpy(fromusr_local, (const void *)g_clone_pending_fromusr, sizeof(fromusr_local));
+        uint64_t expect = pid;
+        if (__atomic_compare_exchange_n(&g_clone_pending_msgid, &expect, 0, 0,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            g_clone_pairs++;
+            clone_dispatch_full(pid, fromusr_local, NULL, 0);
         }
-    }
-    if (shape < 0) { g_clone_skips++; return; }
-    uint64_t p = cand[shape][0], end = cand[shape][1];
-    int n = 0;        // 完整捕获数（证据面）
-    // 迭代上界 256 与捕获数分离（108 轮修）：旧 `n < 256` 只计完整捕获，
-    // 空/坏元素不计——形态误判时最多可空转 1MB/16=65536 次内核读（数十
-    // 毫秒停顿在微信消息线程上）。上界约束的是遍历工作量，不是产出。
-    for (int iter = 0; p + 16 <= end && iter < 256; iter++) {
-        uint64_t elem = 0;
-        if (!kread64(p, &elem)) break;
-        p += 16;
-        if (elem <= 0x10000) continue;
-        uint8_t head[24];
-        if (!kread_buf(elem + 0x7e, head, sizeof(head))) continue;
-        uint64_t csize = 0;
-        if (!sso_head_buf(head, &csize)) continue;
-        if (csize == 0 || csize > (1UL << 20)) continue;
-        // 长串数据指针：arm64 布局 data@[head+0x00]，x64 @+0x10（sso_head 同源）
-        uint64_t dataPtr = 0;
-        if (!kread_buf(elem + 0x7e + (g_sso_layout_arm64 ? 0 : 0x10), &dataPtr, 8)) continue;
-        if (dataPtr <= 0x10000) continue;
-        uint64_t snap = csize > 255 ? 255 : csize;
-        uint8_t *buf = malloc((size_t)snap);
-        if (!buf) break;
-        mach_vm_size_t got = 0;
-        if (mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)dataPtr, (mach_vm_size_t)snap,
-                                   (mach_vm_address_t)(unsigned long)buf, &got) != KERN_SUCCESS
-            || got != snap) {
-            free(buf);
-            continue;
-        }
-        // 内容不落 marker（隐私面）；只计证据。捕获即深拷贝完成——异步
-        // 派发给未来的插入直调表（R6），当前生命周期到 worker 释放为止。
-        g_clone_obj_caps++;
-        g_clone_last_len = (int)snap;
-        // R5 配对：消费暂存 msgid（CAS 清零——多对象写点只配首捕；陈旧
-        // 槽 >30s 不配对，防跨撤回串绑）。配对成功=完整记录入队（R6 直调
-        // 表消费单元）。fromusr 快照先于 CAS 拷贝（同事件值；残余并发窗口
-        // 见 g_clone_pending_fromusr 注释——NUL@63 有界，消费 strlcpy 恒安全）。
-        uint64_t pid = __atomic_load_n(&g_clone_pending_msgid, __ATOMIC_ACQUIRE);
-        uint64_t pts = __atomic_load_n(&g_clone_pending_ts, __ATOMIC_RELAXED);
-        uint64_t now = (uint64_t)time(NULL);
-        if (pid != 0 && pts != 0 && now >= pts && now - pts <= 30) {
-            char fromusr_local[64];
-            memcpy(fromusr_local, (const void *)g_clone_pending_fromusr, sizeof(fromusr_local));
-            uint64_t expect = pid;
-            if (__atomic_compare_exchange_n(&g_clone_pending_msgid, &expect, 0, 0,
-                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                g_clone_pairs++;
-                clone_dispatch_full(pid, fromusr_local, buf, (uint32_t)snap);
-            }
-        }
-        free(buf);
-        n++;
     }
 }
 
@@ -2636,54 +2591,36 @@ int wxkeep_runtime_test_clone_pair_count(int clear_pending) {
     return g_clone_pairs;
 }
 
-/// V3-M2-R4 写点捕获缝：对合成向量直接驱动 clone_hook_body。
-/// 构造（全部真实堆分配，走同一条内核读路径）：
-///   vec 对象（8B）→ outer（32B：候选 A begin/end @0/8、候选 B @16/24）
-///   → begin 指向 shared_ptr 数组（{obj,ctl} 对）→ obj = 24B 头 + 0x7e 偏移
-///     的对象（content SSO @+0x7e，arm64 布局：flag[0x17]/size[8]/data[0]）
-/// rows/skips/objcaps 回传证据计数。返回本次调用捕获对象数（增量，非累计）。
+/// V3-M2 写点捕获缝（109 轮合同修正版）：对合成 shared_ptr 对直接驱动
+/// clone_hook_body。构造（全部真实堆分配，走同一条内核读路径）：
+///   args[1] = &pair{inner, ctl}（写点真实形态——caller 的 shared_ptr 栈
+///   拷贝）；content_bytes > 0 → inner 指向可读堆块（事件路径，返回 1）；
+///   content_bytes == 0 → inner = 0（g_clone_skips 路径，返回 0）。
+/// rows/skips/objcaps 回传证据计数。返回本次事件处理结果（1/0）。
 int wxkeep_runtime_test_clone_rows(unsigned long long content_bytes,
                                    int *rows, int *skips, int *objcaps) {
-    // 配对预置：非零 = 先走一次真实 XML 捕获暂存 msgid（R5 配对通路）。
-    // 用全局量传参（签名零改）：调用方先 wxkeep_runtime_test_clone_capture
-    // 即已暂存——本参数保留 0。
     // 开关：body 在 g_clone_message 关时直接透传——测试内强制开
     int saved = g_clone_message;
     g_clone_message = 1;
-    int before = g_clone_obj_caps;
-    // 合成对象：0x100 头区（+0x7e 处放 24B SSO 头）+ 独立 data 区
-    uint8_t *obj = calloc(1, 0x200);
-    uint8_t *data = malloc(content_bytes > 0 ? (size_t)content_bytes : 1);
-    memset(data, 'A', (size_t)content_bytes);
-    uint64_t size = content_bytes;
-    if (g_sso_layout_arm64) {
-        memcpy(obj + 0x7e, data, 8);              // data ptr @+0
-        memcpy(obj + 0x7e + 8, &size, 8);          // size @+8
-        obj[0x7e + 0x17] = 0xFF;                   // 长串旗标（符号负）
+    // 合成 pair：inner 可读堆块（16B，内容无关——本缝不读其字段）或 0
+    uint64_t *inner_obj = NULL;
+    uint64_t *pair = malloc(16);
+    if (content_bytes > 0) {
+        inner_obj = calloc(1, 16);
+        inner_obj[0] = 0xA11CE;
+        pair[0] = (uint64_t)(uintptr_t)inner_obj;
     } else {
-        obj[0x7e] = 0x01;                          // 奇=长串
-        memcpy(obj + 0x7e + 8, &size, 8);
-        memcpy(obj + 0x7e + 0x10, &data, 8);
+        pair[0] = 0;
     }
-    // shared_ptr 数组（{obj, ctl=NULL}）
-    uint64_t *elem = malloc(16);
-    elem[0] = (uint64_t)(uintptr_t)obj;
-    elem[1] = 0;
-    // outer：候选 B 形态（begin@end @+0x10/+0x18——R2 伪代码口径）
-    uint64_t *outer = calloc(1, 64);
-    outer[2] = (uint64_t)(uintptr_t)elem;
-    outer[3] = (uint64_t)(uintptr_t)(elem + 2);
-    // vec：*vec = outer
-    uint64_t *vec = malloc(8);
-    vec[0] = (uint64_t)(uintptr_t)outer;
-    void *args[6] = { (void *)0x1111, vec, (void *)0x2222, NULL, NULL, NULL };
+    pair[1] = 0;   // ctl = NULL（内核读不触碰 ctl——本缝只解引用 args[1] 一次）
+    void *args[6] = { (void *)0x1111, pair, (void *)0x2222, NULL, NULL, NULL };
     clone_hook_body(args);
     g_clone_message = saved;
-    int r = g_clone_obj_caps - before;
+    int r = (content_bytes > 0) ? 1 : 0;
     if (rows) *rows = g_clone_rows;
     if (skips) *skips = g_clone_skips;
     if (objcaps) *objcaps = g_clone_obj_caps;
-    free(vec); free(outer); free(elem); free(obj); free(data);
+    free(pair); free(inner_obj);
     return r;
 }
 

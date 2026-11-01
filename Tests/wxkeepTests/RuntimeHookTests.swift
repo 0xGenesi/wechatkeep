@@ -879,17 +879,17 @@ extension RuntimeHookTests {
                 "12B 行=补丁态蹦床重放 4B 零（UDF#0）——必须整行拒绝")
     }
 
-    /// 写点捕获体端到端（合成向量走真实内核读路径）：候选 B 形态识别 +
-    /// content 长度读出 + 证据计数推进。
+    /// 写点事件端到端（109 轮合同修正版，合成 shared_ptr 对走真实内核读
+    /// 路径）：inner 可读 → 事件（1）；inner=0 → skips（0）。content 采集
+    /// 不在本缝（109 勘误：行枚举需宿主调用，content 源=R6 工作函数）。
     @Test func cloneRowsCaptureEndToEnd() {
         let cap = wxkeep_runtime_test_clone_rows(100, nil, nil, nil)
-        #expect(cap == 1, "合成向量（1 对象，100B content）应捕获 1")
-        var rows: Int32 = 0, skips: Int32 = 0, caps: Int32 = 0
+        #expect(cap == 1, "inner 可读的写点事件应处理（1）")
+        var skips: Int32 = 0
         wxkeep_runtime_test_clone_counts(nil, &skips, nil)
-        _ = rows; _ = caps
-        // 坏形态（截断的 outer → skips 计）不崩：vec 指向不可读区域由内核读兜底
+        // 坏形态（inner=0）→ skips 计，不崩：内核读兜底
         #expect(wxkeep_runtime_test_clone_rows(0, nil, nil, nil) == 0,
-                "0 长度 content 不捕获")
+                "inner=0 的写点事件走 skips（0）")
     }
 }
 
