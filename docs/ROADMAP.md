@@ -470,6 +470,30 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 125·123 轮修复回归锁 + 变异行补全小轮（2026-11-02：四组回归锁 + M21-M23 变异行三杀灭 + ci.yml 双架构编译兜底制度化；292 测全绿 +3）
+
+1. **[回归锁补全]**：123 轮修复当轮只落了 marker round-trip 锁，四组
+   缺口本轮补齐——①PartialWriteFailure 分类器（包装 PatchError 恒
+   非写前 / 裸 PatchError 原语义 / description 透传）；②writeTip 带
+   文案透传 keep + nil 非破坏性（P1-1 的 CLI 分支回归面）；③空 asm
+   装载期拒绝（P2-3 Config 层——124 轮已补 Signatures/Patcher 半边，
+   本轮锁 Config 第一层）；④keyctor 模块成员门负例（msg 头=镜像外
+   值 → r=0，入 cloneParseChainEndToEnd）。
+2. **[变异行 M21-M23（SOP：新防线补变异）]**：journal 误清（包装
+   return true）/ 空 asm 过门 / keyctor 模块门整体失效——**三杀灭
+   100%**。M23 首版单侧变异存活揭出：模块门是双侧设计（下界 + 跨度
+   上界），单侧失效被另一侧**下溢回环**天然补位（head<base 时
+   head−base 无符号回环成巨值 ≠ <0x20000000 仍拒）——这是纵深防御
+   的正面证据，变异须整门移除才代表真实失效形态（工具注释入册）。
+3. **[ci.yml 编译兜底制度化（124 遗留⑥）]**：Build 后加双架构
+   `clang -c -arch arm64/x86_64` runtime.m 守卫（全 matrix 腿秒级，
+   不等 full 腿 Rosetta 测试——124 P0「本地多轮未推期损坏不可见」
+   的制度性防线；命令本地实证零错，-fobjc-arc + include 路径齐）。
+4. **[并行轮协同]**：124 轮（并行会话）同日落地——push 链
+   48785c0..d2a6438 含 123+124 双轮，CI 双 matrix 腿全绿（Rosetta
+   腿实证 x86_64 编译修复）。README 测试数 286→292。
+5. **[验证链]**：292 测全绿（+3）；变异 3/3 杀灭；CI green。
+
 ## 124·第七轮主动体检 + 三登记项落地轮（2026-11-02：**P0 x86_64 编译修复**（R14/R15 全局错嵌 arm64 分支——23 提交未推期从未过 CI Rosetta 腿）+ clone 事件池（hook 上下文零 malloc 收官）+ x64 透传缝（CI Rosetta 腿自此有执行级覆盖）+ doctor Rosetta 切片回退；三路深读评审 P0×1+P1×1+P2×8+P3 批全修；289 测全绿 +3）
 
 1. **[P0 x86_64 编译损坏七连]**：R14/R15 的 cm/lu 全局（g_cm_*/g_lu_* 家族

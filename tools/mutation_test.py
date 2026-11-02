@@ -100,6 +100,19 @@ MUTATIONS = [
      '        let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"\n        let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"',
      '        let variantID = "revoke"\n        let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"',
      "变体切换还原错目标（keeptip 切换不再还原 silent）"),
+    # —— 123 轮新门（SOP：新增安全防线补变异行）——
+    ("M21", "Sources/wxkeep/WxkeepCLI.swift",
+     "        if error is Engine.PartialWriteFailure { return false }",
+     "        if error is Engine.PartialWriteFailure { return true }",
+     "journal 误清（部分写入后失败被当写前收口——必崩态失去 interrupted 判读）"),
+    ("M22", "Sources/wxkeep/Config.swift",
+     "if e.asm.isEmpty || Data(hex: e.asm) == nil {",
+     "if Data(hex: e.asm) == nil {",
+     "空 asm 假成功（Data(hex:\"\")==空 Data 过门 → 条目恒 alreadyPatched）"),
+    ("M23", "Sources/WxkeepRuntime/runtime.m",
+     "            && (uintptr_t)obj_head >= g_image_base\n            && (uintptr_t)obj_head - g_image_base < 0x20000000ULL) {",
+     "            && 1) {",
+     "keyctor 模块成员门整体失效（镜像外头照样直调宿主——复用对象崩溃面；单侧变异会被另一侧下溢回环补位，须整门移除才代表真实失效形态）"),
 ]
 
 

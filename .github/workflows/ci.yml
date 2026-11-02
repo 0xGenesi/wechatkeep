@@ -42,6 +42,14 @@ jobs:
           fi
       - name: Build
         run: swift build
+      - name: "Guard - runtime.m compiles for both arches"
+        # 124 轮 P0 教训制度化：x86_64 编译损坏在本地多轮未推期间不可见
+        # （CI Rosetta 腿要等 push 后才见代码）；clang -c 双架构秒级兜底，
+        # 全 matrix 腿都跑（不等 full 腿的 Rosetta 测试）。
+        run: |
+          SDK=$(xcrun --sdk macosx --show-sdk-path)
+          clang -c -arch arm64 -fobjc-arc -isysroot "$SDK" -I Sources/WxkeepRuntime/include Sources/WxkeepRuntime/runtime.m -o /tmp/rm-arm64.o
+          clang -c -arch x86_64 -fobjc-arc -isysroot "$SDK" -I Sources/WxkeepRuntime/include Sources/WxkeepRuntime/runtime.m -o /tmp/rm-x64.o
       - name: Test
         run: swift test
       - name: Ensure Rosetta (defensive; macos-15 images usually preinstall it)

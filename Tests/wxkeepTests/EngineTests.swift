@@ -175,4 +175,19 @@ extension EngineTests {
         #expect(Engine.effectiveOnlySet(["revoke-keeptip", "update"], variant: "keeptip")
                 == ["revoke-keeptip", "update"])
     }
+
+    /// 123 轮 P1-1 回归锁：部分写入后的失败（跨 binary「A 已写→B Phase-1
+    /// PatchError」）不得按写前失败收口 journal——盘上是「字节已改+陈旧签名」
+    /// 必崩态，journal 必须留给 doctor 的 interrupted 判读。包装类型优先于
+    /// 底层错误类型判别；裸 PatchError（真写前）保持原语义。
+    @Test func partialWriteFailureIsNotPreWrite() {
+        let wrapped = Engine.PartialWriteFailure(
+            underlying: Patcher.PatchError.overlappingEntries(
+                first: 0, second: 1, va: 0x1000, identifier: "revoke"))
+        #expect(Wxkeep.isPreWriteFailure(wrapped) == false,
+                "已写字节的失败必须保留 journal")
+        #expect(Wxkeep.isPreWriteFailure(Patcher.PatchError.noArchMatched) == true,
+                "裸 PatchError（写前）语义不变")
+        #expect("\(wrapped)".contains("overlapping"), "description 透传底层错误（CLI 输出不变）")
+    }
 }

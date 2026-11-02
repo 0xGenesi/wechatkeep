@@ -87,6 +87,18 @@ extension ConfigLocalTests {
         }
     }
 
+    /// 123 轮 P2-3 回归锁：空 asm 此前经 Data(hex:"")==空 Data 过门 →
+    /// prefix(0)==空 恒真 → 条目永远 alreadyPatched（静默 no-op 假成功）。
+    @Test func emptyAsmIsRejectedAtLoad() {
+        let empty = """
+        [{"version":"999997","targets":[{"identifier":"revoke","entries":[
+          {"arch":"x86_64","addr":"100","expected":"554889E5","asm":""}]}]}]
+        """
+        #expect(throws: (any Error).self) {
+            _ = try Config(data: Data(empty.utf8), origin: "inline")
+        }
+    }
+
     @Test func asmSpanBeyondProvenanceIsRejected() {
         // asm 6B > expected 4B：必须拒载
         let over = """

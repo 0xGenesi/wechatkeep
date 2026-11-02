@@ -1450,6 +1450,13 @@ extension RuntimeHookTests {
         svc[0] = baseAddr + 0x9deeb48
         #expect(invoke(consumer, UnsafeMutablePointer<UInt64>(bitPattern: 8 + 0x130 / 8)!) == 0,
                 "obj 死 → 守卫退出")
+        // 123 轮 P0-2 门负例：msg 可读且头非零、但 [msg]（vtable 槽）不在
+        // 镜像跨度 [base, base+512MB) ——释放/复用对象的常态形态。门在场
+        // → 拒直调 keyctor → r=0；门被去（变异）→ 桩照样跑通 → r=3。
+        msgObj[0] = 0x1122334455
+        #expect(invoke(consumer, parseX1) == 0,
+                "msg 头在镜像外（复用对象形态）→ 模块成员门拒 keyctor")
+        msgObj[0] = baseAddr + 0x1000   // 还原生产合同形态（后续用例依赖）
         // R12 扫描路：consumer2 无 +0xb78 合同位、svc 指针在 +0x20——
         // 扫描发现后全链照通（svc2 计数走快路口径不重复，见实现）
         let consumer2 = malloc(0xc00)!.assumingMemoryBound(to: UInt64.self)

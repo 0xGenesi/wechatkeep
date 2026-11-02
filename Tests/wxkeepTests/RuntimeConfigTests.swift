@@ -407,6 +407,28 @@ extension RuntimeConfigTests {
         #expect(RuntimeConfig.readTip(at: [url]).rewriteSelf == true, "removeTip 只动 tip_text")
     }
 
+    /// 123 轮 P1-1 回归锁：`runtime tip '文案' --keep off` 标准实验动作——
+    /// writeTip 带 text 时 keep 必须随写（此前 CLI 分支漏传 = 开关静默丢弃、
+    /// keep_message 保持缺省开 → V3 克隆实验写点链永不触发）。
+    @Test func tipTextWriteCarriesKeepSwitch() throws {
+        let url = tmpConfigPath()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let seed = try PropertyListSerialization.data(fromPropertyList: ["hooks": []],
+                                                      format: .xml, options: 0)
+        try seed.write(to: url)
+        // 文案 + keep off 同写（CLI 757 行修复后的调用形态）
+        try RuntimeConfig.writeTip(text: "\"⚠️\" 撤回了一条消息", rewriteSelf: nil,
+                                   keep: false, at: [url])
+        let tip = RuntimeConfig.readTip(at: [url])
+        #expect(tip.text == "\"⚠️\" 撤回了一条消息")
+        #expect(tip.keepMessage == false, "带文案写必须透传 keep（克隆实验门）")
+        // 再写文案不带 keep：显式 nil 不触碰既有开关（非破坏性）
+        try RuntimeConfig.writeTip(text: "新文案", rewriteSelf: nil, at: [url])
+        #expect(RuntimeConfig.readTip(at: [url]).keepMessage == false,
+                "keep=nil 不回改既有开关")
+        #expect(RuntimeConfig.readTip(at: [url]).text == "新文案")
+    }
+
     /// CLI 写完的 tip 文件必须是 plist 格式（dylib dictionaryWithContentsOfFile
     /// 语义；跨端到端读取回归由 mergedFileIsReadableByDylibProductionPath 锁死）
     @Test func tipWriteProducesPlist() throws {
