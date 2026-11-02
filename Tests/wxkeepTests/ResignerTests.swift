@@ -63,7 +63,7 @@ final class ResignerTests {
     @Test func inspectEntitlementsOnUnsignedFileReturnsNil() throws {
         let url = workDir.appendingPathComponent("plain.bin")
         try Data([0x55, 0x48]).write(to: url)
-        #expect(Resigner.inspectEntitlements(url) == nil)
+        #expect(try Resigner.inspectEntitlements(url) == nil)
     }
 
     // MARK: - end-to-end with real codesign
@@ -185,7 +185,7 @@ final class ResignerTests {
         #expect(verify.status == 0, "strict verify failed: \(verify.stderr)")
 
         // 2. The pre-existing entitlements survived re-signing.
-        let profile = Resigner.inspectEntitlements(app.appendingPathComponent("Contents/MacOS/WeChat"))
+        let profile = try Resigner.inspectEntitlements(app.appendingPathComponent("Contents/MacOS/WeChat"))
         #expect(profile?["com.apple.security.app-sandbox"] != nil,
                 "sandbox entitlement lost — the exact production killer")
         #expect(profile?["com.apple.security.network-client"] != nil)

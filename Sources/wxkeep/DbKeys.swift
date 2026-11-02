@@ -599,12 +599,17 @@ extension Wxkeep {
             static func parseTimestamp(_ text: String?) throws -> Int? {
                 guard let text else { return nil }
                 if let d = ISO8601DateFormatter().date(from: text) { return Int(d.timeIntervalSince1970) }
+                // 124 轮体检 P3：ISO8601DateFormatter 只收带时区的 internet 形，
+                // 用户自然输入的 `2026-11-02T10:00`（本地无时区）此前报
+                // 「无法解析」——补 T 分隔的本地形态。
                 let f = DateFormatter()
-                f.dateFormat = "yyyy-MM-dd HH:mm"
                 f.timeZone = .current
-                if let d = f.date(from: text) { return Int(d.timeIntervalSince1970) }
+                for fmt in ["yyyy-MM-dd HH:mm", "yyyy-MM-dd'T'HH:mm"] {
+                    f.dateFormat = fmt
+                    if let d = f.date(from: text) { return Int(d.timeIntervalSince1970) }
+                }
                 if let n = Int(text) { return n }
-                throw ValidationError("无法解析时间：\(text)")
+                throw ValidationError("无法解析时间：\(text)（支持 ISO8601 带时区 / 本地 2026-11-02 10:00 或 2026-11-02T10:00 / epoch 秒）")
             }
 
             static func fmt(_ ts: Int) -> String {

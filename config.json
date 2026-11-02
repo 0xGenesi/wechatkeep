@@ -20348,9 +20348,11 @@
   "version": "23440"
  },
  {
+  "version": "270350",
   "targets": [
    {
     "binary": "Contents/Resources/wechat.dylib",
+    "identifier": "revoke",
     "entries": [
      {
       "addr": "4e7ccd0",
@@ -20369,11 +20371,444 @@
        "554889E553504889FB"
       ],
       "source": "recipe:revoke_x64"
+     },
+     {
+      "addr": "568f619",
+      "arch": "x86_64",
+      "asm": "30C0",
+      "expected": [
+       "84C00F84????????"
+      ],
+      "source": "wxkeep:parse-guard test→xor 翻转（270350 冗余 silent，locate_x64_parse_guard 几何派生）"
      }
-    ],
-    "identifier": "revoke"
+    ]
+   },
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "identifier": "revoke-keeptip",
+    "entries": [
+     {
+      "addr": "516d2a0",
+      "arch": "x86_64",
+      "asm": "554889E553504889FB",
+      "expected": [
+       "31C0C3909090909090",
+       "554889E553504889FB"
+      ],
+      "source": "wxkeep:270350 keeptip——还原 isRevokemsg（解除 silent）"
+     },
+     {
+      "addr": "568fb8d",
+      "arch": "x86_64",
+      "asm": "4831C06690488983C8010000",
+      "expected": [
+       "E8DE3DE9FF488983C8010000"
+      ],
+      "source": "wxkeep:270350 keeptip——v1语义：parse 内 newmsgid 转换call置零（expected 按实读字节；家族恒定 E8+store 形态）"
+     },
+     {
+      "addr": "4e7ccd0",
+      "arch": "arm64",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:270350 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "addr": "4e7d470",
+      "arch": "arm64",
+      "asm": "7FE600F9",
+      "expected": [
+       "60E600F9"
+      ],
+      "source": "wxkeep:270350 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "identifier": "update",
+    "entries": [
+     {
+      "addr": "2d4fc0",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:startUpdater@270350"
+     },
+     {
+      "addr": "2d7790",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:checkForUpdates:@270350"
+     },
+     {
+      "addr": "2d7b00",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:startBackgroundUpdatesCheck:@270350"
+     },
+     {
+      "addr": "2d7fb0",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:enableAutoUpdate:@270350"
+     },
+     {
+      "addr": "2e3ea0",
+      "arch": "x86_64",
+      "asm": "31C0C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:automaticallyDownloadsUpdates@270350"
+     },
+     {
+      "addr": "2e3eb0",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:setAutomaticallyDownloadsUpdates:@270350"
+     },
+     {
+      "addr": "2e3ec0",
+      "arch": "x86_64",
+      "asm": "31C0C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:canCheckForUpdate@270350"
+     },
+     {
+      "addr": "2e3ed0",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:setCanCheckForUpdate:@270350"
+     },
+     {
+      "addr": "292de4",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "FC6FBBA9"
+      ],
+      "source": "wxkeep:objc:objc:startUpdater@270350"
+     },
+     {
+      "addr": "294f1c",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "FFC305D1"
+      ],
+      "source": "wxkeep:objc:objc:checkForUpdates:@270350"
+     },
+     {
+      "addr": "2951e0",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "FF4301D1"
+      ],
+      "source": "wxkeep:objc:objc:startBackgroundUpdatesCheck:@270350"
+     },
+     {
+      "addr": "2955c0",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "F657BDA9"
+      ],
+      "source": "wxkeep:objc:objc:enableAutoUpdate:@270350"
+     },
+     {
+      "addr": "29f92c",
+      "arch": "arm64",
+      "asm": "00008052C0035FD6",
+      "expected": [
+       "00604039C0035FD6"
+      ],
+      "source": "wxkeep:objc:objc:automaticallyDownloadsUpdates@270350"
+     },
+     {
+      "addr": "29f934",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "02600039"
+      ],
+      "source": "wxkeep:objc:objc:setAutomaticallyDownloadsUpdates:@270350"
+     },
+     {
+      "addr": "29f93c",
+      "arch": "arm64",
+      "asm": "00008052C0035FD6",
+      "expected": [
+       "00644039C0035FD6"
+      ],
+      "source": "wxkeep:objc:objc:canCheckForUpdate@270350"
+     },
+     {
+      "addr": "29f944",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "02640039"
+      ],
+      "source": "wxkeep:objc:objc:setCanCheckForUpdate:@270350"
+     }
+    ]
    }
-  ],
-  "version": "270350"
+  ]
+ },
+ {
+  "version": "270351",
+  "targets": [
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "identifier": "revoke",
+    "entries": [
+     {
+      "addr": "4e79a44",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "516cf00",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     },
+     {
+      "addr": "568f279",
+      "arch": "x86_64",
+      "asm": "30C0",
+      "expected": [
+       "84C00F84????????"
+      ],
+      "source": "wxkeep:parse-guard test→xor 翻转（270351 冗余 silent，locate_x64_parse_guard 几何派生）"
+     }
+    ]
+   },
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "identifier": "revoke-keeptip",
+    "entries": [
+     {
+      "addr": "516cf00",
+      "arch": "x86_64",
+      "asm": "554889E553504889FB",
+      "expected": [
+       "31C0C3909090909090",
+       "554889E553504889FB"
+      ],
+      "source": "wxkeep:270351 keeptip——还原 isRevokemsg（解除 silent）"
+     },
+     {
+      "addr": "568f7ed",
+      "arch": "x86_64",
+      "asm": "4831C06690488983C8010000",
+      "expected": [
+       "E8DE3DE9FF488983C8010000"
+      ],
+      "source": "wxkeep:270351 keeptip——v1语义：parse 内 newmsgid 转换call置零（expected 按实读字节；家族恒定 E8+store 形态）"
+     },
+     {
+      "addr": "4e79a44",
+      "arch": "arm64",
+      "asm": "40100034",
+      "expected": [
+       "40100034",
+       "82000014"
+      ],
+      "source": "wxkeep:270351 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     },
+     {
+      "addr": "4e7a1e4",
+      "arch": "arm64",
+      "asm": "7FE600F9",
+      "expected": [
+       "60E600F9"
+      ],
+      "source": "wxkeep:270351 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
+     }
+    ]
+   },
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "identifier": "update",
+    "entries": [
+     {
+      "addr": "2d4fc0",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:startUpdater@270351"
+     },
+     {
+      "addr": "2d7790",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:checkForUpdates:@270351"
+     },
+     {
+      "addr": "2d7b00",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:startBackgroundUpdatesCheck:@270351"
+     },
+     {
+      "addr": "2d7fb0",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:enableAutoUpdate:@270351"
+     },
+     {
+      "addr": "2e3eb0",
+      "arch": "x86_64",
+      "asm": "31C0C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:automaticallyDownloadsUpdates@270351"
+     },
+     {
+      "addr": "2e3ec0",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:setAutomaticallyDownloadsUpdates:@270351"
+     },
+     {
+      "addr": "2e3ed0",
+      "arch": "x86_64",
+      "asm": "31C0C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:canCheckForUpdate@270351"
+     },
+     {
+      "addr": "2e3ee0",
+      "arch": "x86_64",
+      "asm": "C3",
+      "expected": [
+       "554889E5"
+      ],
+      "source": "wxkeep:objc:objc:setCanCheckForUpdate:@270351"
+     },
+     {
+      "addr": "28fde4",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "FC6FBBA9"
+      ],
+      "source": "wxkeep:objc:objc:startUpdater@270351"
+     },
+     {
+      "addr": "291f1c",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "FFC305D1"
+      ],
+      "source": "wxkeep:objc:objc:checkForUpdates:@270351"
+     },
+     {
+      "addr": "2921e0",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "FF4301D1"
+      ],
+      "source": "wxkeep:objc:objc:startBackgroundUpdatesCheck:@270351"
+     },
+     {
+      "addr": "2925c0",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "F657BDA9"
+      ],
+      "source": "wxkeep:objc:objc:enableAutoUpdate:@270351"
+     },
+     {
+      "addr": "29c934",
+      "arch": "arm64",
+      "asm": "00008052C0035FD6",
+      "expected": [
+       "00604039C0035FD6"
+      ],
+      "source": "wxkeep:objc:objc:automaticallyDownloadsUpdates@270351"
+     },
+     {
+      "addr": "29c93c",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "02600039"
+      ],
+      "source": "wxkeep:objc:objc:setAutomaticallyDownloadsUpdates:@270351"
+     },
+     {
+      "addr": "29c944",
+      "arch": "arm64",
+      "asm": "00008052C0035FD6",
+      "expected": [
+       "00644039C0035FD6"
+      ],
+      "source": "wxkeep:objc:objc:canCheckForUpdate@270351"
+     },
+     {
+      "addr": "29c94c",
+      "arch": "arm64",
+      "asm": "C0035FD6",
+      "expected": [
+       "02640039"
+      ],
+      "source": "wxkeep:objc:objc:setCanCheckForUpdate:@270351"
+     }
+    ]
+   }
+  ]
  }
 ]

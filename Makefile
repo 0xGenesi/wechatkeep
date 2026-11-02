@@ -39,7 +39,7 @@ release:
 	cp $$BIN ./wxkeep
 	@ls -lh ./wxkeep | awk '{print "单文件产物: " $$5 "  ->  ./wxkeep"}'
 	@file ./wxkeep | cut -c1-80
-	@if [ ! -x "$(XCBUILD)" ]; then echo "注意: 本机仅 CLT，产物为单架构；universal 版由 CI Release 构建"; fi
+	@if [ ! -x "$(XCBUILD)" ]; then echo "注意: 本机仅 CLT，产物为单架构；universal 需 Xcode（源码-only 发版后 CI 不再产资产，见 MAINTAINING 发版策略）"; fi
 	./wxkeep --version
 
 clean:

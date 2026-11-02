@@ -118,13 +118,15 @@ struct RuntimeConfigTests {
         #expect(back == row)
     }
 
-    /// funcSize 数据契约（77 续②补 16 行；⑫zsbai 三构建回填至 22 行）：
-    /// 带门行值域合法、家族值恒定（x64=5216/arm64=4380，11 构建 × 双架构
+    /// funcSize 数据契约（77 续②补 16 行；⑫zsbai 三构建回填至 22 行；
+    /// 124 轮 4.2.0 线补齐至 44 行——270340-351 × 双架构，fs 家族值与
+    /// 4.1.15 线恒等=布局指纹稳定信号）：
+    /// 带门行值域合法、家族值恒定（x64=5216/arm64=4380，22 构建 × 双架构
     /// pristine 切片三重校验派生——hook_off 必为 FUNCTION_STARTS 起点、
     /// 切片 UUID 与行一致、距离=到下一函数起点）。
     @Test func knownHooksFuncSizeContract() {
         let gated = RuntimeConfig.knownHooks.filter { $0.func_size != nil }
-        #expect(gated.count == 22, "本地有 pristine 切片的 11 构建 × 双架构应全带门")
+        #expect(gated.count == 44, "本地有 pristine 切片的 22 构建 × 双架构应全带门")
         let inRange = gated.allSatisfy { row in
             let v = row.func_size!
             return v > 0 && v <= 1 << 21
@@ -134,10 +136,14 @@ struct RuntimeConfigTests {
         let arm64 = gated.filter { $0.arch == "arm64" }
         #expect(x64.allSatisfy { $0.func_size == 5216 })
         #expect(arm64.allSatisfy { $0.func_size == 4380 })
-        let builds = Set(gated.map { $0.build })
+        let builds = Set(gated.map { row in row.build })
         let want: Set<String> = ["270094", "270097", "270099",
                                  "270100", "270101", "270102",
-                                 "270131", "270132", "270133", "270134", "270135"]
+                                 "270131", "270132", "270133", "270134", "270135",
+                                 // 4.2.0 线（124 轮补齐；270347 无归档=CDN 缺口）
+                                 "270340", "270341", "270342", "270343", "270344",
+                                 "270345", "270346", "270348", "270349",
+                                 "270350", "270351"]
         #expect(builds == want)
     }
 
@@ -175,11 +181,11 @@ struct RuntimeConfigTests {
 
     @Test func knownHooksTableContract() {
         let rows = RuntimeConfig.knownHooks
-        #expect(rows.count == 44, "4.1.15 全家族（除未发布 270087/092）+ 270131-135 × 双架构")
+        #expect(rows.count == 66, "4.1.15 全家族（除未发布 270087/092）+ 270131-135 + 4.2.0 线 270340-351 × 双架构")
         // 每构建恰好双架构各一行
         var byBuild: [String: Set<String>] = [:]
         for row in rows { byBuild[row.build, default: []].insert(row.arch) }
-        #expect(byBuild.count == 22)
+        #expect(byBuild.count == 33)
         #expect(byBuild.values.allSatisfy { $0 == ["x86_64", "arm64"] })
         // UUID 唯一 + 形制（dylib uuid_str_valid：36 字符连字符小写 hex）
         let uuids = rows.map(\.uuid)

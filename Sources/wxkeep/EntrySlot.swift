@@ -198,7 +198,10 @@ enum EntrySlot {
         // 不会满足这两条）。
         guard let dataSection = image.sections.first(where: { $0.segment == "__DATA" && $0.offset > 0 }),
               let seg = image.segments.first(where: {
-                  dataSection.addr >= $0.vmaddr && dataSection.addr < $0.vmaddr + $0.vmsize
+                  // 124 轮体检 P2：减法式上界（对齐 planArm64 的 111 轮修——
+                  // 加法式在 vmsize 接近 UInt64.max 的病态段表下溢出 trap，
+                  // 把「未补丁」判读变成进程崩溃）
+                  dataSection.addr >= $0.vmaddr && dataSection.addr - $0.vmaddr < $0.vmsize
               }) else { return nil }
         let lastEnd = image.sections
             .filter { $0.segment == "__DATA" && $0.offset > 0 }

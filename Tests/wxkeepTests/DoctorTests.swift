@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import WxkeepRuntime   // marker 内容缝（C 符号）
 @testable import wxkeep
 
 struct DoctorTests {
@@ -189,5 +190,31 @@ extension DoctorTests {
         #expect(d2?.flags == nil, "11 在旧编码 = callback+install-fail，新判读会误读——不判读")
         // 无 status 字段
         #expect(Wxkeep.RuntimeCommand.markerStatusDecode("loaded ts=1") == nil)
+    }
+
+    /// marker 键名双侧 round-trip 锁（124 轮体检 P2-3）：格式串在
+    /// runtime.m、解析键名在 CLI——两侧手写，改一侧另一侧静默显 "?" / 0。
+    /// 用生产构造函数的实出内容对照 CLI 消费的键全集。
+    @Test func markerFormatKeysRoundTrip() {
+        guard let c = wxkeep_runtime_test_marker_content() else {
+            Issue.record("marker 内容缝不可用"); return
+        }
+        let line = String(cString: c)
+        // CLI `runtime status`/doctor 消费的每一个键（markerInt/markerDigits/
+        // markerStatusDecode/直读 range 四类全集）
+        let keys = ["status", "enc", "istep", "ierr",
+                    "fires", "hits", "zero", "selfskip",
+                    "clone", "clmiss", "clrow", "cllastlen", "clpair", "clsvc",
+                    "clkey", "clhit", "clmissq", "clget", "clinner",
+                    "clpub", "clpubm", "clins", "clsvc2",
+                    "cfg", "cfgh", "ts"]
+        for k in keys {
+            #expect(line.contains(" \(k)=") || line.hasPrefix("\(k)=") || line.contains(" \(k)=\(k == "enc" ? "2" : "")"),
+                    "marker 格式串缺键 \(k)——CLI 侧将静默显 ?/0")
+        }
+        // doctor 判读面照生产内容可解
+        let d = Wxkeep.RuntimeCommand.markerStatusDecode(line)
+        #expect(d != nil)
+        #expect(d?.flags != nil, "enc=2 在场 = 新编码应解位域")
     }
 }

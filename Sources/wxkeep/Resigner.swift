@@ -76,7 +76,7 @@ enum Resigner {
     static func capture(app: URL) throws -> Snapshot {
         var entries: [Entry] = []
         for candidate in codeSigningCandidates(app: app) {
-            let plist = inspectEntitlements(candidate)
+            let plist = try inspectEntitlements(candidate)
             // Profile to re-sign with: original + injected runtime keys.
             // Empty profiles stay empty (stamping keys onto key-less code is
             // its own failure mode).
@@ -134,15 +134,29 @@ enum Resigner {
 
     /// `codesign -d --entitlements - --xml` → plist dict, or nil when the
     /// object is unsigned / carries no entitlements.
-    static func inspectEntitlements(_ url: URL) -> [String: Any]? {
+    /// 124 轮体检 P3-2：退出码非 0 且非「未签名」语义、或输出不可解析时
+    /// **抛错**而非折叠成 nil——此前静默剥权（无 profile 重签）且 drift
+    /// 复查拿 intended=nil 比对恒等、永不报告。未签名对象（首次注入的
+    /// runtime dylib）按契约仍返回 nil。
+    static func inspectEntitlements(_ url: URL) throws -> [String: Any]? {
         let result = Shell.run("/usr/bin/codesign",
                                ["-d", "--entitlements", "-", "--xml", url.path])
-        guard result.status == 0, !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return nil }
+        if result.status != 0 {
+            let err = (result.stderr + result.stdout).lowercased()
+            if err.contains("not signed") { return nil }   // 未签名=合法形态
+            throw ResignError.snapshotFailed(
+                "codesign -d failed on \(url.lastPathComponent) (status \(result.status)): "
+                + result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let out = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if out.isEmpty { return nil }
         guard let data = result.stdout.data(using: .utf8),
               let plist = try? PropertyListSerialization.propertyList(
                   from: data, options: [], format: nil) as? [String: Any]
-        else { return nil }
+        else {
+            throw ResignError.snapshotFailed(
+                "entitlements output unparseable for \(url.lastPathComponent)")
+        }
         return plist
     }
 
@@ -262,7 +276,10 @@ enum Resigner {
         snapshot.entries.compactMap { entry in
             let intended = resigned.contains(entry.url.standardizedFileURL.path)
                 ? entry.resignPlist : entry.plist
-            if plistsEqual(inspectEntitlements(entry.url), intended) { return nil }
+            // 探查失败按「已漂移」上报（宁可误报也不吞——124 轮 P3-2 的
+            // drift 失明半边）。
+            let actual = try? inspectEntitlements(entry.url)
+            if plistsEqual(actual, intended) { return nil }
             return entry.url
         }
     }

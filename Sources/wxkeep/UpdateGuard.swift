@@ -94,7 +94,7 @@ enum UpdateGuard {
     /// 委托链不可用（console 为空/root/uid 不可解析——ssh 无 GUI 会话、登录
     /// 窗口态）返回 nil（111 轮修：写侧此前回落 root 直写 /var/root 域，
     /// 验证读同域读回「0」互相印证 →「✓ 已写入」而微信读的还是用户域）。
-    private static func consoleUserDelegation() -> (user: String, uid: String)? {
+    static func consoleUserDelegation() -> (user: String, uid: String)? {   // 124 轮：CLI 侧 ssh/sudo 文案判别复用
         guard geteuid() == 0 else { return nil }
         let consoleUser = Shell.run("/usr/bin/stat", ["-f", "%Su", "/dev/console"]).stdout
             .trimmingCharacters(in: .whitespacesAndNewlines)

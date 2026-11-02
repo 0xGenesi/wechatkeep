@@ -165,12 +165,19 @@ extension Wxkeep.DbKeysCommand {
             // 1. FTS session 映射（account → username → rowid；各账号编号独立）
             var ftsUser2Sid: [String: [String: Int]] = [:]
             var ftsKeyed: [String: (url: URL, key: [UInt8])] = [:]
+            // 124 轮体检 P2：FTS 密钥缺失的账号此前被静默 continue——其灰条
+            // 全部落进「无 FTS 文档」桶且归因成「非文本原文为主」，用户以为
+            // 原文确实不在。如实分报：单独点名 + 指引重捕。
+            var ftsKeyMissing: [String] = []
             for account in accounts {
                 guard let fts = WeChatDBFinder.encryptedDBs(account: account, live: true)
                     .first(where: { $0.lastPathComponent == "message_fts.db" }) else { continue }
                 guard let page = WeChatDBFinder.page1(of: fts), !WeChatDBFinder.isPlain(page) else { continue }
                 let salt = SQLCipherGeometry.saltOfPage1(page: page)
-                guard let key = store.keyFor(basename: fts.lastPathComponent, account: account, salt: salt, page: page) else { continue }
+                guard let key = store.keyFor(basename: fts.lastPathComponent, account: account, salt: salt, page: page) else {
+                    ftsKeyMissing.append(account)
+                    continue
+                }
                 ftsKeyed[account] = (fts, key)
                 var mapping: [String: Int] = [:]
                 for line in try Audit.runSQL(exe, db: fts, key: key,
@@ -335,6 +342,10 @@ extension Wxkeep.DbKeysCommand {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: outURL.path)
 
             print("复原结果：成功=\(records.count)（含显示名 \(named)）无 FTS 文档（非文本原文为主）=\(assembled.absent) 文档不可解码=\(assembled.undecodable) 被同步覆盖=\(assembled.synced)")
+            if !ftsKeyMissing.isEmpty {
+                print("⚠️ \(ftsKeyMissing.count) 个账号 FTS 密钥缺失（\(ftsKeyMissing.joined(separator: "、"))）——"
+                      + "其灰条按「无 FTS 文档」计，可能低估可复原量；先 `wxkeep dbkeys capture` 重捕后重跑")
+            }
             print("输出：\(outURL.path)（0600，含聊天内容——注意保管，勿入仓库）")
             for r in records.suffix(max(latest, 0)).reversed() {   // 负值夹 0（同 dbkeys audit）
                 let label = r.name ?? r.chat

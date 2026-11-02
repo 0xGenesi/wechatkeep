@@ -463,6 +463,70 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 123·Day-0 全量适配 + 第六轮主动体检轮（2026-11-02：CDN 抓到 4.2.0.15/270351 day-0 当日全量适配 + 270350 半成品补全（revoke-only→三面全）+ **4.2.0 线 11 构建 hooks 双架构行全量补齐**（knownHooks 44→66 行）；三路深读评审（CLI/UX+补丁引擎+runtime/测试/CI）P0×3+P1×7+P2×6+P3 批全修；286 测全绿（+1 marker round-trip 锁））
+
+1. **[Day-0 适配（CDN PROBE_AHEAD 命中 known+1）]**：270351 配方双中
+   （gen3 cbz@0x4E79A44 + x64@0x516CF00，家族形态一致）；守卫
+   @0x568f279/keeptip 转换 call@0x568f7ed（E8DE3DE9FF 时代变体同
+   270349）/存储清零@0x4e7a1e4（60E600F9 mask 全过）；update 16 条双
+   架构全中。**270350 补全**（auto-locate 只派生 revoke 面的既有缺口）：
+   +keeptip×4+update×16。两构建 verify_derivations 7/7 全 PASS；地面
+   真值全扫 747 OK/0 失配；E2E（patch keeptip→doctor protected→restore
+   全还原+dry-run 确认 pristine）；manifest 重签+openssl 独立验签过。
+   **几何纠偏**：gen3 confirm 是 `bytes@+7A0`（kt_a2=cbz**+**0x7A0，非
+   −0x7A0——首版脚本方向反读到 ldp 字节被形态门当轮抓住）；掩码语义=
+   十六进制大端字面比对（ExpectedPattern DSL）。
+2. **[4.2.0 线 hooks 行补齐（11 构建×双架构=22 行）]**：x64=derive_
+   runtime_hooks 既有链（拓扑唯一性门+12B 序言门）；arm64=cbz 位点所在
+   函数起点+16B 序言门 F85FBCA9…（110 轮口径）；**家族指纹信号**：
+   fs 5216/4380 与 4.1.15 线恒等、cbz−entry=0x270 同偏移。knownHooks
+   44→66 行（kMaxExtHooks=128 余量足）；行数契约/容量锁注释三处同步。
+   4.2.0 用户 runtime 层自定义提示自此可武装（此前整线零行=装了不挂）。
+3. **[体检修复（三路评审逐项人工复核后落地）]**：
+   - **P0-1** 主 hook 体裸解引用（memcpy x1 头+sso_head 裸读）→
+     `sso_head_kread` 内核读版（错挂=10-03 事故形态下唯一能直接崩主
+     链路的代码级缺口；rewrite_replacemsg_inner 改 (ptr,size) 直取）；
+   - **P0-2** keyctor msg 守卫「可读且非零」→加模块成员门（[msg] 须落
+     wechat.dylib 镜像跨度 [base,base+512MB)——免 schema 的最强近似）；
+   - **P0-3** 四头锚（lookup/keyctor/ctor/amr）解析期补
+     arm64_prologue_relocatable 门（在役 270135 四头逐一解码验证全过=
+     零误拒；108 轮 clone_expected 同型纪律对齐）；
+   - **P1** journal「已写+恢复重签失败」被误清 → `PartialWriteFailure`
+     包装（patch+restore 双路径，isPreWriteFailure 对包装恒 false）；
+     lu 挂点缺内层 catch（连带跳过 cm 块规划+输出自相矛盾）→补齐；
+     arm_lu_site slot-fill 失败漏置 kStCloneFail→补齐；hooks 表 128 行
+     截断零信号→bootlog 留痕；cfg= 指纹选径与 read_runtime_config 错位
+     （group 坏文件时生效=legacy 而指纹指 group 字节）→改可解析选径；
+     `runtime tip --keep` 带文案时静默丢弃→补传+回显；「无 arm64
+     hooks 行」提示错位（有行误报/无行静默）→移 else 分支；hooks 写入
+     失败「当前构建仍可用」假话（内置表仅 270099 x64）→按行在场分报；
+   - **P2** detectPatched 加法式段界（111 轮同族遗漏）→减法式；remove
+     孤儿路径无条件重签原封微信→先 codesign --verify 失效才签（洗白链
+     保留）；不存在 dylib 误报删除失败→fileExists 预检；recover 账号
+     FTS 密钥缺失静默落 absent 桶→点名+指引重捕；entitlements 探查
+     失败与无权利折叠 nil（静默剥权+drift 恒等失明）→throws 区分（未
+     签名 nil 契约保留，drift 失败按已漂移上报）；空 asm 经
+     Data(hex:"") 过 validate→显式拒（prefix(0) 恒假成功）；
+   - **P3** rd_valid 发布序（keyctor 位先行）；maybe_reload 死变量；
+     doctor writable 行按 OS 条件化（sudo 建议只给 <14）；update-guard
+     sudo+ssh 死循环重试提示→console 判别诚实文案；locate 对
+     config.local.json 损坏误报 config.json→点名文件；doctor journal
+     构建漂移（事务后自更新）提示行；--since 补本地 T 分隔 ISO 形态。
+4. **[回归新增]**：marker 键名双侧 round-trip 锁（wxkeep_runtime_test_
+   marker_content 缝——格式串键名↔CLI markerInt/markerDigits 全集，
+   27 键逐一断言；此前双侧手写改一侧另一侧静默显 ?/0）；cloneParse
+   Chain 夹具改生产合同形态（msg 头=镜像内 vtable 值，P0-2 门下自洽）。
+5. **[工程环境]**：SwiftPM 镜像 ghfast.top 全灭（L2 scratch clone 连
+   reset）→.swiftpm mirrors.json 切 gh-proxy.com；arm64-verify.yml
+   case map 补 4.2.0 线 11 构建映射（线内线性 base=270336，270348/
+   270349 双 tag 锚定）；CLI abstract 3.x/4.x；Makefile/README 陈旧
+   话术（CI universal 资产/测试数）同步。
+6. **[验证链]**：286 测全绿；fuzz 20 万输入零报告（runtime.m 改动必跑
+   SOP）；ground truth 747/0；openssl 独立验签 ✓；E2E 双构建闭环 ✓；
+   L2 可逆性/L6 确定性重跑（ghfast 死镜导致首跑失败，切镜像后复跑）。
+   **遗留**：新构建 verify spec 变体按 SOP 第 9 条为可选项（有用户
+   反馈再派生）；行为级真机验收随下轮实弹窗口顺带。
+
 ## 122·R17 第七轮实弹 + 双 vtable 门定案轮（2026-11-01：lu 直挂实测生效（lu_seq=1/2 每撤回恰一次、svc 单例稳定）——门未中对因 = x0 是 110 轮入册双 vtable 对象的第二接口视图（[x0]=0x9ded4a8=svc_vt−0xa0）；**键格式定案：ASCII 明文**（lu_key6="458457"）；live 键直用+双 vtable 门落地；285 测同轮基线）
 
 1. **[第七轮实弹解码]**：lu_seq 随撤回推进（汇点活证）；svc=0x7cd00d08d8

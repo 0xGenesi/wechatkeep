@@ -159,7 +159,8 @@ struct Doctor {
             if dvv.stdout.contains("Authority=") || dvv.stderr.contains("Authority=") { return "original" }
             return "unreadable"
         }()
-        let profile = Resigner.inspectEntitlements(main)
+        // 探查失败=nil（doctor 诊断面不炸；签名门另有 codesign --verify 兜底）
+        let profile = try? Resigner.inspectEntitlements(main)
         let restricted = ["com.apple.application-identifier",
                           "com.apple.developer.team-identifier",
                           "com.apple.security.application-groups"]
@@ -331,7 +332,8 @@ struct Doctor {
             let guidance = interruptedTxGuidance(
                 journalExists: true, record: journalPending.record,
                 gatingStates: gating, sudoRequired: !writable, appPath: app.path,
-                runtimeInjected: runtimeInjected, runtimeDylibExists: runtimeDylibExists)
+                runtimeInjected: runtimeInjected, runtimeDylibExists: runtimeDylibExists,
+                currentBuild: build == "unknown" ? nil : build)
             verdicts.append(contentsOf: guidance.verdictLines)
             journalSummary = guidance.journalSummary
             nextCommand = guidance.nextCommand ?? nextCommand
@@ -426,7 +428,8 @@ struct Doctor {
         sudoRequired: Bool,
         appPath: String,
         runtimeInjected: Bool = false,
-        runtimeDylibExists: Bool = false
+        runtimeDylibExists: Bool = false,
+        currentBuild: String? = nil   // 124 轮体检 P3：事务后微信自更新的判读面
     ) -> (verdictLines: [String], journalSummary: String?, nextCommand: String?) {
         guard journalExists else { return ([], nil, nil) }
         let sudo = sudoRequired ? "sudo " : ""
@@ -443,6 +446,14 @@ struct Doctor {
                     "\(record.kind.rawValue)@\(record.app)", nil)
         }
         let started = record.startedAt
+        // 事务属于旧构建而微信已自更新（124 轮体检 P3-8）：重跑 patch 会对新
+        // 构建报 unsupportedBuild——先 update-data；restore 收口不受影响。
+        let buildDrift: [String] = {
+            guard let cur = currentBuild, !cur.isEmpty, !record.build.isEmpty,
+                  record.build != cur else { return [] }
+            return ["ℹ︎ journal 属于构建 \(record.build) 而当前微信已是 \(cur)（事务后自更新）——"
+                    + "对新构建重打前先 `wxkeep update-data`；restore 收口不受影响"]
+        }()
         let revokePatched = gatingStates["revoke"] == "patched"
             || gatingStates["revoke-keeptip"] == "patched"
         let byteDamage = gatingStates.values.contains { $0 == "mixed" || $0 == "unknown" }
@@ -453,7 +464,7 @@ struct Doctor {
             // 不触碰 journal，照做后 doctor 每次仍给同一处方，PENDING 永不
             // 收敛（稀释真事故提示）。verify 降为人读确认步骤，机器可执行
             // 指令改幂等 patch（重跑即清 journal）。
-            return (["journal from an unfinished patch run (started \(started)) — bytes look fully "
+            return (buildDrift + ["journal from an unfinished patch run (started \(started)) — bytes look fully "
                      + "applied and re-signing was confirmed; it likely died before cleanup. "
                      + "Re-running patch (idempotent) clears the journal; "
                      + "`wxkeep verify` afterwards confirms behavior"],
@@ -525,7 +536,15 @@ struct Doctor {
             lines.append("AMFI risk:   not applicable")
         }
         lines.append("running:     \(report.running ? "yes — quit before patching" : "no")")
-        lines.append("writable:    \(report.writable ? "yes" : "no — patch with sudo")")
+        // 124 轮体检 P3：macOS 14+ sudo 也会被「App 管理」拦（下方提示同义）——
+        // 渲染行按 OS 条件化，不给出注定失败的建议。
+        if report.writable {
+            lines.append("writable:    yes")
+        } else if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14 {
+            lines.append("writable:    no — sudo + 终端需有「App 管理」权限（见下方提示）")
+        } else {
+            lines.append("writable:    no — patch with sudo")
+        }
         lines.append("signature:   \(report.signature)"
                      + (report.signatureValid == false ? " — ❌ VERIFY FAILED（字节与签名不符，启动必崩）" : ""))
         let guardStatuses = UpdateGuard.read()

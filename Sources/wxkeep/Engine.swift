@@ -40,6 +40,16 @@ enum Engine {
         var patchedBinaries: [String] = []
     }
 
+    /// 部分写入后失败的标记错误（124 轮体检 P1 修）：本 run 已写过字节
+    ///（跨 binary 的「A 已写→B Phase-1 PatchError」打破 111 轮「PatchError
+    /// 全是写前」假设；恢复重签失败时盘上就是「字节已改+陈旧签名」必崩态）
+    /// ——journal 必须保留给 doctor 的 interrupted 判读，故 `isPreWriteFailure`
+    /// 对本包装恒 false。description 透传底层错误，CLI 输出不变。
+    struct PartialWriteFailure: Error, CustomStringConvertible {
+        let underlying: Error
+        var description: String { "\(underlying)" }
+    }
+
     /// 配方名 → catalog target identifier。现役配方全为 revoke*（signatures.json
     /// 的 SSOT），但 locate_update_x64 等工具产出的 update* 配方一旦并入
     /// signatures.json，硬编码 "revoke" 会把它们错标成变体域目标（silent 才应用、
@@ -353,6 +363,11 @@ enum Engine {
                     summary.lines.append("  [recovery] resign failed — run `sudo wxkeep restore` BEFORE launching WeChat")
                 }
             }
+            // 已写字节（即使恢复重签成功也是 mixed 态）：包装重抛，journal 由
+            // CLI 保留（isPreWriteFailure 对本类型恒 false）。
+            if !dryRun && summary.wroteAnything {
+                throw PartialWriteFailure(underlying: error)
+            }
             throw error
         }
         return summary
@@ -461,6 +476,10 @@ enum Engine {
                             summary.patchedBinaries.append(relative)
                         }
                         partialWrite?(relative)
+                        // 部分还原后未重签=陈旧签名态，比 patch 侧更需要 journal
+                        //（doctor interrupted → 指引收口）；包装重抛防 CLI 按
+                        // 写前失败误清（124 轮体检 P1 同款）。
+                        throw PartialWriteFailure(underlying: error)
                     }
                     throw error
                 }

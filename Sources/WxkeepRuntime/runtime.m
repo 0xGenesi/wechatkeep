@@ -163,8 +163,8 @@ static const hook_target_t kTarget270099 = {
 static const hook_target_t *const kBuiltins[] = { &kTarget270099 };
 static const size_t kBuiltinCount = sizeof(kBuiltins) / sizeof(kBuiltins[0]);
 
-// 44 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-270135 × 双架构
-// （2026-10-20 补齐 270101/270102 后的 knownHooks 现量）；128 留 update-data
+// 66 = 4.1.15 全家族 + 270131-270135 × 双架构 + 4.2.0 线 270340-270351
+// （2026-11-02 补齐后的 knownHooks 现量）；128 留 update-data
 // 分发新构建行的余量（越限行被静默丢弃——parse 循环的 n >= 上限 break，
 // 丢的是追加在尾部的最新构建行：容量必须显著大于 knownHooks 现量，
 // RuntimeHookTests 有 128 行全收的容量回归锁）。
@@ -638,6 +638,10 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
             out->clone_rd_lookup_fs = (uint32_t)fs;
             if (parse_hex(ns_u8(rdh), out->clone_rd_lookup_head,
                           sizeof(out->clone_rd_lookup_head)) != 16) return 0;
+            // 124 轮体检 P0：头锚=蹦床重放源（补丁态 memcpy 直用行字节），
+            // 与 clone_expected 同过可换址门——含 ADRP/B/LDR-literal 的头
+            // 换址重放即算错地址（108 轮同型 P0 的纪律对齐）。
+            if (!arm64_prologue_relocatable(out->clone_rd_lookup_head, 16)) return 0;
             out->has_clone_rd = 1;
         }
         // R11 parse 锚定加订（可选三件套，rd 组块外独立判定）：任一在场
@@ -660,6 +664,8 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
             out->clone_rd_keyctor_fs = (uint32_t)kfs;
             if (parse_hex(ns_u8(kch), out->clone_rd_keyctor_head,
                           sizeof(out->clone_rd_keyctor_head)) != 16) return 0;
+            // 同 rd 组头锚（124 轮 P0）：keyctor 直调蹦床重放源同过可换址门。
+            if (!arm64_prologue_relocatable(out->clone_rd_keyctor_head, 16)) return 0;
         }
         // M4 插入直调表（113 轮 R8）：七字段成组（ctor/amr 各带 fs+head 双
         // 身份门 + msg_vt——直调是最重放宽面，两个入口都要门），pub_vt 可选
@@ -700,6 +706,9 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
                           sizeof(out->clone_ins_ctor_head)) != 16) return 0;
             if (parse_hex(ns_u8(iamh), out->clone_ins_amr_head,
                           sizeof(out->clone_ins_amr_head)) != 16) return 0;
+            // 同 rd 组头锚（124 轮 P0）：ctor/amr 直调蹦床重放源同过可换址门。
+            if (!arm64_prologue_relocatable(out->clone_ins_ctor_head, 16)) return 0;
+            if (!arm64_prologue_relocatable(out->clone_ins_amr_head, 16)) return 0;
             out->has_clone_ins = 1;
             if (ipvt) {
                 uint32_t pv = 0;
@@ -731,13 +740,21 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
 }
 
 /// 从已解析的配置字典装载外部 hooks 表；无合法行则保持 0（回落内置表）。
+static void bootlog_line(const char *msg);   // 定义在武装节（前置声明）
 static void load_hooks_from(NSDictionary *cfg) {
     id hooks = cfg[@"hooks"];
     if (![hooks isKindOfClass:[NSArray class]]) return;
-    int n = 0;
+    int n = 0, overflow = 0;
     for (id row in hooks) {
-        if (n >= kMaxExtHooks) break;
+        if (n >= kMaxExtHooks) { overflow++; continue; }
         if (hook_row_parse(row, &g_ext_hooks[n])) n++;
+    }
+    if (overflow > 0) {
+        // 124 轮体检 P1：越限行静默丢弃丢的恰是追加在尾部的最新构建行
+        //（用户当前版本）——`runtime status` 只显「未武装」而无表被截断
+        // 线索。bootlog 留痕（113 轮「孤儿字段零信号」同哲学）。
+        bootlog_line("ext-hooks: 表超 128 行上限——尾部行被丢弃（恰为最新构建）；"
+                     "升级 wxkeep 后重跑 runtime install 刷新表");
     }
     if (n > 0) g_ext_hook_count = n;
 }
@@ -823,17 +840,25 @@ static uint64_t fnv1a64(const uint8_t *p, size_t n) {
 }
 
 static uint64_t config_content_hash(void) {
-    // 与 read_runtime_config 同选径语义：group 优先、读失败回落 legacy
-    // （只构造不校验时 group 路径常在但文件未必在——不能就此返回 0）。
+    // 与 read_runtime_config_at 同选径语义：group **可解析为 dict** 优先、
+    // 否则回落 legacy（124 轮体检 P1：原实现「group 文件存在即哈希它的
+    // 字节」——group 半写/损坏时生效配置=legacy，cfg= 指纹却指向损坏的
+    // group 字节，唯一需要该告警面的场景失真）。
     NSString *group = groupContainerConfigPath();
     if (group) {
-        NSData *d = [NSData dataWithContentsOfFile:group];
-        if (d) return fnv1a64(d.bytes, d.length);
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:group];
+        if ([d isKindOfClass:[NSDictionary class]]) {
+            NSData *raw = [NSData dataWithContentsOfFile:group];
+            if (raw) return fnv1a64(raw.bytes, raw.length);
+        }
     }
     NSString *legacy = runtimeConfigPath();
     if (legacy) {
-        NSData *d = [NSData dataWithContentsOfFile:legacy];
-        if (d) return fnv1a64(d.bytes, d.length);
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:legacy];
+        if ([d isKindOfClass:[NSDictionary class]]) {
+            NSData *raw = [NSData dataWithContentsOfFile:legacy];
+            if (raw) return fnv1a64(raw.bytes, raw.length);
+        }
     }
     return 0;
 }
@@ -864,10 +889,9 @@ static double config_stamps_both(void) {
 // 不再每 tick 重读。
 static void maybe_reload_config(void) {
     @autoreleasepool {
-        NSString *p = groupContainerConfigPath();
-        if (!p) p = runtimeConfigPath();
-        if (!p) return;
+        // 124 轮体检 P3：p 只判「两候选路径是否全无」（全无=无配置面可探测）。
         double st = config_stamps_both();
+        if (st == 0 && g_cfg_stamp == 0) return;
         if (st == g_cfg_stamp) return;
         NSDictionary *cfg = read_runtime_config();   // 正式选径（group 优先/legacy 回落）
         g_cfg_stamp = st;                             // 先立戳：坏文件不再每 tick 重读
@@ -1395,7 +1419,15 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
     if (svc_ok && !key_ok && msg > 0x10000) {
         typedef void (*keyctor_t)(void *, void *);
         uint64_t obj_head = 0;
-        if (kread64(msg, &obj_head) && obj_head != 0) {
+        // 124 轮体检 P0：原门=「可读且首 8B 非零」——捕获与执行间被释放/
+        // 复用的对象（页仍映射、首 8B 常非零）照样过门，宿主 keyctor 在错
+        // 对象上跑内部指针链 = 崩在宿主代码。加模块成员门：[msg]（vtable
+        // 槽）须落在 wechat.dylib 镜像跨度内（msg 类 vtable 不在行数据，
+        // 模块域是免 schema 的最强近似——堆指针/小整数/毒值全拒；svc 门
+        // 比对的 svc_vt 同域）。
+        if (kread64(msg, &obj_head) && obj_head != 0
+            && (uintptr_t)obj_head >= g_image_base
+            && (uintptr_t)obj_head - g_image_base < 0x20000000ULL) {
             ((keyctor_t)rd_abs(g_image_base, g_clone_rd.keyctor_off))(
                 (void *)keyobj, (void *)msg);
             uint8_t flag = keyobj[0x17];   // 串对象头合法性（短 len<<1/长 MSB）
@@ -2100,10 +2132,26 @@ static int sso_head(const uint8_t *obj, uint64_t *size, uint8_t **ptr) {
     return 1;
 }
 
-static int rewrite_replacemsg_inner(uint8_t *sso) {
-    uint64_t size;
-    uint8_t *ptr;
-    if (!sso_head(sso, &size, &ptr)) return 0;  // 短串装不下完整撤回 XML（≥60B）
+/// sso_head 的内核读版（124 轮体检 P0 修）：头 24B 先经 kread——错挂
+///（同 UUID 同序言异函数，10-03 事故形态）时 args 里的垃圾指针只让解析
+/// 不中（放行原生），绝不放大为进程崩溃；与克隆侧「用户态裸读垃圾指针
+/// = 进程崩溃」纪律对齐。1=长串且 (size,ptr) 已填。
+static int sso_head_kread(const uint8_t *obj, uint64_t *size, uint8_t **ptr) {
+    uint8_t head[24];
+    if (!kread_buf((uint64_t)(uintptr_t)obj, head, sizeof(head))) return 0;
+    if (g_sso_layout_arm64) {
+        if ((int8_t)head[0x17] >= 0) return 0;   // 短串
+        memcpy(size, head + 8, 8);
+        memcpy(ptr, head, 8);
+    } else {
+        if (!(head[0] & 1)) return 0;            // 短串
+        memcpy(size, head + 8, 8);
+        memcpy(ptr, head + 16, 8);
+    }
+    return 1;
+}
+
+static int rewrite_replacemsg_inner(uint8_t *ptr, uint64_t size) {
     if (size < kNeedleLen || size > (1 << 20) || ptr < (uint8_t *)0x10000) return 0;
     if (!find_bytes(ptr, size, kRevokeNeedle, kNeedleLen)) return 0;  // 快速门
     if (rewrite_inner_with(ptr, size, kContentOpen, sizeof(kContentOpen) - 1,
@@ -2155,8 +2203,12 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
     // worker 异步侧做。clone_capture 同步读走该全局（同调用即配对）。
     g_clone_parse_consumer = (uint64_t)(uintptr_t)args[0];
     g_clone_parse_obj = (uint64_t)(uintptr_t)args[1];
-    if (args[1] > (void *)0x10000) {
-        memcpy((void *)g_arg1_head, args[1], sizeof(g_arg1_head));
+    if (args[1] > (void *)0x10000
+        && kread_buf((uint64_t)(uintptr_t)args[1], (void *)g_arg1_head,
+                     sizeof(g_arg1_head))) {
+        // 124 轮体检 P0：诊断面头捕获此前裸 memcpy——错挂场景 args[1] 为
+        // 垃圾指针时首条消息即 SIGSEGV。kread 失败=指针不可读，仅不置
+        // valid（诊断面缺失可容忍，崩溃不可容忍）。
         g_arg1_valid = 1;
     }
     // g_hook.target 以 acquire 读，与 install_hook 的 release 存储配对
@@ -2171,7 +2223,7 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
             uint8_t *sso = msg + g_hook.xml_sso_off;
             uint64_t size;
             uint8_t *ptr;
-            if (sso_head(sso, &size, &ptr)) {   // per-arch 长串判定 + 字段提取
+            if (sso_head_kread(sso, &size, &ptr)) {   // 内核读版长串判定（124 轮 P0）
                 if (size >= 32 && size <= (1 << 20) && ptr >= (uint8_t *)0x10000) {
                     if (find_bytes(ptr, size, kSelfNeedle, sizeof(kSelfNeedle) - 1)) {
                         g_self_skips++;   // 自发撤回：放行原生删除+原生提示（T5 F1）
@@ -2188,7 +2240,7 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
                                 g_zero_fires++;
                         }
                     }
-                    if (tip_len_active() > 0) rewrite_replacemsg_inner(sso);
+                    if (tip_len_active() > 0) rewrite_replacemsg_inner(ptr, size);
                 }
             }
         }
@@ -3048,7 +3100,6 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
             g_clone_rd.x2ctx_off = t->clone_rd_x2ctx_off;
             g_clone_rd_key_slot_off = t->clone_rd_key_slot;
             __atomic_store_n(&g_clone_rd_key_slot_live, 1, __ATOMIC_RELEASE);
-            __atomic_store_n(&g_clone_rd_valid, 1, __ATOMIC_RELEASE);
             bootlog_line("clone-rd: 直调表已武装（R6 读路径接线，上限 32 次/进程）");
             // R11 parse 锚定：keyctor 三件套在场则过双身份门（fs+head）后
             // 才置 valid——直调族的第三个入口，门强与 lookup 同级。失配
@@ -3071,6 +3122,10 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
                     bootlog_line("clone-rd: keyctor 已武装（R11 parse 锚定链启用）");
                 }
             }
+            // 124 轮体检 P3：rd_valid 最后发布（原在 keyctor 段之前——武装窗
+            // 内首个克隆事件可见 rd_valid=1 而 keyctor_valid=0，误计一拍
+            // clmiss/nomethods 诊断噪声）。
+            __atomic_store_n(&g_clone_rd_valid, 1, __ATOMIC_RELEASE);
         }
     }
     // M4 插入直调表（113 轮 R8）：ctor/amr 双身份门（rd 表同强度——直调面
@@ -3221,6 +3276,10 @@ static void arm_lu_site(const hook_target_t *t, uintptr_t base) {
     __atomic_store_n(&g_lu_real_wrapper, (void *(*)(void))ctr.mem, __ATOMIC_RELEASE);
     int rc = try_slot_fill(ctarget, (void *)&revoke_lu_hook);
     if (rc != 0) {
+        // 124 轮体检 P1：同函数其余五个失败分支都置位——漏置使
+        // `runtime status` 对「lu 补丁在场+SLOT 双门拒填」矛盾态静默，
+        // 只剩翻 boot log 一条路。
+        g_hook_status |= kStCloneFail;
         bootlog_line("lu-arm: slot-fill 失败（入口未补丁=安全态；补丁态在场则"
                      "消息查找将崩溃——收口 remove/重装）");
         return;
@@ -3577,22 +3636,11 @@ static NSString *legacyMarkerDir(void) {
         stringByExpandingTildeInPath];
 }
 
-static void write_marker_ex(int loud) {
-    @autoreleasepool {
-        // 与配置同策略：Group 容器优先（CLI/runtime status 在沙盒外读同一路
-        // 径），写失败回落 legacy——容器内 ~/ 展开曾让 marker 对 CLI 不可见
-        // （沙盒实证），回落版至少对容器内诊断（boot log 同位面）可见。
-        NSString *groupDir = nil;
-        @try {
-            NSURL *groupURL = [[NSFileManager defaultManager]
-                containerURLForSecurityApplicationGroupIdentifier:runtimeAppGroupID()];
-            if (groupURL.path.length > 0) {
-                groupDir = [groupURL.path stringByAppendingPathComponent:@"wxkeep"];
-            }
-        } @catch (NSException *e) {
-            groupDir = nil;
-        }
-    NSString *content = [NSString stringWithFormat:
+/// marker 内容构造（write_marker_ex 主体提取；测试缝
+/// wxkeep_runtime_test_marker_content 用同一函数锁「格式串键名 ↔ CLI
+/// 解析键名」双侧一致——124 轮体检 P2-3：两侧手写，改一侧另一侧静默显 0）。
+static NSString *marker_content(void) {
+    return [NSString stringWithFormat:
         @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d clpair=%d clsvc=%d clkey=%d clkeylen=%d clhit=%d clmissq=%d clget=%d clinner=%d clpub=%d clpubm=%d clins=%d clsvc2=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
         [NSDate date].timeIntervalSince1970,
         g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
@@ -3612,6 +3660,24 @@ static void write_marker_ex(int loud) {
             g_last_uuid[0] ? @(g_last_uuid) : @"<none>",
             g_scan_missed,
             g_probe_name[0] ? @(g_probe_name) : @"<none>"]];
+}
+
+static void write_marker_ex(int loud) {
+    @autoreleasepool {
+        // 与配置同策略：Group 容器优先（CLI/runtime status 在沙盒外读同一路
+        // 径），写失败回落 legacy——容器内 ~/ 展开曾让 marker 对 CLI 不可见
+        // （沙盒实证），回落版至少对容器内诊断（boot log 同位面）可见。
+        NSString *groupDir = nil;
+        @try {
+            NSURL *groupURL = [[NSFileManager defaultManager]
+                containerURLForSecurityApplicationGroupIdentifier:runtimeAppGroupID()];
+            if (groupURL.path.length > 0) {
+                groupDir = [groupURL.path stringByAppendingPathComponent:@"wxkeep"];
+            }
+        } @catch (NSException *e) {
+            groupDir = nil;
+        }
+        NSString *content = marker_content();
         NSString *legacyDir = legacyMarkerDir();
         NSString *dirs[2];
         int n = 0;
@@ -4699,30 +4765,30 @@ int wxkeep_runtime_test_marker_dirs(const char *d1, const char *d2) {
     return write_marker_first_writable(dirs, 2, @"wxkeep-marker-fallback-probe");
 }
 
+/// marker 内容缝（124 轮 P2-3）：返回生产格式串按当前全局构造的一行
+///（静态缓冲，下一次调用覆盖）。Swift 侧用它锁「格式串键名 ↔ CLI
+/// markerInt/markerStatusDecode 解析键名」双侧一致——两侧手写漂移时
+/// 该测试即红，而不是 CLI 展示静默变 0。
+const char *wxkeep_runtime_test_marker_content(void) {
+    static char buf[1024];
+    @autoreleasepool {
+        strlcpy(buf, marker_content().UTF8String ?: "", sizeof(buf));
+    }
+    return buf;
+}
+
 long wxkeep_runtime_test_rewrite(unsigned char *data, unsigned long data_len,
                                  const char *tip, unsigned long tip_len) {
-    uint8_t sso[24];
-    memset(sso, 0, sizeof(sso));
+    // 124 轮体检 P0 改写签名同步：rewrite_replacemsg_inner 直取 (ptr,size)
+    //（生产面头解析已由 sso_head_kread 内核读版承担），测试缝直传数据面。
     uint64_t size = data_len;
     uint8_t *ptr = data;
-    if (g_sso_layout_arm64) {
-        // arm64 变体布局头：{data@0, size@8, cap|flag@0x10（MSB=长）}
-        memcpy(sso, &ptr, 8);
-        memcpy(sso + 8, &size, 8);
-        uint64_t cap = 0x8000000000000000UL;
-        memcpy(sso + 16, &cap, 8);
-    } else {
-        // x64 标准布局头：{tag@0=1, size@8, ptr@0x10}
-        sso[0] = 1;
-        memcpy(sso + 8, &size, 8);
-        memcpy(sso + 16, &ptr, 8);
-    }
     char saved_buf[128];
     size_t saved_len = tip_len_active();
     memcpy(saved_buf, tip_text_active(), sizeof(saved_buf));
     if (tip_len >= 128) return -1;
     tip_store_write(tip, tip_len);
-    int r = rewrite_replacemsg_inner(sso);
+    int r = rewrite_replacemsg_inner(ptr, size);
     tip_store_write(saved_buf, saved_len);
     if (r != 1) return -1;
     // 返回命中标签的内文长度（改写后前 tip_len 字节 = 文案，其余为空格填充）

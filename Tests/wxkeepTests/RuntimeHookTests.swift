@@ -390,7 +390,7 @@ import Foundation
         """) == 0)
     }
 
-    /// 容量回归锁：外部表必须全收 128 行合法数据。knownHooks 现量 30 行
+    /// 容量回归锁：外部表必须全收 128 行合法数据。knownHooks 现量 66 行
     /// 且随 update-data 分发新构建行单调增长；旧上限 32 时越限行（追加在
     /// 尾部的新构建行——恰是未来最需要武装的）被 parse 循环静默丢弃。
     @Test func hooksTableAccepts128Rows() {
@@ -1257,7 +1257,6 @@ extension RuntimeHookTests {
         memset(UnsafeMutableRawPointer(consumer), 0, 0xc00)
         memset(UnsafeMutableRawPointer(msgObj), 0, 0x6d0)
         consumer[0xb78 / 8] = UInt64(UInt(bitPattern: svc))
-        msgObj[0] = 0x1122334455
 
         // JIT 桩**单页**布局（生产合同 = 同一镜像 base+uint32 offset——
         // base 传 0 会让 rd_abs 截断 64 位桩地址 = SEGV，首版实证）：
@@ -1270,6 +1269,10 @@ extension RuntimeHookTests {
         #expect(page != MAP_FAILED)
         defer { munmap(page, 4096) }
         let baseAddr = UInt64(UInt(bitPattern: page))
+        // 124 轮 P0-2 门：[msg]（vtable 槽）须落镜像跨度 [base, base+512MB)
+        // ——生产合同=消息对象 vtable 在 wechat.dylib 数据段内；测试以
+        // 合成 base 自洽（原小常量头会被模块成员门正确拒绝）。
+        msgObj[0] = baseAddr + 0x1000
         pthread_jit_write_protect_np(0)
         // keyctor（MAP_JIT 页全部写在 protect(0) 之后——113 轮 SIGBUS 纪律）
         // 字面量偏移是**相对各 ldr 自身 PC**——三 literal 落在绝对 32/40/48，

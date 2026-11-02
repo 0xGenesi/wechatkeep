@@ -287,7 +287,9 @@ struct Config {
                         throw LoadError.malformed(
                             "build \(v.version) target \(t.identifier): bad hex addr \"\(addr)\"")
                     }
-                    if Data(hex: e.asm) == nil {
+                    // 空 asm 此前经 Data(hex:"")==空 Data 过门 → prefix(0)
+                    // 恒等 → 条目永远 alreadyPatched（静默 no-op 假成功）。
+                    if e.asm.isEmpty || Data(hex: e.asm) == nil {
                         throw LoadError.malformed(
                             "build \(v.version) target \(t.identifier): bad hex asm \"\(e.asm)\"")
                     }

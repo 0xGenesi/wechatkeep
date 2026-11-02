@@ -136,7 +136,8 @@ enum RuntimeConfig {
     /// CDN 归档补齐（同款拓扑 + 序言门，与 ㉒ parse 直挂口径一致）；270084-89
     /// 十行为同日一致性轮发现的家族前段（4.1.15.4-.9，.7 从未发布）；270101/
     /// 102 于 2026-10-20 补齐、270131-135 于 10-14/10-17 派生——地址表达
-    /// 44 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-135
+    /// 66 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-135
+    /// + 4.2.0 线 270340-270351（2026-11-02 补齐，11 构建 × 双架构）
     /// × 双架构（22 构建 × 2）。
     ///
     /// funcSize 覆盖率（77 续②补 16 行、⑫ zsbai 回填 6 行，2026-10-26/27）：
@@ -230,6 +231,42 @@ enum RuntimeConfig {
                 expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270135", uuid: "661e436d-ae61-3413-a867-841f042ddc12",
                 arch: "x86_64", hook_off: "0x5503730", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        // —— 4.2.0 线（270336+，2026-11-02 补齐；x64=derive_runtime_hooks
+        // 守卫→FUNCTION_STARTS→parse 入口链，序言门+拓扑唯一性门全过；
+        // fs 5216 与 270135 同值=家族布局指纹稳定）——
+        HookRow(build: "270340", uuid: "50932a45-b19c-32f9-b5d3-179cbb5b5b74",
+                arch: "x86_64", hook_off: "0x56777e0", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270341", uuid: "c17785b8-4e15-3fad-9312-a24b1cc979c3",
+                arch: "x86_64", hook_off: "0x5682e50", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270342", uuid: "8f150537-bc82-3ae6-afc1-6fe226361324",
+                arch: "x86_64", hook_off: "0x5684910", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270343", uuid: "4a9c4bdb-9a9e-3e31-8dd5-6f74f6ae25ff",
+                arch: "x86_64", hook_off: "0x5689400", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270344", uuid: "aecd9409-945c-36ee-a99c-888e7d717dc1",
+                arch: "x86_64", hook_off: "0x5689400", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270345", uuid: "ea02d7d7-53b0-3019-9b6c-e8649db39b59",
+                arch: "x86_64", hook_off: "0x5689430", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270346", uuid: "7465e7af-dedb-3d7a-abfc-33d638144e85",
+                arch: "x86_64", hook_off: "0x568cc70", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270348", uuid: "6fffcd9f-df24-3550-b9e8-846bb6a8238a",
+                arch: "x86_64", hook_off: "0x568d760", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270349", uuid: "bc6222b8-c56a-3622-8c77-cbbd9cc84119",
+                arch: "x86_64", hook_off: "0x568edd0", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270350", uuid: "20eeda52-6170-3e0d-95d9-93105968269a",
+                arch: "x86_64", hook_off: "0x568f330", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270351", uuid: "dfa91bf9-0aa6-3963-9204-4947bd6af85a",
+                arch: "x86_64", hook_off: "0x568ef90", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270084", uuid: "a08e3e78-cc29-3927-9375-883c644d8ff8",
                 arch: "arm64", hook_off: "0x4bb380c", msg_arg: 1, xml_sso_off: 0,
@@ -339,6 +376,42 @@ enum RuntimeConfig {
                 // 0x45a5910；x0=consumer/x1=msg 同点全活）。
                 clone_cm_hook_off: "0x31a96d8",
                 clone_cm_expected: "FC6FBCA9F65701A9F44F02A9FD7B03A9"),
+        // —— 4.2.0 线 arm64（同轮补齐；行=cbz 位点所在函数起点
+        //（FUNCTION_STARTS），16B 序言门全过；cbz−entry=0x270 与 270135
+        // 同偏移、fs 4380 同值=家族布局指纹稳定）——
+        HookRow(build: "270340", uuid: "20a55092-adb5-3782-85b3-61c6f4498f69",
+                arch: "arm64", hook_off: "0x4e6875c", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270341", uuid: "5a40ca20-0112-3742-bf68-610ec8845c81",
+                arch: "arm64", hook_off: "0x4e6f170", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270342", uuid: "9ef91577-bf39-3982-8899-d93bfaf1c6c7",
+                arch: "arm64", hook_off: "0x4e73650", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270343", uuid: "c41a5eab-1300-33c0-a87e-a64b5deb03f5",
+                arch: "arm64", hook_off: "0x4e775f4", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270344", uuid: "8f40dff7-5dd0-38c7-833f-5583b279e08c",
+                arch: "arm64", hook_off: "0x4e775fc", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270345", uuid: "9fab943b-d792-3aec-b7bf-612bccb65bb2",
+                arch: "arm64", hook_off: "0x4e7760c", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270346", uuid: "a1748a08-4e2b-3440-b23f-9ab0edaad282",
+                arch: "arm64", hook_off: "0x4e7a268", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270348", uuid: "a447d5ec-4b42-37af-90ef-7f6848ad780d",
+                arch: "arm64", hook_off: "0x4e79f98", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270349", uuid: "d9b77b15-2310-3348-9ff7-b90f89243790",
+                arch: "arm64", hook_off: "0x4e79334", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270350", uuid: "6d2f71f0-c07d-3935-b0f5-f83c7559dc24",
+                arch: "arm64", hook_off: "0x4e7ca60", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270351", uuid: "e0cc3ac1-baf2-35cd-ad60-80efb2ccbafa",
+                arch: "arm64", hook_off: "0x4e797d4", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
     ]
 
     /// 微信的 App Group（与其 entitlements application-groups 同源）。
@@ -354,7 +427,7 @@ enum RuntimeConfig {
     static func groupContainerURL() -> URL {
         // RealUser：sudo runtime install/hooks/tip 写进的必须是真实用户的
         // Group 容器——dylib 以微信用户身份读它；跟 euid 走 /var/root 时
-        // install 报「✓ hooks: 44 行」而 dylib 实际读到的是空表（静默失效）。
+        // install 报「✓ hooks: 66 行」而 dylib 实际读到的是空表（静默失效）。
         RealUser.homeURL()
             .appendingPathComponent("Library/Group Containers/\(appGroupID)/wxkeep",
                                     isDirectory: true)
