@@ -1,0 +1,37 @@
+#!/bin/bash
+# pre-commit（125 轮 V5 深度轮）——变异运行态护栏的最后一道门：
+#   1. sentinel（var/.mutation-in-flight.json）在场 = 变异器活跃或泄漏 → 拒提交；
+#   2. 任一 MUTATIONS 锚点不在 canonical 态（old 串不在源文件里）= 源文件处于
+#      变异态/手工漂移 → 拒提交。
+# 安装：make hooks（= git config core.hooksPath tools/hooks）。
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 1; }
+
+if [ -f var/.mutation-in-flight.json ]; then
+  echo "✗ 拒绝提交：mutation_test.py 运行中/泄漏（var/.mutation-in-flight.json 在场）。"
+  echo "  若是泄漏（上次被杀）：再跑任一 python3 tools/mutation_test.py <id> 会自愈还原；"
+  echo "  核对 git diff 后重试。"
+  exit 1
+fi
+
+# 谓词与 apply() 同口径：old 恰好 1 次（在场≠可跑——双评审 P1 实证 M08
+# 死 14 轮双门全绿）+ new 不得自然在场（恐处变异态）。
+python3 - <<'EOF'
+import os, sys
+sys.path.insert(0, os.path.join(os.getcwd(), "tools"))
+from mutation_test import MUTATIONS
+bad = []
+for mid, path, old, new, _desc in MUTATIONS:
+    s = open(path, encoding="utf-8").read()
+    if s.count(old) != 1:
+        bad.append((mid, path, f"anchor 计数 {s.count(old)} != 1（漂移或变异态）"))
+    elif new in s:
+        bad.append((mid, path, "变异形态已在盘"))
+if bad:
+    print("✗ 拒绝提交：以下变异锚点不在 canonical 可跑态：")
+    for mid, path, why in bad:
+        print(f"  [{mid}] {path}: {why}")
+    print("  修法：更新 MUTATIONS 锚点（若代码合法演进）或 git checkout -- <file>")
+    sys.exit(1)
+print(f"✓ {len(MUTATIONS)} 个变异锚点全在 canonical 可跑态（计数恰 1）")
+EOF

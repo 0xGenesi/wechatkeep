@@ -40,19 +40,27 @@ else
   echo "✗ 签名验证失败"; exit 1
 fi
 
-# 受保护文件哈希独立复算（sha256 命令，非 python/非 CryptoKit）
+# 受保护文件哈希独立复算（sha256 命令，非 python/非 CryptoKit）。
+# WXKEEP_HASH_WARN=1（CI master 腿用）：哈希失配降为 warning——manifest-sign
+# 在 CI 之后才重签，push 改 config 的合法窗口里失配是预期（125 续双评审
+# P1：硬门会堵死自动重签流）。签名验证（上节）任何环境都是硬门。
 python3 - "$ROOT" <<'EOF'
-import hashlib, json, os, subprocess, sys
+import json, os, subprocess, sys
 root = sys.argv[1]
+warn_only = os.environ.get("WXKEEP_HASH_WARN") == "1"
 m = json.load(open(os.path.join(root, "manifest.json")))
 ok = True
 for rel, want in sorted(m["files"].items()):
     got = subprocess.run(["shasum", "-a", "256", os.path.join(root, rel)],
                          capture_output=True, text=True).stdout.split()[0]
-    mark = "✓" if got == want else "✗"
-    if got != want: ok = False
+    mark = "✓" if got == want else ("⚠️" if warn_only else "✗")
+    if got != want:
+        ok = False
+        if warn_only:
+            print(f"  ⚠️ {rel}: {got} != {want}（重签窗口内预期失配，warning 态）")
+            continue
     print(f"  {mark} {rel}: {got}")
-sys.exit(0 if ok else 1)
+sys.exit(0 if (ok or warn_only) else 1)
 EOF
 rm -f /tmp/wxkeep-canonical.bin.$$ /tmp/wxkeep-pub.der.$$ /tmp/wxkeep-sig.raw.$$
-echo "✓ 独立验签完成：manifest 与受保护文件全部吻合"
+echo "✓ 独立验签完成（签名硬门通过；哈希面按环境严格/警告）"

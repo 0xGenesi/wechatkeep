@@ -38,6 +38,11 @@ enum Engine {
         var wroteAnything = false
         /// Bundle-relative paths of binaries whose bytes changed (for resign).
         var patchedBinaries: [String] = []
+        /// 本事务实际写入位点的审计账目（125 轮 V5 深度轮）——CLI 成功收口
+        /// 时落 wxkeep.audit.json（PatchAudit）。变体切换的还原臂不记账
+        /// （restoreTargets 不接 auditSink）：审计语义 =「与 pristine 的最终
+        /// 差异」，还原臂的位点回到 pristine 不构成差异。
+        var auditSites: [PatchAudit.Site] = []
     }
 
     /// 部分写入后失败的标记错误（123 轮体检 P1 修）：本 run 已写过字节
@@ -336,7 +341,17 @@ enum Engine {
                     do {
                         outcomes = try Patcher.patch(
                             binary: binary, entries: target.entries, identifier: target.identifier,
-                            dryRun: dryRun, allowUnverified: allowUnverified)
+                            dryRun: dryRun, allowUnverified: allowUnverified,
+                            auditSink: { site in
+                                summary.auditSites.append(PatchAudit.Site(
+                                    binary: relative,
+                                    arch: site.arch.rawValue,
+                                    identifier: site.identifier,
+                                    va: String(site.va, radix: 16),
+                                    before: site.before.hexUppercase,
+                                    after: site.after.hexUppercase,
+                                    source: site.source))
+                            })
                     } catch {
                         // 记账滞后洞（110 轮修）：Patcher 的 Phase-2 写循环可在
                         // 中途抛错（EIO/ENOSPC）——此刻字节已部分落盘，但记账要

@@ -470,6 +470,59 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 125 续·V5 深度轮：L9 指令级证明 + per-site 审计 + 系统判官 + 仪器护栏 + 双评审收口（2026-11-03：需求「更深而非更大」第二代答卷；303 测全绿 +11）
+
+> 需求重写全文见 [V5-DEPTH.md](V5-DEPTH.md)（D8-D13 专家实践 / R7-R12
+> 可验收需求 / 设计修正五条 / 未证明面显式登记）；故障模式知识收敛立册
+> [FMEA.md](FMEA.md)（A-E 五面登记）。
+
+1. **[L9 指令级结构证明（旗舰）]**：`tools/verify_instruction_diff.py`
+   （capstone，Python 孪生第三例）——①asm 严格完整解码（撕裂/非法=FAIL）；
+   ②**branch-flip 目标恒等**（错目标 B 可过全部字节门——本轮负控①钉死
+   该盲区）；③具名语义类 retify/branch-flip/force-flag/store-zero/nop-out/
+   prologue-restore；④`--patched` 全文件局部性直证（__LINKEDIT 重签尾差
+   单列）。**全语料 32 构建 × 双变体 1245 位点实例 100% 具名类、0 失败、
+   0 decoded-clean**；三型负控（错目标/撕裂/位点外）全红。Makefile
+   `verify-isa` + MAINTAINING SOP 入册。
+2. **[per-site 审计清单]**：Patcher `auditSink`（Phase-2 成功后交付，账目
+   只反映已落盘写入；dry-run/写前失败/变体切换还原臂不记账）→ CLI 事务
+   成功收口时落 `wxkeep.audit.json`（build/variant/app/sites[]：va/before/
+   after/source）→ restore 清账；doctor 新 `audit_state`（fresh/stale/
+   unreadable/foreign-app，watch 级不越权翻 overall）；`tools/audit_patch.py`
+   三件套零信任离线复算（270351 真切片演练：9 位点 33B diff 全吻合；
+   0x5000 位点外注入必红）。M24 变异行钉死账目丢弃面。
+3. **[doctor 系统判官面]**：`.ips` 近 7 天扫描（procName/procPath 身份匹配
+   + termination.namespace CODESIGNING 计数；夹具 4 例定向：匹配 2/他进程
+   1/过期 1 → count=2 codesigning=1）；spctl Gatekeeper 评估行（informational
+   ——ad-hoc 拒收明示预期态，不处方系统变更，与 AMFI 行互补）；`--deep`
+   可选全量校验。JSON 契约增量键 audit_state/recent_crash_reports/
+   gatekeeper_assessment 锁测。M25 钉死身份匹配反转面。
+4. **[变异器护栏（测量仪器可信）]**：sentinel（var/.mutation-in-flight.json，
+   apply 前落盘 finally 移除）+ 启动自愈（泄漏→逐项反向还原→拒跑 exit 2，
+   演练绿）+ `make hooks` pre-commit（sentinel/锚点双门，泄漏现场拒提交
+   演练绿）+ CI canonical-anchor Guard 步。**首捕真实缺陷**：M05/M12/M20
+   三锚点随 123/124 轮代码演进漂移 → 变异静默 SKIP → 杀灭率分母悄悄缩水
+   （测量完整性 P1）；三锚点已刷新（M05 与 M22 同锚异半：hex 门/空串门）。
+   等价变异体判例成文（M23 首版：`a≥b && a−b<c ≡ a−b<c` 无符号模运算
+   蕴含——下界是防御性可读双条件而非独立防线）。
+5. **[CI 证据链接线]**：openssl 独立验签入 CI（master 腿；PR 分支
+   manifest 尚未重签故哈希面非红——签名/哈希语义分离如实注释；LibreSSL
+   无 Ed25519 pkeyutl 时 brew openssl@3 回退）。
+6. **[双评审收口（主动体检打法）]**：双路深读评审 P0×2 + P1×9 全部人工复核属实后修复——①`.ips` 真件格式（时间戳 `2026-11-02 23:17:11.00 +0800` 非 ISO、procName/procPath/termination 在正文整段 JSON）→ 解析器重写 + 真格式夹具回归锁 + 时间戳归一锁测；②L9 目录 FAIL 永不进退出码（假绿）→ fail 传播 + 注入坏条目实证 exit 1；③auditSink 交付改 Phase-2 逐条（中途写失败已写位点不丢账）+ CLI 失败路径账目保全——**首版 zip 耦合事故当场被全量门抓获**（sink nil → audits 空 → 零写入，302 测红 19 → 解耦修复全绿，教训=写入循环不得与旁路账目耦合）；④L9 三补（cond-branch restore 恒等 / retify 禁夹带分支 / x64 翻转对称 + 负控④）；⑤--patched 模式重构（--arch 显式 + fat 经 load_slices + 尾长容忍 + ranges None 防 + 负控互斥）；⑥audit_patch 多 binary/arch 过滤 + 分块 diff（百万 int 物化消灭）；⑦变异器再加固（apply 双向防护/哨兵先行+原子写+pid 探活+坏 JSON fail-closed/还原失败保哨兵 exit 3/wedge 耗尽不计 KILLED）；⑧openssl 验签 CI 语义修正（签名硬门/哈希 warn——防堵死 manifest-sign 自动重签流）；⑨M08 死 14 轮再捕（在场≠唯一，门谓词改计数恰 1）。FMEA 立 B6/B7/C6 边界行。
+7. **[验证链]**：303 测全绿（+11：PatchAudit 6 + doctor 外部判据 4 + 变体切换 undo 记账 1）；
+   L9 全语料台账 var/logs/isa-diff-*.txt；M23 重验（含本轮新增相对形
+   杀例 base+0x30000000——绝对值形与界宽变异的区分随 JIT 基址漂移，
+   相对形对任意基址确定，双形态整门/界宽失效均被钉死）；M24/M25 杀灭
+   验证见本轮验证链记录。
+8. **[遗留（未证明面显式登记，防「全绿=全对」错觉）]**：①arm64 补丁
+   **执行级**遍历证明（毒化后继/映射执行——L9 的 branch-flip 是解码级
+   证明，与遗留①三武装函数执行级覆盖同族，独立工程轮）；②L7 oracle
+   变异负控「空洞绿」重设计；③L2/L6 合成 fixture 上 runner（CI 可跑的
+   oracle 全链）；④`--patched` 局部性的 bundle 级（多文件）扩展；⑤账本合并设计（--only/部分重跑的覆盖语义，B6）；⑥unverified 条目的 restore 收口路径（C6）；⑦写路径故障注入缝（M08
+   的 partialWrite 回调面：EIO/ENOSPC 中途写失败的行为当前不可观测——
+   注入缝落地后 M08 应转 KILLED 并撤暴露登记；顺带下轮全量变异重跑
+   （M01-M07/M09-M19 本轮未重验，历史基线见 72/123 轮台账）。
+
 ## 125·123 轮修复回归锁 + 变异行补全小轮（2026-11-02：四组回归锁 + M21-M23 变异行三杀灭 + ci.yml 双架构编译兜底制度化；292 测全绿 +3）
 
 1. **[回归锁补全]**：123 轮修复当轮只落了 marker round-trip 锁，四组

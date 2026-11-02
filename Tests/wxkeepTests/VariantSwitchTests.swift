@@ -88,6 +88,37 @@ struct VariantSwitchTests {
                 "keeptip 自己的位点已应用")
     }
 
+    /// M08 杀例 + 110 轮洗白链回归（125 续）：混合态机器（silent x64 位 +
+    /// keeptip 各位俱在）上幂等重打 keeptip——本变体全部 alreadyPatched
+    /// （零正向写），但切换还原臂仍写盘撤 silent 位 → **summary.wroteAnything
+    /// 必须为真且 binary 进 patchedBinaries**（CLI 的重签决策面：written=0
+    /// 跳过重签 = 字节已改+旧签名的启动必崩态被洗白成 protected）。
+    /// 该标志的唯一来源就是 undo 回调里的 wroteAnything=true（M08 锚点行）。
+    @Test func switchUndoWritesDriveResignOnMixedMachine() throws {
+        let (app, config) = try makeAppAndCatalog()
+        let dylib = app.appendingPathComponent("Contents/Resources/wechat.dylib")
+        // 直接构造混合态镜像：x64 0x100=silent 补丁态、0x140=keeptip 补丁态；
+        // arm64 0x100=原始序言（keeptip 归一化条目恒等）、0x140/0x180=keeptip 态
+        let (image, _, _) = MachOFixture.fat(
+            arm64: MachOFixture.thin(cputype: MachOFixture.arm64CPU, size: 0x400, code: [
+                (0x100, [0xF4, 0x4F, 0xBE, 0xA9, 0xFD, 0x7B, 0x01, 0xA9]),
+                (0x140, [0x40, 0x10, 0x00, 0x34]),   // 归一化条目 asm==expected → 恒等态
+                (0x180, [0x7F, 0xE6, 0x00, 0xF9]),   // keeptip 已打
+            ]),
+            x64: MachOFixture.thin(cputype: MachOFixture.x64CPU, size: 0x400, code: [
+                (0x100, [0x31, 0xC0, 0xC3, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90]),  // silent 已打
+                (0x140, [0x31, 0xD2, 0x90]),        // keeptip 已打
+            ]))
+        try image.write(to: dylib)
+        let summary = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
+                                       dryRun: false, allowUnverified: false, only: nil)
+        #expect(summary.wroteAnything,
+                "本变体零正向写时，undo 的写入必须计入重签决策（M08/110 轮洗白链）")
+        #expect(summary.patchedBinaries.contains("Contents/Resources/wechat.dylib"))
+        #expect(try Data(contentsOf: dylib).range(of: Data([0x31, 0xC0, 0xC3])) == nil,
+                "silent x64 位已被 undo 撤回原始序言")
+    }
+
     /// 变体切换的 dry-run 预览：silent 补丁态上预览 keeptip 必须给出预览
     /// 结果而不是 expectedMismatch 误报（「wrong WeChat build」）——前提是
     /// 目录数据在共享位点带跨变体 expected（pristine + silent 补丁态双态，

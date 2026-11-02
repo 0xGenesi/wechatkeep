@@ -76,6 +76,18 @@ struct Patcher {
 
     // MARK: - Entry points
 
+    /// per-site 审计数据（125 轮 V5 深度轮）：被覆写的字节与出处。Phase-1
+    /// 规划期收集，Phase-2 写入全部成功后才经 auditSink 交付——账目只反映
+    /// 已落盘的写入（dry-run / 写前失败不产生账目）。
+    struct SiteAudit {
+        let arch: Config.Arch
+        let va: UInt64
+        let before: Data   // 被替换的实读字节（asm 跨度）
+        let after: Data    // 写入的 asm 字节
+        let identifier: String
+        let source: String?
+    }
+
     /// Patch `entries` into `binary`. See the type doc for the safety contract.
     /// Returns one outcome per entry, in input order.
     static func patch(
@@ -83,7 +95,8 @@ struct Patcher {
         entries: [Config.PatchEntry],
         identifier: String,
         dryRun: Bool = false,
-        allowUnverified: Bool = false
+        allowUnverified: Bool = false,
+        auditSink: ((SiteAudit) -> Void)? = nil
     ) throws -> [EntryOutcome] {
         guard !entries.isEmpty else { throw PatchError.noArchMatched }
         // Dry runs must not require write access (root-owned bundles).
@@ -99,12 +112,20 @@ struct Patcher {
         // entries), so comparisons are prefix-based at the longer length.
         var outcomes = [EntryOutcome]()
         var writes = [(offset: UInt64, data: Data)]()
+        var audits = [SiteAudit]()
         for (index, plan) in plans.enumerated() {
             let siteLen = max(plan.asm.count, plan.expected?.map(\.byteCount).max() ?? 0)
             let current = try readBytes(handle: handle, offset: plan.fileOffset, count: siteLen)
             if current.prefix(plan.asm.count) == plan.asm {
                 outcomes.append(.alreadyPatched)
                 continue
+            }
+            if auditSink != nil {
+                // 账目先行收集；交付推迟到 Phase-2 全部成功后（见下）。
+                audits.append(SiteAudit(
+                    arch: plan.entry.arch, va: plan.va,
+                    before: current.prefix(plan.asm.count), after: plan.asm,
+                    identifier: identifier, source: plan.entry.source))
             }
             guard let variants = plan.expected, !variants.isEmpty else {
                 if allowUnverified {
@@ -125,9 +146,16 @@ struct Patcher {
         guard !dryRun else { return outcomes }
 
         // Phase 2 — every entry verified; write them all.
-        for write in writes {
+        // 审计逐条交付（125 续双评审 P1 修）：写入循环不与 audits 耦合
+        //（sink==nil 时 audits 恒空，zip 会把写入一并清零——全量测试当场
+        // 抓获的耦合事故）；sink 在场时两者同序 1:1，写一条、交付一条——
+        // 中途写失败（EIO/ENOSPC）时已写成的位点账目已交付（字节在盘 =
+        // 账目在场），CLI 失败路径把它落为「已写位点」的账（journal 记
+        // 中断、audit 记已写——各司其职）。
+        for (index, write) in writes.enumerated() {
             try handle.seek(toOffset: write.offset)
             try handle.write(contentsOf: write.data)
+            if index < audits.count { auditSink?(audits[index]) }
         }
         return outcomes
     }

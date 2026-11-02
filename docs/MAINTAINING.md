@@ -596,6 +596,26 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   var/wxarm 现存全部切片 × catalog 全条目读回比对（ExpectedPattern 通配/
   掩码语义一比一；归一化条目按「∈expected 集」分层断言）。新构建入目后
   必跑——失配=数据级 P0。证据落 var/logs/l1-ground-truth-sweep-*.txt。
+- **指令级结构证明（L9，125 轮）** `var/venv/bin/python
+  tools/verify_instruction_diff.py [--variant silent|keeptip]
+  [--negative-controls] [--patched F --build N]`：capstone 双解码（asm 严格
+  完整消费；pristine 首条宽容）+ 具名语义类断言（retify / branch-flip
+  目标恒等 / force-flag / store-zero / nop-out / prologue-restore）+
+  `--patched` 真实补丁件全文件局部性直证。错目标 B、撕裂边界、位点外写入
+  三型负控钉死灵敏度。**改 catalog asm/expected、新构建入目、expected 门
+  语义改动后必跑**——L1 字节门与 L2/L6 引擎层都不证明指令流语义。125 轮
+  基线：32 构建 × 双变体 1245 位点实例 100% 具名类、0 失败。证据落
+  var/logs/isa-diff-*.txt。
+- **per-site 审计复算（125 轮）** `python3 tools/audit_patch.py --pristine P
+  --patched Q --audit <userData>/wxkeep.audit.json`：三件套零信任离线复算
+  （逐位点 after 字节吻合 + 全文件 diff ⊆ 位点集，__LINKEDIT 重签尾差单列）。
+  patch 成功后 wxkeep.audit.json 自动落账（doctor `audit_state` 对账）；
+  Engine/Patcher 写入语义或 CLI 事务编排改动后建议与 staging 流水线串联跑。
+- **变异器护栏（125 轮）**：`make hooks` 安装 pre-commit（sentinel 在场或
+  任一 MUTATIONS 锚点不在 canonical 态 → 拒提交）；变异器自带启动自愈
+  （检见泄漏 sentinel → 逐项反向还原 → 拒跑 exit 2）；CI canonical-anchor
+  Guard 步同判据。**代码演进后锚点漂移 = 变异静默 SKIP = 杀灭率分母缩水**，
+  125 轮首捕 3 例（M05/M12/M20）——改被变异覆盖的行时必须同步刷新锚点。
 - **可逆性穷举** `python3 tools/verify_reversibility.py`：真 Patcher/真切片
   lipo 合 fat → {silent, keeptip, --only 各子集, 链式切换} 全状态迁移，每态
   「位点字节∈合法集」+ restore 后整文件 sha256 == pristine。改 Engine/
@@ -605,8 +625,11 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   （Data(hex:)/ExpectedPattern/MachOInjector/MachImage 随机畸形注入）。
   runtime.m 或解析面改动后必跑。CLT 无 libFuzzer 运行时——runtime_random.c
   为等价自研实现（种子固定可复现）。
-- **变异测试** `python3 tools/mutation_test.py`：20 个安全关键单行变异 ×
+- **变异测试** `python3 tools/mutation_test.py`：25 个安全关键单行变异 ×
   全量测套，杀灭率 ≥90% 验收。新增安全防线（新守卫/新门）时补对应变异行。
+  等价变异体判例（125 轮 M23）：`a>=b && a-b<c` 与 `a-b<c` 无符号模运算
+  下数学等价（下溢回环补位）——等价行不得计入杀灭率分母，须换可杀形
+  （整门移除/界宽）并登记。
 - **确定性 oracle（L6）** `python3 tools/verify_determinism.py`：真切片
   双副本独立运行 → patch 输出 sha256 恒等（silent+keeptip 双路径）+ restore
   回 pristine；附带 codesign ad-hoc 确定性实证（informational——实证为

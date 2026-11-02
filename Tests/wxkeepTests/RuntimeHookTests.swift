@@ -1450,12 +1450,20 @@ extension RuntimeHookTests {
         svc[0] = baseAddr + 0x9deeb48
         #expect(invoke(consumer, UnsafeMutablePointer<UInt64>(bitPattern: 8 + 0x130 / 8)!) == 0,
                 "obj 死 → 守卫退出")
-        // 123 轮 P0-2 门负例：msg 可读且头非零、但 [msg]（vtable 槽）不在
-        // 镜像跨度 [base, base+512MB) ——释放/复用对象的常态形态。门在场
-        // → 拒直调 keyctor → r=0；门被去（变异）→ 桩照样跑通 → r=3。
+        // 123 轮 P0-2 门负例（125 轮补强）：msg 可读且头非零、但 [msg]
+        //（vtable 槽）不在镜像跨度 [base, base+512MB)——释放/复用对象的
+        // 常态形态。门在场 → 拒直调 keyctor → r=0。
+        // 双形态覆盖（M23 等价性判例的测试面）：绝对值头（0x1122334455，
+        // 复用对象堆指针形）与相对形头（base+0x30000000=镜像外 768MB）。
+        // 相对形对任意 JIT 基址确定区分「界宽」变异（512MB→128GB 放行
+        // 768MB 头 → keyctor 桩链跑通 r=3 → 红）；绝对值形随基址落位
+        // 漂移，两例并置后任一形态的整门/界宽失效都被钉死。
         msgObj[0] = 0x1122334455
         #expect(invoke(consumer, parseX1) == 0,
                 "msg 头在镜像外（复用对象形态）→ 模块成员门拒 keyctor")
+        msgObj[0] = baseAddr + 0x30000000
+        #expect(invoke(consumer, parseX1) == 0,
+                "msg 头在镜像外 768MB（>512MB 界）→ 模块成员门拒 keyctor")
         msgObj[0] = baseAddr + 0x1000   // 还原生产合同形态（后续用例依赖）
         // R12 扫描路：consumer2 无 +0xb78 合同位、svc 指针在 +0x20——
         // 扫描发现后全链照通（svc2 计数走快路口径不重复，见实现）

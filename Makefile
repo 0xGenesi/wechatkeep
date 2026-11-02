@@ -5,7 +5,7 @@
 #   make release    单文件分发产物 ./wxkeep（universal + stripped + ad-hoc 签名）
 #   make clean
 
-.PHONY: build release clean test
+.PHONY: build release clean test verify-isa hooks
 .ONESHELL:
 
 # 交叉编译双架构需要完整 Xcode（xcbuild）；CLT-only 环境回退单架构。
@@ -27,6 +27,21 @@ test:
 	else \
 	  swift test; \
 	fi
+
+# L9 指令级结构证明（125 轮）：负控灵敏度 + 全语料双变体。
+# 依赖 var/venv(capstone) 与 var/wxarm 切片库（本地 SOP；CI 无语料故不接线）。
+verify-isa:
+	@if [ -x var/venv/bin/python ]; then \
+	  var/venv/bin/python tools/verify_instruction_diff.py --negative-controls && \
+	  var/venv/bin/python tools/verify_instruction_diff.py --variant silent && \
+	  var/venv/bin/python tools/verify_instruction_diff.py --variant keeptip; \
+	else echo "缺 var/venv（capstone）——工具链准备见 docs/MAINTAINING.md"; exit 1; fi
+
+# 变异器护栏（125 轮）：安装 pre-commit 钩子（sentinel/锚点 canonical 门）。
+hooks:
+	chmod +x tools/hooks/pre-commit
+	git config core.hooksPath tools/hooks
+	@git config core.hooksPath
 
 # 单文件分发：universal 双架构 → 剥符号 → ad-hoc 重签（无签名的二进制在
 # 别人机器上会被 Gatekeeper 直接拒）。swift release 交叉编译两种架构。

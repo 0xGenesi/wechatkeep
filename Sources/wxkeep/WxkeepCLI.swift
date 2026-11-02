@@ -106,10 +106,10 @@ extension Wxkeep {
                 try PatchJournal.begin(kind: .patch, build: build, variant: variant.rawValue,
                                        app: options.app.path)
             }
-            let summary: Engine.RunSummary
+            var summaryOrNil: Engine.RunSummary? = nil
             do {
                 if config.entry(build: build) != nil {
-                    summary = try Engine.patch(
+                    summaryOrNil = try Engine.patch(
                         app: options.app, build: build, config: config, variant: variant.rawValue,
                         dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
                 } else {
@@ -131,12 +131,22 @@ extension Wxkeep {
                         throw Engine.EngineError.unsupportedBuild(build, known: config.versions.count)
                     }
                     print("recipes resolved: \(synthesized.targets.map { t in t.identifier }.joined(separator: ", "))")
-                    summary = try Engine.patch(
+                    summaryOrNil = try Engine.patch(
                         app: options.app, versionEntry: synthesized, variant: variant.rawValue,
                         dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
                 }
             } catch {
                 Wxkeep.printPermissionHintIfTCC(error)
+                // 失败路径的账目保全（125 续双评审 P1 修）：Phase-2 逐条交付
+                // 后，「已写成的位点」账目在 summary 里——字节在盘 = 账目必须
+                // 在场（journal 记中断事实，audit 记已写位点，两本账各司其职；
+                // 账本层失败不拆错误路径的既有语义）。
+                if !dryRun, let delivered = summaryOrNil?.auditSites, !delivered.isEmpty {
+                    try? PatchAudit.write(record: PatchAudit.Record(
+                        v: 1, build: build, variant: variant.rawValue, app: options.app.path,
+                        completedAt: ISO8601DateFormatter().string(from: Date()),
+                        sites: delivered))
+                }
                 // 写前失败收口（111 轮修，catalog 路径覆盖面）：variant 不可用/
                 // 异变体在位/Patcher Phase-1 全族——引擎从未获得写入机会，
                 // journal 即刻收口，避免 doctor 的 interrupted 噪音与死循环处方。
@@ -150,6 +160,10 @@ extension Wxkeep {
                     }
                 }
                 throw error
+            }
+            guard let summary = summaryOrNil else {
+                // 结构上不可达（catch 恒 throw）；满足编译器的定值分析。
+                throw Engine.EngineError.variantUnavailable("internal: patch returned without summary")
             }
             summary.lines.forEach { print($0) }
             // 强制重签条件（110 轮修）：本次写了字节，或上次事务死在收口前
@@ -189,7 +203,23 @@ extension Wxkeep {
                 #endif
                 print("本机架构 \(host)：可运行 `wxkeep verify` 行为级确认补丁效果")
             }
-            if !dryRun { PatchJournal.complete() }   // 事务确认成功（无写入或写入+重签均达终态）
+            if !dryRun {
+                // per-site 审计清单（125 轮）：事务成功（含重签确认）后落账。
+                // 幂等重跑（全 alreadyPatched → sites 空）不覆盖既有账目；账本
+                // 层失败不拆已成功的字节事务（try? + 告警，doctor 可见缺失）。
+                if !summary.auditSites.isEmpty {
+                    let record = PatchAudit.Record(
+                        v: 1, build: build, variant: variant.rawValue, app: options.app.path,
+                        completedAt: ISO8601DateFormatter().string(from: Date()),
+                        sites: summary.auditSites)
+                    do {
+                        try PatchAudit.write(record: record)
+                    } catch {
+                        print("  ⚠️ 审计清单写入失败（\(error)）——补丁本身已生效；doctor 将不显示位点对账")
+                    }
+                }
+                PatchJournal.complete()   // 事务确认成功（无写入或写入+重签均达终态）
+            }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
     }
@@ -309,7 +339,10 @@ extension Wxkeep {
                 PatchJournal.markResigned()
                 // restore 语义 = 回到原始；不附带任何偏好写入
             }
-            if !dryRun { PatchJournal.complete() }   // 事务成功（幂等 restore 到达 pristine 终态）
+            if !dryRun {
+                PatchAudit.clear()   // 回到 pristine：位点账目随之收口（幂等无抛，125 轮）
+                PatchJournal.complete()   // 事务成功（幂等 restore 到达 pristine 终态）
+            }
             print(dryRun ? "dry run complete — nothing written" : "done")
         }
     }
@@ -2230,10 +2263,13 @@ extension Wxkeep {
         @Flag(help: "Machine-readable output (single-verdict contract)")
         var json: Bool = false
 
+        @Flag(help: "codesign 校验升级 --deep（340MB 全量校验，慢；默认快速态验主签名）")
+        var deep: Bool = false
+
         mutating func run() throws {
             try WeChatApp.validate(options.app)
             let config = try Config.load(explicit: options.config)
-            let report = Doctor.run(app: options.app, config: config, explicitConfigPath: options.config)
+            let report = Doctor.run(app: options.app, config: config, explicitConfigPath: options.config, deep: deep)
             if json {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

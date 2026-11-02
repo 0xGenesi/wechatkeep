@@ -97,6 +97,8 @@ wxkeep runtime remove    # 完整移除（幂等）
 9. **数据 OTA**：`wxkeep update-data` 从仓库拉取最新已签名 catalog（Ed25519 验签后原子安装到用户目录）——新构建适配 day-0 生效，无需升级工具本体
 10. **行为验证**：`verify` 把补丁函数拉出进程调用，证明补丁生效——不再依赖人工撤回测试
 11. **深度证据台账**（[docs/V3-DEPTH.md](docs/V3-DEPTH.md)）：L1 地面真值全扫 / L2 可逆性 sha 恒等 / L6 补丁确定性（双副本独立运行恒等，7/7 构建）+ 篡改负控 + 随机化性质测试；`tools/launch_soak.py` 提供补丁后启动浸泡对照实验（隔离副本 + DiagnosticReports 零新增断言）
+12. **指令级结构证明（L9）**（[docs/V5-DEPTH.md](docs/V5-DEPTH.md)，125 轮）：`tools/verify_instruction_diff.py` 对全语料双变体做补丁前后指令流验证——asm 边界完整解码、cbz→b 翻转目标恒等、具名语义类（retify/branch-flip/force-flag/store-zero/nop-out/prologue-restore）100% 覆盖（1245 位点实例 0 失败）；错目标 B / 撕裂边界 / 位点外写入三型负控钉死灵敏度
+13. **per-site 审计清单 + 系统判官**（125 轮）：patch 落 `wxkeep.audit.json` 逐位点账目（doctor `audit_state` 对账，第三方可用 `tools/audit_patch.py` 拿 pristine+patched+账目三件套零信任离线复算）；doctor 新增近 7 天 `.ips` 崩溃报告扫描（CODESIGNING 击杀计数）、spctl Gatekeeper 评估行与 `--deep` 全量校验选项
 
 ## 版本兼容
 
@@ -109,7 +111,7 @@ catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（
 
 ```bash
 swift build -c release          # 产出 .build/release/wxkeep
-swift test                      # 全部测试（292 项（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件 + 崩溃一致性/确定性/负控/性质深度门；arm64 行为项在非 arm64 主机自动 skip）
+swift test                      # 全部测试（303 项（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件 + 崩溃一致性/确定性/负控/性质/指令级/审计对账深度门；arm64 行为项在非 arm64 主机自动 skip）
 WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路（开发机）
 ```
 

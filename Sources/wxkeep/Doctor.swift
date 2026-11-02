@@ -31,6 +31,15 @@ struct Doctor {
         let manifest: String?              // verified/legacy/invalid:<reason>（数据供应链）
         /// nil = 无残留；否则为未确认写入事务的摘要（kind + 起始时间）。
         var journal: String? = nil
+        /// per-site 审计账目对账（125 轮）：fresh / stale / unreadable /
+        /// foreign-app；nil = 无账目（restore 后收口或从未 patch）。
+        var auditState: String? = nil
+        /// 近 7 天目标 app 的 .ips 崩溃报告扫描（125 轮外部判据面）。
+        /// nil = 无匹配报告（健康常态）。
+        var recentCrashReports: CrashSummary? = nil
+        /// spctl Gatekeeper 评估（125 轮，informational——ad-hoc 被拒是预期
+        /// 态，本机放行判据是 AMFI，两行互补）。nil = 未评。
+        var gatekeeperAssessment: String? = nil
         let verdicts: [String]
         let nextCommand: String?
         // runtime 组件（可选功能）。nil = 无启动记录（marker 缺失）——
@@ -55,6 +64,9 @@ struct Doctor {
             case patchStates = "patch_states"
             case manifest
             case journal
+            case auditState = "audit_state"
+            case recentCrashReports = "recent_crash_reports"
+            case gatekeeperAssessment = "gatekeeper_assessment"
             case verdicts
             case nextCommand = "next_command"
             case runtimeInjected = "runtime_injected"
@@ -71,6 +83,21 @@ struct Doctor {
         enum CodingKeys: String, CodingKey {
             case level, reason
             case fixCommand = "fix_command"
+        }
+    }
+
+    /// .ips 崩溃报告扫描摘要（125 轮 V5 深度轮，外部判据面）。
+    struct CrashSummary: Codable, Equatable {
+        let count: Int
+        /// 最近一份文件名（nil 理论不可达——count>0 才有摘要；防御式可空）。
+        let mostRecent: String?
+        /// 其中 Termination Namespace=CODESIGNING 的份数（签名击杀证据）。
+        let codesigning: Int
+
+        enum CodingKeys: String, CodingKey {
+            case count
+            case mostRecent = "most_recent"
+            case codesigning
         }
     }
 
@@ -155,7 +182,8 @@ struct Doctor {
 
     // MARK: - Collection
 
-    static func run(app: URL, config: Config, explicitConfigPath: String? = nil) -> Report {
+    static func run(app: URL, config: Config, explicitConfigPath: String? = nil,
+                    deep: Bool = false) -> Report {
         let fm = FileManager.default
         let build = (try? WeChatApp.buildNumber(app: app)) ?? "unknown"
         let versionEntry = config.entry(build: build)
@@ -240,7 +268,12 @@ struct Doctor {
         // --verify --strict 实算 cdhash 比对（Resigner 成功门同源；不带
         // --deep——340MB 全量太慢，主签名足以暴露字节级漂移）。
         let signatureValid: Bool? = {
-            let verify = Shell.run("/usr/bin/codesign", ["--verify", "--strict", app.path])
+            // 125 轮 --deep 可选：快速态（默认）验主签名足以暴露字节级漂移；
+            // --deep 升级全量校验（嵌套代码漂移可见，340MB 慢——成本取舍
+            // 如实交用户）。
+            var args = ["--verify", "--strict"]
+            if deep { args.append("--deep") }
+            let verify = Shell.run("/usr/bin/codesign", args + [app.path])
             return verify.status == 0
         }()
 
@@ -259,9 +292,32 @@ struct Doctor {
             ? nil
             : (runtimeMarkerText?.contains("mr2=hook-armed") == true)
 
+        // ---- 外部判据面（125 轮 V5 深度轮）----
+        // .ips：系统崩溃记录 =「最近真的崩过吗」的客观观测（watch 级，与
+        // launch_soak 的浸泡判据同源；CODESIGNING 击杀与 AMFI risk 行合读）。
+        let crashReports: CrashSummary? = {
+            let dir = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Logs/DiagnosticReports")
+            let appName = app.deletingPathExtension().lastPathComponent
+            return scanCrashReports(directory: dir, appName: appName)
+        }()
+        // spctl Gatekeeper 评估（informational，不翻 overall）
+        let spctlRun = Shell.run("/usr/sbin/spctl", ["-a", "-t", "execute", app.path])
+        let gatekeeper = gatekeeperLine(status: spctlRun.status,
+                                        output: spctlRun.stdout + spctlRun.stderr,
+                                        adhocSigned: signature == "adhoc")
+
         // ---- single verdict point ----
 
         var verdicts: [String] = inspectFailures
+        if let cr = crashReports {
+            verdicts.append("ℹ︎ 最近 7 天崩溃报告 \(cr.count) 份（CODESIGNING 击杀 "
+                            + "\(cr.codesigning)）"
+                            + (cr.codesigning > 0
+                               ? "——签名击杀证据与 AMFI risk 行合读；取证: "
+                                 + "ls -t ~/Library/Logs/DiagnosticReports | grep -i wechat"
+                               : "——非签名类崩溃与补丁无必然关联，Termination Reason 见报告本体"))
+        }
         if !rosettaTargets.isEmpty {
             verdicts.append("Rosetta 执行态：二进制无 \(nativeArch) 切片，\(rosettaTargets.joined(separator: "；")) —— 判定按实际执行的切片（若在「显示简介」里强制过 Rosetta 的双切片构建，此判定不覆盖，请复原设置）")
         }
@@ -375,6 +431,36 @@ struct Doctor {
             nextCommand = guidance.nextCommand ?? nextCommand
         }
 
+        // ---- per-site 审计账目 vs 盘上字节（125 轮 V5 深度轮）----
+        // journal 回答「事务是否收口」；audit 回答「最终写了哪些位点」。stale =
+        // 账目与盘不符（外改/手工写入/收口前死掉的中途态证据）——watch 级：
+        // 字节态判定的权威在 patchStates，audit 失配不单独翻 overall（如 AMFI
+        // 的保守哲学），但 verdict 行如实可见。
+        var auditState: String? = nil
+        let auditPending = PatchAudit.pending()
+        if auditPending.exists, let auditRecord = auditPending.record {
+            if auditRecord.app != app.path {
+                auditState = "foreign-app"
+                verdicts.append("ℹ︎ patch audit from a DIFFERENT app bundle (\(auditRecord.app)) — "
+                                + "inspect it with `wxkeep doctor --app \(auditRecord.app)`")
+            } else {
+                let check = auditSiteStates(record: auditRecord, app: app)
+                auditState = check.fresh ? "fresh" : "stale"
+                if !check.fresh {
+                    let head = check.mismatches.prefix(3).map { "\($0.site.identifier)@\($0.site.va)" }
+                        .joined(separator: ", ")
+                    verdicts.append("⚠️ patch audit STALE — ledger cites bytes no longer on disk "
+                                    + "(external modification or interrupted run): \(head)"
+                                    + (check.mismatches.count > 3 ? " …" : "")
+                                    + ". Fix: `\(writable ? "" : "sudo ")wxkeep restore` (idempotent), then re-patch")
+                }
+            }
+        } else if auditPending.exists {
+            auditState = "unreadable"
+            verdicts.append("⚠️ patch audit present but UNREADABLE — cannot account for written bytes. "
+                            + "Run `\(writable ? "" : "sudo ")wxkeep restore` to normalize")
+        }
+
         // 签名实测门（110 轮）：改字节未重签（中断事务/手工改写/陈旧工具）在此
         // 现形——放在所有 nextCommand 逻辑之后，必崩态指引拥有最终话语权。
         // restore 幂等 = 通用归一路径（restore 后再 patch 会强制重签）。
@@ -404,6 +490,9 @@ struct Doctor {
             patchStates: patchStates,
             manifest: manifestStatus,
             journal: journalSummary,
+            auditState: auditState,
+            recentCrashReports: crashReports,
+            gatekeeperAssessment: gatekeeper,
             verdicts: verdicts,
             nextCommand: nextCommand,
             // LC 探测不再被 dylib 在场性掩盖（混合态 = LC 在而 dylib 缺，
@@ -428,6 +517,128 @@ struct Doctor {
         case .pristine: return "pristine"
         case .ambiguous, .unknown: return "unknown"
         }
+    }
+
+    /// 审计账目逐位点对账（125 轮）：fresh = 账目 after 字节全部在盘。
+    /// binary 缺失/inspect 失败按失配计（保守——对账面不能假绿）；probe 走
+    /// Patcher.inspect 只读路径（asm 前缀比对，expected nil = 无原像门）。
+    /// internal：PatchAuditTests 直接回归真实实现。
+    static func auditSiteStates(record: PatchAudit.Record, app: URL)
+        -> (fresh: Bool, checked: Int, mismatches: [(site: PatchAudit.Site, state: String)]) {
+        var mismatches: [(site: PatchAudit.Site, state: String)] = []
+        for site in record.sites {
+            guard let arch = Config.Arch(rawValue: site.arch) else {
+                mismatches.append((site, "bad-arch"))
+                continue
+            }
+            let binary = WeChatApp.binaryURL(app: app, relative: site.binary)
+            let probe = Config.PatchEntry(
+                arch: arch, addr: site.va, recipe: nil, expected: nil,
+                asm: site.after, source: nil)
+            let inspections = (try? Patcher.inspect(
+                binary: binary, entries: [probe], identifier: "audit-probe")) ?? []
+            if inspections.first?.state == .patched { continue }
+            mismatches.append((site, inspections.first.map { "\($0.state)" } ?? "inspect-failed"))
+        }
+        return (mismatches.isEmpty, record.sites.count, mismatches)
+    }
+
+    /// 近 N 天目标 app 的 .ips 崩溃报告扫描（125 轮 V5 深度轮，外部判据：
+    /// 系统自己的崩溃记录）。纯函数（目录/当前时刻注入可测）；目录不可读
+    /// 或零匹配 → nil。
+    ///
+    /// 实测格式（本机 macOS 27 真件，2026-11-03，双评审 P0 修正）：
+    /// - 首行头 JSON：`app_name`/`name`/`timestamp`——时间戳是
+    ///   `"2026-11-02 23:17:11.00 +0800"` 形（空格分隔、无 T、时区无冒号），
+    ///   ISO8601DateFormatter 解不了，须归一后解析；
+    /// - 正文 = 首行之后的**整段 JSON**（可多行）：`procName`/`procPath`/
+    ///   `termination.namespace` 都在正文里，不在头行。
+    /// 坏件/超限件（>8MB）逐个跳过，扫描面不炸。watch 级：计数如实上报，
+    /// 不单独翻 overall（AMFI 同哲学）——签名必崩态的权威判定在
+    /// signatureValid，本面补「最近真的崩过吗」的观测。
+    static func scanCrashReports(directory: URL, appName: String,
+                                 days: Int = 7, now: Date = Date()) -> CrashSummary? {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else {
+            return nil
+        }
+        let cutoff = now.addingTimeInterval(-Double(days) * 86400)
+        var count = 0, codesigning = 0
+        var mostRecent: (date: Date, name: String)?
+        for name in names where name.hasSuffix(".ips") {
+            let url = directory.appendingPathComponent(name)
+            // 头行流式读（≤4KB 即可判名与时间，坏件/大件不必整读）
+            guard let handle = try? FileHandle(forReadingFrom: url),
+                  let headData = try? handle.read(upToCount: 4096) else { continue }
+            try? handle.close()
+            guard let nl = headData.firstIndex(of: 0x0A),
+                  let header = try? JSONSerialization.jsonObject(
+                      with: headData[..<nl]) as? [String: Any] else { continue }
+            // 头行门：app_name/name 都不沾边即可整体跳过（helper 进程与主
+            // 进程共享 app_name；不沾边的第三方件不进正文读取）。
+            let hdrName = ((header["app_name"] as? String) ?? (header["name"] as? String) ?? "")
+            let headerHit = hdrName.range(of: appName, options: .caseInsensitive) != nil
+            guard headerHit,
+                  let ts = header["timestamp"] as? String,
+                  let date = parseIpsTimestamp(ts),
+                  date >= cutoff else { continue }
+            // 正文整段 JSON（可多行；>8MB 跳过——诊断扫描不吞内存）
+            guard let bodyText = try? String(contentsOf: url, encoding: .utf8),
+                  bodyText.utf8.count <= 8 << 20,
+                  let bodyStart = bodyText.firstIndex(of: "\n"),
+                  let body = try? JSONSerialization.jsonObject(
+                      with: Data(bodyText[bodyText.index(after: bodyStart)...].utf8))
+                      as? [String: Any] else { continue }
+            // 身份归因（launch_soak 同口径）：procName 等名或 procPath 落在
+            // 该 app bundle 内（副本/真机实例按 procPath 分）。
+            let procName = (body["procName"] as? String) ?? hdrName
+            let procPath = body["procPath"] as? String
+            let matches = procName.caseInsensitiveCompare(appName) == .orderedSame
+                || (procPath?.contains("/\(appName).app/") ?? false)
+            guard matches else { continue }
+            count += 1
+            if mostRecent == nil || date > mostRecent!.date { mostRecent = (date, name) }
+            if let term = body["termination"] as? [String: Any],
+               (term["namespace"] as? String)?.uppercased() == "CODESIGNING" {
+                codesigning += 1
+            }
+        }
+        guard count > 0 else { return nil }
+        return CrashSummary(count: count, mostRecent: mostRecent?.name, codesigning: codesigning)
+    }
+
+    /// .ips 头行时间戳归一解析：`2026-11-02 23:17:11.00 +0800` → ISO8601。
+    /// 小数位宽度可变、时区无冒号——手工归一后走 ISO8601（+分数秒回退）。
+    static func parseIpsTimestamp(_ raw: String) -> Date? {
+        // "yyyy-MM-dd HH:mm:ss[.fff…] ±zzzz" → "yyyy-MM-ddTHH:mm:ss.fff±zz:zz"
+        var s = raw.trimmingCharacters(in: .whitespaces)
+        if let sp = s.firstIndex(of: " ") {
+            s.replaceSubrange(sp...sp, with: "T")
+        }
+        if let tz = s.range(of: #"([+-]\d{4})$"#, options: .regularExpression) {
+            let v = String(s[tz])
+            s.replaceSubrange(tz, with: "\(v.prefix(3)):\(v.suffix(2))")
+        }
+        let frac = ISO8601DateFormatter()
+        frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = frac.date(from: s) { return d }
+        let plain = ISO8601DateFormatter()
+        return plain.date(from: s)
+    }
+
+    /// spctl -a -t execute 判读（125 轮，informational）。ad-hoc 签名被
+    /// Gatekeeper 评估拒收是预期态——「预期态」注解只在确为 ad-hoc 时给出
+    ///（双评审 P2 修：签名真损坏的 rejected 不许被安慰成预期态，与紧邻的
+    /// signatureValid ❌ 行自相矛盾）。本地放行的实际判据是 AMFI（见
+    /// assessAmfiRisk 行），两行互补；这里只如实转述系统判官的裁决。
+    static func gatekeeperLine(status: Int32, output: String, adhocSigned: Bool) -> String {
+        if status == 0 { return "accepted" }
+        if output.contains("rejected") || output.contains("no usable signature") {
+            return adhocSigned
+                ? "rejected（ad-hoc 预期态；本机放行判据见 AMFI risk 行）"
+                : "rejected（非预期——与 signature 行合读，可能为签名损坏）"
+        }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "unknown (\(trimmed.isEmpty ? "exit \(status)" : trimmed))"
     }
 
     /// update-guard 一行标签。判定顺序即语义：rewrittenByApp（写过 0、
@@ -610,6 +821,17 @@ struct Doctor {
         lines.append("------ Verdict ------")
         if let m = report.manifest { lines.append("manifest: \(m)") }
         lines.append("journal:     \(report.journal == nil ? "clean (no pending write transaction)" : "PENDING — \(report.journal!)")")
+        if let audit = report.auditState {
+            // stale 时 verdict 区已有修复指引，这里给状态行。
+            lines.append("audit:       \(audit)")
+        }
+        if let gk = report.gatekeeperAssessment {
+            lines.append("gatekeeper:  \(gk)")
+        }
+        if let cr = report.recentCrashReports {
+            lines.append("crash(7d):   \(cr.count) 份（CODESIGNING \(cr.codesigning)）"
+                         + (cr.mostRecent.map { "，最近: \($0)" } ?? ""))
+        }
         lines.append("overall: \(report.overall)")
         report.verdicts.forEach { lines.append(" • \($0)") }
         if let next = report.nextCommand { lines.append("➡️  next: \(next)") }

@@ -40,6 +40,43 @@ jobs:
             echo "::error::私有密钥材料被提交进仓库：$match"
             exit 1
           fi
+      - name: "Guard - mutation anchors canonical (no mutated source ever lands)"
+        # 125 轮 V5 深度轮：mutation_test.py 就地改源码，SIGKILL 会泄漏变异态
+        #（2026-11-03 本机实证）。CI 侧兜底：任一 MUTATIONS 锚点不在 canonical
+        # 形 = 源文件处于变异态，立即红。与 pre-commit（make hooks）同判据。
+        run: |
+          python3 - <<'EOF'
+          import os, sys
+          sys.path.insert(0, os.path.join(os.getcwd(), "tools"))
+          from mutation_test import MUTATIONS
+          bad = []
+          for mid, path, old, new, _d in MUTATIONS:
+              s = open(path, encoding="utf-8").read()
+              if s.count(old) != 1:
+                  bad.append((mid, path, f"anchor 计数 {s.count(old)} != 1"))
+              elif new in s:
+                  bad.append((mid, path, "变异形态在盘"))
+          if bad:
+              for mid, path, why in bad:
+                  print(f"::error file={path}::变异锚点 [{mid}] {why}——漂移或变异态（在场≠可跑）")
+              sys.exit(1)
+          print(f"✓ {len(MUTATIONS)} 个变异锚点全在 canonical 可跑态")
+          EOF
+      - name: "Manifest - independent openssl verify (Ed25519 signature gate)"
+        # 125 轮证据链接线：CryptoKit 之外的独立验签（防共因）。**只硬门签名
+        # 有效性**：manifest-sign job 在本腿之后才重签，master push 改 config 的
+        # 合法窗口里哈希必然失配——哈希面按 WXKEEP_HASH_WARN=1 降为 warning
+        #（双评审 P1：此前硬门会把重签流永久堵死）；签名对不上才红。
+        if: github.ref == 'refs/heads/master'
+        run: |
+          OPENSSL_RUN() {
+            if ! WXKEEP_HASH_WARN=1 bash tools/verify_manifest_openssl.sh; then
+              echo "::warning::系统 openssl 不支持 Ed25519 pkeyutl，回退 brew openssl@3 重试"
+              brew install -q openssl@3
+              OPENSSL="$(brew --prefix openssl@3)/bin/openssl"                 WXKEEP_HASH_WARN=1 bash tools/verify_manifest_openssl.sh
+            fi
+          }
+          OPENSSL_RUN
       - name: Build
         run: swift build
       - name: "Guard - runtime.m compiles for both arches"

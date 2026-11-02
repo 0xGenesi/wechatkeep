@@ -7,13 +7,25 @@ mutation_test.py — L4 变异测试（ROADMAP 72·L4①）。
 或补测试）。还原用精确 old→new 字符串替换（出现次数必须恰为 1）。
 
 用法: python3 tools/mutation_test.py [index ...]   # 无参 = 全部
+
+护栏（125 轮 V5 深度轮）：in-place 变异最大的风险是「进程被 SIGKILL → 变异
+态泄漏进工作树 → 下次构建/提交吃到变异源码」（2026-11-03 实证：M23 变异态
+在树上存活到脚本 finally 才还原，期间任何 swift build 都会读到它）。三重门：
+  1. sentinel（var/.mutation-in-flight.json）在首个 apply 前落盘、finally
+     移除——泄漏可在盘上被检见；
+  2. 启动自愈：sentinel 残留 = 上次运行未走完 finally → 按记录反向还原、
+     醒目告警、拒跑（结果不可信，需人工重启）；
+  3. pre-commit 钩子（tools/hooks/pre-commit）+ CI canonical-anchor 步：
+     sentinel 在场或任一锚点不在 canonical 态 → 拒提交/拒绿。
 """
 import subprocess
 import sys
 import os
+import json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+SENTINEL = os.path.join(ROOT, "var", ".mutation-in-flight.json")
 TM = "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib"
 TEST_CMD = ["swift", "test", "--disable-sandbox",
             "-Xswiftc", "-load-plugin-library", "-Xswiftc", TM]
@@ -36,10 +48,13 @@ MUTATIONS = [
      "if asmLen > provenance {",
      "if asmLen > provenance + 4096 {",
      "写入跨度≤溯源跨度校验放宽"),
+    # M05/M12/M20 于 125 轮刷新锚点：123/124 轮代码演进使原锚点漂移 →
+    # 变异器静默 SKIP（杀灭率分母悄悄缩水）。canonical-anchor 护栏
+    #（tools/hooks/pre-commit + CI Guard 步）即此漂移的首个捕获。
     ("M05", "Sources/wxkeep/Config.swift",
-     "if Data(hex: e.asm) == nil {",
-     "if false && Data(hex: e.asm) == nil {",
-     "坏 hex asm 装载期不拒"),
+     "if e.asm.isEmpty || Data(hex: e.asm) == nil {",
+     "if e.asm.isEmpty || false {",
+     "坏 hex asm 装载期不拒（与 M22 同锚异半：M22 剥空串门、本行剥 hex 门）"),
     ("M06", "Sources/wxkeep/ExpectedPattern.swift",
      "guard data.count >= byteCount else { return false }",
      "guard data.count + 8 >= byteCount else { return false }",
@@ -48,9 +63,17 @@ MUTATIONS = [
      'if set.contains("revoke") {',
      'if false {',
      "--only revoke 域别名失效"),
+    # M08 于 125 续刷新：111 轮把变体切换块迁入 do{} 后缩进+4，且
+    # wroteAnything=true 现有 4 处——原锚点永久歧义（在场≠唯一，双评审
+    # P1 实证：自 111 轮起静默 SKIP）。锚定 undo 回调的上下文对恢复唯一性。
+    # 可接受暴露（125 续两轮变异验证存活）：该回调仅在还原臂 Phase-2 中途
+    # 写失败（EIO/ENOSPC）时触发——无写路径故障注入缝则行为不可观测；
+    # 缓解=backup 在场 + doctor mixed/journal 判读兜底。注入缝登记
+    # ROADMAP 125 续遗留⑦；正常记账路径（undo.wroteAnything 聚合）由
+    # switchUndoWritesDriveResignOnMixedMachine 钉死（非本行，不杀本行）。
     ("M08", "Sources/wxkeep/Engine.swift",
-     "                summary.wroteAnything = true",
-     "                summary.wroteAnything = false",
+     "                        relative in\n                        summary.wroteAnything = true",
+     "                        relative in\n                        summary.wroteAnything = false",
      "变体切换还原写入不计入重签决策（67 轮缺陷复活）"),
     ("M09", "Sources/wxkeep/Engine.swift",
      'if target.identifier == "revoke-keeptip2" {\n                continue',
@@ -65,7 +88,7 @@ MUTATIONS = [
      "        return false",
      "主可执行识别失效（备份落 bundle 内=双杀缺陷复活）"),
     ("M12", "Sources/wxkeep/Resigner.swift",
-     "            if plistsEqual(inspectEntitlements(entry.url), intended) { return nil }",
+     "            if plistsEqual(actual, intended) { return nil }",
      "            if true { return nil }",
      "entitlements 漂移检测失效"),
     ("M13", "Sources/wxkeep/MachOInjector.swift",
@@ -97,8 +120,8 @@ MUTATIONS = [
      '            return "mixed"',
      "doctor 聚合把 unknown 误报成 mixed（㊳ 缺陷复活）"),
     ("M20", "Sources/wxkeep/Engine.swift",
-     '        let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"\n        let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"',
-     '        let variantID = "revoke"\n        let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"',
+     '            let variantID = variant == "keeptip" ? "revoke-keeptip" : "revoke"\n            let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"',
+     '            let variantID = "revoke"\n            let otherID = variant == "silent" ? "revoke-keeptip" : "revoke"',
      "变体切换还原错目标（keeptip 切换不再还原 silent）"),
     # —— 123 轮新门（SOP：新增安全防线补变异行）——
     ("M21", "Sources/wxkeep/WxkeepCLI.swift",
@@ -113,6 +136,22 @@ MUTATIONS = [
      "            && (uintptr_t)obj_head >= g_image_base\n            && (uintptr_t)obj_head - g_image_base < 0x20000000ULL) {",
      "            && 1) {",
      "keyctor 模块成员门整体失效（镜像外头照样直调宿主——复用对象崩溃面；单侧变异会被另一侧下溢回环补位，须整门移除才代表真实失效形态）"),
+    # —— 125 轮新面（V5 深度轮：审计账目/对账门）——
+    # M24 于 125 续再刷新：交付改 enumerated 单行门（zip 耦合事故后——
+    # sink nil 时 zip 会把写入一并清零，全量测试当场抓获）。
+    ("M24", "Sources/wxkeep/Patcher.swift",
+     "            if index < audits.count { auditSink?(audits[index]) }",
+     "            if false { auditSink?(audits[index]) }",
+     "审计账目丢弃（per-site 台账恒空——离线三件套复算与 doctor 对账失去数据源）"),
+    ("M25", "Sources/wxkeep/Doctor.swift",
+     "            let matches = procName.caseInsensitiveCompare(appName) == .orderedSame",
+     "            let matches = procName.caseInsensitiveCompare(appName) != .orderedSame",
+     ".ips 崩溃扫描身份匹配反转（Safari 报告算微信、微信被剔——外部判据面失真；"
+     "杀例=DoctorTests 无 procPath 夹具，`|| procPath` 子clause 救不回）"),
+    ("M26", "Sources/wxkeep/Doctor.swift",
+     '               (term["namespace"] as? String)?.uppercased() == "CODESIGNING" {',
+     '               (term["namespace"] as? String)?.uppercased() != "CODESIGNING" {',
+     ".ips CODESIGNING 分类反转（签名击杀证据被隐/普通崩溃误计——外部判据面失真）"),
 ]
 
 
@@ -139,6 +178,8 @@ def apply(path, old, new):
     s = open(p).read()
     if s.count(old) != 1:
         return False, f"anchor 计数 {s.count(old)} != 1"
+    if new in s:
+        return False, f"变异形态已在盘（count={s.count(new)}）——文件恐处变异态"
     open(p, "w").write(s.replace(old, new))
     # 强制重编：apply/revert 快速循环可能落在同一 mtime 刻度，Swift Build
     # 按 mtime 判陈旧会跳过重编 → 跑旧二进制 → 假存活（2026-10-20 两轮
@@ -148,20 +189,102 @@ def apply(path, old, new):
     return True, ""
 
 
+def write_sentinel(entries):
+    """原子写（tempfile+replace）：SIGKILL 落在半写会留下坏 JSON，而自愈
+    路径对坏 JSON 必须 fail-closed 而不是崩（双评审 P2）。"""
+    os.makedirs(os.path.dirname(SENTINEL), exist_ok=True)
+    tmp = SENTINEL + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"pid": os.getpid(), "entries": entries}, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, SENTINEL)
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True   # 别的用户进程也算活
+
+
+def heal_and_abort_if_leaked():
+    """sentinel 残留三态（双评审 P1/P2）：
+    ① 坏 JSON → fail-closed：保哨兵、指路 git diff、拒跑（不猜怎么修）；
+    ② pid 仍活 → 另一实例运行中，拒跑（自愈会把活运行当泄漏还原=竞态）；
+    ③ pid 已死 → 泄漏：按记录反向还原后拒跑（结果不可信需人工重启）。"""
+    if not os.path.exists(SENTINEL):
+        return
+    try:
+        rec = json.load(open(SENTINEL))
+    except (json.JSONDecodeError, OSError) as ex:
+        print(f"⚠️⚠️ 哨兵损坏（{ex}）——状态不可知，拒绝猜测。请人工核对："
+              f"git status / git diff，按 MUTATIONS 锚点确认无变异态后删除 "
+              f"{SENTINEL} 再重跑。")
+        sys.exit(2)
+    if _pid_alive(rec.get("pid", 0)):
+        print(f"⚠️ 另一 mutation_test 实例（pid={rec.get('pid')}）运行中——"
+              f"拒绝并发（自愈会把活运行误判为泄漏）。")
+        sys.exit(2)
+    print(f"⚠️⚠️ 检见泄漏的变异运行（pid={rec.get('pid')}）——上次未走完 finally，"
+          f"工作树可能带变异源码。逐项反向还原：")
+    healed = skipped = 0
+    for mid, path, old, new in rec.get("entries", []):
+        p = os.path.join(ROOT, path)
+        try:
+            s = open(p).read()
+        except OSError:
+            print(f"  [{mid}] ⚠️ {path} 不可读——人工核对")
+            skipped += 1
+            continue
+        if new in s:
+            open(p, "w").write(s.replace(new, old))
+            print(f"  [{mid}] 已还原变异态（{path}）")
+            healed += 1
+        elif old in s:
+            print(f"  [{mid}] 已是 canonical 态（{path}）")
+        else:
+            print(f"  [{mid}] ⚠️ 锚点双向均不在盘——人工核对 {path}")
+            skipped += 1
+    os.remove(SENTINEL)
+    print(f"自愈完成（还原 {healed}，人工待核 {skipped}）。本次拒跑——上次结果"
+          f"不可信；确认 `git diff` 干净后重跑。")
+    sys.exit(2)
+
+
 def main():
+    heal_and_abort_if_leaked()
     wanted = set(sys.argv[1:])
     results = []
+    sentinel_live = []   # (mid, path, old, new) 已 apply 的活跃变异
     for mid, path, old, new, desc in MUTATIONS:
         if wanted and mid not in wanted:
             continue
+        # 哨兵先行（双评审 P2：apply→write 间被杀 = 变异在盘无哨兵，自愈
+        # 失明）：预测记录含本条；apply 失败（SKIP）时回滚到前一状态。
+        prev_live = list(sentinel_live)
+        sentinel_live.append((mid, path, old, new))
+        write_sentinel(sentinel_live)
         ok, err = apply(path, old, new)
         if not ok:
             print(f"[{mid}] 跳过：anchor 问题（{err}）")
             results.append((mid, desc, "SKIP"))
+            sentinel_live = prev_live
+            if sentinel_live:
+                write_sentinel(sentinel_live)
+            else:
+                try:
+                    os.remove(SENTINEL)
+                except FileNotFoundError:
+                    pass
             continue
         scratch = f"/tmp/mut-scratch-{mid}"
         subprocess.run(["rm", "-rf", scratch], capture_output=True)
         try:
+            wedge = False
             for attempt in range(5):
                 rc, out, wedge = run_tests(scratch)
                 if not wedge:
@@ -173,13 +296,35 @@ def main():
                                capture_output=True)
                 import time
                 time.sleep(3)
-            killed = rc != 0
-            results.append((mid, desc, "KILLED" if killed else "SURVIVED"))
-            print(f"[{mid}] {'杀死 ✓' if killed else '存活 ✗'} — {desc}")
+            if wedge:
+                # 楔死 5 连：结果不可判（既非杀死也非存活）——如实计 WEDGE
+                # （双评审 P3：此前 rc!=0 的楔死被记成 KILLED=杀灭率虚高）。
+                results.append((mid, desc, "WEDGE"))
+                print(f"[{mid}] 楔死 5 连 — 环境故障，结果不判")
+            else:
+                killed = rc != 0
+                results.append((mid, desc, "KILLED" if killed else "SURVIVED"))
+                print(f"[{mid}] {'杀死 ✓' if killed else '存活 ✗'} — {desc}")
         finally:
-            apply(path, new, old)   # 还原（anchor 唯一性对反向同样成立）
+            reverted, rerr = apply(path, new, old)   # 还原；失败=泄漏，必须响
+            if reverted:
+                sentinel_live = [e for e in sentinel_live if e[0] != mid]
+                if sentinel_live:
+                    write_sentinel(sentinel_live)
+                else:
+                    try:
+                        os.remove(SENTINEL)
+                    except FileNotFoundError:
+                        pass
+            else:
+                # 还原失败（双评审 P1）：哨兵保留（泄漏可检）、醒目告警、
+                # 立即中止（后续变异会在带变异树上跑=数据全失真）。
+                print(f"⚠️⚠️ [{mid}] 还原失败（{rerr}）——变异态恐在盘！"
+                      f"哨兵保留；人工 `git diff` 核对修复后重跑。")
             subprocess.run(["rm", "-rf", scratch], capture_output=True)
-    total = [r for r in results if r[2] != "SKIP"]
+            if not reverted:
+                sys.exit(3)
+    total = [r for r in results if r[2] not in ("SKIP", "WEDGE")]
     killed = [r for r in total if r[2] == "KILLED"]
     rate = len(killed) / len(total) * 100 if total else 0
     print(f"\n杀灭率：{len(killed)}/{len(total)} = {rate:.0f}%"

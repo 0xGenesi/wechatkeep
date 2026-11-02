@@ -248,3 +248,114 @@ extension DoctorTests {
         #expect(e.viaRosetta == true)
     }
 }
+
+// MARK: - 125 轮 V5 深度轮：外部判据面（.ips 扫描 / Gatekeeper 判读）
+
+extension DoctorTests {
+    /// 真实格式 .ips 夹具（本机 macOS 27 真件实测布局，双评审 P0 修正）：
+    /// 首行头 JSON 只带 app_name/name/timestamp（**无** procName/procPath，
+    /// 时间戳 "yyyy-MM-dd HH:mm:ss.SS +0800" 非 ISO）；procName/procPath/
+    /// termination 在首行之后的整段正文 JSON 里（可多行）。
+    private func writeIps(dir: URL, name: String, procName: String,
+                          timestamp: String, namespace: String?,
+                          withPath: Bool = true) throws {
+        let header = #"{"app_name":"\#(procName)","name":"\#(procName)","timestamp":"\#(timestamp)"}"#
+        // withPath=false：procName 匹配面必须独立可测（M25 曾被 `|| procPath`
+        // 子句救活=夹具全带 path 的盲区，125 续变异批次实证存活）。
+        let pathField = withPath
+            ? #","procPath":"/Applications/\#(procName).app/Contents/MacOS/\#(procName)""#
+            : ""
+        let body = #"{"procName":"\#(procName)"\#(pathField),"termination":\#(namespace.map { #"{"namespace":"\#($0)"}"# } ?? "null")}"#
+        try (header + "\n" + body).write(to: dir.appendingPathComponent(name),
+                                         atomically: true, encoding: .utf8)
+    }
+
+    /// .ips 头行时间戳实格式生成器（"yyyy-MM-dd HH:mm:ss.SS +0800"）。
+    private func ipsTimestamp(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss.SS ZZZ"
+        return f.string(from: date)
+    }
+
+    @Test func crashScanCountsMatchesAndCodesigningKills() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-ips-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        func ts(_ ago: TimeInterval) -> String { ipsTimestamp(now.addingTimeInterval(-ago)) }
+
+        // 两份匹配（一份 CODESIGNING 击杀、一份普通崩溃）、一份他进程、
+        // 一份过期——只有前两份进摘要。
+        try writeIps(dir: dir, name: "wechat-old.ips", procName: "WeChat",
+                     timestamp: ts(8 * 86400), namespace: "CODESIGNING")
+        // 无 procPath 形：身份只能来自 procName（M25 杀例面）
+        try writeIps(dir: dir, name: "wechat-crash.ips", procName: "WeChat",
+                     timestamp: ts(3600), namespace: nil, withPath: false)
+        try writeIps(dir: dir, name: "wechat-cs-kill.ips", procName: "WeChat",
+                     timestamp: ts(60), namespace: "CODESIGNING")
+        try writeIps(dir: dir, name: "safari.ips", procName: "Safari",
+                     timestamp: ts(60), namespace: "CODESIGNING")
+
+        let summary = Doctor.scanCrashReports(directory: dir, appName: "WeChat", now: now)
+        #expect(summary?.count == 2, "他进程与过期件不计（got \(summary?.count ?? -1)）")
+        #expect(summary?.codesigning == 1)
+        #expect(summary?.mostRecent == "wechat-cs-kill.ips", "mostRecent 按时间戳非文件名序")
+
+        // 身份匹配负例（M25 杀例面）：全非匹配目录 → nil（健康常态）
+        let clean = dir.deletingLastPathComponent()
+            .appendingPathComponent("wxkeep-ips-clean-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: clean, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: clean) }
+        try writeIps(dir: clean, name: "only-safari.ips", procName: "Safari",
+                     timestamp: ts(60), namespace: nil)
+        #expect(Doctor.scanCrashReports(directory: clean, appName: "WeChat", now: now) == nil)
+    }
+
+    @Test func gatekeeperLineInterpretsSpctlVerdicts() {
+        #expect(Doctor.gatekeeperLine(status: 0, output: "app accepted", adhocSigned: true) == "accepted")
+        #expect(Doctor.gatekeeperLine(status: 1, output: "app rejected (the code is valid but does not seem to be an app)", adhocSigned: true)
+                .contains("rejected（ad-hoc 预期态"), "ad-hoc 拒收如实转述 + 预期态解读")
+        #expect(Doctor.gatekeeperLine(status: 1, output: "app rejected (the code is valid but does not seem to be an app)", adhocSigned: false)
+                .contains("非预期"), "非 ad-hoc 的拒收不许安慰成预期态（与 signatureValid ❌ 行合读）")
+        #expect(Doctor.gatekeeperLine(status: 3, output: "  ", adhocSigned: true).hasPrefix("unknown"),
+                "异常输出不猜——unknown 带原始输出")
+    }
+
+    @Test func ipsTimestampNormalizerParsesRealFormat() {
+        // 真件格式（"2026-11-02 23:17:11.00 +0800"）必须可解析——双评审
+        // P0 修正的回归锁：归一器坏了整个 .ips 判据面变安慰剂。
+        #expect(Doctor.parseIpsTimestamp("2026-11-02 23:17:11.00 +0800") != nil,
+                "真机头行时间戳格式可解析")
+        #expect(Doctor.parseIpsTimestamp("2026-11-02T23:17:11.000Z") != nil,
+                "标准 ISO 形也兼容")
+        #expect(Doctor.parseIpsTimestamp("garbage") == nil)
+    }
+
+    @Test func jsonContractCarriesExternalEvidenceKeys() throws {
+        // 125 轮增量字段（audit_state / recent_crash_reports / gatekeeper_assessment）
+        // 的 JSON 形状锁——GUI/脚本消费者契约。
+        let report = Doctor.Report(
+            overall: "protected", nativeArch: "arm64", build: "270351",
+            appPath: "/Applications/WeChat.app", configKnown: true,
+            configTargets: ["revoke"], sip: "enabled", amfiRisk: nil,
+            running: false, writable: true, signature: "adhoc",
+            entitlementsOk: true, entitlementKeyCount: 2, restrictedEntitlements: true,
+            patchStates: ["revoke": "patched"], manifest: nil,
+            auditState: "fresh",
+            recentCrashReports: Doctor.CrashSummary(
+                count: 2, mostRecent: "wechat-cs-kill.ips", codesigning: 1),
+            gatekeeperAssessment: "rejected（ad-hoc 预期态；本机放行判据见 AMFI risk 行）",
+            verdicts: [], nextCommand: nil)
+        let data = try JSONEncoder().encode(report)
+        let text = String(decoding: data, as: UTF8.self)
+        for key in ["\"audit_state\":\"fresh\"", "\"recent_crash_reports\"",
+                    "\"most_recent\":\"wechat-cs-kill.ips\"", "\"codesigning\":1",
+                    "\"gatekeeper_assessment\""] {
+            #expect(text.contains(key), "JSON 契约键 \(key) 在场")
+        }
+    }
+}
