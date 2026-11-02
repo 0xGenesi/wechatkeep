@@ -48,6 +48,10 @@ static NSDictionary *read_runtime_config_at(NSString **usedPath);
 //  - 目标函数按构建号 + LC_UUID 双门校验；未知构建一律不挂钩。
 //  - hook 体只做「读字段 → 命中判定 → 缓冲内等长 memcpy → 放行」，
 //    无锁、无分配、无外部调用，任意线程重入安全（文案为只读静态缓冲）。
+//    ——**已知例外（123 轮体检 P1-3 如实记）**：clone_message 实验开启时
+//    的 clone_capture 分支在 hook 线程 malloc + dispatch_async_f（V3-M2
+//    设计取舍：撤回事件频率非热路径）。改此约束前先读 RUNTIME-DESIGN
+//    M2-R1 节；预分配事件池 + 原子队列为既登记的工程化方向。
 
 // ---------------------------------------------------------------------------
 // 地址表（expected = 目标函数入口原像，防漂移门）

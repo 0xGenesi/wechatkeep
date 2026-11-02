@@ -524,8 +524,15 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 6. **[验证链]**：286 测全绿；fuzz 20 万输入零报告（runtime.m 改动必跑
    SOP）；ground truth 747/0；openssl 独立验签 ✓；E2E 双构建闭环 ✓；
    L2 可逆性/L6 确定性重跑（ghfast 死镜导致首跑失败，切镜像后复跑）。
+   **L2 harness 两修**（本轮复跑揭出）：①assertLegalSites 按目录 target
+   分组 inspect——revoke/keeptip 跨 target 同 VA 是变体互斥设计（269336
+   族在合并 inspect 下撞 Patcher 重叠门假红）；②270152/37335 目录无
+   keeptip 条目（revoke-only 形态）按在场过滤 keeptip 态（生产同语义）。
    **遗留**：新构建 verify spec 变体按 SOP 第 9 条为可选项（有用户
-   反馈再派生）；行为级真机验收随下轮实弹窗口顺带。
+   反馈再派生）；行为级真机验收随下轮实弹窗口顺带；270152（4.1.15.72
+   CDN 热修件，revoke x64-only 非家族序言）与 37335 的 keeptip 派生=
+   专项 RE 低价值项（边缘构建，需要时再做）；x64 write_entry_stub 执行
+   级覆盖（CI Rosetta 腿）与 clone_capture 预分配事件池为登记项。
 
 ## 122·R17 第七轮实弹 + 双 vtable 门定案轮（2026-11-01：lu 直挂实测生效（lu_seq=1/2 每撤回恰一次、svc 单例稳定）——门未中对因 = x0 是 110 轮入册双 vtable 对象的第二接口视图（[x0]=0x9ded4a8=svc_vt−0xa0）；**键格式定案：ASCII 明文**（lu_key6="458457"）；live 键直用+双 vtable 门落地；285 测同轮基线）
 

@@ -127,44 +127,67 @@ struct L2ReversibilityTests {
             Issue.record("build \(build) 不在目录")
             return
         }
-        // 布局自适应（85 轮）：3.x 主程序时代打 Contents/MacOS/WeChat
-        let relative = versionEntry.targets.first.map {
-            $0.binary ?? "Contents/MacOS/WeChat" } ?? "Contents/Resources/wechat.dylib"
+        // 布局自适应（85 轮）：3.x 主程序时代打 Contents/MacOS/WeChat。
+        // 123 轮修：目录引用的**每个**不同 binary 都造 fat 副本（37335 等
+        // 3.x 条目同构建双 target 各指主程序/dylib——单副本会让第二 binary
+        // 的备份直接 ENOENT）。切片按 target 声明的 binary 全量同源合成。
+        let relatives = Set(versionEntry.targets.map {
+            $0.binary ?? "Contents/MacOS/WeChat" })
         let app = work.appendingPathComponent("Fake.app")
-        let binaryDir = app
-            .appendingPathComponent("Contents")
-            .appendingPathComponent(String(relative.dropFirst("Contents/".count).split(separator: "/").first.map(String.init) ?? "Resources"))
-        try FileManager.default.createDirectory(
-            at: binaryDir, withIntermediateDirectories: true)
-        let binary = binaryDir.appendingPathComponent((relative as NSString).lastPathComponent)
-        try FileManager.default.copyItem(at: fat, to: binary)
-        let allEntries = versionEntry.targets.flatMap(\.entries)
-        let pristineSHA = try Manifest.sha256(fileURL: binary)
+        for relative in relatives {
+            let binaryDir = app
+                .appendingPathComponent("Contents")
+                .appendingPathComponent(String(relative.dropFirst("Contents/".count).split(separator: "/").first.map(String.init) ?? "Resources"))
+            try FileManager.default.createDirectory(
+                at: binaryDir, withIntermediateDirectories: true)
+            let binary = binaryDir.appendingPathComponent((relative as NSString).lastPathComponent)
+            try FileManager.default.copyItem(at: fat, to: binary)
+        }
+        // 每 binary 的 pristine 基线（多 binary 目录各自比对——restore 动全表）
+        var pristineSHAs: [String: String] = [:]
+        for rel in relatives {
+            pristineSHAs[rel] = try Manifest.sha256(fileURL: app.appendingPathComponent(rel))
+        }
 
         func assertLegalSites(_ label: String) throws {
-            let inspections = try Patcher.inspect(binary: binary, entries: allEntries,
-                                                  identifier: "l2")
-            let unknown = inspections.filter { $0.state == .unknown }
-            if !unknown.isEmpty {
-                let sites = unknown.map { "0x\(String($0.va, radix: 16))" }.joined(separator: ",")
-                Issue.record("\(label): \(unknown.count) 个位点字节 ∉ 合法集 (asm ∪ expected)：\(sites)")
+            // 123 轮修：按 catalog target 分组 inspect——revoke 与 revoke-keeptip
+            // 跨 target 共享 VA 是变体互斥设计（生产单 target 调用不可达重叠门），
+            // 合并单次 inspect 会让 269336 族（4.1.12 线同 VA 对）在 Patcher 的
+            // 数据完整性门上假红。分组后每组都是生产真实调用形态。
+            for target in versionEntry.targets {
+                let rel = target.binary ?? "Contents/MacOS/WeChat"
+                let bin = app.appendingPathComponent(rel)
+                let inspections = try Patcher.inspect(binary: bin, entries: target.entries,
+                                                      identifier: "l2")
+                let unknown = inspections.filter { $0.state == .unknown }
+                if !unknown.isEmpty {
+                    let sites = unknown.map { "0x\(String($0.va, radix: 16))" }.joined(separator: ",")
+                    Issue.record("\(label): \(unknown.count) 个位点字节 ∉ 合法集 (asm ∪ expected)：\(sites)")
+                }
             }
         }
         func restoreAndCompareSHA(_ label: String) throws {
             _ = try Engine.restore(app: app, build: build, config: config, dryRun: false)
             try assertLegalSites("\(label)/restored")
-            let restored = try Manifest.sha256(fileURL: binary)
-            if restored != pristineSHA {
-                Issue.record("\(label): restore 后整文件 sha256 \(restored) != pristine \(pristineSHA)")
+            for (rel, pristine) in pristineSHAs {
+                let restored = try Manifest.sha256(fileURL: app.appendingPathComponent(rel))
+                if restored != pristine {
+                    Issue.record("\(label): restore 后 \(rel) sha256 \(restored) != pristine \(pristine)")
+                }
             }
         }
 
         // 单点态：每个 {variant × only 子集} 从 pristine 出发，独立 restore 收口
-        let states: [(String, [String]?)] = [
+        // 123 轮修：270152/37335 等目录无 keeptip 条目（revoke-only 形态）——
+        // keeptip 族状态按目录在场过滤（生产同语义=variantUnavailable），
+        // 而不是让整个 oracle 在这类构建上红掉。
+        let hasKeeptip = versionEntry.targets.contains { $0.identifier == "revoke-keeptip" }
+        var states: [(String, [String]?)] = [
             ("silent", nil), ("keeptip", nil),
             ("silent", ["update"]), ("silent", ["revoke"]),
             ("keeptip", ["revoke"]), ("keeptip", ["update"]),
         ]
+        if !hasKeeptip { states.removeAll { $0.0 == "keeptip" } }
         for (variant, only) in states {
             let label = "\(build) \(variant)\(only.map { " --only \($0.joined(separator: ","))" } ?? "")"
             try Engine.patch(app: app, versionEntry: versionEntry, variant: variant,
@@ -174,10 +197,14 @@ struct L2ReversibilityTests {
         }
 
         // 链式态：变体切换往返 + 子集路径交叉，一段连续迁移后 restore 收口
-        let chain: [(String, [String]?)] = [
+        var chain: [(String, [String]?)] = [
             ("silent", nil), ("keeptip", nil), ("silent", nil), ("keeptip", nil),
             ("silent", ["update"]), ("keeptip", ["revoke"]),
         ]
+        if !hasKeeptip {
+            chain = [("silent", nil), ("silent", nil),
+                     ("silent", ["update"]), ("silent", ["revoke"])]
+        }
         for (variant, only) in chain {
             try Engine.patch(app: app, versionEntry: versionEntry, variant: variant,
                              dryRun: false, allowUnverified: false, only: only)
@@ -287,9 +314,12 @@ struct L6DeterminismTests {
             return
         }
         // 布局自适应：4.x 时代打 Contents/Resources/wechat.dylib；3.x 主程序
-        // 时代打 Contents/MacOS/WeChat（85 轮 L6 泛化）
-        let relative = versionEntry.targets.first.map {
+        // 时代打 Contents/MacOS/WeChat（85 轮 L6 泛化）。123 轮修：目录引用的
+        // 每个**不同** binary 都造副本（3.x 多 target 双 binary 与 L2 同款）；
+        // 哈希预言取「主 binary」（首个 target 声明者）。
+        let primaryRelative = versionEntry.targets.first.map {
             $0.binary ?? "Contents/MacOS/WeChat" } ?? "Contents/Resources/wechat.dylib"
+        let relatives = Set(versionEntry.targets.map { $0.binary ?? "Contents/MacOS/WeChat" })
         // 两份独立镜像：各自 fresh lipo（连 lipo 自身的确定性也一并实证）
         var binaries = [URL]()
         var pristineSHAs = [String]()
@@ -301,13 +331,21 @@ struct L6DeterminismTests {
                 return
             }
             let app = work.appendingPathComponent("Fake\(name).app")
-            let binaryDir = app
-                .appendingPathComponent("Contents")
-                .appendingPathComponent(String(relative.dropFirst("Contents/".count).split(separator: "/").first.map(String.init) ?? "Resources"))
-            try FileManager.default.createDirectory(at: binaryDir, withIntermediateDirectories: true)
-            let binary = binaryDir.appendingPathComponent((relative as NSString).lastPathComponent)
-            try FileManager.default.copyItem(at: fat, to: binary)
+            var primary: URL?
+            for relative in relatives.sorted() {
+                let binaryDir = app
+                    .appendingPathComponent("Contents")
+                    .appendingPathComponent(String(relative.dropFirst("Contents/".count).split(separator: "/").first.map(String.init) ?? "Resources"))
+                try FileManager.default.createDirectory(at: binaryDir, withIntermediateDirectories: true)
+                let binary = binaryDir.appendingPathComponent((relative as NSString).lastPathComponent)
+                try FileManager.default.copyItem(at: fat, to: binary)
+                if relative == primaryRelative { primary = binary }
+            }
             try? FileManager.default.removeItem(at: fat)
+            guard let binary = primary else {
+                Issue.record("主 binary 未落位")
+                return
+            }
             binaries.append(binary)
             pristineSHAs.append(try Manifest.sha256(fileURL: binary))
         }
@@ -333,9 +371,16 @@ struct L6DeterminismTests {
         }
         #expect(silentA != pristineSHAs[0], "补丁必须真的写入了字节（防恒真）")
 
-        let (tipA, tipB) = try patchedSHA("keeptip")   // 走变体切换还原→应用路径
-        if tipA != tipB {
-            Issue.record("\(build) keeptip: 两份独立副本输出不一致 \(tipA) != \(tipB)")
+        // 123 轮修：目录无 keeptip 条目（270152/37335 族）跳过该变体——
+        // 生产同语义=variantUnavailable（L2 harness 同款过滤）。
+        let hasKeeptip = versionEntry.targets.contains { $0.identifier == "revoke-keeptip" }
+        var tipSHA = ""
+        if hasKeeptip {
+            let (tipA, tipB) = try patchedSHA("keeptip")   // 走变体切换还原→应用路径
+            if tipA != tipB {
+                Issue.record("\(build) keeptip: 两份独立副本输出不一致 \(tipA) != \(tipB)")
+            }
+            tipSHA = String(tipA.prefix(8))
         }
 
         for (i, binary) in binaries.enumerated() {
@@ -345,6 +390,6 @@ struct L6DeterminismTests {
                 Issue.record("\(build) copy\(i): restore 后 sha \(restored) != pristine \(pristineSHAs[i])")
             }
         }
-        print("L6 \(build): deterministic ✓ silent=\(String(silentA.prefix(8))) keeptip=\(String(tipA.prefix(8)))")
+        print("L6 \(build): deterministic ✓ silent=\(String(silentA.prefix(8))) keeptip=\(tipSHA.isEmpty ? "n/a" : tipSHA)")
     }
 }
