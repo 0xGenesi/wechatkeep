@@ -102,7 +102,8 @@ enum ParseOracle {
         case 0: break
         case 126, 129: throw OracleError.environmentBlocked(result.stderr)
         case 150: throw OracleError.unresolvedImportHit(result.stderr)
-        case 2, 3, 5: throw OracleError.badWorkerOutput("worker rejected arguments/env: \(result.stderr)")
+        case 5: throw OracleError.emptyCorpus(corpusDir.path)   // 124 轮体检 P3：与 runTreeDumps 同映射（空语料 ≠ 参数/env 错——诊断指错方向）
+        case 2, 3: throw OracleError.badWorkerOutput("worker rejected arguments/env: \(result.stderr)")
         default: throw OracleError.workerCrashed(signal: result.status)
         }
         var outcomes: [RunOutcome] = []

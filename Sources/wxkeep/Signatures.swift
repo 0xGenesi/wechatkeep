@@ -130,7 +130,11 @@ struct Signatures: Codable {
             // auto-locate 合成的条目绕过 Config 的校验直达 Patcher，坏数据
             // 会让 buildPlans 的 Data(hex:) 强解包 trap 而非报干净错误。
             for (name, spec) in signatures.recipes {
-                if Data(hex: spec.asm) == nil {
+                // 空 asm 半边（124 轮体检 P2）：Data(hex:"")==空 Data 非nil，
+                // 空配面过门 → buildPlans 的 current.prefix(0)==空 恒真 → 条目
+                // 永远假报 alreadyPatched（静默 no-op 假成功）。Config 路径同款
+                // 洞已修（Config.validate isEmpty 门），本路径对齐。
+                if spec.asm.isEmpty || Data(hex: spec.asm) == nil {
                     throw LoadError.malformed("recipe \(name): bad hex asm \"\(spec.asm)\" (\(path))")
                 }
                 guard let pattern = ExpectedPattern(spec: spec.expected) else {

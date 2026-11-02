@@ -22,7 +22,10 @@ class Wxkeep < Formula
     system "swift", "build", *std_swift_args
     bin.install ".build/release/wxkeep"
     # runtime dylib（可选功能）：装到 lib/，`wxkeep runtime install` 会
-    # 经符号链接解析 Cellar 布局自动找到它
+    # 经符号链接解析 Cellar 布局自动找到它。
+    # 架构注（124 轮体检 P3）：brew 在 arm64 Mac 上 CLT 构建产出单架构
+    # dylib——以 Rosetta/x64 模式运行的微信（3.x x64-only 构建）注入后无法
+    # 加载。x64 微信用户改用 `make release`（xcbuild 双架构产物）安装。
     lib.install ".build/release/libwxkeep_runtime.dylib"
     # 能力探针（`wxkeep runtime probe`/install 前置门）：辅助可执行件按
     # brew 惯例进 libexec（不进 PATH）；CLI 经符号链接解析 Cellar 布局找到

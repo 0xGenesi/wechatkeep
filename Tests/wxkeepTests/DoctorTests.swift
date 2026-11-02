@@ -192,7 +192,7 @@ extension DoctorTests {
         #expect(Wxkeep.RuntimeCommand.markerStatusDecode("loaded ts=1") == nil)
     }
 
-    /// marker 键名双侧 round-trip 锁（124 轮体检 P2-3）：格式串在
+    /// marker 键名双侧 round-trip 锁（123 轮体检 P2-3）：格式串在
     /// runtime.m、解析键名在 CLI——两侧手写，改一侧另一侧静默显 "?" / 0。
     /// 用生产构造函数的实出内容对照 CLI 消费的键全集。
     @Test func markerFormatKeysRoundTrip() {
@@ -201,12 +201,12 @@ extension DoctorTests {
         }
         let line = String(cString: c)
         // CLI `runtime status`/doctor 消费的每一个键（markerInt/markerDigits/
-        // markerStatusDecode/直读 range 四类全集）
+        // markerStatusDecode/直读 range 四类全集；124 轮 +cldrop/clgap 池键）
         let keys = ["status", "enc", "istep", "ierr",
                     "fires", "hits", "zero", "selfskip",
                     "clone", "clmiss", "clrow", "cllastlen", "clpair", "clsvc",
                     "clkey", "clhit", "clmissq", "clget", "clinner",
-                    "clpub", "clpubm", "clins", "clsvc2",
+                    "clpub", "clpubm", "clins", "clsvc2", "cldrop", "clgap",
                     "cfg", "cfgh", "ts"]
         for k in keys {
             #expect(line.contains(" \(k)=") || line.hasPrefix("\(k)=") || line.contains(" \(k)=\(k == "enc" ? "2" : "")"),
@@ -216,5 +216,35 @@ extension DoctorTests {
         let d = Wxkeep.RuntimeCommand.markerStatusDecode(line)
         #expect(d != nil)
         #expect(d?.flags != nil, "enc=2 在场 = 新编码应解位域")
+    }
+
+    /// 执行切片选择三支（124 轮 Rosetta 盲区收口）：本机在场只看本机 /
+    /// 仅他切片回退他切片（3.x x64-only 经 Rosetta 实况）/ 空不参与。
+    /// 关键回归：x64-only 目标在 arm64 主机此前被静默跳过 = 判定面空。
+    @Test func executingSliceSelectionThreeBranches() {
+        func ins(_ arch: String, _ state: Patcher.Inspection.State)
+            -> Patcher.Inspection {
+            Patcher.Inspection(arch: .init(rawValue: arch)!, va: 0x1000,
+                                      state: state, current: "AA")
+        }
+        // ① 本机在场：只看本机（arm64 切片 pristine 不被 x64 patched 拉成 mixed）
+        let a = Doctor.executingSliceStates(
+            [ins("arm64", .pristine), ins("x86_64", .patched)], nativeArch: "arm64")
+        #expect(a.states == [Patcher.Inspection.State.pristine])
+        #expect(a.viaRosetta == false)
+        // ② 仅他切片（arm64 主机 × x64-only 3.x 构建）：回退 + 标注 Rosetta
+        let b = Doctor.executingSliceStates(
+            [ins("x86_64", .patched), ins("x86_64", .patched)], nativeArch: "arm64")
+        #expect(b.states == [.patched, .patched] as [Patcher.Inspection.State])
+        #expect(b.viaRosetta == true)
+        // ③ 空：不参与（既有语义）
+        let c = Doctor.executingSliceStates([], nativeArch: "arm64")
+        #expect(c.states.isEmpty)
+        #expect(c.viaRosetta == false)
+        // 反向（x64 主机 × arm64-only 构建——Intel Mac 装 universal 剥片件，罕见同门）
+        let e = Doctor.executingSliceStates(
+            [ins("arm64", .patched)], nativeArch: "x86_64")
+        #expect(e.states == [Patcher.Inspection.State.patched])
+        #expect(e.viaRosetta == true)
     }
 }

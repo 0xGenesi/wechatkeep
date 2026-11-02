@@ -47,11 +47,13 @@ static NSDictionary *read_runtime_config_at(NSString **usedPath);
 //    回调 + 既有镜像线性扫描双保险），不派发异步任务。
 //  - 目标函数按构建号 + LC_UUID 双门校验；未知构建一律不挂钩。
 //  - hook 体只做「读字段 → 命中判定 → 缓冲内等长 memcpy → 放行」，
-//    无锁、无分配、无外部调用，任意线程重入安全（文案为只读静态缓冲）。
-//    ——**已知例外（123 轮体检 P1-3 如实记）**：clone_message 实验开启时
-//    的 clone_capture 分支在 hook 线程 malloc + dispatch_async_f（V3-M2
-//    设计取舍：撤回事件频率非热路径）。改此约束前先读 RUNTIME-DESIGN
-//    M2-R1 节；预分配事件池 + 原子队列为既登记的工程化方向。
+//    无锁、无堆分配、无外部调用，任意线程重入安全（文案为只读静态缓冲）。
+//    克隆实验分支（clone_capture/clone_dispatch_full，V3-M2）自 124 轮起
+//    同守此约：事件走**预分配定长池 + 原子序票据队列**（无 malloc——123
+//    轮登记项落地，设计权衡见 RUNTIME-DESIGN M2-R1 节）。残余非零成本 =
+//    池非空时的 dispatch_async_f 队列唤醒（GCD 内部）+ time(NULL) 读钟
+//    （配对 30s 窗判定；非取消点、纯 syscall，124 轮如实登记）；撤回事件
+//    频率非热路径，取舍在案。池满（消费滞后）= 丢弃 + cldrop 计数，绝不阻断。
 
 // ---------------------------------------------------------------------------
 // 地址表（expected = 目标函数入口原像，防漂移门）
@@ -457,20 +459,26 @@ static int arm64_prologue_relocatable(const uint8_t *p, size_t n) {
 
 /// x64 序言可换址性（72·L3④，启发式字节扫描）：蹦床把入口 12B 换址重放，
 /// 含 PC 相对转移编码（E8/E9 call/jmp rel32、EB/7x 短转移、0F 8x jcc
-/// rel32、FF /2 /4 间接转移）的字节序列换址后跳向错误目标——runtime.json
-/// 在微信自己的 App Group 容器（腾讯可写，见 RUNTIME-DESIGN 信任边界节），
-/// 行作者可自选 expected，这道门把「换址破坏控制流」的随意性压到需要
-/// 精心构造且绕过字节扫描。启发式非反汇编：零散命中同值字节会误拒——
-/// 按「宁可不挂也不挂错」接受（家族序言 554889E54157415641554154 实测
-/// 不含这些字节；误拒的可见后果是 hook 不武装，status 可诊断）。
+/// rel32、FF /2 /3 /4 /5 间接转移）的字节序列换址后跳向错误目标——
+/// runtime.json 在微信自己的 App Group 容器（腾讯可写，见 RUNTIME-DESIGN
+/// 信任边界节），行作者可自选 expected，这道门把「换址破坏控制流」的
+/// 随意性压到需要精心构造且绕过字节扫描。启发式非反汇编：零散命中同值
+/// 字节会误拒——按「宁可不挂也不挂错」接受（家族序言 554889E54157415641554154
+/// 实测不含这些字节；误拒的可见后果是 hook 不武装，status 可诊断）。
+/// 124 轮体检 P2 补：RET 族（C2/C3）与 far jmp（EA）此前漏网——重放段内
+/// ret = 4 push 未弹即返回调用者，栈帧腐坏与 PC 相对转移同破坏力；FF 补
+/// /3（call far）/5（jmp far）。33 条在役 x64 行零含新字节（收紧前全量
+/// 扫描证伪，零误拒）。
 static int x64_prologue_relocatable(const uint8_t *p, size_t n) {
     for (size_t i = 0; i < n; i++) {
         if (p[i] == 0xE8 || p[i] == 0xE9 || p[i] == 0xEB) return 0;
+        if (p[i] == 0xC2 || p[i] == 0xC3 || p[i] == 0xEA) return 0;  // ret/far-jmp（124 轮）
         if (p[i] >= 0x70 && p[i] <= 0x7F) return 0;            // jcc rel8
         if (p[i] == 0x0F && i + 1 < n
             && p[i + 1] >= 0x80 && p[i + 1] <= 0x8F) return 0; // jcc rel32
         if (p[i] == 0xFF && i + 1 < n
-            && ((p[i + 1] & 0x38) == 0x10 || (p[i + 1] & 0x38) == 0x20)) return 0; // call/jmp /2 /4
+            && ((p[i + 1] & 0x38) == 0x10 || (p[i + 1] & 0x38) == 0x18
+                || (p[i + 1] & 0x38) == 0x20 || (p[i + 1] & 0x38) == 0x28)) return 0; // call/jmp near/far /2 /3 /4 /5
     }
     return 1;
 }
@@ -642,7 +650,7 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
             out->clone_rd_lookup_fs = (uint32_t)fs;
             if (parse_hex(ns_u8(rdh), out->clone_rd_lookup_head,
                           sizeof(out->clone_rd_lookup_head)) != 16) return 0;
-            // 124 轮体检 P0：头锚=蹦床重放源（补丁态 memcpy 直用行字节），
+            // 123 轮体检 P0：头锚=蹦床重放源（补丁态 memcpy 直用行字节），
             // 与 clone_expected 同过可换址门——含 ADRP/B/LDR-literal 的头
             // 换址重放即算错地址（108 轮同型 P0 的纪律对齐）。
             if (!arm64_prologue_relocatable(out->clone_rd_lookup_head, 16)) return 0;
@@ -668,7 +676,7 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
             out->clone_rd_keyctor_fs = (uint32_t)kfs;
             if (parse_hex(ns_u8(kch), out->clone_rd_keyctor_head,
                           sizeof(out->clone_rd_keyctor_head)) != 16) return 0;
-            // 同 rd 组头锚（124 轮 P0）：keyctor 直调蹦床重放源同过可换址门。
+            // 同 rd 组头锚（123 轮 P0）：keyctor 直调蹦床重放源同过可换址门。
             if (!arm64_prologue_relocatable(out->clone_rd_keyctor_head, 16)) return 0;
         }
         // M4 插入直调表（113 轮 R8）：七字段成组（ctor/amr 各带 fs+head 双
@@ -710,7 +718,7 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
                           sizeof(out->clone_ins_ctor_head)) != 16) return 0;
             if (parse_hex(ns_u8(iamh), out->clone_ins_amr_head,
                           sizeof(out->clone_ins_amr_head)) != 16) return 0;
-            // 同 rd 组头锚（124 轮 P0）：ctor/amr 直调蹦床重放源同过可换址门。
+            // 同 rd 组头锚（123 轮 P0）：ctor/amr 直调蹦床重放源同过可换址门。
             if (!arm64_prologue_relocatable(out->clone_ins_ctor_head, 16)) return 0;
             if (!arm64_prologue_relocatable(out->clone_ins_amr_head, 16)) return 0;
             out->has_clone_ins = 1;
@@ -754,7 +762,7 @@ static void load_hooks_from(NSDictionary *cfg) {
         if (hook_row_parse(row, &g_ext_hooks[n])) n++;
     }
     if (overflow > 0) {
-        // 124 轮体检 P1：越限行静默丢弃丢的恰是追加在尾部的最新构建行
+        // 123 轮体检 P1：越限行静默丢弃丢的恰是追加在尾部的最新构建行
         //（用户当前版本）——`runtime status` 只显「未武装」而无表被截断
         // 线索。bootlog 留痕（113 轮「孤儿字段零信号」同哲学）。
         bootlog_line("ext-hooks: 表超 128 行上限——尾部行被丢弃（恰为最新构建）；"
@@ -845,7 +853,7 @@ static uint64_t fnv1a64(const uint8_t *p, size_t n) {
 
 static uint64_t config_content_hash(void) {
     // 与 read_runtime_config_at 同选径语义：group **可解析为 dict** 优先、
-    // 否则回落 legacy（124 轮体检 P1：原实现「group 文件存在即哈希它的
+    // 否则回落 legacy（123 轮体检 P1：原实现「group 文件存在即哈希它的
     // 字节」——group 半写/损坏时生效配置=legacy，cfg= 指纹却指向损坏的
     // group 字节，唯一需要该告警面的场景失真）。
     NSString *group = groupContainerConfigPath();
@@ -893,7 +901,7 @@ static double config_stamps_both(void) {
 // 不再每 tick 重读。
 static void maybe_reload_config(void) {
     @autoreleasepool {
-        // 124 轮体检 P3：p 只判「两候选路径是否全无」（全无=无配置面可探测）。
+        // 123 轮体检 P3：p 只判「两候选路径是否全无」（全无=无配置面可探测）。
         double st = config_stamps_both();
         if (st == 0 && g_cfg_stamp == 0) return;
         if (st == g_cfg_stamp) return;
@@ -1187,7 +1195,7 @@ static void clone_ins_probe(uint64_t svc, uint64_t msg_obj);
 static uint64_t rd_abs(uint64_t base, uint32_t off);   // 定义在 R6 节
 static void bootlog_line(const char *msg);             // 定义在武装节
 
-static void clone_work(void *ctx);
+static void clone_work_evt(const clone_evt_t *evt);   // 定义在 R11 节（池 drain 后置消费）
 
 /// 队列惰性单例（hook 多线程首触竞态由 dispatch_once 收敛）。
 static dispatch_queue_t clone_queue(void) {
@@ -1199,8 +1207,64 @@ static dispatch_queue_t clone_queue(void) {
     return q;
 }
 
-/// hook 体捕获入口：提取 → 深拷贝 → 异步派发。返回本次捕获结果
-/// （1=已派发，0=无 newmsgid 跳过——**不是**持久快照位，连续两次调用
+// ---------------------------------------------------------------------------
+// 预分配事件池 + 原子序票据队列（124 轮，123 轮登记项落地）：
+// hook 上下文零 malloc 的克隆重构。结构 = 定长槽环形池 × 单调票据：
+//   生产者（hook 线程，任意并发）：fetch_add 取票 t → 槽 = t mod N →
+//     槽忙（上一轮事件未被消费）= 丢弃计 cldrop（绝不等待/分配）→
+//     填 evt → 写 seq=t → full=1（RELEASE，发布 evt+seq）→
+//     xchg(drain_pending,1)，旧值 0 = 本线程负责 dispatch_async_f 唤醒。
+//   消费者（串行队列 drain，唯一）：先置 pending=0，再从 consumed 票
+//     位起依序消费（full=0 = 本轮排空即止；seq≠t = 同槽双占覆盖洞，
+//     计 clgap 跳票前进）。
+// 正确性论证（「pending=1 ⇒ 存在已派发未开跑的 drain」归纳）：pending
+// 置 1 仅发生在 ①xchg 旧值 0（同线程已 dispatch——该 drain 开跑即清 0，
+// 其扫描必见于我们 full=1 之后）②xchg 旧值 1（链条回溯到某个 ①，其
+// drain 清 0 晚于链条上全部 full=1 写入，扫描必见）。生产者 full=1 先
+// 于 xchg 是前提（发布序）。
+// 残余诚实边界（在案）：同槽双占（消费滞后 ≥N 且两票同槽并发过门）下
+// 消费侧可能读到 evt 混合体——seq 复验 + 工作函数侧 svc vtable 门使最
+// 坏结果 = 一次 clmissq 误计，无错误宿主调用；频率 = N 深积压，撤回
+// 事件频率下不可达。N=256：测试压测 200 连发在 drain 完全未跑时也零丢弃
+// （确定性断言面，不赌调度）。
+// ---------------------------------------------------------------------------
+enum { kCloneEvtSlots = 256 };
+typedef struct {
+    clone_evt_t evt;
+    uint64_t seq;                 // 占票（full=1 前写入）
+    volatile uint8_t full;        // 0=空 1=满（RELEASE 发布 / ACQUIRE 消费）
+} clone_evt_slot_t;
+static clone_evt_slot_t g_clone_evt_pool[kCloneEvtSlots];
+static uint64_t g_clone_evt_ticket;          // fetch_add 单调（RELAXED——序由 full 对提供）
+static uint64_t g_clone_evt_consumed;        // 串行队列 drain 写（RELAXED 原子——测试缝轮询无撕裂）
+static volatile int g_clone_evt_drain_pending;
+static volatile int g_clone_drops;           // cldrop=（池满/无队列丢弃，两池合计）
+static volatile int g_clone_gaps;            // clgap=（消费侧票洞，两池合计）
+
+/// evt 池 drain（串行队列上下文）。pending 先清后扫（见上方归纳）。
+static void clone_evt_drain(void *ctx __unused) {
+    (void)ctx;
+    __atomic_store_n(&g_clone_evt_drain_pending, 0, __ATOMIC_RELEASE);
+    for (;;) {
+        uint64_t t = g_clone_evt_consumed;
+        clone_evt_slot_t *s = &g_clone_evt_pool[t & (kCloneEvtSlots - 1)];
+        if (!__atomic_load_n(&s->full, __ATOMIC_ACQUIRE)) break;   // 排空
+        if (__atomic_load_n(&s->seq, __ATOMIC_RELAXED) != t) {   // 同槽双占覆盖：t 已丢（生产侧已计 cldrop）
+            g_clone_gaps++;
+            __atomic_store_n(&g_clone_evt_consumed, t + 1, __ATOMIC_RELAXED);
+            continue;
+        }
+        clone_work_evt(&s->evt);
+        if (__atomic_load_n(&s->seq, __ATOMIC_RELAXED) != t) {   // 消费中又被覆盖（极端窗）：作废本次结果口径
+            g_clone_gaps++;
+        }
+        __atomic_store_n(&s->full, 0, __ATOMIC_RELEASE);
+        __atomic_store_n(&g_clone_evt_consumed, t + 1, __ATOMIC_RELAXED);
+    }
+}
+
+/// hook 体捕获入口：提取 → 深拷贝（池）→ 原子入队。返回本次捕获结果
+/// （1=已入队，0=无 newmsgid 跳过——**不是**持久快照位，连续两次调用
 /// 的结果互不污染）。任何失败路径都不阻断 hook 主体（放行原生
 /// parse——克隆是加法实验，绝不放大为消息链故障）。
 static int clone_capture(const uint8_t *ptr, uint64_t size) {
@@ -1221,25 +1285,39 @@ static int clone_capture(const uint8_t *ptr, uint64_t size) {
     strlcpy(g_clone_pending_fromusr, evt.fromusr, sizeof(g_clone_pending_fromusr));
     __atomic_store_n(&g_clone_pending_msgid, evt.newmsgid, __ATOMIC_RELEASE);
     __atomic_store_n(&g_clone_pending_ts, (uint64_t)time(NULL), __ATOMIC_RELAXED);
-    clone_evt_t *heap = malloc(sizeof(*heap));
-    if (!heap) return 1;   // OOM：无派发，但捕获/提取语义已完成
-    *heap = evt;
     // R14：cm 直挂已武装 → consumer/msg 取 cm 对（consumer_main 入口同点
     // 快照，嵌套一致由 worker 判）；未武装回落 parse 入口 args 快照。
     if (__atomic_load_n(&g_cm_hook_target, __ATOMIC_ACQUIRE) != 0) {
-        heap->consumer_cand = g_cm_consumer;
-        heap->cm_msg = g_cm_msg;
+        // 原子读（124 轮体检 P3）：parse hook 线程对 cm thunk 写侧（consumer_main
+        // 线程）是跨线程裸读——wrapper 是 A/B/D 三路径公共汇点，D 历史批扫线程
+        // 下并发真实存在。撕裂值最坏 = worker 侧 vtable 门拒（clmissq 误计），
+        // 原子化后读侧至少与写侧程序序一致。
+        evt.consumer_cand = __atomic_load_n(&g_cm_consumer, __ATOMIC_RELAXED);
+        evt.cm_msg = __atomic_load_n(&g_cm_msg, __ATOMIC_RELAXED);
     } else {
-        heap->consumer_cand = g_clone_parse_consumer;
-        heap->cm_msg = 0;
+        evt.consumer_cand = __atomic_load_n(&g_clone_parse_consumer, __ATOMIC_RELAXED);
+        evt.cm_msg = 0;
     }
-    heap->obj = g_clone_parse_obj;
+    evt.obj = __atomic_load_n(&g_clone_parse_obj, __ATOMIC_RELAXED);
+    // 入池（124 轮：替代 malloc+dispatch(ctx=heap)——hook 上下文零分配）。
+    uint64_t t = __atomic_fetch_add(&g_clone_evt_ticket, 1, __ATOMIC_RELAXED);
+    clone_evt_slot_t *s = &g_clone_evt_pool[t & (kCloneEvtSlots - 1)];
+    if (__atomic_load_n(&s->full, __ATOMIC_RELAXED)) {
+        g_clone_drops++;   // 消费滞后 ≥N：丢弃（计数如实），提取语义已完成
+        return 1;
+    }
+    s->evt = evt;
+    __atomic_store_n(&s->seq, t, __ATOMIC_RELAXED);
+    __atomic_store_n(&s->full, 1, __ATOMIC_RELEASE);
     dispatch_queue_t q = clone_queue();
-    if (q) {
-        g_clone_captures++;
-        dispatch_async_f(q, heap, clone_work);
-    } else {
-        free(heap);
+    if (!q) {   // 队列创建失败（实践不可达）：回退槽位，事件丢弃如实计数
+        __atomic_store_n(&s->full, 0, __ATOMIC_RELEASE);
+        g_clone_drops++;
+        return 1;
+    }
+    g_clone_captures++;
+    if (__atomic_exchange_n(&g_clone_evt_drain_pending, 1, __ATOMIC_ACQ_REL) == 0) {
+        dispatch_async_f(q, NULL, clone_evt_drain);
     }
     return 1;
 }
@@ -1423,7 +1501,7 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
     if (svc_ok && !key_ok && msg > 0x10000) {
         typedef void (*keyctor_t)(void *, void *);
         uint64_t obj_head = 0;
-        // 124 轮体检 P0：原门=「可读且首 8B 非零」——捕获与执行间被释放/
+        // 123 轮体检 P0：原门=「可读且首 8B 非零」——捕获与执行间被释放/
         // 复用的对象（页仍映射、首 8B 常非零）照样过门，宿主 keyctor 在错
         // 对象上跑内部指针链 = 崩在宿主代码。加模块成员门：[msg]（vtable
         // 槽）须落在 wechat.dylib 镜像跨度内（msg 类 vtable 不在行数据，
@@ -1512,22 +1590,25 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
     return r;
 }
 
-static void clone_work(void *ctx) {
-    clone_evt_t *evt = ctx;
-    // R11 parse 锚定：nomethods 桩退役（实弹判决写点缝零触发，clrow=0）；
-    // 门与护栏语义与写点版一致，主体见 clone_parse_run。
+/// evt 池工作函数（124 轮池化：指针 = 池内槽位，drain 归还——不 free）。
+/// R11 parse 锚定：nomethods 桩退役（实弹判决写点缝零触发，clrow=0）；
+/// 门与护栏语义与写点版一致，主体见 clone_parse_run。
+static void clone_work_evt(const clone_evt_t *evt) {
     if (!__atomic_load_n(&g_clone_rd_valid, __ATOMIC_ACQUIRE)
         || !g_clone_rd_keyctor_valid
-        || __atomic_load_n(&g_clone_rd_lookups, __ATOMIC_RELAXED) >= kCloneMaxLookups
         || g_image_base == 0) {
         g_clone_nomethods++;
-        free(evt);
         return;
     }
-    __atomic_fetch_add(&g_clone_rd_lookups, 1, __ATOMIC_RELAXED);
+    // 取号制（124 轮体检 P3）：check-then-add 在并发/未来换队列下会破帽
+    // （ins 侧同款防御，见 clone_ins_run 注释）；先取号再判界，超帽走 nomethods。
+    if ((uint32_t)__atomic_fetch_add(&g_clone_rd_lookups, 1, __ATOMIC_RELAXED)
+        >= kCloneMaxLookups) {
+        g_clone_nomethods++;
+        return;
+    }
     int r = clone_parse_run(evt->consumer_cand, evt->obj, evt->cm_msg);
     if (!(r & kRdHit)) g_clone_rd_misses++;   // clmissq=
-    free(evt);
 }
 
 // ---------------------------------------------------------------------------
@@ -1645,7 +1726,8 @@ static void bootlog_line(const char *msg);   // 定义在武装节（前向声�
 /// 完整克隆记录（msgid+content 配对产物）：R6 插入直调表的消费单元。
 /// 111 轮扩展：svc/consumer（配对时刻 vtable 门验证过的读路径钥匙）+
 /// key 快照（consumer_main 帧内串对象 → 字节级深拷贝——异步侧免复刻
-/// 键构造 ABI）。
+/// 键构造 ABI）。124 轮定长化（content 柔数数组 → [255]）：写点 hook
+/// 上下文零 malloc 的池前置（≤255B 快照口径不变，R4 证据口径）。
 typedef struct {
     uint64_t msgid;
     uint64_t svc;           // [consumer+0xb78] pointee（vtable 门过才非 0）
@@ -1653,18 +1735,58 @@ typedef struct {
     char fromusr[64];
     uint32_t key_len;       // 0 = 帧内 key 快照不可得（worker 惰性走 clmissq）
     char key[64];           // 重查键字节（十进制 svrid 或会话串——真机定案）
-    uint32_t len;
-    uint8_t content[];      // 深拷贝（≤255B 快照，同 R4 证据口径）
+    uint32_t len;           // ≤ kCloneFullContentMax（超长截断如实计 len）
+    uint8_t content[255];   // 深拷贝（≤255B 快照，同 R4 证据口径）
 } clone_full_t;
-static void clone_work_full(void *ctx);
+static void clone_work_full(const clone_full_t *rec);
 
-/// 配对记录派发（捕获侧调用）：堆拷贝进串行队列。分配失败静默（证据
-/// 计数不虚报）。
+// full 池（124 轮，与 evt 池同构——票据/约定/正确性论证见 evt 池块注释；
+// 消费滞后丢弃计 cldrop，覆盖洞计 clgap，两池合计）。
+enum { kCloneFullSlots = 256, kCloneFullContentMax = 255 };
+typedef struct {
+    clone_full_t rec;
+    uint64_t seq;
+    volatile uint8_t full;
+} clone_full_slot_t;
+static clone_full_slot_t g_clone_full_pool[kCloneFullSlots];
+static uint64_t g_clone_full_ticket;
+static uint64_t g_clone_full_consumed;        // 仅串行队列 drain 访问
+static volatile int g_clone_full_drain_pending;
+
+/// full 池 drain（串行队列上下文；与 evt 池共享队列——两 drain 交替执行，
+/// 各自 pending 位独立，互不饥饿）。
+static void clone_full_drain(void *ctx __unused) {
+    (void)ctx;
+    __atomic_store_n(&g_clone_full_drain_pending, 0, __ATOMIC_RELEASE);
+    for (;;) {
+        uint64_t t = g_clone_full_consumed;
+        clone_full_slot_t *s = &g_clone_full_pool[t & (kCloneFullSlots - 1)];
+        if (!__atomic_load_n(&s->full, __ATOMIC_ACQUIRE)) break;
+        if (__atomic_load_n(&s->seq, __ATOMIC_RELAXED) != t) {
+            g_clone_gaps++;
+            __atomic_store_n(&g_clone_full_consumed, t + 1, __ATOMIC_RELAXED);
+            continue;
+        }
+        clone_work_full(&s->rec);
+        if (__atomic_load_n(&s->seq, __ATOMIC_RELAXED) != t) g_clone_gaps++;
+        __atomic_store_n(&s->full, 0, __ATOMIC_RELEASE);
+        __atomic_store_n(&g_clone_full_consumed, t + 1, __ATOMIC_RELAXED);
+    }
+}
+
+/// 配对记录派发（写点 hook 上下文调用）：定长池入队（124 轮——替代
+/// malloc(变长)+dispatch(ctx=rec)）。池满丢弃计 cldrop（证据计数不虚报）。
 static void clone_dispatch_full(uint64_t msgid, uint64_t svc, uint64_t consumer,
                                 const char *fromusr, const char *key, uint32_t key_len,
                                 const uint8_t *content, uint32_t len) {
-    clone_full_t *rec = malloc(sizeof(clone_full_t) + len);
-    if (!rec) return;
+    if (len > kCloneFullContentMax) len = kCloneFullContentMax;
+    uint64_t t = __atomic_fetch_add(&g_clone_full_ticket, 1, __ATOMIC_RELAXED);
+    clone_full_slot_t *s = &g_clone_full_pool[t & (kCloneFullSlots - 1)];
+    if (__atomic_load_n(&s->full, __ATOMIC_RELAXED)) {
+        g_clone_drops++;   // 消费滞后 ≥N：配对已计（g_clone_pairs），记录丢弃如实
+        return;
+    }
+    clone_full_t *rec = &s->rec;
     memset(rec, 0, sizeof(*rec));
     rec->msgid = msgid;
     rec->svc = svc;
@@ -1674,11 +1796,16 @@ static void clone_dispatch_full(uint64_t msgid, uint64_t svc, uint64_t consumer,
     if (key && key_len > 0) memcpy(rec->key, key, key_len > 64 ? 64 : key_len);
     rec->len = len;
     if (content && len > 0) memcpy(rec->content, content, len);   // len=0 事件合法（109 轮：content 待 R6）
+    __atomic_store_n(&s->seq, t, __ATOMIC_RELAXED);
+    __atomic_store_n(&s->full, 1, __ATOMIC_RELEASE);
     dispatch_queue_t q = clone_queue();
-    if (q) {
-        dispatch_async_f(q, rec, clone_work_full);
-    } else {
-        free(rec);
+    if (!q) {
+        __atomic_store_n(&s->full, 0, __ATOMIC_RELEASE);
+        g_clone_drops++;
+        return;
+    }
+    if (__atomic_exchange_n(&g_clone_full_drain_pending, 1, __ATOMIC_ACQ_REL) == 0) {
+        dispatch_async_f(q, NULL, clone_full_drain);
     }
 }
 
@@ -1792,19 +1919,22 @@ static int clone_rd_run_core(uint64_t svc, const uint8_t *keyobj24,
 
 /// 完整记录 worker（生产路径）：直调表未武装/护栏到顶 → clmiss 惰性
 ///（109/110 轮语义不变）；表在位 → 读路径重查，证据入 marker。
+/// 124 轮池化：指针 = 池内槽位（drain 归还），不 free。
 static void clone_ins_probe(uint64_t svc, uint64_t msg_obj);   // M4 节（后置定义）
 static int g_clone_cnt_caps;   // 同上（tentative 合并；R9 节零初始化）
 static volatile int g_clone_ins_valid;   // 同上（tentative 合并；M4 节零初始化）
-static void clone_work_full(void *ctx) {
-    clone_full_t *rec = ctx;
+static void clone_work_full(const clone_full_t *rec) {
     if (!__atomic_load_n(&g_clone_rd_valid, __ATOMIC_ACQUIRE)
-        || __atomic_load_n(&g_clone_rd_lookups, __ATOMIC_RELAXED) >= kCloneMaxLookups
         || g_image_base == 0) {
         g_clone_nomethods++;
-        free(rec);
         return;
     }
-    __atomic_fetch_add(&g_clone_rd_lookups, 1, __ATOMIC_RELAXED);
+    // 取号制同 clone_work_evt（124 轮体检 P3）。
+    if ((uint32_t)__atomic_fetch_add(&g_clone_rd_lookups, 1, __ATOMIC_RELAXED)
+        >= kCloneMaxLookups) {
+        g_clone_nomethods++;
+        return;
+    }
     clone_rd_fns_t fns = {
         .lookup = (void *)rd_abs(g_image_base, g_clone_rd.lookup_off),
         .wrap = (void *)rd_abs(g_image_base, g_clone_rd.wrap_off),
@@ -1835,7 +1965,6 @@ static void clone_work_full(void *ctx) {
         && svc > 0x10000 && msg_obj > 0x10000) {
         clone_ins_probe(svc, msg_obj);
     }
-    free(rec);
 }
 
 // ---------------------------------------------------------------------------
@@ -2136,7 +2265,7 @@ static int sso_head(const uint8_t *obj, uint64_t *size, uint8_t **ptr) {
     return 1;
 }
 
-/// sso_head 的内核读版（124 轮体检 P0 修）：头 24B 先经 kread——错挂
+/// sso_head 的内核读版（123 轮体检 P0 修）：头 24B 先经 kread——错挂
 ///（同 UUID 同序言异函数，10-03 事故形态）时 args 里的垃圾指针只让解析
 /// 不中（放行原生），绝不放大为进程崩溃；与克隆侧「用户态裸读垃圾指针
 /// = 进程崩溃」纪律对齐。1=长串且 (size,ptr) 已填。
@@ -2152,6 +2281,21 @@ static int sso_head_kread(const uint8_t *obj, uint64_t *size, uint8_t **ptr) {
         memcpy(size, head + 8, 8);
         memcpy(ptr, head + 16, 8);
     }
+    return 1;
+}
+
+/// SSO **数据面**内核探测（124 轮体检 P1）：头 24B 过门（sso_head_kread）
+/// 后，(ptr,size) 指向的数据缓冲在用户态被 find_bytes/清零/改写直接解引用
+/// ——123 轮的 kread 修复只护住了头半边，数据面同一威胁模型（错挂/同 UUID
+/// 内容漂移 → 头恰好形如长串 → ptr 悬垂 → SIGSEGV 杀微信）裸奔。本探测
+/// 对缓冲**首尾各 1B** 做内核读（区间中间的空洞以撤回 XML 的堆连续性经验
+/// 覆盖——SSO 长串是宿主单次分配的连续块，无中间保护页；首尾可达 = 整块
+/// 可达）。合法撤回缓冲 = 宿主刚构造的活对象，mach 读恒过，零误拒。
+/// 撤回事件频率非热路径，两次 mach call 成本在案接受。
+static int sso_data_kread(const uint8_t *ptr, uint64_t size) {
+    uint8_t probe = 0;
+    if (!kread_buf((uint64_t)(uintptr_t)ptr, &probe, 1)) return 0;
+    if (!kread_buf((uint64_t)(uintptr_t)(ptr + size - 1), &probe, 1)) return 0;
     return 1;
 }
 
@@ -2210,7 +2354,7 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
     if (args[1] > (void *)0x10000
         && kread_buf((uint64_t)(uintptr_t)args[1], (void *)g_arg1_head,
                      sizeof(g_arg1_head))) {
-        // 124 轮体检 P0：诊断面头捕获此前裸 memcpy——错挂场景 args[1] 为
+        // 123 轮体检 P0：诊断面头捕获此前裸 memcpy——错挂场景 args[1] 为
         // 垃圾指针时首条消息即 SIGSEGV。kread 失败=指针不可读，仅不置
         // valid（诊断面缺失可容忍，崩溃不可容忍）。
         g_arg1_valid = 1;
@@ -2227,8 +2371,9 @@ __attribute__((used)) static void revoke_hook_body(void *const *args) {
             uint8_t *sso = msg + g_hook.xml_sso_off;
             uint64_t size;
             uint8_t *ptr;
-            if (sso_head_kread(sso, &size, &ptr)) {   // 内核读版长串判定（124 轮 P0）
-                if (size >= 32 && size <= (1 << 20) && ptr >= (uint8_t *)0x10000) {
+            if (sso_head_kread(sso, &size, &ptr)) {   // 内核读版长串判定（123 轮 P0）
+                if (size >= 32 && size <= (1 << 20) && ptr >= (uint8_t *)0x10000
+                    && sso_data_kread(ptr, size)) {   // 数据面内核探测（124 轮 P1）
                     if (find_bytes(ptr, size, kSelfNeedle, sizeof(kSelfNeedle) - 1)) {
                         g_self_skips++;   // 自发撤回：放行原生删除+原生提示（T5 F1）
                     } else {
@@ -2373,8 +2518,22 @@ __attribute__((naked)) static void *revoke_clone_hook(void *a0, void *a1, void *
         "br x17\n");
 }
 
+
+#else
+static void *revoke_clone_hook(void *a0, void *a1, void *a2,
+                               void *a3, void *a4, void *a5) {
+    void *args[6] = {a0, a1, a2, a3, a4, a5};
+    clone_hook_body(args);
+    return g_clone_real_wrapper(a0, a1, a2, a3, a4, a5);
+}
+#endif
+
 // ---------------------------------------------------------------------------
-// R14 consumer_main 直挂 thunk（第三 SLOT）：纯被动观察者——存 x0/x1 进
+// R14 consumer_main 直挂 thunk（第三 SLOT）：纯被动观察者
+//（124 轮 P0 修：本块原嵌在 revoke_clone_hook 的 arm64 分支内——x86_64 下
+// g_cm_*/g_lu_* 全家未声明而 arm_cm_site/arm_lu_site 无条件引用 = x64 编译
+// 损坏七连（120/122 轮引入，本地 23 提交未推期从未过 CI Rosetta 腿）。搬出
+// 后双架构可见；x64 的 inert 桩分支自此真实参与编译。）——存 x0/x1 进
 // 全局（consumer/msg 同点快照）后 ldar 尾跳蹦床。零 C 体调用、零帧改动
 //（consumer_main 每消息都走，热路径纪律）。x16 全程草稿位。解析钩子体
 // 与 consumer_main 同线程嵌套（parse 在 consumer_main 处理流内），全局
@@ -2420,9 +2579,13 @@ __attribute__((naked)) static void *revoke_lu_hook(void) {
         "adrp x16, _g_lu_keyptr@PAGE\n"
         "str x1, [x16, _g_lu_keyptr@PAGEOFF]\n"
         "adrp x16, _g_lu_seq@PAGE\n"
-        "ldr x17, [x16, _g_lu_seq@PAGEOFF]\n"
-        "add x17, x17, #1\n"
-        "str x17, [x16, _g_lu_seq@PAGEOFF]\n"
+        // 原子加（124 轮体检 P3）：lookup 是六 consumer 族的共用汇点，多线程
+        // 并发真实存在——ldr/add/str 三连丢更新使 lu_seq 诊断失真。LSE ldadd
+        // 单指令原子（旧值进 x17，本处不消费）。LDADD 的访存操作数不吃立即
+        // 数偏移——地址先经 add 物化进 x16。
+        "add x16, x16, _g_lu_seq@PAGEOFF\n"
+        "mov x17, #1\n"
+        "ldaddal x17, x17, [x16]\n"
         "adrp x16, _g_lu_real_wrapper@PAGE\n"
         "add x16, x16, _g_lu_real_wrapper@PAGEOFF\n"
         "ldar x16, [x16]\n"
@@ -2432,14 +2595,6 @@ __attribute__((naked)) static void *revoke_lu_hook(void) {
 static void *revoke_lu_hook(void) { return NULL; }   // x64 行不带 lu 组
 #endif
 
-#else
-static void *revoke_clone_hook(void *a0, void *a1, void *a2,
-                               void *a3, void *a4, void *a5) {
-    void *args[6] = {a0, a1, a2, a3, a4, a5};
-    clone_hook_body(args);
-    return g_clone_real_wrapper(a0, a1, a2, a3, a4, a5);
-}
-#endif
 
 // ---------------------------------------------------------------------------
 // 函数级身份核对（77 续）：install 期按镜像自身元数据（段表 +
@@ -2762,7 +2917,9 @@ static void quiesce_end(void) {
 // 环形缓冲（snprintf+fetch_add 分槽，无锁无分配；极端并发下单行可读性
 // 损失是诊断面可接受代价），安全上下文（构造器尾/arm_late/30s 定时器）
 // 统一落盘；文件超 4MB 截断重开（长会话下 O(n²) 读写与无界增长一并消除）。
-enum { kBootRingLines = 64, kBootLineLen = 176 };
+// 行宽 176→256（124 轮体检 P3）：px0 miss 行最坏 ~174B（含 time 前缀）贴
+// 边，msgvt_off 等尾字段随实弹值加长即被截丢——诊断定案面字段优先。
+enum { kBootRingLines = 64, kBootLineLen = 256 };
 static char g_boot_ring[kBootRingLines][kBootLineLen];
 static volatile int g_boot_ring_head;
 static int g_boot_ring_flushed;
@@ -2922,9 +3079,43 @@ static int try_slot_fill(uintptr_t target, void *trampoline) {
     return 0;
 }
 
+/// 页原权限查询（124 轮体检 P2 修配套）：write_entry_stub 改页权限前抓
+/// 原值，恢复按原值回放（此前恢复硬编码 R|X——目标页居段尾时相邻数据页
+/// 的写权限被静默剥掉，宿主后续写该页 SIGSEGV）。失败由调用方按回落值
+/// （R|X）处理。
+static int page_protection(uintptr_t addr, vm_prot_t *out) {
+    mach_vm_address_t raddr = (mach_vm_address_t)addr;
+    mach_vm_size_t rsize = 0;
+    vm_region_basic_info_data_64_t info;
+    mach_msg_type_number_t cnt = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t obj = MACH_PORT_NULL;
+    if (mach_vm_region(mach_task_self(), &raddr, &rsize, VM_REGION_BASIC_INFO_64,
+                       (vm_region_info_t)&info, &cnt, &obj) != KERN_SUCCESS)
+        return 0;
+    if (obj != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), obj);
+    *out = info.protection;
+    return 1;
+}
+
+/// 改过的页按记录的原权限回放（查询失败的页回落 R|X = 旧行为）。
+static void restore_page_perms(uintptr_t page, size_t len,
+                               const vm_prot_t orig[2], const int have[2]) {
+    for (size_t off = 0; off < len; off += 0x1000) {
+        int idx = (int)(off >> 12);
+        int prot = have[idx]
+            ? (int)(orig[idx] & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE))
+            : (int)(PROT_READ | PROT_EXEC);
+        if (prot == 0) prot = (int)(PROT_READ | PROT_EXEC);
+        mprotect((void *)(page + off), 0x1000, prot);
+    }
+}
+
 static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_len,
                             int is_arm64, int page_already_writable) {
     uintptr_t page = target & ~(uintptr_t)0xfff;
+    // 124 轮体检 P2 修：跨度按需（stub ≤16B，仅末字节跨页时才两页——此前
+    // 恒 0x2000，目标页居段尾时多碰一页相邻数据页）。
+    size_t len = (size_t)(((target + stub_len + 0xfff) & ~(uintptr_t)0xfff) - page);
     if (page_already_writable) {
         pthread_jit_write_protect_np(0);
         if (is_arm64) quiesce_begin();
@@ -2933,13 +3124,18 @@ static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_l
         if (is_arm64) quiesce_end();
         pthread_jit_write_protect_np(1);
     } else {
+        // 原权限先抓（改前）——恢复按原值回放（124 轮 P2 修，见上）。
+        vm_prot_t orig[2] = {0, 0};
+        int have[2] = {0, 0};
+        have[0] = page_protection(page, &orig[0]);
+        if (len > 0x1000) have[1] = page_protection(page + 0x1000, &orig[1]);
         int page_writable =
-            (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC) == 0);
+            (mprotect((void *)page, len, PROT_READ | PROT_WRITE | PROT_EXEC) == 0);
         if (!page_writable) {
             int mp1_errno = errno;   // 诊断编码 300+：首个 mprotect(RWX) 的 errno
             vm_address_t rw = (vm_address_t)page;
             vm_prot_t cur = 0, mx = 0;
-            kern_return_t kr = vm_remap(mach_task_self(), &rw, 0x2000, 0,
+            kern_return_t kr = vm_remap(mach_task_self(), &rw, len, 0,
                                         VM_FLAGS_OVERWRITE | VM_FLAGS_RETURN_DATA_ADDR,
                                         mach_task_self(), (vm_address_t)page, FALSE,
                                         &cur, &mx, VM_INHERIT_COPY);
@@ -2953,37 +3149,37 @@ static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_l
             // 输出 rw = COW 副本的 data address：对副本地址 mprotect，
             // 命中可写则写副本（原 VA 经重映射后指向同一物理副本时的
             // 语义分支），不行再回落原地址。
-            if (mprotect((void *)rw, 0x2000, PROT_READ | PROT_WRITE) == 0) {
+            if (mprotect((void *)rw, len, PROT_READ | PROT_WRITE) == 0) {
                 page_writable = 1;
                 memcpy((void *)target, stub, stub_len);
                 if (is_arm64) sys_icache_invalidate((void *)target, stub_len);
-                mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
+                restore_page_perms(page, len, orig, have);
                 const uint8_t *now1 = (const uint8_t *)target;
                 g_stub_alive = (memcmp(now1, stub, stub_len) == 0) ? 1 : 0;
                 return g_stub_alive == 1 ? 0 : -1;
             }
-            if (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE) != 0) {
+            if (mprotect((void *)page, len, PROT_READ | PROT_WRITE) != 0) {
                 // 诊断编码 200+errno：remap 后两条 mprotect 路径全拒
                 // —— 第四层（77 续㊱：substitute 路线，RUNTIME-DESIGN 社区
                 // 备选入档项）：匿名页 MAP_FIXED 盖回。allow-unsigned-
                 // executable-memory 容忍匿名可执行页；先存原内容再盖，
                 // 内容逐字节保全，仅入口 stub 落上去。
                 int saved_errno = errno;
-                uint8_t *saved = (uint8_t *)malloc(0x2000);
+                uint8_t *saved = (uint8_t *)malloc(len);
                 if (saved) {
-                    memcpy(saved, (void *)page, 0x2000);
-                    void *m = mmap((void *)page, 0x2000,
+                    memcpy(saved, (void *)page, len);
+                    void *m = mmap((void *)page, len,
                                    PROT_READ | PROT_WRITE,
                                    MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
                     if (m == MAP_FAILED) {
                         g_install_errno = 300 + errno; g_install_step = 2;
                         free(saved); return -1;
                     }
-                    memcpy((void *)page, saved, 0x2000);
+                    memcpy((void *)page, saved, len);
                     free(saved);
                     memcpy((void *)target, stub, stub_len);
                     if (is_arm64) sys_icache_invalidate((void *)target, stub_len);
-                    mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
+                    restore_page_perms(page, len, orig, have);
                     const uint8_t *now2 = (const uint8_t *)target;
                     g_stub_alive = (memcmp(now2, stub, stub_len) == 0) ? 1 : 0;
                     return g_stub_alive == 1 ? 0 : -1;
@@ -2998,7 +3194,7 @@ static int write_entry_stub(uintptr_t target, const uint8_t *stub, size_t stub_l
         memcpy((void *)target, stub, stub_len);
         if (is_arm64) sys_icache_invalidate((void *)target, stub_len);
         if (is_arm64) quiesce_end();
-        mprotect((void *)page, 0x2000, PROT_READ | PROT_EXEC);
+        restore_page_perms(page, len, orig, have);
     }
     // 写后读回：COW remap 写路径的直接验证（写丢失在此即现，不等撤回流量）
     // （111 轮审计 P3 修：读回失配此前仍返回 0——「armed 但 fires=0」的
@@ -3126,7 +3322,7 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
                     bootlog_line("clone-rd: keyctor 已武装（R11 parse 锚定链启用）");
                 }
             }
-            // 124 轮体检 P3：rd_valid 最后发布（原在 keyctor 段之前——武装窗
+            // 123 轮体检 P3：rd_valid 最后发布（原在 keyctor 段之前——武装窗
             // 内首个克隆事件可见 rd_valid=1 而 keyctor_valid=0，误计一拍
             // clmiss/nomethods 诊断噪声）。
             __atomic_store_n(&g_clone_rd_valid, 1, __ATOMIC_RELEASE);
@@ -3232,6 +3428,7 @@ static void arm_cm_site(const hook_target_t *t, uintptr_t base) {
     int rc = try_slot_fill(ctarget, (void *)&revoke_cm_hook);
     if (rc != 0) {
         g_hook_status |= kStCloneFail;
+        munmap(ctr.mem, 4096);   // 124 轮体检 P3：蹦床页归还（arm_clone_site 同款）
         bootlog_line("cm-arm: slot-fill 失败——cm 入口未补丁为安全态，"
                      "补丁态在场则撤回处理将崩溃；收口：remove/重装");
         return;
@@ -3280,10 +3477,11 @@ static void arm_lu_site(const hook_target_t *t, uintptr_t base) {
     __atomic_store_n(&g_lu_real_wrapper, (void *(*)(void))ctr.mem, __ATOMIC_RELEASE);
     int rc = try_slot_fill(ctarget, (void *)&revoke_lu_hook);
     if (rc != 0) {
-        // 124 轮体检 P1：同函数其余五个失败分支都置位——漏置使
+        // 123 轮体检 P1：同函数其余五个失败分支都置位——漏置使
         // `runtime status` 对「lu 补丁在场+SLOT 双门拒填」矛盾态静默，
         // 只剩翻 boot log 一条路。
         g_hook_status |= kStCloneFail;
+        munmap(ctr.mem, 4096);   // 124 轮体检 P3：蹦床页归还（同 cm/clone）
         bootlog_line("lu-arm: slot-fill 失败（入口未补丁=安全态；补丁态在场则"
                      "消息查找将崩溃——收口 remove/重装）");
         return;
@@ -3642,10 +3840,10 @@ static NSString *legacyMarkerDir(void) {
 
 /// marker 内容构造（write_marker_ex 主体提取；测试缝
 /// wxkeep_runtime_test_marker_content 用同一函数锁「格式串键名 ↔ CLI
-/// 解析键名」双侧一致——124 轮体检 P2-3：两侧手写，改一侧另一侧静默显 0）。
+/// 解析键名」双侧一致——123 轮体检 P2-3：两侧手写，改一侧另一侧静默显 0）。
 static NSString *marker_content(void) {
     return [NSString stringWithFormat:
-        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d clpair=%d clsvc=%d clkey=%d clkeylen=%d clhit=%d clmissq=%d clget=%d clinner=%d clpub=%d clpubm=%d clins=%d clsvc2=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
+        @"loaded ts=%f mr2=%@ status=%d enc=2 istep=%d ierr=%d fires=%d hits=%d zero=%d selfskip=%d clone=%d clmiss=%d clrow=%d cllastlen=%d clpair=%d clsvc=%d clkey=%d clkeylen=%d clhit=%d clmissq=%d clget=%d clinner=%d clpub=%d clpubm=%d clins=%d clsvc2=%d cldrop=%d clgap=%d cfg=%.0f cfgh=%016llx last=%@ inner=%@ probe=%@\n",
         [NSDate date].timeIntervalSince1970,
         g_hook_installed ? @"hook-armed" : @"marker-only", g_hook_status,
         g_install_step, g_install_errno,
@@ -3655,7 +3853,7 @@ static NSString *marker_content(void) {
         g_clone_key_caps, g_clone_last_key_len,
         g_clone_rd_hits, g_clone_rd_misses, g_clone_rd_gets, g_clone_rd_inner,
         g_clone_pub_probes, g_clone_pub_matches, g_clone_ins_calls,
-        g_clone_svc2_hits,
+        g_clone_svc2_hits, g_clone_drops, g_clone_gaps,
         g_cfg_stamp, g_cfg_hash,
         g_last_fired[0] ? cstr_sample(g_last_fired) : @"<none>",
         g_last_inner[0] ? cstr_sample(g_last_inner) : @"<none>",
@@ -3737,7 +3935,7 @@ static void start_evidence_timer(void) {
                 g_quiesce_threads, g_arg1_valid ? "" : "<none>");
             bootlog_line(tick);
             // arg1 十六进制样本（含 NUL 尾）与 last/inner 内文样本走同一条
-            // 环形缓冲行有长度限制——拼进独立行（受 176B 截断，诊断面够用）。
+            // 环形缓冲行有长度限制——拼进独立行（受 kBootLineLen 截断，诊断面够用）。
             if (g_arg1_valid) {
                 char hex[72];
                 for (int k = 0; k < 24 && k * 2 + 1 < (int)sizeof(hex); k++) {
@@ -4113,6 +4311,25 @@ void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods)
     if (nomethods) *nomethods = g_clone_nomethods;
 }
 
+/// 124 轮事件池缝：健康计数读回（drops/gaps = 两池合计；consumed/ticket
+/// 按 evt/full 池分别回传——压测断言「零丢弃零票洞 + 最终追平」用）。
+void wxkeep_runtime_test_clone_pool_stats(int *drops, int *gaps,
+                                          unsigned long long *evt_consumed,
+                                          unsigned long long *evt_ticket,
+                                          unsigned long long *full_consumed,
+                                          unsigned long long *full_ticket) {
+    if (drops) *drops = g_clone_drops;
+    if (gaps) *gaps = g_clone_gaps;
+    if (evt_consumed)
+        *evt_consumed = __atomic_load_n(&g_clone_evt_consumed, __ATOMIC_RELAXED);
+    if (evt_ticket)
+        *evt_ticket = __atomic_load_n(&g_clone_evt_ticket, __ATOMIC_RELAXED);
+    if (full_consumed)
+        *full_consumed = __atomic_load_n(&g_clone_full_consumed, __ATOMIC_RELAXED);
+    if (full_ticket)
+        *full_ticket = __atomic_load_n(&g_clone_full_ticket, __ATOMIC_RELAXED);
+}
+
 /// V3-M2-R5 配对缝：配对完整记录数读回；可选清槽（测试隔离）。
 int wxkeep_runtime_test_clone_pair_count(int clear_pending) {
     if (clear_pending) {
@@ -4461,9 +4678,90 @@ long wxkeep_runtime_test_slot_chain(void) {
     return (r == expect) ? 1 : 0;
 }
 #else
-long wxkeep_runtime_test_hook_transparency(void) { return -2; }   // 非 arm64 宿主
-long wxkeep_runtime_test_slot_chain(void) { return -2; }         // 同上（SLOT 链缝）
-long wxkeep_runtime_test_slot_gate(int prefill) { return -2; }   // 同上（SLOT 门缝）
+#if defined(__x86_64__)
+// ---------------------------------------------------------------------------
+// x64 透传契约端到端缝（124 轮，123 轮登记项「x64 write_entry_stub 执行级
+// 覆盖」落地；CI Rosetta 腿 arch -x86_64 swift test 执行本缝）。
+// 与 arm64 缝同构：匿名 RWX 页内构造哨兵函数，经**生产同一**蹦床/stub
+// 代码路径（prepare_trampoline + write_entry_stub，is_arm64=0）挂钩后调用
+// ——写路径（12B movabs rax/jmp rax）、蹦床重放（saved 12B + jmp 回
+// target+12）、hook 体（6 参 C 形态透传）任一环断即红。
+// 哨兵合同**如实对齐 x64 行契约**（见 revoke_wrapper_hook x64 注释）：
+// 6 个整型参寄存器（rdi..r9）；无 FP 参/栈参（-O0 下编译器可不产生尾跳，
+// rsp 被推移一拍——栈参面不可入契约，parse(rdi,rsi,&ok) 实弹行无栈参）。
+// 哨兵 args[1] 传有效 32B 缓冲指针：hook 诊断面（kread 头 24B）落在界内，
+// 全零头 = 短串门关断（确定性）。
+// 返回：1=全透传通过 0=参数失配 -1=装挂失败 -3=哨兵自检失败
+//       -4=hook 链未实际到达（计数未增）。
+// ---------------------------------------------------------------------------
+long wxkeep_runtime_test_hook_transparency(void) {
+    static uint8_t *page;
+    if (!page) {
+        page = mmap(NULL, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                    MAP_ANON | MAP_PRIVATE, -1, 0);
+        if (page == MAP_FAILED) return -1;
+        // 哨兵 x64 机器码（入口 12B = 蹦床重放段，纯寄存器运算无 PC 相对）：
+        //   mov rax,rdi; xor rax,rsi; xor rax,rdx; xor rax,rcx   ← 重放段 12B
+        //   xor rax,r8; xor rax,r9; ret                          ← 续段（+12，原址执行）
+        static const uint8_t code[] = {
+            0x48, 0x89, 0xF8,   // mov rax, rdi
+            0x48, 0x31, 0xF0,   // xor rax, rsi
+            0x48, 0x31, 0xD0,   // xor rax, rdx
+            0x48, 0x31, 0xC8,   // xor rax, rcx
+            0x4C, 0x31, 0xC0,   // xor rax, r8
+            0x4C, 0x31, 0xC8,   // xor rax, r9
+            0xC3,               // ret
+        };
+        memcpy(page, code, sizeof(code));
+    }
+    typedef long (*sentinel_t)(long, long, long, long, long, long);
+    sentinel_t fn = (sentinel_t)(void *)page;
+    uint8_t buf[32];
+    memset(buf, 0, sizeof(buf));   // 全零头：x64 布局短串门关断（size=0，确定性）
+    long v[6] = {0x1100000000000001L, 0, 0x3300000000000003L,
+                 0x4400000000000004L, 0x5500000000000005L, 0x6600000000000006L};
+    v[1] = (long)(intptr_t)buf;    // args[1] = 可读指针（hook 诊断面约束）
+    long expect = v[0] ^ v[1] ^ v[2] ^ v[3] ^ v[4] ^ v[5];
+    long base = fn(v[0], v[1], v[2], v[3], v[4], v[5]);
+    if (base != expect) return -3;   // 哨兵自身不对（未挂钩就不对）
+    // 挂钩：与 install_hook 同构（公共路径 + 发布序），目标页 = 本线程匿名
+    // RWX 页（x64 无 MAP_JIT/W^X 需求——与 prepare_trampoline x64 分支同判）。
+    uint8_t prologue[12];
+    memcpy(prologue, page, 12);
+    hook_trampoline_t tr;
+    if (prepare_trampoline((uintptr_t)page, prologue, 12, 0, &tr) != 0) {
+        return -1;
+    }
+    g_hook.msg_arg = 1;
+    g_hook.xml_sso_off = 0;
+    g_sso_layout_arm64 = 0;
+    memcpy(g_hook.saved, prologue, 12);
+    g_hook.trampoline = tr.mem;
+    g_real_wrapper = (void *(*)(void *, void *, void *, void *, void *, void *))tr.mem;
+    __atomic_store_n(&g_hook.target, (uintptr_t)page, __ATOMIC_RELEASE);
+    long calls_before = g_hook_calls;
+    int w = write_entry_stub((uintptr_t)page, tr.stub, tr.stub_len, 0, 1);
+    long r = -100;
+    if (w == 0) {
+        r = fn(v[0], v[1], v[2], v[3], v[4], v[5]);
+    }
+    // 清理：还原哨兵入口 + 复位武装态，蹦床页归还（哨兵页留存复用）。
+    memcpy(page, prologue, 12);
+    g_hook.trampoline = NULL;
+    g_real_wrapper = NULL;
+    __atomic_store_n(&g_hook.target, 0, __ATOMIC_RELEASE);
+    munmap(tr.mem, 4096);
+    if (w != 0) return -1;
+    if (g_hook_calls != calls_before + 1) return -4;
+    g_wxkeep_transparency_diff = r ^ expect;
+    g_wxkeep_transparency_got = r;
+    return (r == expect) ? 1 : 0;
+}
+#else
+long wxkeep_runtime_test_hook_transparency(void) { return -2; }   // 未知架构
+#endif
+long wxkeep_runtime_test_slot_chain(void) { return -2; }         // SLOT 链缝（arm64 专属机械）
+long wxkeep_runtime_test_slot_gate(int prefill) { return -2; }   // SLOT 门缝（同上）
 #endif
 
 #if defined(__arm64__) || defined(__aarch64__)
@@ -4509,7 +4807,14 @@ long wxkeep_runtime_test_slot_gate(int prefill) {
     pthread_jit_write_protect_np(1);
     munmap(jit, 4096);
     munmap(slot_page, 4096);
-    if (rc != 0) return 1;   // 门拒（prefill 时预期）
+    // 细分拒因（124 轮体检 P3）：EIO = 双门拒（prefill 场景的预期——真零
+    // 门/落区门）；ENOENT = 无补丁形态/解码失败（本缝编码了合法补丁，出现
+    // 即夹具或解码回归）；其余 = 意外 errno。旧「rc!=0 一律 1」让 ENOENT
+    // 走私成「门拒通过」的假绿。
+    if (rc == 0) return 0;    // 武装成功（prefill=0 预期）
+    if (rc == EIO) return 1;   // 门拒（prefill 时预期）
+    if (rc == ENOENT) return -6;
+    return -7;
     // 武装成功时 SLOT 已被填——归还页即可（匿名页，无残留语义）
     return 0;
 }
@@ -4769,7 +5074,7 @@ int wxkeep_runtime_test_marker_dirs(const char *d1, const char *d2) {
     return write_marker_first_writable(dirs, 2, @"wxkeep-marker-fallback-probe");
 }
 
-/// marker 内容缝（124 轮 P2-3）：返回生产格式串按当前全局构造的一行
+/// marker 内容缝（123 轮 P2-3）：返回生产格式串按当前全局构造的一行
 ///（静态缓冲，下一次调用覆盖）。Swift 侧用它锁「格式串键名 ↔ CLI
 /// markerInt/markerStatusDecode 解析键名」双侧一致——两侧手写漂移时
 /// 该测试即红，而不是 CLI 展示静默变 0。
@@ -4783,7 +5088,7 @@ const char *wxkeep_runtime_test_marker_content(void) {
 
 long wxkeep_runtime_test_rewrite(unsigned char *data, unsigned long data_len,
                                  const char *tip, unsigned long tip_len) {
-    // 124 轮体检 P0 改写签名同步：rewrite_replacemsg_inner 直取 (ptr,size)
+    // 123 轮体检 P0 改写签名同步：rewrite_replacemsg_inner 直取 (ptr,size)
     //（生产面头解析已由 sso_head_kread 内核读版承担），测试缝直传数据面。
     uint64_t size = data_len;
     uint8_t *ptr = data;

@@ -71,6 +71,16 @@ enum PatchJournal {
         }
     }
 
+    /// 写前失败恢复旧账（124 轮体检 P3）：本次事务的 begin 覆盖了上一事务
+    /// 的记录；本次在引擎获得写入机会之前失败时，旧记录**原样重写回**
+    ///（startedAt/resigned 保全）——complete 会把上一事务的中断事实一并
+    /// 洗掉，doctor 将从 INTERRUPTED 误降级为普通 partial 指引。
+    static func restore(record: Record, userData: URL? = nil) {
+        if let out = try? JSONEncoder().encode(record) {
+            try? SafeWrite.overwrite(out, to: url(userData: userData))
+        }
+    }
+
     /// 读取残留事务。文件在但不可解码 → exists=true / record=nil：
     /// journal 在场本身就是「有未确认事务」的证据，坏 JSON（外部篡改/
     /// 磁盘故障）不能把 doctor 的检测静默吞掉。

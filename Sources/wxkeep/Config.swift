@@ -140,7 +140,7 @@ struct Config {
             let dir = URL(fileURLWithPath: path).deletingLastPathComponent()
             switch Manifest.verify(directory: dir) {
             case .legacy:
-                print("note: no signed manifest next to \(path) — pre-v0.1.3 data or dev copy")
+                noteToStderr("note: no signed manifest next to \(path) — pre-v0.1.3 data or dev copy")
             case .invalid(let reason):
                 throw LoadError.malformed("manifest check FAILED for \(path): \(reason). "
                     + "Refusing to load data that does not match its signed manifest.")
@@ -157,7 +157,7 @@ struct Config {
         // brew upgrade 带来的新数据且无提示，用户会被引向注定可能失败的
         // locate。提示刷新动作（刷新后本提示自然消失）。
         if explicit == nil, let notice = staleCatalogNotice(loadedPath: path) {
-            print("⚠️ \(notice)")
+            noteToStderr("⚠️ \(notice)")
         }
 
     /// 本地定位条目（locate --append 产物）：与签名目录分文件、不走清单门——
@@ -180,6 +180,14 @@ struct Config {
         return config
     }
 
+
+
+    /// stderr 直写（124 轮体检 P2 修）：doctor --json 的 stdout 是机器契约
+    /// （single-verdict，README 安全模型），Config.load 的提示行此前混进
+    /// stdout 使 jq 直接解析失败。人话提示一律走 stderr。
+    static func noteToStderr(_ line: String) {
+        FileHandle.standardError.write(Data((line + "\n").utf8))
+    }
 
     /// 用户级 catalog 与随包数据的陈旧比对（见 load 内注释）。返回人话提示；
     /// 无遮蔽/不可比返回 nil。

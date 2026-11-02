@@ -134,7 +134,7 @@ enum Resigner {
 
     /// `codesign -d --entitlements - --xml` → plist dict, or nil when the
     /// object is unsigned / carries no entitlements.
-    /// 124 轮体检 P3-2：退出码非 0 且非「未签名」语义、或输出不可解析时
+    /// 123 轮体检 P3-2：退出码非 0 且非「未签名」语义、或输出不可解析时
     /// **抛错**而非折叠成 nil——此前静默剥权（无 profile 重签）且 drift
     /// 复查拿 intended=nil 比对恒等、永不报告。未签名对象（首次注入的
     /// runtime dylib）按契约仍返回 nil。
@@ -224,6 +224,12 @@ enum Resigner {
             guard drifted.isEmpty else {
                 throw ResignError.entitlementsDrift(drifted.map(\.lastPathComponent))
             }
+            // Root 复封（124 轮体检 P2）：drift 修复重签了嵌套代码对象——
+            // 其字节变了，而 root 的 CodeResources（step 2 浅签时封的嵌套
+            // cdhash 清单）还是旧值 → step 4 的 --verify --deep --strict 必报
+            // nested code mismatch，「恢复后复查收敛」永远到不了 verify 通过
+            // （调用方整体回滚）。浅签幂等：只重封 root，未触碰嵌套零影响。
+            try sign(binary: app, entitlements: snapshot.resignPlist(for: app))
         }
 
         // 4. Hard verification.
@@ -276,9 +282,13 @@ enum Resigner {
         snapshot.entries.compactMap { entry in
             let intended = resigned.contains(entry.url.standardizedFileURL.path)
                 ? entry.resignPlist : entry.plist
-            // 探查失败按「已漂移」上报（宁可误报也不吞——124 轮 P3-2 的
-            // drift 失明半边）。
+            // 探查失败按「已漂移」上报（宁可误报也不吞——123 轮 P3-2 的
+            // drift 失明半边）。**边界如实注**（124 轮体检 P3）：仅当
+            // intended 非空时成立——原无权对象（intended==nil）+ 探查抛错
+            // 会以 nil==nil 放过。现实中无权对象不会自发长出 entitlements，
+            // 影响趋零；真要收紧需区分「无权」与「探查失败」两种 nil。
             let actual = try? inspectEntitlements(entry.url)
+            if intended == nil && actual == nil { return nil }   // 双 nil = 无权对象，非漂移
             if plistsEqual(actual, intended) { return nil }
             return entry.url
         }

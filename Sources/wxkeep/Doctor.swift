@@ -94,6 +94,24 @@ struct Doctor {
         }
     }
 
+    /// 执行切片选择（124 轮 Rosetta 盲区收口，纯函数）。语义三支：
+    /// ① 有本机切片 → 只看本机（跨架构聚合的 mixed/unprotected 假红是
+    ///    既有修复，语义不变）；
+    /// ② 无本机切片但有他切片 → 回退到他切片（3.x x64-only 构建在
+    ///    Apple Silicon 上经 Rosetta 运行的实况；此前静默跳过 = 判定面空，
+    ///    protected/unprotected 双向失真）；
+    /// ③ 空 → 不参与判定（既有语义）。
+    /// 强制「以 Rosetta 打开」的双切片构建不在此面（需运行进程取证，
+    /// 静态不可判）——诚实边界，不猜。
+    static func executingSliceStates(_ all: [Patcher.Inspection],
+                                     nativeArch: String)
+        -> (states: [Patcher.Inspection.State], viaRosetta: Bool) {
+        let native = all.filter { $0.arch.rawValue == nativeArch }.map(\.state)
+        if !native.isEmpty { return (native, false) }
+        if all.isEmpty { return ([], false) }
+        return (all.map(\.state), true)
+    }
+
     /// ad-hoc 重签 + restricted entitlements（application-identifier /
     /// team-identifier / application-groups）在 macOS 15+ 的风险评估。
     ///
@@ -183,17 +201,26 @@ struct Doctor {
         let nativeArch = Doctor.nativeArch()
         var patchStates: [String: String] = [:]
         var inspectFailures: [String] = []
+        // 执行切片回退目标（124 轮 Rosetta 盲区收口）：二进制无本机切片、
+        // 判定按实际执行的他架构切片走的 target 清单（verdicts 如实标注）。
+        var rosettaTargets: [String] = []
         if let versionEntry {
             for target in versionEntry.targets {
                 let binary = WeChatApp.binaryURL(app: app, relative: target.binary)
                 do {
-                    let states = try Patcher.inspect(
+                    let all = try Patcher.inspect(
                         binary: binary, entries: target.entries,
                         identifier: target.identifier)
-                        .filter { $0.arch.rawValue == nativeArch }
-                        .map(\.state)
-                    guard !states.isEmpty else { continue }   // 目标不含本机架构切片 → 不参与判定
-                    patchStates[target.identifier] = aggregate(states)
+                    // 执行切片解析（124 轮收口）：见 executingSliceStates 注释
+                    //（语义三支；回退 = 3.x x64-only 构建 AS 上经 Rosetta 的实况）。
+                    let sel = Doctor.executingSliceStates(all, nativeArch: nativeArch)
+                    if sel.viaRosetta {
+                        let otherArchs = Set(all.map { $0.arch.rawValue }).sorted()
+                        rosettaTargets.append(
+                            "\(target.identifier) 跑 \(otherArchs.joined(separator: "+")) 切片")
+                    }
+                    guard !sel.states.isEmpty else { continue }
+                    patchStates[target.identifier] = aggregate(sel.states)
                 } catch {
                     // inspect 失败（读不了/权限/异常）≠「无本机切片」——静默
                     // 丢弃会让判定面带着盲区报 protected。unknown 进门，让
@@ -235,6 +262,9 @@ struct Doctor {
         // ---- single verdict point ----
 
         var verdicts: [String] = inspectFailures
+        if !rosettaTargets.isEmpty {
+            verdicts.append("Rosetta 执行态：二进制无 \(nativeArch) 切片，\(rosettaTargets.joined(separator: "；")) —— 判定按实际执行的切片（若在「显示简介」里强制过 Rosetta 的双切片构建，此判定不覆盖，请复原设置）")
+        }
         if runtimeInjected && !runtimeDylibExists {
             verdicts.append("❌ LC_LOAD_DYLIB 在场但 runtime dylib 缺失 — 下次启动 dyld 必崩。修复：`wxkeep runtime install` 重装，或 `wxkeep runtime remove` 清掉 LC")
         }
@@ -254,12 +284,14 @@ struct Doctor {
             }
         }
         var overall: String
+        var hasKeeptip2Leftover = false
         if let entry = versionEntry, configKnown {
             // 废弃变体残留（共享位点不算）：有则告警并给清理路径。
             let leftovers = (try? Engine.deprecatedLeftovers(
                 app: app, versionEntry: entry,
                 coveredTargets: entry.targets.filter { $0.identifier != "revoke-keeptip2" })) ?? []
             if !leftovers.isEmpty {
+                hasKeeptip2Leftover = true
                 // sudo 前缀按可写性条件化（与下方 nextCommand 同款）——非 sudo
                 // 环境硬编码 sudo 会误导（writable 时不需要）。
                 verdicts.append("⚠️ deprecated revoke-keeptip2 bytes present (\(leftovers.joined(separator: ", "))) — run `\(writable ? "" : "sudo ")wxkeep restore` to clean, then re-patch")
@@ -314,6 +346,10 @@ struct Doctor {
         var nextCommand: String? = nil
         if overall == Overall.unsupportedBuild {
             nextCommand = "wxkeep update-data"
+        } else if hasKeeptip2Leftover {
+            // 残留在场时 patch 会抛 foreignVariantPatched（残留检查在 --only 过滤
+            // 之前）——nextCommand 指到 restore 才机器可执行（124 轮体检 P3）。
+            nextCommand = "\(writable ? "" : "sudo ")wxkeep restore"
         } else if overall != Overall.protected {
             let sudo = writable ? "" : "sudo "
             let hasKeeptip = versionEntry?.targets.contains { $0.identifier == "revoke-keeptip" } ?? false
@@ -429,7 +465,7 @@ struct Doctor {
         appPath: String,
         runtimeInjected: Bool = false,
         runtimeDylibExists: Bool = false,
-        currentBuild: String? = nil   // 124 轮体检 P3：事务后微信自更新的判读面
+        currentBuild: String? = nil   // 123 轮体检 P3：事务后微信自更新的判读面
     ) -> (verdictLines: [String], journalSummary: String?, nextCommand: String?) {
         guard journalExists else { return ([], nil, nil) }
         let sudo = sudoRequired ? "sudo " : ""
@@ -446,7 +482,7 @@ struct Doctor {
                     "\(record.kind.rawValue)@\(record.app)", nil)
         }
         let started = record.startedAt
-        // 事务属于旧构建而微信已自更新（124 轮体检 P3-8）：重跑 patch 会对新
+        // 事务属于旧构建而微信已自更新（123 轮体检 P3-8）：重跑 patch 会对新
         // 构建报 unsupportedBuild——先 update-data；restore 收口不受影响。
         let buildDrift: [String] = {
             guard let cur = currentBuild, !cur.isEmpty, !record.build.isEmpty,
@@ -507,8 +543,9 @@ struct Doctor {
                      ? "⚠️ INTERRUPTED RUNTIME INSTALL detected (started \(started)) and the bundle is in the "
                        + "launch-crash mixed state (LC present, dylib missing). Run `\(sudo)wxkeep runtime remove` to clean"
                      : "journal from an unfinished runtime install (started \(started)) — components look "
-                       + "consistent; re-running `\(sudo)wxkeep runtime install` (idempotent) or "
-                       + "`\(sudo)wxkeep runtime remove` clears it"],
+                       + "consistent; `\(sudo)wxkeep runtime remove` then re-install completes it "
+                       + "(re-running install alone is rejected by the already-injected check), "
+                       + "or `remove` alone clears it"],
                     "runtimeInstall@\(started)",
                     mixedLC ? "\(sudo)wxkeep runtime remove" : "\(sudo)wxkeep runtime install")
         case .runtimeRemove:
@@ -536,7 +573,7 @@ struct Doctor {
             lines.append("AMFI risk:   not applicable")
         }
         lines.append("running:     \(report.running ? "yes — quit before patching" : "no")")
-        // 124 轮体检 P3：macOS 14+ sudo 也会被「App 管理」拦（下方提示同义）——
+        // 123 轮体检 P3：macOS 14+ sudo 也会被「App 管理」拦（下方提示同义）——
         // 渲染行按 OS 条件化，不给出注定失败的建议。
         if report.writable {
             lines.append("writable:    yes")

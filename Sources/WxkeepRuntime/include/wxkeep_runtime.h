@@ -42,7 +42,7 @@ int wxkeep_runtime_test_tip_len(void);
 // marker 候选目录回落策略缝（77 续）：按序尝试两目录写 runtime.marker，
 // 返回首个成功序号（0/1），全败 -1。
 int wxkeep_runtime_test_marker_dirs(const char *d1, const char *d2);
-// marker 内容缝（124 轮 P2-3）：生产格式串按当前全局构造的一行（静态
+// marker 内容缝（123 轮 P2-3）：生产格式串按当前全局构造的一行（静态
 // 缓冲）。锁「格式串键名 ↔ CLI 解析键名」双侧一致。
 const char *wxkeep_runtime_test_marker_content(void);
 // per-arch 串对象头布局缝（77 续⑧）：1=arm64 变体布局（flag=[0x17] 符号
@@ -92,6 +92,13 @@ int wxkeep_runtime_test_clone_capture(const unsigned char *data, unsigned long l
                                       char *from, unsigned long fromcap);
 // V3-M2 克隆缝：证据计数读回（captures/skips/nomethods；任一出口可 NULL）。
 void wxkeep_runtime_test_clone_counts(int *captures, int *skips, int *nomethods);
+// 124 轮事件池缝：健康计数读回（drops/gaps=两池合计；consumed/ticket 按
+// evt/full 池分别回传；任一出口可 NULL）。
+void wxkeep_runtime_test_clone_pool_stats(int *drops, int *gaps,
+                                          unsigned long long *evt_consumed,
+                                          unsigned long long *evt_ticket,
+                                          unsigned long long *full_consumed,
+                                          unsigned long long *full_ticket);
 // V3-M2-R4 写点捕获缝：合成向量（候选 B 形态）直接驱动 clone_hook_body，
 // 返回捕获对象数。content_bytes = 合成 content 字节数（≤1MB）。
 int wxkeep_runtime_test_clone_rows(unsigned long long content_bytes,

@@ -724,24 +724,25 @@ extension RuntimeHookTests {
         #expect(r == Array(inner.utf8).count)
     }
 
-    /// 77 续⑨：hook 链透传契约（arm64）——8 个整型寄存器参 + 1 个栈参 +
-    /// 2 个 FP 参经生产蹦床/stub 公共路径挂钩后必须逐位穿透。定位 =
-    /// 对「签名未知的目标行」的结构保证（77 续⑩ 静态裁决：现行 270100
-    /// arm64 目标只消费 x0-x2，寄存器清坏不是 T4 的机制；但 6 参 C 形态
-    /// 的草稿寄存器清坏与手写帧槽重叠都是真实 bug 类——本测试两者都
-    /// 抓出过）。x86_64 宿主缝自报 -2（整型参寄存器全集恰好 6 个）。
+    /// 77 续⑨：hook 链透传契约——arm64：8 个整型寄存器参 + 1 个栈参 +
+    /// 2 个 FP 参经生产蹦床/stub 公共路径挂钩后必须逐位穿透；x86_64（124
+    /// 轮缝落地，CI Rosetta 腿执行）：6 个整型参寄存器（rdi..r9，行契约
+    /// 无 FP/栈参——-O0 下尾跳非保证，栈参面如实不入契约）+ 12B stub 写
+    /// + 蹦床重放端到端。定位 = 对「签名未知的目标行」的结构保证（77 续⑩
+    /// 静态裁决：现行 270100 arm64 目标只消费 x0-x2；但 6 参 C 形态的草稿
+    /// 寄存器清坏与手写帧槽重叠都是真实 bug 类——本测试两者都抓出过）。
     @Test func hookChainPassesAllArgumentRegistersThrough() {
-        let r = wxkeep_runtime_test_hook_transparency()
-        #if arch(arm64)
-        #expect(r == 1)
+        #if arch(arm64) || arch(x86_64)
+        #expect(wxkeep_runtime_test_hook_transparency() == 1)
         #else
-        #expect(r == -2)
+        #expect(wxkeep_runtime_test_hook_transparency() == -2)
         #endif
     }
 
     /// 77 续⑩：线程静默写窗的生命线回归——安装（含挂起全部线程的写窗）
     /// 之后并发线程必须仍在推进（resume 全恢复，无停摆）。顺带断言静默
-    /// 机制真实运行（枚举成功而非退化直写）。
+    /// 机制真实运行（枚举成功而非退化直写）。x86_64：无静默机械（直写），
+    /// 断言 hook 链可用（透传缝 1）即本测试在 x64 侧的等价收口。
     @Test func quiescedInstallResumesAllThreads() {
         #if arch(arm64)
         final class Counter: @unchecked Sendable {
@@ -774,7 +775,7 @@ extension RuntimeHookTests {
         #expect(after > before)   // 静默窗后探针线程仍在推进 = resume 全恢复
         #expect(wxkeep_runtime_test_quiesce_count() >= 0)   // 枚举成功，非退化直写
         #else
-        #expect(wxkeep_runtime_test_hook_transparency() == -2)
+        #expect(wxkeep_runtime_test_hook_transparency() == 1)
         #endif
     }
 
@@ -915,6 +916,81 @@ extension RuntimeHookTests {
         #expect(wxkeep_runtime_test_clone_pair_count(0) == before + 1,
                 "CAS 消费后槽空——不重复配对")
         _ = wxkeep_runtime_test_clone_pair_count(1)   // 清场
+    }
+}
+
+// MARK: - 124 轮事件池（预分配 + 原子序票据队列：零 malloc 契约 + 健康计数）
+
+extension RuntimeHookTests {
+    private func poolStats() -> (drops: Int, gaps: Int,
+                                 evtConsumed: UInt64, evtTicket: UInt64,
+                                 fullConsumed: UInt64, fullTicket: UInt64) {
+        var drops: CInt = 0, gaps: CInt = 0
+        var ec: UInt64 = 0, et: UInt64 = 0, fc: UInt64 = 0, ft: UInt64 = 0
+        wxkeep_runtime_test_clone_pool_stats(&drops, &gaps, &ec, &et, &fc, &ft)
+        return (Int(drops), Int(gaps), ec, et, fc, ft)
+    }
+
+    /// 事件池压测：200 连发捕获（< 256 槽——drain 全程不被调度也零丢弃的
+    /// 确定性上界），零丢弃零票洞，最终消费追平开票。
+    @Test func cloneEventPoolStressNoDropNoGap() {
+        let base = poolStats()
+        var captures: CInt = 0, skips: CInt = 0, nomethods0: CInt = 0
+        wxkeep_runtime_test_clone_counts(&captures, &skips, &nomethods0)
+        let xml = Array("<msg><newmsgid>467688165590299900</newmsgid><fromusr>wxid_pool</fromusr></msg>".utf8)
+        for _ in 0..<200 {
+            #expect(wxkeep_runtime_test_clone_capture(xml, UInt(xml.count), nil, nil, 0) == 1)
+        }
+        var now = poolStats()
+        #expect(now.drops == base.drops, "200 连发 < 256 槽——即使 drain 未跑也不得丢弃")
+        #expect(now.evtTicket == base.evtTicket + 200, "每捕获恰一票")
+        // 追平等待（串行队列异步；rd 表未武装 → nomethods 路径，微秒级）
+        let ok = waitUntil { [base] in
+            self.poolStats().evtConsumed == base.evtTicket + 200
+        }
+        now = poolStats()
+        #expect(ok, "drain 最终追平（5s 超时）")
+        #expect(now.gaps == base.gaps, "无票洞")
+        #expect(now.drops == base.drops, "全程零丢弃")
+        var captures2: CInt = 0, skips2: CInt = 0, nomethods2: CInt = 0
+        wxkeep_runtime_test_clone_counts(&captures2, &skips2, &nomethods2)
+        #expect(Int(captures2) == Int(captures) + 200, "captures 与票同步推进")
+        #expect(Int(nomethods2) >= Int(nomethods0), "未武装态消费走 nomethods（可证惰性）")
+    }
+
+    /// full 池压测：200 组配对流（capture→rows 交替），配对记录零丢失入池、
+    /// 零丢弃零票洞、消费追平——写点路径零 malloc 契约的等价断言面。
+    @Test func cloneFullPoolStressPairedRecords() {
+        let base = poolStats()
+        let pairs0 = wxkeep_runtime_test_clone_pair_count(1)   // 清槽 + 基线
+        let xml = Array("<msg><newmsgid>467688165590299901</newmsgid><fromusr>wxid_fpool</fromusr></msg>".utf8)
+        for _ in 0..<200 {
+            #expect(wxkeep_runtime_test_clone_capture(xml, UInt(xml.count), nil, nil, 0) == 1)
+            #expect(wxkeep_runtime_test_clone_rows(64, nil, nil, nil) == 1)
+        }
+        #expect(wxkeep_runtime_test_clone_pair_count(0) == pairs0 + 200,
+                "200 组配对全部成立（capture→rows 交替=每轮槽位即时消费）")
+        var now = poolStats()
+        #expect(now.drops == base.drops, "full 池 200 记录 < 256 槽——零丢弃")
+        #expect(now.fullTicket == base.fullTicket + 200, "每配对恰一票")
+        let ok = waitUntil { [base] in
+            self.poolStats().fullConsumed == base.fullTicket + 200
+        }
+        now = poolStats()
+        #expect(ok, "full drain 最终追平（5s 超时）")
+        #expect(now.gaps == base.gaps, "无票洞")
+        #expect(now.drops == base.drops, "全程零丢弃")
+        _ = wxkeep_runtime_test_clone_pair_count(1)   // 清场
+    }
+
+    /// 条件等待（默认 5s；事件池测试专用——drain 异步追平面）。
+    private func waitUntil(_ timeout: TimeInterval = 5, _ cond: () -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if cond() { return true }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return cond()
     }
 }
 
@@ -1269,7 +1345,7 @@ extension RuntimeHookTests {
         #expect(page != MAP_FAILED)
         defer { munmap(page, 4096) }
         let baseAddr = UInt64(UInt(bitPattern: page))
-        // 124 轮 P0-2 门：[msg]（vtable 槽）须落镜像跨度 [base, base+512MB)
+        // 123 轮 P0-2 门：[msg]（vtable 槽）须落镜像跨度 [base, base+512MB)
         // ——生产合同=消息对象 vtable 在 wechat.dylib 数据段内；测试以
         // 合成 base 自洽（原小常量头会被模块成员门正确拒绝）。
         msgObj[0] = baseAddr + 0x1000

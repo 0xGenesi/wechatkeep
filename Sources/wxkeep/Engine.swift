@@ -40,7 +40,7 @@ enum Engine {
         var patchedBinaries: [String] = []
     }
 
-    /// 部分写入后失败的标记错误（124 轮体检 P1 修）：本 run 已写过字节
+    /// 部分写入后失败的标记错误（123 轮体检 P1 修）：本 run 已写过字节
     ///（跨 binary 的「A 已写→B Phase-1 PatchError」打破 111 轮「PatchError
     /// 全是写前」假设；恢复重签失败时盘上就是「字节已改+陈旧签名」必崩态）
     /// ——journal 必须保留给 doctor 的 interrupted 判读，故 `isPreWriteFailure`
@@ -254,6 +254,18 @@ enum Engine {
         // --only 先行过滤：`--only update` 不得触碰任何 revoke 变体的字节——
         // 否则下面的「变体切换还原」会把另一个变体默默撤防（过滤前跑就会如此）。
         if let effective = effectiveOnlySet(only, variant: variant) {
+            // 未命中 token 点名（124 轮体检 P3）：多 token 部分命中此前静默收窄
+            // （笔误 --only revoke,updat 只有单 token 全空才报错）——按当前
+            // 构建 catalog 实际标识符判定后告警，不引入硬编码清单。
+            let unmatched = effective.filter { id in
+                !versionEntry.targets.contains(where: { $0.identifier == id })
+            }
+            if !unmatched.isEmpty {
+                print("⚠️ --only 未命中任何目标（按构建 \(versionEntry.version) 的 catalog）: "
+                      + unmatched.joined(separator: ", ")
+                      + "——可用: \(versionEntry.targets.map(\.identifier).joined(separator: ", "))。"
+                      + "已命中的子集继续执行。")
+            }
             selected = selected.filter { effective.contains($0.identifier) }
             guard !selected.isEmpty else {
                 throw EngineError.variantUnavailable("no matching targets for --only \(only?.joined(separator: ",") ?? "")")
@@ -478,7 +490,7 @@ enum Engine {
                         partialWrite?(relative)
                         // 部分还原后未重签=陈旧签名态，比 patch 侧更需要 journal
                         //（doctor interrupted → 指引收口）；包装重抛防 CLI 按
-                        // 写前失败误清（124 轮体检 P1 同款）。
+                        // 写前失败误清（123 轮体检 P1 同款）。
                         throw PartialWriteFailure(underlying: error)
                     }
                     throw error

@@ -16,6 +16,7 @@ on:
 jobs:
   watch:
     runs-on: macos-15
+    timeout-minutes: 60
     permissions:
       issues: write
       contents: write
@@ -31,7 +32,7 @@ jobs:
           # --cdn-probe：zsbai 之外的官方 CDN 线性探测（270131/270132 漏报
           # 教训——热修通道构建 zsbai 漏收时 watch 也能发现；锚点缺失/映射
           # 非线性/CDN 不可达时探测安静跳过，不影响 zsbai 主路径）。
-          curl -sf "https://api.github.com/repos/zsbai/wechat-versions/releases?per_page=15" \
+          curl -sf --max-time 60 "https://api.github.com/repos/zsbai/wechat-versions/releases?per_page=15" \
             -o /tmp/zsbai_releases.json || true
           python3 tools/watch_new_builds.py /tmp/zsbai_releases.json config.json --cdn-probe > /tmp/new_builds.txt
           if [ -s /tmp/new_builds.txt ]; then
@@ -63,7 +64,7 @@ jobs:
             if [ "$BUILD" = "?" ]; then
               echo "## 点分 release 判新（挂载读 Info.plist）" >> /tmp/report.md
               rm -f /tmp/wx.dmg
-              curl -sfL --retry 2 -o /tmp/wx.dmg "$DMG_URL" || \
+              curl -sfL --retry 2 --max-time 300 -o /tmp/wx.dmg "$DMG_URL" || \
                 { echo "- ❌ 点分 release 的 dmg 下载失败——转人工" >> /tmp/report.md; continue; }
               [ -s /tmp/wx.dmg ] || { echo "- ❌ dmg 下载为空——转人工" >> /tmp/report.md; continue; }
               hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmount /tmp/wx.dmg || \
@@ -92,8 +93,8 @@ jobs:
               fi
               echo "构建 $BUILD — 下载归档 dmg 并提取 dylib"
               rm -f /tmp/wx.dmg
-              curl -sfL --retry 2 -o /tmp/wx.dmg "$DMG_URL" || \
-                curl -sfL --retry 2 -o /tmp/wx.dmg "https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${TAG}_${BUILD}.dmg" || \
+              curl -sfL --retry 2 --max-time 300 -o /tmp/wx.dmg "$DMG_URL" || \
+                curl -sfL --retry 2 --max-time 300 -o /tmp/wx.dmg "https://dldir1v6.qq.com/weixin/Universal/Mac/xWeChatMac_universal_${TAG}_${BUILD}.dmg" || \
                 { echo "- ❌ 两个下载源均失败（asset 与 CDN 直链）——转人工" >> /tmp/report.md; continue; }
               [ -s /tmp/wx.dmg ] || { echo "- ❌ dmg 下载为空——转人工" >> /tmp/report.md; continue; }
               hdiutil attach -nobrowse -readonly -mountpoint /tmp/wxmount /tmp/wx.dmg || { echo "- ❌ 挂载失败" >> /tmp/report.md; rm -f /tmp/wx.dmg; continue; }

@@ -351,6 +351,11 @@ extension Wxkeep {
                 let storeURL = PathUtil.expandTilde(keys).map { URL(fileURLWithPath: $0) }
                 let hitsPath = NSTemporaryDirectory() + "wxkeep-pbkdf-hits.jsonl"
                 try? FileManager.default.removeItem(atPath: hitsPath)
+                // 124 轮体检 P2 修：hits 文件含 PBKDF 主密钥明文（= 全部聊天库
+                // 解密材料），此前 0644 残留 $TMPDIR 直到下次 capture。两侧收口：
+                // 脚本侧 O_CREAT 0600（见 captureScript）；本侧无论成败 run 结束
+                // 即删（promote 已入库 keys.json(0600)，hits 无后续读者）。
+                defer { try? FileManager.default.removeItem(atPath: hitsPath) }
                 let scriptPath = NSTemporaryDirectory() + "wxkeep_capture_lldb.py"
                 try Self.captureScript(hitsPath: hitsPath)
                     .write(to: URL(fileURLWithPath: scriptPath), atomically: true, encoding: .utf8)
@@ -434,12 +439,15 @@ extension Wxkeep {
 
             static func captureScript(hitsPath: String) -> String {
                 """
-                import lldb, time, json
+                import lldb, time, json, os
                 FH = None
                 def _log(o):
                     global FH
                     if FH is None:
-                        FH = open(\(String(reflecting: hitsPath)), "a", buffering=1)
+                        # 0600（124 轮体检 P2）：内容是主密钥明文，不得全局可读
+                        FH = os.fdopen(os.open(\(String(reflecting: hitsPath)),
+                                                os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600),
+                                       "a", buffering=1)
                     FH.write(json.dumps(o) + "\\n")
                 def bp_callback(frame, bp_loc, d):
                     try:
@@ -599,7 +607,7 @@ extension Wxkeep {
             static func parseTimestamp(_ text: String?) throws -> Int? {
                 guard let text else { return nil }
                 if let d = ISO8601DateFormatter().date(from: text) { return Int(d.timeIntervalSince1970) }
-                // 124 轮体检 P3：ISO8601DateFormatter 只收带时区的 internet 形，
+                // 123 轮体检 P3：ISO8601DateFormatter 只收带时区的 internet 形，
                 // 用户自然输入的 `2026-11-02T10:00`（本地无时区）此前报
                 // 「无法解析」——补 T 分隔的本地形态。
                 let f = DateFormatter()
@@ -684,7 +692,15 @@ extension Wxkeep {
 
             static func queryTips(db: URL, exe: String, key: [UInt8], tables: [String], since: Int?) throws -> [String] {
                 guard !tables.isEmpty else { return [] }
-                let selects = tables.map { t in
+                // 表名白名单（124 轮体检 P3 防御纵深）：表名来自用户库的
+                // sqlite_master，虽然连接只读、影响域有限，仍不裸拼——在役
+                // 消息表恒为 Msg_<16 进制摘要>，白名单外的表名整体跳过。
+                let legit = tables.filter { t in
+                    t.count >= 5 && t.count <= 68 && t.hasPrefix("Msg_")
+                        && t.dropFirst(4).allSatisfy { $0.isHexDigit }
+                }
+                guard !legit.isEmpty else { return [] }
+                let selects = legit.map { t in
                     "SELECT '\(t)', local_id, create_time, hex(coalesce(message_content,'')) FROM \"\(t)\" WHERE local_type=10000"
                 }.joined(separator: " UNION ALL ")
                 let sqlText = since.map {

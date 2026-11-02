@@ -165,7 +165,7 @@ extension Wxkeep.DbKeysCommand {
             // 1. FTS session 映射（account → username → rowid；各账号编号独立）
             var ftsUser2Sid: [String: [String: Int]] = [:]
             var ftsKeyed: [String: (url: URL, key: [UInt8])] = [:]
-            // 124 轮体检 P2：FTS 密钥缺失的账号此前被静默 continue——其灰条
+            // 123 轮体检 P2：FTS 密钥缺失的账号此前被静默 continue——其灰条
             // 全部落进「无 FTS 文档」桶且归因成「非文本原文为主」，用户以为
             // 原文确实不在。如实分报：单独点名 + 指引重捕。
             var ftsKeyMissing: [String] = []
@@ -286,12 +286,16 @@ extension Wxkeep.DbKeysCommand {
 
             // 4. 会话显示名解析（contact.db：备注 > 昵称 > 微信号；按账号隔离）
             var displayNames: [String: [String: String]] = [:]
+            var contactKeyMissing: [String] = []   // 124 轮体检 P3：与 FTS 密钥分报同款（静默 continue = 显示名缺失无解释）
             for account in accounts {
                 guard let contact = WeChatDBFinder.encryptedDBs(account: account, live: true)
                     .first(where: { $0.lastPathComponent == "contact.db" }) else { continue }
                 guard let page = WeChatDBFinder.page1(of: contact), !WeChatDBFinder.isPlain(page) else { continue }
                 let salt = SQLCipherGeometry.saltOfPage1(page: page)
-                guard let key = store.keyFor(basename: contact.lastPathComponent, account: account, salt: salt, page: page) else { continue }
+                guard let key = store.keyFor(basename: contact.lastPathComponent, account: account, salt: salt, page: page) else {
+                    contactKeyMissing.append(account)
+                    continue
+                }
                 var names: [String: String] = [:]
                 for line in try Audit.runSQL(exe, db: contact, key: key,
                                          statements: "SELECT username, coalesce(remark,''), coalesce(nick_name,''), coalesce(alias,'') FROM contact;") {
@@ -345,6 +349,10 @@ extension Wxkeep.DbKeysCommand {
             if !ftsKeyMissing.isEmpty {
                 print("⚠️ \(ftsKeyMissing.count) 个账号 FTS 密钥缺失（\(ftsKeyMissing.joined(separator: "、"))）——"
                       + "其灰条按「无 FTS 文档」计，可能低估可复原量；先 `wxkeep dbkeys capture` 重捕后重跑")
+            }
+            if !contactKeyMissing.isEmpty {
+                print("⚠️ \(contactKeyMissing.count) 个账号 contact.db 密钥缺失（\(contactKeyMissing.joined(separator: "、"))）——"
+                      + "该账号显示名缺失（输出回退微信号/原始键）；同因 FTS 缺失则一并按上一行处理")
             }
             print("输出：\(outURL.path)（0600，含聊天内容——注意保管，勿入仓库）")
             for r in records.suffix(max(latest, 0)).reversed() {   // 负值夹 0（同 dbkeys audit）

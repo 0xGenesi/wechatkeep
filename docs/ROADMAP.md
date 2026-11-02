@@ -1,5 +1,12 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-11-02 124 轮后状态修订**：①**P0 x86_64 编译损坏修复**（R14/R15
+> 全局错嵌 arm64 分支——120/122 轮引入，23 提交未推期 CI Rosetta 腿从未
+> 见过；本地双架构 clang 兜底揭出，教训=CI 绿不等于当前 HEAD 可编译）；
+> ②123 轮三登记项全落地（事件池/x64 执行级缝/doctor Rosetta 回退）；
+> ③三路深读评审第七轮 P1 SSO 数据面探测 + P2×8 + P3 批全修；④289 测
+> 全绿 + fuzz 20 万零报告。遗留见 124 轮节末（六项，均独立轮/用户窗口）。
+
 > **2026-10-31 100 轮后状态修订（全量体检 + V3-M1-R2 翻案）**：①**主动
 > 体检轮**——两个深读评审（CLI 面 + 补丁引擎面）+ 逐项人工复核，修掉
 > **3 个 P0**（install blocked 门在 LC 已写入后抛错不回滚→必崩混合态；
@@ -463,6 +470,96 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 124·第七轮主动体检 + 三登记项落地轮（2026-11-02：**P0 x86_64 编译修复**（R14/R15 全局错嵌 arm64 分支——23 提交未推期从未过 CI Rosetta 腿）+ clone 事件池（hook 上下文零 malloc 收官）+ x64 透传缝（CI Rosetta 腿自此有执行级覆盖）+ doctor Rosetta 切片回退；三路深读评审 P0×1+P1×1+P2×8+P3 批全修；289 测全绿 +3）
+
+1. **[P0 x86_64 编译损坏七连]**：R14/R15 的 cm/lu 全局（g_cm_*/g_lu_* 家族
+   + inert 桩）错嵌在 revoke_clone_hook 的 `#if arm64` 分支内——x86_64 下
+   arm_cm_site/arm_lu_site 引用未声明符号 = 编译必败（120/122 轮引入）。
+   未爆原因：本地领先 origin 23 提交，CI Rosetta 腿（arch -x86_64 swift
+   test）从未见过这些代码。修复 = 块整体搬出双架构可见位。**教训入册：
+   本机多轮未推时 CI 绿 ≠ 当前代码可编译；runtime.m 改动补一道
+   `clang -c -arch x86_64` 本地兜底（本轮手工执行通过）。**
+2. **[登记项①事件池]**：clone_capture/clone_dispatch_full 的 hook 线程
+   malloc 全数退役 → 预分配定长池（evt 256 槽 / full 256 槽）+ 单调票据 +
+   full(RELEASE)/ACQUIRE 发布对 + drain-pending 唤醒归纳（块注释全证：
+   「pending=1 ⇒ 存在已派发未开跑的 drain」链式回溯）。clone_full_t 柔数
+   数组→定长 [255]；cldrop/clgap 进 marker（CLI 判读 + 键 round-trip 锁
+   27→29）；压测 200 连发零丢弃零票洞**确定性**断言（200<256 不赌调度）。
+   同槽双占残余（seq 复验 + worker vtable 门封顶）如实注。
+3. **[登记项②x64 执行级覆盖]**：transparency 缝 x64 版——哨兵 6 整型参
+   （rdi..r9）EOR 折叠 + 12B 可换址序言，经生产 prepare_trampoline +
+   write_entry_stub（is_arm64=0）挂钩端到端；合同如实收缩（无 FP/栈参：
+   -O0 下编译器尾跳非保证，parse(rdi,rsi,&ok) 实弹行本无栈参）。CI 既有
+   Rosetta 腿自动执行；透传/静默两测试的 -2 桩退役（双架构统一 1=通）。
+4. **[登记项③doctor Rosetta 盲区]**：executingSliceStates 纯函数三支——
+   本机切片在场只看本机（既有）/ 仅他切片回退（3.x x64-only 构建在 AS
+   上经 Rosetta 的实况，此前静默跳过=判定面空、protected/unprotected 双向
+   失真）/ 空不参与；verdicts 如实标注 + 强制 Rosetta 双切片构建的诚实
+   边界注（静态不可判，不猜）。
+5. **[P1 SSO 数据面]**：123 轮 kread 修复只护住头 24B——(ptr,size) 数据面
+   的 find_bytes/清零/改写仍是用户态裸读（错挂 + 头恰好形如长串 →
+   SIGSEGV 杀微信；x64 现役行无函数身份门暴露面最大）。sso_data_kread
+   首尾各 1B 内核探测（SSO 长串=宿主单次分配连续块，首尾可达≈整块可达；
+   合法撤回缓冲恒过，零误拒；两次 mach call 成本在案接受）。
+6. **[P2×8]**：①x64 可换址门补 C2/C3/EA + FF /3 /5（重放段内 ret = 栈帧
+   腐坏同破坏力；33 条在役 x64 行零含新字节——收紧前全量扫描证伪）；
+   ②write_entry_stub 跨度按需 + 原权限 mach_vm_region 抓取回放（此前恒
+   0x2000 + 硬编码 R|X 恢复——目标页居段尾时相邻数据页写权限被静默剥）；
+   ③doctor --json stdout 纯净化（Config.load 两处提示→stderr，jq 直接可
+   解）；④install 三处补救文案与已注入预检矛盾（照指引重跑必被拒）→
+   remove 后重装 + doctor runtimeInstall nextCommand 同步改口；⑤remove
+   副槽还原独立化（clone/lu/cm 嵌套在主 hook 检测门内——偏移跨版本漂移
+   后主门不进=副槽跳板漏还原+LC 已删=撤回解析即崩；重构为四槽独立探测、
+   同帧合并原子还原）；⑥dbkeys capture 后 PBKDF 主密钥明文残留 /tmp
+   （0644 + 无清理，等价全部聊天库解密材料外泄面）→ 脚本侧 O_CREAT 0600
+   + Swift 侧 defer 删除；⑦Signatures.load 空 asm 半边（Data(hex:"")==
+   空 Data 过门 → prefix(0) 恒等 → 永远假 alreadyPatched——Config 同款
+   洞已修，signatures/auto-locate 路径漏）+ Patcher.buildPlans 兜底同门；
+   ⑧Resigner drift 修复后 root 复封（嵌套对象重签使 root CodeResources
+   cdhash 过期 → step4 --deep --strict 死路、恢复复查永不收敛；浅签幂等
+   补一次 root）。
+7. **[P3 批]**：runtime——cm/lu slot-fill 失败蹦床页泄漏 munmap（clone 同
+   款 110 轮修的漏网姊妹）；lu_seq ldr/add/str→ldaddal 原子（LDADD 访存
+   操作数不吃立即偏移——add 物化的汇编踩坑在注）；池 seq/读侧原子化
+   （cm/parse 快照跨线程裸读→原子读，撕裂=clmissq 误计的残余收口）；rd
+   lookups check-then-add→取号制（ins 侧同款防御）；px0 行宽 176→256
+   （miss 行最坏 ~174B 贴边，msgvt_off 尾字段截丢）；slot_gate 缝拒因细分
+   （EIO=真零/落区门拒、ENOENT=夹具回归、0=武装成功——初版漏成功路径被
+   既有测试当场抓红，测试基建的反向价值一例）；time(NULL) 豁免如实入
+   hook 体约束注。Swift——journal 写前失败保全旧账（PatchJournal.restore
+   (record:)：本次 begin 覆盖上一事务记录后失败，旧记录原样写回而非
+   complete 洗掉）；--only 未命中 token 点名告警（多 token 部分命中静默
+   收窄）；doctor nextCommand keeptip2 残留→restore（残留检查在 --only
+   过滤前，照旧指 patch 必被 foreignVariantPatched 拒）；Patcher.resolveVA
+   病态段表防 trap（MachImage 读路径孪生：checked 加法 + cmdsize≥72 门，
+   溢出按 vaNotFound 干净拒绝）；ParseOracle.run exit(5)→emptyCorpus（与
+   runTreeDumps 映射对齐，不再误指参数/env）；Recover contact.db 密钥
+   缺失分报（FTS 同款点名+指引）；queryTips 表名白名单 Msg_<hex>（防御
+   纵深，-readonly 限害下的卫生项）；mismatches 双 nil 边界如实注（无权
+   对象+探查失败 nil==nil 放过——现实影响趋零，收紧需区分两种 nil）。
+   文档/CI——README 数字漂移三处（44→66 行 / 11→22 func_size 构建（+4.2.0
+   线 11 构建）/ 121→122 构建 + 270350→270351 线尾）；watch-wechat.yml 补
+   timeout-minutes=60 + 三处 curl --max-time（四 workflow 唯一无超时者）；
+   Formula 单架构注（brew CLT 构建 dylib 为 arm64-only——Rosetta/x64 微信
+   用户指 make release 双架构产物）；sign_manifest.py ensure_ascii=False
+   （与 Swift canonicalData 的原生 UTF-8 规范形对齐——非 ASCII 字段未来
+   混入时不再签名恒 invalid；ASCII 现役清单零影响）。
+8. **[卫生]**：123 轮提交内 40 处「124 轮体检」注释编号漂移校正→123
+   （ROADMAP 为台账权威；避免与本轮真 124 撞号）。
+9. **[验证链]**：289 测全绿（+3：evt/full 池压测、执行切片三支；透传/槽门
+   既有断言升级为双架构统一契约）；fuzz 20 万输入 ASan+UBSan 零报告
+   （runtime.m 改动 SOP）；runtime.m 双架构 `clang -c` 零错（P0 修复的
+   本地兜底验证）；ground truth/L2/L6 oracle 未重跑（本轮数据面零变更，
+   变更全在代码/文档/CI）。
+10. **[遗留]**：①arm_clone/cm/lu_site 三武装函数执行级覆盖（可注入 base
+    的测试缝——独立工程轮）；②applySwaps 单 rename 崩溃窗（下次成功自愈
+    在案；启动清扫 .bak 残留为可选强化）；③fat 切片 cpusubtype 区分
+    （arm64e 布局出现前不可达，UUID/expected 双门兜底）；④CI macos-26/27
+    腿（27 签名策略面目前仅本机实机覆盖——runner 可用性/成本权衡）；⑤
+    真机行为级验收/Windows GO/群聊 tip R3 维持用户窗口；⑥ci.yml 可把
+    `clang -c -arch x86_64` 编译兜底固化进 build 步骤（P0 的制度性防线，
+    下轮顺手）。
+
 ## 123·Day-0 全量适配 + 第六轮主动体检轮（2026-11-02：CDN 抓到 4.2.0.15/270351 day-0 当日全量适配 + 270350 半成品补全（revoke-only→三面全）+ **4.2.0 线 11 构建 hooks 双架构行全量补齐**（knownHooks 44→66 行）；三路深读评审（CLI/UX+补丁引擎+runtime/测试/CI）P0×3+P1×7+P2×6+P3 批全修；286 测全绿（+1 marker round-trip 锁））
 
 1. **[Day-0 适配（CDN PROBE_AHEAD 命中 known+1）]**：270351 配方双中
@@ -532,7 +629,8 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
    反馈再派生）；行为级真机验收随下轮实弹窗口顺带；270152（4.1.15.72
    CDN 热修件，revoke x64-only 非家族序言）与 37335 的 keeptip 派生=
    专项 RE 低价值项（边缘构建，需要时再做）；x64 write_entry_stub 执行
-   级覆盖（CI Rosetta 腿）与 clone_capture 预分配事件池为登记项。
+   级覆盖（CI Rosetta 腿）与 clone_capture 预分配事件池为登记项
+   （**124 轮两项登记项均已落地**——见 124 轮节 2/3 条）。
 
 ## 122·R17 第七轮实弹 + 双 vtable 门定案轮（2026-11-01：lu 直挂实测生效（lu_seq=1/2 每撤回恰一次、svc 单例稳定）——门未中对因 = x0 是 110 轮入册双 vtable 对象的第二接口视图（[x0]=0x9ded4a8=svc_vt−0xa0）；**键格式定案：ASCII 明文**（lu_key6="458457"）；live 键直用+双 vtable 门落地；285 测同轮基线）
 

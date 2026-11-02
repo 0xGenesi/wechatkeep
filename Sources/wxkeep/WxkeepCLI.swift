@@ -97,7 +97,8 @@ extension Wxkeep {
             // 一次（不受 wroteAnything 门）：全部 alreadyPatched 的幂等重跑会
             // 跳过重签直接 complete()，把「字节已改+陈旧签名」的启动必崩态洗白
             // 成 protected——110 轮修（双评审 P1）。重签幂等，未必要时多花几秒。
-            let journalPendingAtStart = !dryRun && PatchJournal.pending().exists
+            let journalAtStart = PatchJournal.pending()
+            let journalPendingAtStart = !dryRun && journalAtStart.exists
             // WAL 意图 journal：引擎获得写入机会之前落盘；全链成功（含重签）
             // 后由 complete 收口。中断（SIGKILL/断电）→ journal 残留 →
             // doctor 精确指路。dry-run 不写盘，不立 journal。
@@ -140,7 +141,13 @@ extension Wxkeep {
                 // 异变体在位/Patcher Phase-1 全族——引擎从未获得写入机会，
                 // journal 即刻收口，避免 doctor 的 interrupted 噪音与死循环处方。
                 if !dryRun && Wxkeep.isPreWriteFailure(error) {
-                    PatchJournal.complete()
+                    // 旧账保全（124 轮体检 P3）：本次 begin 已覆盖上一事务记录
+                    // ——写前失败时旧记录原样写回（无旧账才 complete 收口本次）。
+                    if let prev = journalAtStart.record, journalAtStart.exists {
+                        PatchJournal.restore(record: prev)
+                    } else {
+                        PatchJournal.complete()
+                    }
                 }
                 throw error
             }
@@ -223,7 +230,7 @@ extension Wxkeep {
     /// Phase-2 中途写失败（写中）同型不可分，保守留 journal 让 doctor
     /// 指引收口（重跑幂等，方向安全）。
     static func isPreWriteFailure(_ error: Error) -> Bool {
-        // 部分写入后失败（124 轮体检 P1 修）：字节已落盘——journal 必须保留，
+        // 部分写入后失败（123 轮体检 P1 修）：字节已落盘——journal 必须保留，
         // 优先于底层错误类型判别（包装内的 PatchError 不是写前失败）。
         if error is Engine.PartialWriteFailure { return false }
         if error is Patcher.PatchError { return true }
@@ -259,7 +266,8 @@ extension Wxkeep {
             let build = try WeChatApp.buildNumber(app: options.app)
             print("restore build \(build)\(dryRun ? " — dry run" : "")")
             // journal 残留在场 → 成功路径强制重签一次（与 patch 同款洗白链防线）。
-            let journalPendingAtStart = !dryRun && PatchJournal.pending().exists
+            let journalAtStart = PatchJournal.pending()
+            let journalPendingAtStart = !dryRun && journalAtStart.exists
             // WAL 意图 journal：restore 也是多点写（Patcher 反演），同样有
             // 中断窗口；成功收口时顺带清掉任何残留（含 patch 留下的）。
             if !dryRun {
@@ -277,7 +285,13 @@ extension Wxkeep {
                 // doctor 开出注定再失败的重跑处方（微信自动升级后 / 含隔离
                 // 条目的构建 / --variant keeptip 无条目构建）。
                 if !dryRun && Wxkeep.isPreWriteFailure(error) {
-                    PatchJournal.complete()
+                    // 旧账保全（124 轮体检 P3）：本次 begin 已覆盖上一事务记录
+                    // ——写前失败时旧记录原样写回（无旧账才 complete 收口本次）。
+                    if let prev = journalAtStart.record, journalAtStart.exists {
+                        PatchJournal.restore(record: prev)
+                    } else {
+                        PatchJournal.complete()
+                    }
                 }
                 throw error
             }
@@ -402,7 +416,7 @@ extension Wxkeep {
                 }
                 var localConfig: Config
                 if FileManager.default.fileExists(atPath: localURL.path) {
-                    // 124 轮体检 P3：Config.LoadError 的描述硬编码「config.json」
+                    // 123 轮体检 P3：Config.LoadError 的描述硬编码「config.json」
                     // ——这里实际坏的是 config.local.json，点名文件 + 修复动作
                     //（与 Config.load 的本地文件包裹文案对齐）。
                     do {
@@ -476,7 +490,7 @@ extension Wxkeep {
                         + " 改回「开」——本层是 best-effort。真正可靠的更新防护随 `wxkeep patch` 附带；"
                         + "若微信之后自动升级，重跑 `wxkeep doctor`。")
                 } else {
-                    // 124 轮体检 P3：sudo+ssh 语境该路径必失败（偏好域归控制台
+                    // 123 轮体检 P3：sudo+ssh 语境该路径必失败（偏好域归控制台
                     // 用户）——privacy-guard 同款诚实文案，不给死循环重试建议。
                     if geteuid() == 0 && UpdateGuard.consoleUserDelegation() == nil {
                         print("✗ 未生效：sudo 语境下无法定位控制台用户（ssh 无 GUI 会话/登录窗口态）——"
@@ -731,7 +745,7 @@ extension Wxkeep {
                 if clear {
                     if text != nil || rewriteSelf != nil || keep != nil {
                         // --clear 与其它写动作互斥：早退分支会静默吞掉开关，
-                        // 用户以为组合已生效（124 轮体检 P3——如实拒绝）。
+                        // 用户以为组合已生效（123 轮体检 P3——如实拒绝）。
                         throw ValidationError("--clear 不能与 tip 文案/--keep/--rewrite-self 同时使用")
                     }
                     let written = try RuntimeConfig.removeTip()
@@ -929,6 +943,15 @@ extension Wxkeep {
                         if !insLine.isEmpty {
                             print("克隆插入链:        " + insLine.joined(separator: " ")
                                   + "（M4；认证门待 clpub 证据派生）")
+                        }
+                        // 124 轮事件池健康面：cldrop=池满丢弃（消费滞后 ≥256——
+                        // 撤回事件频率下不可达）、clgap=票洞（同槽双占覆盖）。
+                        // 正常态恒 0；非零 = 池行为异常的诚实信号（连同 bootlog
+                        // 一起反馈）。
+                        let poolDrop = markerDigits("cldrop").flatMap({ Int($0) }) ?? 0
+                        let poolGap = markerDigits("clgap").flatMap({ Int($0) }) ?? 0
+                        if poolDrop > 0 || poolGap > 0 {
+                            print("克隆事件池:        cldrop=\(poolDrop) clgap=\(poolGap)（正常态恒 0；非零请连同 boot.log 反馈）")
                         }
                         line += "（M2 原型缝+R6 读链+M4 探针；clmiss=插入未激活的丢弃计数，非故障）"
                         print(line)
@@ -1361,7 +1384,7 @@ extension Wxkeep {
                             } catch {
                                 print("ℹ︎ clone 挂点: \(error)")
                                 print("   克隆实验入口补丁未装（主 hook 不受影响；clsvc/clrow 证据将无源）——"
-                                      + "重跑 wxkeep runtime install 可补装双点")
+                                      + "`wxkeep runtime remove` 后重装可补装双点（已注入态直接重跑 install 会被已装预检拒绝）")
                                 cloneSlotPlan = nil
                                 cloneSlotIdempotent = false
                                 cloneSlotHookOff = 0
@@ -1369,7 +1392,7 @@ extension Wxkeep {
                         }
                         // R15 第四挂点（lookup 直挂 0x32edaec 共用汇点）：
                         // 复用 rd 组的 lookup 偏移+头锚，slotIndex 3。
-                        // 独立失败面同克隆/cm 纪律（124 轮体检 P2：此前无内层
+                        // 独立失败面同克隆/cm 纪律（123 轮体检 P2：此前无内层
                         // catch——lu 计划失败会逃到外层，连带跳过 cm 块规划
                         // 且「按未补丁路径诊断」与主/克隆跳板照写自相矛盾）。
                         if let lHead = row.clone_rd_lookup_head,
@@ -1387,7 +1410,7 @@ extension Wxkeep {
                             } catch {
                                 print("ℹ︎ lu 挂点: \(error)")
                                 print("   lookup 入口补丁未装（主 hook/克隆挂点不受影响；lu_seq/px0 证据将无源）——"
-                                      + "重跑 wxkeep runtime install 可补装")
+                                      + "`wxkeep runtime remove` 后重装可补装（已注入态直接重跑 install 会被已装预检拒绝）")
                                 luSlotPlan = nil
                                 luSlotIdempotent = false
                                 luSlotHookOff = 0
@@ -1411,14 +1434,14 @@ extension Wxkeep {
                             } catch {
                                 print("ℹ︎ cm 挂点: \(error)")
                                 print("   consumer_main 入口补丁未装（主 hook/克隆挂点不受影响；px0/r8pub/r9pub 证据将无源）——"
-                                      + "重跑 wxkeep runtime install 可补装")
+                                      + "`wxkeep runtime remove` 后重装可补装（已注入态直接重跑 install 会被已装预检拒绝）")
                                 cmSlotPlan = nil
                                 cmSlotIdempotent = false
                                 cmSlotHookOff = 0
                             }
                         }
                     } else {
-                        // 124 轮体检 P1：此前该提示落在 if-let 块内——有行构建
+                        // 123 轮体检 P1：此前该提示落在 if-let 块内——有行构建
                         // 每次 install 都误报「无 arm64 hooks 行」，无行构建反而
                         // 静默。移到 else 分支恢复本义。
                         print("ℹ︎ entry-slot: 当前构建无 arm64 hooks 行——入口补丁跳过")
@@ -1602,7 +1625,7 @@ extension Wxkeep {
                     print("         手编 runtime.json 需同时改双份且必须是 plist 格式——命令免踩这些坑）")
                 } catch {
                     print("  ⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")
-                    // 124 轮体检 P1：内置表仅 270099 x64 一行——对其它构建
+                    // 123 轮体检 P1：内置表仅 270099 x64 一行——对其它构建
                     // 「当前构建仍可用」是假话（hook 永不武装）。按行在场与否
                     // 如实分报。
                     if RuntimeConfig.knownHooks.contains(where: { $0.build == build }) {
@@ -1684,91 +1707,68 @@ extension Wxkeep {
                     let dylibURL = WeChatApp.binaryURL(app: options.app, relative: "Contents/Resources/wechat.dylib")
                     if let row = RuntimeConfig.knownHooks.first(where: {
                         $0.build == build && $0.arch == "arm64" }) {
-                        if let hookOff = Wxkeep.strictHexVA(row.hook_off),
-                           EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil {
-                            guard let expected = Data(hex: String(row.expected.prefix(24))), expected.count >= 12 else {
-                                throw ValidationError("hooks 行 expected 字节不足（build \(row.build)）")
+                        // 124 轮体检 P2 重构：四槽**独立探测、同帧合并还原**。
+                        // 旧结构把 clone/lu/cm 副槽还原嵌套在主 hook 检测门内
+                        // ——hooks 行偏移跨工具版本漂移（降级/换锚）后主门不进
+                        // = 副槽跳板漏还原，而 LC 已删 + SLOT 恒零 = 撤回解析
+                        // 即崩的必崩态。独立探测后任何在位槽位都被还原。
+                        let image = try MachImage(file: dylibURL, arch: .arm64)
+                        var pending: [(off: UInt64, exp: Data, label: String)] = []
+                        func siteExpected(_ hex: String, _ label: String) -> Data? {
+                            guard let d = Data(hex: String(hex.prefix(24))), d.count >= 12 else {
+                                print("⚠️ entry-slot: hooks 行 \(label) 字节不足（build \(row.build)）——该槽跳过还原")
+                                return nil
                             }
+                            return d.prefix(12)
+                        }
+                        if let hookOff = Wxkeep.strictHexVA(row.hook_off) {
+                            if EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil,
+                               let exp = siteExpected(row.expected, "expected") {
+                                pending.append((hookOff, exp, "入口"))
+                            } else if EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) == nil {
+                                print("ℹ︎ entry-slot: 主入口未检出补丁态（偏移漂移/非本工具装）——副槽仍独立探测")
+                            }
+                        } else {
+                            print("⚠️ entry-slot: hooks 行 hook_off 非法（build \(row.build)）——无法核对主入口，副槽仍独立探测")
+                        }
+                        if let cOffHex = row.clone_hook_off, let cOff = Wxkeep.strictHexVA(cOffHex),
+                           EntrySlot.detectPatched(file: dylibURL, hookOff: cOff) != nil,
+                           let exp = siteExpected(row.clone_expected ?? "", "clone_expected") {
+                            pending.append((cOff, exp, "克隆写点"))
+                        }
+                        if let lOffHex = row.clone_rd_lookup, let lOff = Wxkeep.strictHexVA(lOffHex),
+                           EntrySlot.detectPatched(file: dylibURL, hookOff: lOff) != nil,
+                           let exp = siteExpected(row.clone_rd_lookup_head ?? "", "clone_rd_lookup_head") {
+                            pending.append((lOff, exp, "lookup"))
+                        }
+                        if let mOffHex = row.clone_cm_hook_off, let mOff = Wxkeep.strictHexVA(mOffHex),
+                           EntrySlot.detectPatched(file: dylibURL, hookOff: mOff) != nil,
+                           let exp = siteExpected(row.clone_cm_expected ?? "", "clone_cm_expected") {
+                            pending.append((mOff, exp, "consumer_main"))
+                        }
+                        if pending.isEmpty {
+                            print("ℹ︎ entry-slot: 入口补丁不在位（无需还原）")
+                        } else {
                             // 已补丁态不能用 planArm64（pristine 门会拒）——直接按
-                            // 切片偏移还原 expected 前 12B
+                            // 切片偏移还原 expected 前 12B。全部槽位**一次**原子
+                            // 落盘（108 轮合并写纪律：两次 SafeWrite 的中间窗
+                            // 「部分还原+未重签」= 95 轮 CS 击杀态）。
                             let dylibBackup = try Backup.make(binary: dylibURL)
-                            let image = try MachImage(file: dylibURL, arch: .arm64)
-                            guard let off = image.sliceRelativeOffset(va: hookOff) else {
-                                throw ValidationError("hook_off 无法换算为文件偏移")
-                            }
-                            let fatOff = image.sliceOffset + off
                             var data = try Data(contentsOf: dylibURL)
-                            data.replaceSubrange(fatOff..<fatOff+12, with: expected.prefix(12))
-                            // V3-M2 克隆第二挂点同步还原（108 轮修：两站合并为
-                            // **一次**原子写——旧实现两次 SafeWrite 的中间窗
-                            // 「主点已还原+克隆跳板在位+未重签」是 95 轮 CS 击杀
-                            // 态；漏还原 = 写点跳板残留 + SLOT 恒零 = 撤回即崩）
-                            var cloneRestoredVA: UInt64?
-                            if let cOffHex = row.clone_hook_off,
-                               let cOff = Wxkeep.strictHexVA(cOffHex),
-                               let cExp = row.clone_expected,
-                               EntrySlot.detectPatched(file: dylibURL, hookOff: cOff) != nil {
-                                guard let cExpected = Data(hex: String(cExp.prefix(24))), cExpected.count >= 12 else {
-                                    throw ValidationError("hooks 行 clone_expected 字节不足（build \(row.build)）")
+                            for site in pending {
+                                guard let rel = image.sliceRelativeOffset(va: site.off) else {
+                                    throw ValidationError("\(site.label) hook_off 0x\(String(site.off, radix: 16)) 无法换算为文件偏移")
                                 }
-                                guard let cOffRel = image.sliceRelativeOffset(va: cOff) else {
-                                    throw ValidationError("clone_hook_off 无法换算为文件偏移")
-                                }
-                                let cFatOff = image.sliceOffset + cOffRel
-                                data.replaceSubrange(cFatOff..<cFatOff+12, with: cExpected.prefix(12))
-                                cloneRestoredVA = cOff
-                            }
-                            // R14 cm 第三挂点同步还原（同帧原子——漏还原 =
-                            // cm 跳板残留 + SLOT 恒零 = 下一条消息即崩）
-                            // R15 lookup 第四挂点同步还原（同帧原子）
-                            var luRestoredVA: UInt64?
-                            if let lOffHex = row.clone_rd_lookup,
-                               let lOff = Wxkeep.strictHexVA(lOffHex),
-                               let lHead = row.clone_rd_lookup_head,
-                               EntrySlot.detectPatched(file: dylibURL, hookOff: lOff) != nil {
-                                guard let lExpected = Data(hex: String(lHead.prefix(24))), lExpected.count >= 12 else {
-                                    throw ValidationError("hooks 行 clone_rd_lookup_head 字节不足（build \(row.build)）")
-                                }
-                                guard let lOffRel = image.sliceRelativeOffset(va: lOff) else {
-                                    throw ValidationError("clone_rd_lookup 无法换算为文件偏移")
-                                }
-                                let lFatOff = image.sliceOffset + lOffRel
-                                data.replaceSubrange(lFatOff..<lFatOff+12, with: lExpected.prefix(12))
-                                luRestoredVA = lOff
-                            }
-                            var cmRestoredVA: UInt64?
-                            if let mOffHex = row.clone_cm_hook_off,
-                               let mOff = Wxkeep.strictHexVA(mOffHex),
-                               let mExp = row.clone_cm_expected,
-                               EntrySlot.detectPatched(file: dylibURL, hookOff: mOff) != nil {
-                                guard let mExpected = Data(hex: String(mExp.prefix(24))), mExpected.count >= 12 else {
-                                    throw ValidationError("hooks 行 clone_cm_expected 字节不足（build \(row.build)）")
-                                }
-                                guard let mOffRel = image.sliceRelativeOffset(va: mOff) else {
-                                    throw ValidationError("clone_cm_hook_off 无法换算为文件偏移")
-                                }
-                                let mFatOff = image.sliceOffset + mOffRel
-                                data.replaceSubrange(mFatOff..<mFatOff+12, with: mExpected.prefix(12))
-                                cmRestoredVA = mOff
+                                let fatOff = image.sliceOffset + rel
+                                data.replaceSubrange(fatOff..<fatOff+12, with: site.exp)
                             }
                             try SafeWrite.overwrite(data, to: dylibURL)
                             entryRestored = true
                             resignTargets.append("Contents/Resources/wechat.dylib")
-                            print(String(format: "entry-slot: 已还原入口 0x%llx（期望字节写回，备份 %s）",
-                                         hookOff, dylibBackup.lastPathComponent))
-                            if let cOff = cloneRestoredVA {
-                                print(String(format: "entry-slot: 已还原克隆写点 0x%llx（期望字节写回，同帧原子落盘）", cOff))
+                            for site in pending {
+                                print(String(format: "entry-slot: 已还原%@ 0x%llx（期望字节写回，备份 %@）",
+                                             site.label, site.off, dylibBackup.lastPathComponent))
                             }
-                            if let mOff = cmRestoredVA {
-                                print(String(format: "entry-slot: 已还原 consumer_main 0x%llx（期望字节写回，同帧原子落盘）", mOff))
-                            }
-                            if let lOff = luRestoredVA {
-                                print(String(format: "entry-slot: 已还原 lookup 0x%llx（期望字节写回，同帧原子落盘）", lOff))
-                            }
-                        } else if Wxkeep.strictHexVA(row.hook_off) != nil {
-                            print("ℹ︎ entry-slot: 入口补丁不在位（无需还原）")
-                        } else {
-                            print("⚠️ entry-slot: hooks 行 hook_off 非法（build \(row.build)）——无法核对入口，跳过还原")
                         }
                     }
                 } catch {
@@ -1813,7 +1813,7 @@ extension Wxkeep {
                               + "——请手工删除 \(dylib.path)")
                     }
                 }
-                // 124 轮体检 P2-2：journal 残留清理流（install 死在 dylib 拷贝前）
+                // 123 轮体检 P2-2：journal 残留清理流（install 死在 dylib 拷贝前）
                 // 本无 dylib 可删——此前 removeItem 对不存在文件抛错被误报成
                 // 「删除失败，请手工删除」，用户被指去删一个不存在的文件。
                 // marker 一并清掉：它声称「runtime 已加载」——组件移除后留着
@@ -1821,7 +1821,7 @@ extension Wxkeep {
                 // status 与后续 install 前的观察都会被它污染）。全候选位清
                 // （含沙盒回落位，77 续对偶修复）。
                 RuntimeConfig.removeAllMarkers()
-                // 124 轮体检 P2-1：journal 残留单独成立的孤儿路径（主程序一字
+                // 123 轮体检 P2-1：journal 残留单独成立的孤儿路径（主程序一字
                 // 节未动）此前无条件重签——原始 Apple 签名的微信被改成 ad-hoc。
                 // 洗白链真正要兜的是「上次事务字节已动而死在重签前」——那态
                 // 的签名必已失效，先 `codesign --verify --strict`（doctor 同源

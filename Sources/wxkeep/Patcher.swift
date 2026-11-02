@@ -204,7 +204,10 @@ struct Patcher {
             // 装载期校验覆盖 catalog/signatures 两条主路，但 restore 的反转条目、
             // 测试合成条目与未来数据源仍可能带坏 hex 到这里——强解包 trap 会
             // 把数据错误变成进程崩溃，换成带上下文的干净拒绝。
-            guard let asm = Data(hex: entry.asm) else {
+            // 空 asm 同拒（124 轮体检 P2 兜底层）：装载门覆盖 catalog/signatures
+            // 主路，但 restore 反演/测试合成条目直落此处——空 Data 过 hex 门后
+            // prefix(0)==空 恒真 = 永远假 alreadyPatched。
+            guard let asm = Data(hex: entry.asm), !asm.isEmpty else {
                 throw PatchError.malformedAsm(index: index, identifier: identifier, asm: entry.asm)
             }
             let expected = entry.expected?.values.compactMap { ExpectedPattern(spec: $0) }
@@ -289,8 +292,12 @@ struct Patcher {
                 ($0.loadUnaligned(fromByteOffset: 0, as: UInt32.self),
                  $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self))
             }
-            if cmd == 0x19 { // LC_SEGMENT_64
-                try handle.seek(toOffset: cursor + 24)
+            if cmd == 0x19, cmdsize >= 72 { // LC_SEGMENT_64（cmdsize 门：段命令头 72B，短命令读段字段=读进下一条命令）
+                // 溢出防 trap（124 轮体检 P3，MachImage 读路径同款）：损坏
+                // cmdsize 近 2^64 时 cursor 推进加法溢出 = 进程崩溃。
+                let seekOff = cursor.addingReportingOverflow(24)
+                guard !seekOff.overflow else { throw PatchError.not64BitMachO }
+                try handle.seek(toOffset: seekOff.partialValue)
                 guard let seg = try handle.read(upToCount: 40), seg.count == 40 else {
                     throw PatchError.not64BitMachO
                 }
@@ -304,10 +311,18 @@ struct Patcher {
                 // 等零填充尾（无文件背书），把 VA 映到那里 = 写偏移飞进下一
                 // 段或文件尾外的无关字节。
                 if va >= fields.0 && va - fields.0 < fields.3 {   // 111 轮修：减法式（加法式溢出 trap）
-                    return sliceOffset + fields.2 + (va - fields.0)
+                    // 病态 fileoff 近 2^64 时最终加法仍可溢出 trap——checked
+                    // 加法后按 vaNotFound 干净拒绝（124 轮体检 P3）。
+                    let s1 = sliceOffset.addingReportingOverflow(fields.2)
+                    if s1.overflow { throw PatchError.vaNotFound(va: va, arch: arch.rawValue) }
+                    let s2 = s1.partialValue.addingReportingOverflow(va - fields.0)
+                    if s2.overflow { throw PatchError.vaNotFound(va: va, arch: arch.rawValue) }
+                    return s2.partialValue
                 }
             }
-            cursor += UInt64(cmdsize)
+            let next = cursor.addingReportingOverflow(UInt64(cmdsize))
+            guard !next.overflow, cmdsize >= 8 else { throw PatchError.not64BitMachO }
+            cursor = next.partialValue
         }
         throw PatchError.vaNotFound(va: va, arch: arch.rawValue)
     }

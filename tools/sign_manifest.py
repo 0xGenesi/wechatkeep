@@ -47,7 +47,12 @@ def main():
         'files': files,
     }
     # 规范字节串：sorted keys、无缩进、紧凑分隔符——与 Swift 侧 canonicalData() 一致
-    canonical = json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode()
+    # ensure_ascii=False（124 轮体检 P3）：Swift 侧 canonicalData 用
+    # JSONSerialization 原生 UTF-8 重序列化——默认 True 的 \uXXXX 转义在
+    # 非 ASCII 字段（未来中文备注/文件名）上与 Swift 规范形分叉 = 签名恒
+    # invalid（响亮失败）。ASCII 数据两者等价，现役清单零影响。
+    canonical = json.dumps(manifest, sort_keys=True, separators=(',', ':'),
+                           ensure_ascii=False).encode()
 
     def sign_pynacl(pem_path: str, message: bytes) -> bytes:
         """PKCS8 Ed25519 PEM → PyNaCl 签名（macOS 自带 LibreSSL 不支持 pkeyutl -rawin）。"""
