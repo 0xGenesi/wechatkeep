@@ -30,7 +30,7 @@
 | B2 | 位点撕裂指令边界 | asm 长度/编码事故 | L9 严格完整解码 | 同上 | L9 负控② | P0 |
 | B3 | 位点外写入（引擎/外改） | 引擎缺陷或外部工具 | L9 `--patched` 局部性 + audit 三件套复算 | diff ⊄ 位点集 | L9 负控③；audit_patch 演练 | P0 |
 | B4 | 审计账目与盘不符（stale） | 外改/收口前死亡 | doctor `audit_state` 对账 | doctor verdict + audit 行 | `doctorReconciliationFreshStale*`；M24 | P2 |
-| B5 | arm64 补丁执行级效果未观测 | — | **登记为未证明面**（V5-DEPTH §5；解码级证明在位） | — | ROADMAP 遗留 | P2 |
+| B5 | arm64 补丁执行级效果未观测 | — | **执行级遍历证明**（128 轮：PatchTraversalTests——真 Patcher 写入 + MAP_JIT 执行 + 毒化后继零遍历；x64 对称走 Rosetta 腿） | 本测三面断言 | 128 轮关账（124① runtime.m 缝另立） | P2 |
 | B6 | 账本覆盖面 < 盘上差异面（--only 子集/部分重跑后） | `--only update` 后全量重打：alreadyPatched 位点不入账 → 账本只含新写 | **账本合并**（126 轮：mergedRecord 键级删/增——undo 出账、新写 upsert、app/build 漂移弃旧账；CLI 成功/失败双路径） | PatchAuditTests 合并三测 + restoredSites 断言 | 126 轮关闭 | P2 |
 | B7 | runtime 注入写入面污染离线局部性复算 | 装了 runtime hooks 的机器 | **登记边界**（audit 合同=未装 runtime 或注入前 diff；注入面由 doctor LC/marker 判据覆盖） | audit_patch 输出注记 | FMEA 本行 | P2 |
 

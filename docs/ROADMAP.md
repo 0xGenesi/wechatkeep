@@ -470,6 +470,26 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 128·执行级遍历证明轮（V5-DEPTH 最后登记项关闭；2026-11-03；312 测全绿 +2）
+
+1. **[PatchTraversalTests]**：branch-flip 补丁类的执行级遍历证明——合成
+   控制流副本（cbz w0,+0x20 / je +0x20 结构镜像，SKIP/撤回双路径 + marker
+   返回值）× **真 Patcher.patch**（expected 门 → asm 写入，非手工改字节）
+   × MAP_JIT 执行（arm64 pthread_jit_write_protect_np 惯例）：
+   ①pristine 可达性：谓词双向（w0=0→SKIP、w0=1→撤回 marker）——控制流
+   **确实会**进入撤回路径先证；
+   ②patched 无条件生效：任意谓词值均 SKIP——L9 解码级「目标恒等 ⇒ 语义
+   等价」的运行观测面关闭；
+   ③**毒化后继零遍历**：撤回路径整段填 UDF #0（arm64）/int3（x64）——
+   毒药落入即崩，patched 照样干净返回 SKIP ⇒「翻转后控制流零路径落入
+   后继」正面证出（毒药区/SKIP 区/位点字节三段断言自证毒化不空转）。
+   x64 对称镜像（je→jmp 同位移）走 CI Rosetta 腿（mprotect RX）。
+2. **[诚实边界]**：pristine+毒药+谓词置「走撤回」→ SIGILL 的对照面不测
+   （进程内致命信号不可隔离，需子进程骨架——登记遗留）；124①（runtime.m
+   三武装函数可注入 base 缝）是独立登记项，本轮未动。
+3. **[验证链]**：312 测全绿（+2）；26 锚点 canonical 门绿（本轮纯测试面，
+   无防线变更无新变异行——SOP 同义）。
+
 ## 127·余留项实施轮：L7 负控三代收口（遗留②）+ 合成 L2/L6 CI oracle（遗留③）+ audit --app bundle 级复算（遗留④）（2026-11-03；310 测全绿 +2）
 
 1. **[遗留②：L7 负控三代]**：函数体在 77 续㊰ 已迁树级但 docstring 仍自称
