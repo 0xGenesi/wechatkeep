@@ -196,3 +196,72 @@ struct PatchTraversalTests {
         #endif
     }
 }
+
+// MARK: - 130 轮：SIGILL 对照面（128 登记诚实边界的收口——子进程骨架）
+
+extension PatchTraversalTests {
+    /// 毒药真实性的最硬证明（进程内不可隔离致命信号 → 子进程骨架）：
+    /// helper 自建毒化页（pristine=cbz / patched=b，撤回路径全 UDF，SKIP
+    /// 返回 marker），以 input=1（pristine 谓词置「走撤回」）执行：
+    /// - pristine+毒 → **进程死于 SIGILL**（控制流确实落入毒药——毒药非
+    ///   摆设、路径确实会被进入，两事一次证出）；
+    /// - patched+毒 → 干净退出（128 进程内三面证明的子进程复现）。
+    /// 对照闭环 = 「翻转后零遍历」从正面证明升级为正反双向证明。
+    @Test func poisonedPristineDiesPatchedSurvivesSubprocessContrast() throws {
+        #if arch(arm64)
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/clang") else {
+            Issue.record("clang unavailable — SIGILL 对照面跳过")
+            return
+        }
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-sigill-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+
+        let src = work.appendingPathComponent("sigill_helper.c")
+        try Data("""
+        #include <sys/mman.h>
+        #include <pthread.h>
+        #include <string.h>
+        extern void sys_icache_invalidate(void *start, unsigned long len);
+        int main(int argc, char **argv) {
+            int patched = argc > 1 && argv[1][0] == 'p';
+            void *page = mmap(NULL, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                              MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0);
+            if (page == MAP_FAILED) return 10;
+            pthread_jit_write_protect_np(0);
+            unsigned int *w = (unsigned int *)page;
+            w[0] = patched ? 0x14000008u : 0x34000100u;  /* b +0x20 / cbz w0,+0x20 */
+            memset(&w[1], 0, 0x1C);                      /* 撤回路径全 UDF #0 */
+            w[8] = 0x52800040u;                          /* SKIP: mov w0,#2 */
+            w[9] = 0xD65F03C0u;                          /* ret */
+            sys_icache_invalidate(page, 64);
+            pthread_jit_write_protect_np(1);
+            int (*fn)(int) = (int (*)(int))page;
+            int r = fn(1);                               /* pristine 谓词置走撤回 */
+            return (r == 2) ? 0 : 20;                    /* patched → 0 */
+        }
+        """.utf8) .write(to: src)
+        let result = Shell.run("/usr/bin/clang", ["-arch", "arm64", src.path, "-o", work.appendingPathComponent("helper").path])
+        #expect(result.status == 0, "helper 编译: \(result.stderr)")
+
+        func run(_ arg: String) throws -> (status: Int32, reason: Process.TerminationReason) {
+            let p = Process()
+            p.executableURL = work.appendingPathComponent("helper")
+            p.arguments = [arg]
+            try p.run()
+            p.waitUntilExit()
+            return (p.terminationStatus, p.terminationReason)
+        }
+
+        // pristine + 毒 + 走撤回输入 → SIGILL（ Darwin 信号 4）
+        let pristine = try run("c")
+        #expect(pristine.reason == .uncaughtSignal && pristine.status == Int32(SIGILL),
+                "pristine+毒药+走撤回输入必须死于 SIGILL（got status=\(pristine.status) reason=\(pristine.reason)）")
+        // patched + 毒 + 同输入 → 干净退出
+        let patched = try run("p")
+        #expect(patched.reason == .exit && patched.status == 0,
+                "patched+毒药同输入必须干净返回 SKIP（got status=\(patched.status) reason=\(patched.reason)）")
+        #endif
+    }
+}

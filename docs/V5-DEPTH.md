@@ -79,9 +79,10 @@ spctl/codesign(1)（系统判官）；openssl Ed25519（三方互证）；Python
   - ~~arm64 补丁的**执行级**遍历证明~~（128 轮收口：PatchTraversalTests
     ——合成控制流副本 × 真 Patcher.patch 写入 × MAP_JIT 执行，三面证明：
     pristine 可达性 / patched 无条件生效 / 毒化后继零遍历（UDF/int3 毒药
-    落入即崩，patched 干净返回）；x64 对称镜像走 CI Rosetta 腿。诚实边界：
-    pristine+毒药对照面需子进程骨架，不测——已登记 ROADMAP 128。124①
-    （runtime.m 三武装函数可注入 base 缝）是另一独立登记项，未动。）
+    落入即崩，patched 干净返回）；x64 对称镜像走 CI Rosetta 腿。SIGILL 对照面
+    已于 130 轮收口（子进程骨架：pristine+毒+走撤回输入 → 进程死于
+    SIGILL，patched 同输入干净返回——正反双向闭环）。124① 已于 129 轮
+    关账（runtime.m 可注入 driver 缝）。
   - ~~L7 oracle 的变异负控「空洞绿」~~（127 轮收口：A/B 双 dump 三代
     设计，跳过洞反转+灵敏度 floor，见 ROADMAP 127）。
   - ~~L2/L6 全链 oracle 无法在 CI 跑~~（127 轮部分收口：合成 L2/L6 在 CI

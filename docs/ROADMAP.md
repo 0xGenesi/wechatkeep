@@ -470,6 +470,22 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 130·SIGILL 对照面 + 实机冒烟轮（2026-11-03；317 测全绿 +1）
+
+1. **[SIGILL 对照面收口（128 登记诚实边界）]**：子进程骨架——测试内
+   clang 编译 helper（ResignerTests 运行时编译惯例），helper 自建毒化页
+   （pristine=cbz / patched=b，撤回路径全 UDF，SKIP 返 marker），以
+   input=1（谓词置「走撤回」）执行：**pristine+毒 → 进程死于 SIGILL**
+   （毒药非摆设 + 路径确实被进入，两事一次证出）；patched+毒 → 干净
+   返回 SKIP。128 的三面正面证明升级为正反双向闭环。
+2. **[实机只读冒烟（收尾惯例）]**：release 构建（23s）+ `--version`
+   （0.2.16）+ doctor --json 全字段真数据通过——`.ips` 扫描器在真实
+   DiagnosticReports（7 天 34 份 WeChat 系报告，含 Helper 形态）上跑通，
+   CODESIGNING 分类 0；spctl 真输出 → rejected+预期态注解行；audit/
+   journal 三态语义正确（无账/无残留）；本机 270135 现态 pristine 如实
+   上报（工具报真值，即冒烟目的）。
+3. **[验证链]**：317 测全绿（+1 SIGILL 对照）；26 锚点门绿。
+
 ## 129·三武装 thunk 执行级覆盖轮（124① 原文关账；2026-11-03；316 测全绿 +4）
 
 1. **[可注入 driver 缝]**：runtime.m 内 naked driver（从全局装 x0..x8/x19/
