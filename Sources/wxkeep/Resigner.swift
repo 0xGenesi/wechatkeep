@@ -22,6 +22,14 @@ import Foundation
 /// prescribed. macOS 15+ additionally needs --force-library-entitlements or
 /// codesign silently drops entitlements on nested libraries (added in sign()).
 enum Resigner {
+#if DEBUG
+    /// resign 入场观测缝（126 轮遗留⑦）：恢复重签「是否被尝试」在失败路径
+    /// 上没有文件系统痕迹（主可执行缺失时快照步即抛、不留痕），M08 的语义
+    /// 面（undo 臂中途写失败 → 外层保守重签）只有这里可观测。DEBUG-only；
+    /// 全局静态 + 测试串行，用例 defer 复位。
+    static nonisolated(unsafe) var debugAttemptHook: (() -> Void)?
+#endif
+
     enum ResignError: Error, CustomStringConvertible {
         case snapshotFailed(String)
         case signFailed(path: String, stderr: String)
@@ -165,6 +173,9 @@ enum Resigner {
     /// Full pipeline. `patchedBinaries` are relative paths inside the bundle
     /// (e.g. "Contents/Resources/wechat.dylib") that were byte-modified.
     static func resign(app: URL, patchedBinaries: [String]) throws {
+#if DEBUG
+        debugAttemptHook?()
+#endif
         let snapshot = try capture(app: app)
         print(String(format: "[resign] %d code objects, %d with entitlements",
                      snapshot.entries.count, snapshot.entries.filter { $0.plist != nil }.count))

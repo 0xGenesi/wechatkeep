@@ -470,6 +470,45 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 126·遗留项实施轮：写故障注入缝（M08 十四轮首杀）+ 账本合并（B6）+ 处方分层（C6）+ 全量变异重基线 25/26（2026-11-03；308 测全绿 +5）
+
+1. **[遗留⑦：写故障注入缝]**：`Patcher.debugWriteFailureAt`（DEBUG-only；
+   **URL 限定**——swift-testing 并行跑套件，进程全局缝首版当场误伤 8 个并发
+   用例，改 URL 限定后干净）+ `Resigner.debugAttemptHook`（恢复重签「是否被
+   尝试」在失败路径无文件系统痕迹，观测缝是唯一诚实观测点）。
+   **M08 十四轮悬案首杀**：undoMidWriteFailureTriggersRecoveryResign 断言
+   「undo 臂中途写失败 → 外层必须尝试恢复重签」——本行是外层 summary 在该
+   失败路径的唯一标记源（restoreTargets 内层保守记账只落其局部 summary，
+   throw 即弃；112 轮前「不可观测」的暴露登记撤销）。fail-at(k) 语义 =
+   前 k 条已落盘，注入即自证（盘面未动断言）。
+2. **[遗留⑤（B6）：账本合并]**：`PatchAudit.mergedRecord`——键级
+   (binary,arch,va) 合并：undo 还原出账（bytes==pristine 留键=doctor 假
+   stale）/ 新写 upsert（先删后增：归一化共享位点还原后重写安全）/
+   app 或 build 漂移弃旧账（微信自更新后旧键字节已消失=留键假 stale）。
+   CLI 成功+失败双路径接合并；坏账（在场不可解码）不覆盖——检测能力优先。
+   `--only update`→全量重打不再丢 update 位点账（覆盖式曾把账本面挤小于
+   盘上差异面 = 离线复算诬告合法机器）。engine 侧 `restoredSites` 贯通
+   （restoreTargets siteSink ← Patcher auditSink 逐条交付）。
+3. **[遗留⑥（C6）：处方分层]**：doctor audit-stale 处方在构建含
+   quarantined（无 expected）条目时加注「restore 将按设计拒绝——改用官方
+   dmg 重装或备份恢复」。restore 拒绝盲写的安全合同不变（这是特性不是
+   缺陷），改的是处方不再给注定失败的 restore 死路。
+4. **[遗留⑦附带：全量变异重基线]**：M01-M26 全量重跑（125 续只验了
+   刷新/新行；M01-M07/M09-M19 自 123 轮未复验）。首跑 24/26——两存活
+   处置：**M10**（备份截断门）I/O 后校验无直测面 → 判定抽 verifySizes
+   纯函数（ENOSPC 形截断不可在测试进程内注入）+ 等大/截断 1B/缺失三态
+   直测 → 换锚后 KILLED；**M17**（.atomic 降级）登记可接受暴露——失效
+   形态是「写中途进程被杀」（进程级故障，无 FS 注入缝），纵深兜底在
+   每个消费端（journal 不可解码→interrupted 判读/备份截断→M10 门/
+   config 撕裂→装载干净拒/dylib 撕裂→expected 门拒）：.atomic 是减害层，
+   检测才是安全合同。**终局 25/26 = 96%**（M17 计入分母）。
+5. **[验证链]**：308 测全绿（+5：M08 杀例 / 账本合并三测 / M10 三态直测；
+   restoredSites 断言并入切换往返测）；M08/M10 单独复验 KILLED；26 锚点
+   canonical 门绿；杀灭率 25/26=96% ≥90% 验收线。
+6. **[遗留更新]**：125 续遗留⑤⑥⑦关闭；余 ①arm64 执行级遍历证明
+   ②L7 负控空洞绿 ③CI 合成 L2/L6 fixture ④--patched bundle 级扩展
+   （+⑦注入缝 rider 已履行）。
+
 ## 125 续·V5 深度轮：L9 指令级证明 + per-site 审计 + 系统判官 + 仪器护栏 + 双评审收口（2026-11-03：需求「更深而非更大」第二代答卷；303 测全绿 +11）
 
 > 需求重写全文见 [V5-DEPTH.md](V5-DEPTH.md)（D8-D13 专家实践 / R7-R12

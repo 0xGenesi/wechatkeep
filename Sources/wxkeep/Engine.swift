@@ -38,11 +38,14 @@ enum Engine {
         var wroteAnything = false
         /// Bundle-relative paths of binaries whose bytes changed (for resign).
         var patchedBinaries: [String] = []
-        /// 本事务实际写入位点的审计账目（125 轮 V5 深度轮）——CLI 成功收口
-        /// 时落 wxkeep.audit.json（PatchAudit）。变体切换的还原臂不记账
-        /// （restoreTargets 不接 auditSink）：审计语义 =「与 pristine 的最终
-        /// 差异」，还原臂的位点回到 pristine 不构成差异。
+        /// 本事务实际写入位点的审计账目（125 轮 V5 深度轮）——CLI 收口时并入
+        /// wxkeep.audit.json（PatchAudit.mergedRecord）。alreadyPatched 位点
+        /// 不入账（无写入），故 `--only`/部分重跑必须走合并语义（126 轮 B6：
+        /// 覆盖式写账曾把早前已打位点挤出账本 = 离线复算假红）。
         var auditSites: [PatchAudit.Site] = []
+        /// 本事务**还原**（撤回到 pristine）的位点——变体切换 undo 臂与
+        /// restore 路径产生；账本合并时按 (binary,arch,va) 键删除（126 轮）。
+        var restoredSites: [PatchAudit.Site] = []
     }
 
     /// 部分写入后失败的标记错误（123 轮体检 P1 修）：本 run 已写过字节
@@ -292,13 +295,24 @@ enum Engine {
                !other.entries.isEmpty, !dryRun {
                 var undo = RunSummary()
                 do {
-                    undo = try restoreTargets(app: app, targets: [other], dryRun: false) {
-                        relative in
-                        summary.wroteAnything = true
-                        if !summary.patchedBinaries.contains(relative) {
-                            summary.patchedBinaries.append(relative)
-                        }
-                    }
+                    undo = try restoreTargets(
+                        app: app, targets: [other], dryRun: false,
+                        partialWrite: { relative in
+                            summary.wroteAnything = true
+                            if !summary.patchedBinaries.contains(relative) {
+                                summary.patchedBinaries.append(relative)
+                            }
+                        },
+                        // 还原位点出账（126 轮 B6）：undo 撤回的键在账本合并时删除
+                        //（此时 bytes==pristine，留键 = doctor 对账假 stale）。
+                        siteSink: { site, relative in
+                            summary.restoredSites.append(PatchAudit.Site(
+                                binary: relative, arch: site.arch.rawValue,
+                                identifier: site.identifier,
+                                va: String(site.va, radix: 16),
+                                before: site.before.hexUppercase,
+                                after: site.after.hexUppercase, source: site.source))
+                        })
                 } catch let e as EngineError {
                     if case .restoreUnavailable = e {
                         // 另一变体缺 expected（如无溯源条目）——跳过还原，不阻塞
@@ -434,9 +448,12 @@ enum Engine {
     /// 前回调（relative 参数）——变体切换等「结果弃置」的调用方靠它保守
     /// 记账，外层恢复重签防线才可达（111 轮修：此前 undo=try 抛错时其
     /// 内部 summary 整体丢失，wroteAnything 恒假）。
+    /// `siteSink`（126 轮 B6）：逐还原位点回调（写入成功一条交付一条，
+    /// Patcher auditSink 同款时机）——undo 臂据此从审计账本出键。
     @discardableResult
     static func restoreTargets(app: URL, targets: [Config.Target], dryRun: Bool,
-                               partialWrite: ((String) -> Void)? = nil) throws -> RunSummary {
+                               partialWrite: ((String) -> Void)? = nil,
+                               siteSink: ((Patcher.SiteAudit, _ relative: String) -> Void)? = nil) throws -> RunSummary {
         var summary = RunSummary()
         // Preflight: every target must be restorable.
         for target in targets {
@@ -493,7 +510,9 @@ enum Engine {
                 let outcomes: [Patcher.EntryOutcome]
                 do {
                     outcomes = try Patcher.patch(
-                        binary: binary, entries: inverted, identifier: target.identifier, dryRun: dryRun)
+                        binary: binary, entries: inverted, identifier: target.identifier,
+                        dryRun: dryRun,
+                        auditSink: { site in siteSink?(site, relative) })
                 } catch {
                     // 与 patch 路径同款的记账滞后洞（110 轮修）：restore 反演条目
                     // 的 Phase-2 中途抛错时字节已部分还原——记账必须先于重抛。

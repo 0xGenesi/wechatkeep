@@ -137,15 +137,23 @@ extension Wxkeep {
                 }
             } catch {
                 Wxkeep.printPermissionHintIfTCC(error)
-                // 失败路径的账目保全（125 续双评审 P1 修）：Phase-2 逐条交付
-                // 后，「已写成的位点」账目在 summary 里——字节在盘 = 账目必须
-                // 在场（journal 记中断事实，audit 记已写位点，两本账各司其职；
-                // 账本层失败不拆错误路径的既有语义）。
-                if !dryRun, let delivered = summaryOrNil?.auditSites, !delivered.isEmpty {
-                    try? PatchAudit.write(record: PatchAudit.Record(
-                        v: 1, build: build, variant: variant.rawValue, app: options.app.path,
-                        completedAt: ISO8601DateFormatter().string(from: Date()),
-                        sites: delivered))
+                // 失败路径的账目保全（125 续双评审 P1 修 + 126 轮合并）：
+                // Phase-2 逐条交付后，「已写成的位点」账目在 summary 里——
+                // 字节在盘 = 账目必须在场（journal 记中断事实，audit 记已写
+                // 位点，两本账各司其职）。合并语义与成功路径一致（undo 臂
+                // 已还原的键同样出账）；失败路径不 clear（收口只属于成功的
+                // restore）；坏账不覆盖；账本层失败不拆错误路径语义。
+                if !dryRun, let failed = summaryOrNil {
+                    let pendingAudit = PatchAudit.pending()
+                    if !(pendingAudit.exists && pendingAudit.record == nil) {
+                        let merged = PatchAudit.mergedRecord(
+                            previous: pendingAudit.record, build: build,
+                            variant: variant.rawValue, app: options.app.path,
+                            written: failed.auditSites, restored: failed.restoredSites)
+                        if !merged.sites.isEmpty {
+                            try? PatchAudit.write(record: merged)
+                        }
+                    }
                 }
                 // 写前失败收口（111 轮修，catalog 路径覆盖面）：variant 不可用/
                 // 异变体在位/Patcher Phase-1 全族——引擎从未获得写入机会，
@@ -204,18 +212,26 @@ extension Wxkeep {
                 print("本机架构 \(host)：可运行 `wxkeep verify` 行为级确认补丁效果")
             }
             if !dryRun {
-                // per-site 审计清单（125 轮）：事务成功（含重签确认）后落账。
-                // 幂等重跑（全 alreadyPatched → sites 空）不覆盖既有账目；账本
-                // 层失败不拆已成功的字节事务（try? + 告警，doctor 可见缺失）。
-                if !summary.auditSites.isEmpty {
-                    let record = PatchAudit.Record(
-                        v: 1, build: build, variant: variant.rawValue, app: options.app.path,
-                        completedAt: ISO8601DateFormatter().string(from: Date()),
-                        sites: summary.auditSites)
-                    do {
-                        try PatchAudit.write(record: record)
-                    } catch {
-                        print("  ⚠️ 审计清单写入失败（\(error)）——补丁本身已生效；doctor 将不显示位点对账")
+                // per-site 审计清单落账（125 轮）+ 合并语义（126 轮 B6）：
+                // alreadyPatched 位点不入账 → 部分重跑必须并旧账（键级
+                // 删/增），否则账本面 < 盘上差异面 = 离线复算假红。坏账
+                // （在场不可解码）不覆盖——检测能力优先（doctor 报
+                // unreadable），静默覆盖 = 把检测吞掉。账本层失败不拆已
+                // 成功的字节事务（try? + 告警，doctor 可见缺失）。
+                let pendingAudit = PatchAudit.pending()
+                if !(pendingAudit.exists && pendingAudit.record == nil) {
+                    let merged = PatchAudit.mergedRecord(
+                        previous: pendingAudit.record, build: build,
+                        variant: variant.rawValue, app: options.app.path,
+                        written: summary.auditSites, restored: summary.restoredSites)
+                    if !merged.sites.isEmpty {
+                        do {
+                            try PatchAudit.write(record: merged)
+                        } catch {
+                            print("  ⚠️ 审计清单写入失败（\(error)）——补丁本身已生效；doctor 将不显示位点对账")
+                        }
+                    } else if pendingAudit.record?.app == options.app.path {
+                        PatchAudit.clear()   // 合并归零（本次全程还原到 pristine）
                     }
                 }
                 PatchJournal.complete()   // 事务确认成功（无写入或写入+重签均达终态）

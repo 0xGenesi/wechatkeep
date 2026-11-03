@@ -63,25 +63,25 @@ MUTATIONS = [
      'if set.contains("revoke") {',
      'if false {',
      "--only revoke 域别名失效"),
-    # M08 于 125 续刷新：111 轮把变体切换块迁入 do{} 后缩进+4，且
-    # wroteAnything=true 现有 4 处——原锚点永久歧义（在场≠唯一，双评审
-    # P1 实证：自 111 轮起静默 SKIP）。锚定 undo 回调的上下文对恢复唯一性。
-    # 可接受暴露（125 续两轮变异验证存活）：该回调仅在还原臂 Phase-2 中途
-    # 写失败（EIO/ENOSPC）时触发——无写路径故障注入缝则行为不可观测；
-    # 缓解=backup 在场 + doctor mixed/journal 判读兜底。注入缝登记
-    # ROADMAP 125 续遗留⑦；正常记账路径（undo.wroteAnything 聚合）由
-    # switchUndoWritesDriveResignOnMixedMachine 钉死（非本行，不杀本行）。
+    # M08 于 126 轮三刷：restoreTargets 调用改显式 partialWrite: 标签后
+    # 锚点随缩进迁移。可杀性同轮落地——Patcher 写故障注入缝（DEBUG，
+    # URL 限定）+ Resigner 入场观测缝：undoMidWriteFailureTriggersRecoveryResign
+    # 断言「undo 臂中途写失败 → 外层必须尝试恢复重签」（本行是外层
+    # summary 在该失败路径的唯一标记源——restoreTargets 内层保守记账只落
+    # 其局部 summary，throw 即弃）。
     ("M08", "Sources/wxkeep/Engine.swift",
-     "                        relative in\n                        summary.wroteAnything = true",
-     "                        relative in\n                        summary.wroteAnything = false",
-     "变体切换还原写入不计入重签决策（67 轮缺陷复活）"),
+     "                        partialWrite: { relative in\n                            summary.wroteAnything = true",
+     "                        partialWrite: { relative in\n                            summary.wroteAnything = false",
+     "变体切换还原写入不计入重签决策（undo 臂中断→恢复重签被跳过=必崩态）"),
     ("M09", "Sources/wxkeep/Engine.swift",
      'if target.identifier == "revoke-keeptip2" {\n                continue',
      'if false {\n                continue',
      "废弃变体 keeptip2 可被自动应用"),
+    # M10 于 126 轮换锚：I/O 后校验抽 verifySizes 纯函数（ENOSPC 形截断
+    # 不可注入——72 轮以来无稳定杀面，全量重基线实证存活），判定获得直测。
     ("M10", "Sources/wxkeep/Backup.swift",
-     "guard originalSize == backupSize, originalSize >= 0 else {",
-     "guard originalSize >= 0 else {",
+     "guard sourceSize == backupSize, sourceSize >= 0 else {",
+     "guard sourceSize >= 0 else {",
      "截断备份不拒绝"),
     ("M11", "Sources/wxkeep/Backup.swift",
      "        return exe == binary.lastPathComponent",
@@ -107,6 +107,12 @@ MUTATIONS = [
      "            return status == SIGKILL ? .environmentBlocked : .workerCrashed(signal: status)",
      "            return .workerCrashed(signal: status)",
      "SIGKILL 误判为 crash（㊶ 缺陷复活）"),
+    # M17 可接受暴露（126 轮全量重基线实证存活）：.atomic 的失效形态是
+    # 「写中途进程被杀」——进程级故障，无文件系统级注入缝则撕裂写不可在
+    # 测试进程内复现。纵深兜底：撕裂写在每个消费端都有检测（journal 不可
+    # 解码→interrupted 判读；备份截断→M10 门；config 撕裂→装载失败干净
+    # 拒绝；dylib 撕裂→expected 门/codesign 拒）。.atomic 是减害层，检测
+    # 才是安全合同——按纵深防御登记暴露，计入分母。
     ("M17", "Sources/wxkeep/SafeWrite.swift",
      "        try data.write(to: url, options: .atomic)",
      "        try data.write(to: url)",

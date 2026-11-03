@@ -449,10 +449,21 @@ struct Doctor {
                 if !check.fresh {
                     let head = check.mismatches.prefix(3).map { "\($0.site.identifier)@\($0.site.va)" }
                         .joined(separator: ", ")
+                    // 处方分层（126 轮 C6）：--allow-unverified 打过的机器 restore
+                    // 会按设计拒绝无溯源条目（拒绝盲写是 restore 的安全合同）——
+                    // 处方如实分流，不给注定失败的 restore 死路。
+                    var fix = ". Fix: `\(writable ? "" : "sudo ")wxkeep restore` (idempotent), then re-patch"
+                    let hasQuarantined = versionEntry?.targets.contains {
+                        $0.entries.contains { $0.expected == nil }
+                    } == true
+                    if hasQuarantined {
+                        fix += "；本构建含无溯源（quarantined）条目——若曾以 --allow-unverified 写入，"
+                            + "restore 将按设计拒绝：改用官方 dmg 重装或备份文件恢复"
+                    }
                     verdicts.append("⚠️ patch audit STALE — ledger cites bytes no longer on disk "
                                     + "(external modification or interrupted run): \(head)"
                                     + (check.mismatches.count > 3 ? " …" : "")
-                                    + ". Fix: `\(writable ? "" : "sudo ")wxkeep restore` (idempotent), then re-patch")
+                                    + fix)
                 }
             }
         } else if auditPending.exists {

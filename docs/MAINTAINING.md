@@ -611,6 +611,16 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   （逐位点 after 字节吻合 + 全文件 diff ⊆ 位点集，__LINKEDIT 重签尾差单列）。
   patch 成功后 wxkeep.audit.json 自动落账（doctor `audit_state` 对账）；
   Engine/Patcher 写入语义或 CLI 事务编排改动后建议与 staging 流水线串联跑。
+  **账本合并语义（126 轮 B6）**：alreadyPatched 位点不入账 → CLI 落账走
+  mergedRecord（键级：undo 还原出账/新写 upsert/app 或 build 漂移弃旧账），
+  `--only`/部分重跑不再丢账；改 Engine/CLI 事务编排后必跑 PatchAuditTests
+  合并三测 + VariantSwitchTests restoredSites 断言。
+- **写故障注入缝（126 轮遗留⑦）**：测试进程内复现 EIO/ENOSPC 形中途写
+  失败——`Patcher.debugWriteFailureAt = { url, idx in ... }`（DEBUG-only；
+  **URL 限定**防误伤并行套件；fail-at(k)=前 k 条已落盘）+
+  `Resigner.debugAttemptHook`（观测恢复重签是否被尝试）。用例 defer 复位。
+  范例：undoMidWriteFailureTriggersRecoveryResign（M08 首杀）。新增写入/
+  恢复防线时优先用此缝做故障路径回归，不再接受「不可观测」的暴露登记。
 - **变异器护栏（125 轮）**：`make hooks` 安装 pre-commit（sentinel 在场或
   任一 MUTATIONS 锚点不在 canonical 态 → 拒提交）；变异器自带启动自愈
   （检见泄漏 sentinel → 逐项反向还原 → 拒跑 exit 2）；CI canonical-anchor

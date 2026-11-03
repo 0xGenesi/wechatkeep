@@ -31,7 +31,7 @@
 | B3 | 位点外写入（引擎/外改） | 引擎缺陷或外部工具 | L9 `--patched` 局部性 + audit 三件套复算 | diff ⊄ 位点集 | L9 负控③；audit_patch 演练 | P0 |
 | B4 | 审计账目与盘不符（stale） | 外改/收口前死亡 | doctor `audit_state` 对账 | doctor verdict + audit 行 | `doctorReconciliationFreshStale*`；M24 | P2 |
 | B5 | arm64 补丁执行级效果未观测 | — | **登记为未证明面**（V5-DEPTH §5；解码级证明在位） | — | ROADMAP 遗留 | P2 |
-| B6 | 账本覆盖面 < 盘上差异面（--only 子集/部分重跑后） | `--only update` 后全量重打：alreadyPatched 位点不入账 → 账本只含新写 | **登记边界**（账本语义=本事务写入；doctor 对账不受影响，离线复算需 --binary/--arch 分次） | audit_patch 输出注记 | ROADMAP 125 续遗留②（账本合并设计） | P2 |
+| B6 | 账本覆盖面 < 盘上差异面（--only 子集/部分重跑后） | `--only update` 后全量重打：alreadyPatched 位点不入账 → 账本只含新写 | **账本合并**（126 轮：mergedRecord 键级删/增——undo 出账、新写 upsert、app/build 漂移弃旧账；CLI 成功/失败双路径） | PatchAuditTests 合并三测 + restoredSites 断言 | 126 轮关闭 | P2 |
 | B7 | runtime 注入写入面污染离线局部性复算 | 装了 runtime hooks 的机器 | **登记边界**（audit 合同=未装 runtime 或注入前 diff；注入面由 doctor LC/marker 判据覆盖） | audit_patch 输出注记 | FMEA 本行 | P2 |
 
 ## C. 签名/启动面
@@ -43,7 +43,7 @@
 | C3 | ad-hoc 被 Gatekeeper 评估拒收 | 正常态 | spctl 判读行（明示预期态，不处方系统变更） | doctor gatekeeper 行 | `gatekeeperLineInterpretsSpctlVerdicts` | P3 |
 | C4 | CODESIGNING 击杀复发 | 系统策略演进 | `.ips` 近 7 天扫描（CODESIGNING 计数）+ AMFI 行合读 | doctor crash(7d) 行 + verdict | `crashScanCountsMatches*`；M25 | P1 |
 | C5 | runtime 注入半套（LC 在 dylib 缺） | remove 半途/手删 | doctor 混合态 verdict + interrupted 判读 | doctor ❌ 行 | runtimeRemove 分支 | P0 |
-| C6 | --allow-unverified 机器的账本无法经 restore 收口 | unverified 条目不可反演 → restore 预检整体拒绝 | **登记边界**（既有 restore 语义；doctor stale 处方在该子集会先撞 restore 失败——pre-existing） | restore 报错文案 | ROADMAP 125 续遗留③ | P2 |
+| C6 | --allow-unverified 机器的账本无法经 restore 收口 | unverified 条目不可反演 → restore 预检整体拒绝（拒绝盲写是安全合同，不改） | **处方分层**（126 轮：doctor stale 处方在构建含 quarantined 条目时加注「restore 将按设计拒绝→官方 dmg 重装/备份恢复」）；restore 语义保持 | doctor verdict 行 | 126 轮收口（语义层） | P2 |
 
 ## D. 数据/供应链面
 
@@ -60,6 +60,7 @@
 | E1 | 变异态泄漏进工作树 | 变异器被 SIGKILL | sentinel + 启动自愈 + pre-commit + CI anchor 门 | 拒提交/拒跑/CI 红 | 125 轮演练（泄漏→自愈→拒跑） | P0 |
 | E2 | 锚点漂移/歧义 → 变异静默 SKIP → 杀灭率分母缩水 | 代码演进 | canonical-anchor 门（计数恰 1 + 变异形态不在盘——125 续双评审 P1 后同 apply 口径） | pre-commit/CI | 125 轮首捕 M05/M12/M20；125 续再捕 M08（在场≠唯一，死 14 轮） | P1 |
 | E3 | 等价变异体误判防线缺口 | 数学等价形 | 等价判例成文（M23：无符号模运算蕴含）+ 换可杀形 | 杀灭率口径 | MAINTAINING 变异节 | P2 |
+| E5 | 写路径故障面不可观测（EIO/ENOSPC 中途写失败） | 无注入缝 → 恢复链行为不可测（M08 十四轮存活根因） | **注入缝**（126 轮遗留⑦：Patcher debugWriteFailureAt——DEBUG/URL 限定/fail-at(k)；Resigner debugAttemptHook 观测恢复重签是否被尝试） | undoMidWriteFailureTriggersRecoveryResign | M08 首杀（126 轮） | P1 |
 | E4 | oracle 在 CI 静默 skip（绿≠跑过） | runner 无语料 | 显式登记 + Makefile/SOP 入口 | MAINTAINING 孤岛清单 | V5-DEPTH §5 | P2 |
 
 ## 使用约定

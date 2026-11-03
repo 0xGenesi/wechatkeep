@@ -52,8 +52,13 @@ struct VariantSwitchTests {
         #expect(try data().range(of: Data([0x31, 0xC0, 0xC3])) != nil)
 
         // 切 keeptip：还原 silent 的两个点 + x64 keeptip 清零生效
-        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
+        //（126 轮 B6 断言面：undo 臂逐位点出账——账本合并的删除键来源）
+        let switch1 = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
                              dryRun: false, allowUnverified: false, only: nil)
+        #expect(switch1.restoredSites.count == 2, "undo 还原 2 位点逐条出账（arm64@100 + x64@100）")
+        #expect(switch1.restoredSites.contains { $0.arch == "x86_64" && $0.va == "100" })
+        #expect(switch1.auditSites.contains { $0.identifier == "revoke-keeptip" },
+                "keeptip 自身新写位点入账")
         #expect(try data().range(of: Data([0xF4, 0x4F, 0xBE, 0xA9])) != nil, "silent 位已还原")
         #expect(try data().range(of: Data([0x7F, 0xE6, 0x00, 0xF9])) != nil, "arm64 keeptip str xzr")
         #expect(try data().range(of: Data([0x31, 0xD2, 0x90])) != nil, "x64 keeptip 清零")

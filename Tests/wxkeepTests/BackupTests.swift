@@ -131,3 +131,32 @@ struct BackupTests {
         }
     }
 }
+
+
+// MARK: - 126 轮 M10 杀例：备份完整性判定直测（I/O 后校验抽出）
+
+extension BackupTests {
+    /// 截断/丢失备份必须被拒：等大 → 过；截断 1B / 备份缺失 → 拒。
+    ///（ENOSPC 形截断不可在测试进程内注入——判定抽出直测，M10 自 72 轮
+    /// 首次获得稳定杀面。）
+    @Test func truncatedBackupIsRefusedBySizeGate() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-bakgate-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("src.bin")
+        let good = dir.appendingPathComponent("good.bak")
+        let torn = dir.appendingPathComponent("torn.bak")
+        let missing = dir.appendingPathComponent("missing.bak")
+        try Data(repeating: 0xAB, count: 1024).write(to: source)
+        try Data(repeating: 0xAB, count: 1024).write(to: good)
+        try Data(repeating: 0xAB, count: 1023).write(to: torn)   // 截断 1B
+        try Backup.verifySizes(source: source, backup: good)   // 等大 → 不抛
+        #expect(throws: Backup.BackupError.self) {
+            try Backup.verifySizes(source: source, backup: torn)
+        }
+        #expect(throws: Backup.BackupError.self) {
+            try Backup.verifySizes(source: source, backup: missing)   // 读不出 = -2
+        }
+    }
+}

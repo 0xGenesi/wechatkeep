@@ -191,3 +191,65 @@ extension EngineTests {
         #expect("\(wrapped)".contains("overlapping"), "description 透传底层错误（CLI 输出不变）")
     }
 }
+
+// MARK: - 126 轮遗留⑦：写故障注入缝下的 M08 杀例（十四轮来首次可杀）
+
+extension EngineTests {
+    /// 变体切换 undo 臂 Phase-2 中途写故障（注入缝 fail-at-0）：restoreTargets
+    /// 内层的保守记账只落其**局部** summary（throw 即弃）——外层 summary 的
+    /// 唯一标记源是 partialWrite 闭包（M08 锚点行）。外层 catch 必须①尝试
+    /// 恢复重签（Resigner 观测缝；字节已改+旧签名 = 启动必崩态防线）②以
+    /// PartialWriteFailure 重抛（journal 保留给 doctor interrupted 判读）。
+    /// M08 变异（闭包体写 false）→ 恢复重签被跳过 → 观测缝不触发 → 红。
+    @Test func undoMidWriteFailureTriggersRecoveryResign() throws {
+        #if DEBUG
+        let app = try makeApp()
+        // 双变体目录：keeptip 目标只需非空（触发切换还原臂）即可
+        let json = """
+        [{"version":"999999","targets":[
+          {"identifier":"revoke","binary":"Contents/Resources/wechat.dylib","entries":[
+            {"arch":"arm64","addr":"100","expected":"F44FBEA9FD7B01A9","asm":"00008052C0035FD6"},
+            {"arch":"x86_64","addr":"100","expected":"554889E553504889FB","asm":"31C0C3"}
+          ]},
+          {"identifier":"revoke-keeptip","binary":"Contents/Resources/wechat.dylib","entries":[
+            {"arch":"x86_64","addr":"100","expected":["31C0C3909090909090","554889E553504889FB"],"asm":"554889E553504889FB"}
+          ]}
+        ]}]
+        """
+        let config = try Config(data: Data(json.utf8), origin: "inline")
+        // silent 先打满（两条写入，无注入）
+        _ = try Engine.patch(app: app, build: "999999", config: config, variant: "silent",
+                             dryRun: false, allowUnverified: false, only: nil)
+        let dylib = app.appendingPathComponent("Contents/Resources/wechat.dylib")
+        let silentBytes = Data([0x31, 0xC0, 0xC3])
+        #expect(try Data(contentsOf: dylib).range(of: silentBytes) != nil, "silent 已打")
+
+        struct InjectedWriteFailure: Error {}
+        var resignAttempted = false
+        Resigner.debugAttemptHook = { resignAttempted = true }
+        // URL 限定（并行套件下进程全局缝会误伤并发用例）：只打本夹具 dylib
+        let targetPath = dylib.path
+        Patcher.debugWriteFailureAt = { url, idx in
+            url.path == targetPath && idx == 0 ? InjectedWriteFailure() : nil
+        }
+        defer {
+            Resigner.debugAttemptHook = nil
+            Patcher.debugWriteFailureAt = nil
+        }
+        do {
+            _ = try Engine.patch(app: app, build: "999999", config: config, variant: "keeptip",
+                                 dryRun: false, allowUnverified: false, only: nil)
+            Issue.record("undo 臂写故障必须以 PartialWriteFailure 抛出")
+        } catch is Engine.PartialWriteFailure {
+            // 预期路径（restoreTargets 内层包装 + 外层再包均属本类型族）
+        } catch {
+            Issue.record("错误类型不对（应 PartialWriteFailure，得 \(error)）")
+        }
+        #expect(resignAttempted,
+                "undo 臂中途写失败 → 外层必须尝试恢复重签（M08：必崩态防线，字节已改+旧签名）")
+        // fail-at(0) 注入语义自证：第一条还原写之前抛——盘面未动
+        #expect(try Data(contentsOf: dylib).range(of: silentBytes) != nil,
+                "fail-at(0) = 前 0 条已落盘（silent 字节原样）")
+        #endif
+    }
+}

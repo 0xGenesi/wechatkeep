@@ -76,6 +76,16 @@ struct Patcher {
 
     // MARK: - Entry points
 
+#if DEBUG
+    /// 写故障注入缝（126 轮遗留⑦）：Phase-2 写循环第 index 条写入**前**注入
+    /// 错误——fail-at(k) 语义 = 前 k 条已落盘（EIO/ENOSPC 形中途写失败的
+    /// 可控复现）。M08 十四轮不可测的根因就是无此缝（恢复重签决策链的
+    /// 行为面在测试进程内不可达）。**URL 限定**：swift-testing 并行跑套件，
+    /// 进程全局缝会误伤并发用例——注入器只对目标二进制路径生效。DEBUG-only
+    ///（生产零缝）；用例 defer 复位。
+    static nonisolated(unsafe) var debugWriteFailureAt: ((URL, Int) -> Error?)?
+#endif
+
     /// per-site 审计数据（125 轮 V5 深度轮）：被覆写的字节与出处。Phase-1
     /// 规划期收集，Phase-2 写入全部成功后才经 auditSink 交付——账目只反映
     /// 已落盘的写入（dry-run / 写前失败不产生账目）。
@@ -153,6 +163,9 @@ struct Patcher {
         // 账目在场），CLI 失败路径把它落为「已写位点」的账（journal 记
         // 中断、audit 记已写——各司其职）。
         for (index, write) in writes.enumerated() {
+#if DEBUG
+            if let injected = Patcher.debugWriteFailureAt?(binary, index) { throw injected }
+#endif
             try handle.seek(toOffset: write.offset)
             try handle.write(contentsOf: write.data)
             if index < audits.count { auditSink?(audits[index]) }

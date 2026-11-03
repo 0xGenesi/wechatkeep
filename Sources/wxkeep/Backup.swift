@@ -77,15 +77,29 @@ enum Backup {
             throw BackupError.copyFailed(error.localizedDescription)
         }
         // A truncated backup is worse than none — verify size.
-        let originalSize = (try? FileManager.default.attributesOfItem(atPath: binary.path)[.size] as? Int64) ?? -1
-        let backupSize = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64) ?? -2
-        guard originalSize == backupSize, originalSize >= 0 else {
+        //（126 轮：判定抽 verifySizes 纯函数直测——ENOSPC 形截断不可在测试
+        // 进程内注入，I/O 后校验若无直接单测面则 M10 永不可杀，与 M08 的
+        // 注入缝判例同族；make 的调用语义不变。）
+        do {
+            try verifySizes(source: binary, backup: destination)
+        } catch {
             try? FileManager.default.removeItem(at: destination)
-            throw BackupError.copyFailed("size mismatch after copy (\(originalSize) vs \(backupSize))")
+            throw error
         }
         prune(keepingNewest: keepCount,
               matching: directory.appendingPathComponent(binary.lastPathComponent).path + ".wxkeep-bak-")
         return destination
+    }
+
+    /// 备份完整性判定（126 轮 M10 抽出）：截断/丢失的备份比没有更糟——
+    /// 大小必须与源严格相等且可读（源读不出=-1/备份读不出=-2 → 双拒）。
+    /// internal：BackupTests 直接回归。
+    static func verifySizes(source: URL, backup: URL) throws {
+        let sourceSize = (try? FileManager.default.attributesOfItem(atPath: source.path)[.size] as? Int64) ?? -1
+        let backupSize = (try? FileManager.default.attributesOfItem(atPath: backup.path)[.size] as? Int64) ?? -2
+        guard sourceSize == backupSize, sourceSize >= 0 else {
+            throw BackupError.copyFailed("size mismatch after copy (\(sourceSize) vs \(backupSize))")
+        }
     }
 
     /// 删除匹配前缀的旧备份，保留最新 `keep` 个（按文件名排序 = 时间序，

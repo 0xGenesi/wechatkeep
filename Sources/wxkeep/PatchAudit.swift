@@ -65,6 +65,35 @@ enum PatchAudit {
         try? FileManager.default.removeItem(at: url(userData: userData))
     }
 
+    /// 账本合并（126 轮 B6：`--only`/部分重跑的覆盖语义曾丢 alreadyPatched
+    /// 位点——「先 --only update 再全量」会把 update 位点挤出账本 = 离线
+    /// 复算假红 + doctor 对账面残缺）。规则：
+    /// - 旧账 app 或 build 不匹配（微信自更新/跨 app）→ 丢弃旧账（其字节
+    ///   已随更新消失，留键 = 假 stale；跨 app 与 journal 同哲学：新事务
+    ///   的意图即当前事实）；
+    /// - 匹配 → 先按 (binary,arch,va) 删除本次**还原**的键（undo 臂撤回的
+    ///   位点 bytes==pristine，留键 = doctor 假 stale），再 upsert 本次
+    ///   **写入**的键（先删后增：归一化共享位点「还原后重写」安全）。
+    /// 输出按键稳定排序（离线复算/测试可复现）。
+    static func mergedRecord(previous: Record?, build: String, variant: String?,
+                             app: String, written: [Site], restored: [Site]) -> Record {
+        let now = ISO8601DateFormatter().string(from: Date())
+        func key(_ s: Site) -> String { "\(s.binary)|\(s.arch)|\(s.va)" }
+        guard let prev = previous, prev.app == app, prev.build == build else {
+            return Record(v: 1, build: build, variant: variant, app: app,
+                          completedAt: now, sites: written.sorted { key($0) < key($1) })
+        }
+        let restoredKeys = Set(restored.map(key))
+        var byKey: [String: Site] = [:]
+        for s in prev.sites where !restoredKeys.contains(key(s)) {
+            byKey[key(s)] = s
+        }
+        for s in written { byKey[key(s)] = s }
+        let sites = byKey.values.sorted { key($0) < key($1) }
+        return Record(v: 1, build: build, variant: variant, app: app,
+                      completedAt: now, sites: sites)
+    }
+
     /// doctor / 离线审计读取。文件在但不可解码 → (true, nil)：在场本身就是
     /// 「有一笔未对账写入」的证据（与 PatchJournal.pending 同判读哲学——
     /// 坏 JSON 不能把检测静默吞掉）。

@@ -184,3 +184,58 @@ final class PatchAuditTests {
         #expect(try JSONDecoder().decode(PatchAudit.Record.self, from: json) == record)
     }
 }
+
+// MARK: - 账本合并（126 轮 B6：--only/部分重跑的覆盖语义收口）
+
+extension PatchAuditTests {
+    private func anySite(_ va: String, arch: String = "arm64",
+                         binary: String = "Contents/Resources/wechat.dylib",
+                         id: String = "revoke") -> PatchAudit.Site {
+        PatchAudit.Site(binary: binary, arch: arch, identifier: id, va: va,
+                        before: "00112233", after: "AABBCCDD", source: nil)
+    }
+
+    /// 先 --only update（账=update@140）→ 再全量（revoke@100 新写、update
+    /// alreadyPatched 不入账）——合并后两键俱在。覆盖式写账曾把 update 挤出
+    /// 账本 = 离线复算对合法机器报位点外写入（诬告为篡改）。
+    @Test func mergedRecordKeepsSitesFromPartialReruns() {
+        let prev = makeRecord(sites: [anySite("140", id: "update")])
+        let merged = PatchAudit.mergedRecord(
+            previous: prev, build: "270351", variant: "silent", app: "/fake/App.app",
+            written: [anySite("100")], restored: [])
+        #expect(merged.sites.map(\.va).sorted() == ["100", "140"])
+        #expect(merged.sites.first { $0.va == "100" }?.after == "AABBCCDD",
+                "新写键内容以本次为准")
+    }
+
+    /// 变体切换：undo 还原的键出账（bytes==pristine 留键 = doctor 假 stale）；
+    /// 归一化共享位点「还原后重写」经先删后增存活。
+    @Test func mergedRecordRemovesRestoredKeysOnVariantSwitch() {
+        let prev = makeRecord(sites: [anySite("100"), anySite("140", arch: "x86_64")])
+        let switched = PatchAudit.mergedRecord(
+            previous: prev, build: "270351", variant: "keeptip", app: "/fake/App.app",
+            written: [anySite("180", id: "revoke-keeptip")],
+            restored: [anySite("100"), anySite("140", arch: "x86_64")])
+        #expect(switched.sites.map(\.va) == ["180"], "undo 键全部出账")
+        let shared = PatchAudit.mergedRecord(
+            previous: prev, build: "270351", variant: "keeptip", app: "/fake/App.app",
+            written: [anySite("100", id: "revoke-keeptip")],
+            restored: [anySite("100")])
+        #expect(shared.sites.map(\.va).sorted() == ["100", "140"],
+                "共享位点还原后重写 → 先删后增 → 存活且内容为新写")
+    }
+
+    /// 旧账 app/build 漂移即弃（微信自更新后旧键字节已消失 = 留键假 stale；
+    /// 跨 app 与 journal 同哲学：新事务意图即当前事实）。
+    @Test func mergedRecordDropsPreviousOnBuildOrAppDrift() {
+        let prev = makeRecord(sites: [anySite("100")])
+        #expect(PatchAudit.mergedRecord(
+            previous: prev, build: "999999", variant: nil, app: "/fake/App.app",
+            written: [anySite("200")], restored: []).sites.map(\.va) == ["200"],
+            "build 漂移 → 旧账弃")
+        #expect(PatchAudit.mergedRecord(
+            previous: prev, build: "270351", variant: nil, app: "/other/App.app",
+            written: [], restored: []).sites.isEmpty,
+            "app 漂移 → 旧账弃")
+    }
+}
