@@ -470,6 +470,30 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 132·push + CI 首跑轮（八轮提交上 origin；CI 三腿抓三真 bug 全修全绿；2026-11-03）
+
+> push 范围 825d47a..ce54acf（125 续至 131 全部轮次 + 本轮三修）。CI 首跑
+> 即验证价值：**Rosetta x64 腿是 x86_64 Swift 代码唯一的编译+执行验证点**
+>（本机 macOS 27 CLT 已 arm64-only，libxcrun 无 x86_64 切片——本地 Rosetta
+> 兜底结构性不可能），三连抓三个「本机 arm64 永不执行/永不编译」的真问题：
+
+1. **[并发编译面]**：ArmThunkTests 文件级 `#if arch(x86_64)` 的 var cqNil
+   可变全局——latest-stable Swift 6 严格并发红（本机 arm64 永不编译该分支）
+   → 消灭全局改测试函数内 local（7894f17）。
+2. **[执行谓词设计]**：x64 的 je 走 ZF 标志而非参数寄存器——arm64「cbz w0
+   即谓词」语义错套（fn(0) 传 RDI 不动 ZF，标志残留致 pristine input=0
+   落撤回路径）→ 入口加 test 把参数转成谓词（b6f6218）。
+3. **[ABI 细节]**：x64 SysV 首参在 **RDI** 不在 RAX——test eax,eax 测的是
+   调用方残留（ce54acf）。
+4. **[终态]**：CI 双腿全绿（16.4 2m46s + latest-stable 11m56s，含 Rosetta
+   x64 全量、release、CLI smoke、canonical-anchor 门、openssl Ed25519 验签
+   ——LibreSSL→brew openssl@3 回退按设计触发）。317 测双架构双工具链
+   全绿；x64 遍历证明自此首跑即真跑。
+5. **[教训入册]**：①x64 Swift 面（编译并发检查 + 执行测试）只有 CI Rosetta
+   腿能验——**改动 x64 分支的测试/代码后必须等 CI 再判绿**，本地全绿不
+   覆盖该面；②naked/thunk 级测试的 ABI 假设（参数寄存器/标志位）无本地
+   执行面，设计时就要按 SysV/ARM64 各自合同写并注明。
+
 ## 131·SOP 补账轮：L1/L2/L6 真 oracle 于 125-127 改动后全量复验（L2/L6 各 32/32 分批绿；2026-11-03）
 
 > 缺口来源：MAINTAINING 铁律「改 Engine/Patcher/restoreAsm 语义后必跑

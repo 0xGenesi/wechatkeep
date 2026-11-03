@@ -670,6 +670,11 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
 - **openssl 独立验签** `bash tools/verify_manifest_openssl.sh`：CryptoKit 之外
   的 Ed25519 验证（手构 SPKI DER + pkeyutl + shasum），每次重签 manifest 后
   顺手跑一次防共因。
+- **x64 Swift 面仅 CI Rosetta 腿可验（2026-11-03 制度化）**：本机 macOS 27
+  CLT arm64-only（libxcrun 无 x86_64 切片）——x86_64 编译并发检查与执行
+  测试只有 CI latest-stable 腿的 `arch -x86_64 swift test` 能担。改 x64
+  分支的测试/代码后：本地全绿不算数，**必须看 CI**（首跑实证三连抓：
+  可变全局并发红/je 走 ZF 非 RDI/SysV 首参 RDI 非 RAX）。
 - 本机 macOS 27 CLT 的 TestingMacros 插件间歇楔死：swift test 加
   `-Xswiftc -load-plugin-library -Xswiftc $CLT/…/libTestingMacros.dylib`
   显式装载即绕过（tools/fuzz/run_fuzz.sh 内置；清缓存只偶发缓解）。
