@@ -146,7 +146,7 @@ struct PatchTraversalTests {
         // 直读寄存器，无需此步）。0x100 test；0x102 位点（je +0x20 → jmp
         // +0x20，目标均 0x124）；0x104 撤回路径（mov eax,1; ret + int3 填充
         // ——毒化区）；0x124 SKIP（mov eax,2; ret）。
-        let testEax: [UInt8] = [0x85, 0xC0]              // test eax,eax
+        let testEax: [UInt8] = [0x85, 0xFF]              // test edi,edi——x64 SysV 首参在 RDI（132 续：C0 版测的是调用方残留 eax，CI 首跑二连抓）
         let je: [UInt8] = [0x74, 0x20]                   // je +0x20（目标 0x124）
         let jmp: [UInt8] = [0xEB, 0x20]                  // jmp +0x20（同目标）
         let revocation: [UInt8] = [0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3]  // mov eax,1; ret
@@ -187,9 +187,9 @@ struct PatchTraversalTests {
         }
 
         #expect(run(pristineURL, poisonRevocation: false, input: 0) == 2,
-                "pristine eax=0 → ZF=1 → je 走 SKIP")
+                "pristine edi=0 → ZF=1 → je 走 SKIP")
         #expect(run(pristineURL, poisonRevocation: false, input: 1) == 1,
-                "pristine eax=1 → ZF=0 → 落入撤回路径")
+                "pristine edi=1 → ZF=0 → 落入撤回路径")
         #expect(run(patchedURL, poisonRevocation: false, input: 0) == 2)
         #expect(run(patchedURL, poisonRevocation: false, input: 1) == 2,
                 "patched → 无条件 SKIP（x64 对称，125 续 x64 翻转对称门的执行面）")
