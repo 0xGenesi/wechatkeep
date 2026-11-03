@@ -108,7 +108,8 @@ struct ArmThunkTests {
         var x: [UInt64] = [0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0, 0, 0, 0]
         wxkeep_runtime_test_arm_thunk_invoke(2, &x, nil)
         var cx = [UInt64](repeating: 0, count: 9)
-        let hit = wxkeep_runtime_test_arm_thunk_capture(&cx, &cqNil)
+        var cqLocal = [UInt64](repeating: 0, count: 4)
+        let hit = wxkeep_runtime_test_arm_thunk_capture(&cx, &cqLocal)
         #expect(hit == 1)
         for i in 0..<6 {
             #expect(cx[i] == x[i], "x64 clone 直驱参数透传")
@@ -118,7 +119,3 @@ struct ArmThunkTests {
         #endif
     }
 }
-
-#if arch(x86_64)
-private var cqNil: [UInt64] = [0, 0, 0, 0]
-#endif
