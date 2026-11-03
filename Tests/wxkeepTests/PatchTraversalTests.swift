@@ -141,27 +141,31 @@ struct PatchTraversalTests {
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: work) }
 
-        // 布局：0x100 位点（je +0x20 → jmp +0x20，目标均 0x122）；0x102
-        // 撤回路径（mov eax,1; ret + int3 填充——毒化区）；0x122 SKIP。
-        let je: [UInt8] = [0x74, 0x20]
-        let jmp: [UInt8] = [0xEB, 0x20]
+        // 布局（132 轮 CI Rosetta 腿首跑实证修正）：x64 的 je 走 **ZF 标志**
+        // 而非参数寄存器——入口 `test eax,eax` 把参数转成谓词（arm64 cbz w0
+        // 直读寄存器，无需此步）。0x100 test；0x102 位点（je +0x20 → jmp
+        // +0x20，目标均 0x124）；0x104 撤回路径（mov eax,1; ret + int3 填充
+        // ——毒化区）；0x124 SKIP（mov eax,2; ret）。
+        let testEax: [UInt8] = [0x85, 0xC0]              // test eax,eax
+        let je: [UInt8] = [0x74, 0x20]                   // je +0x20（目标 0x124）
+        let jmp: [UInt8] = [0xEB, 0x20]                  // jmp +0x20（同目标）
         let revocation: [UInt8] = [0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3]  // mov eax,1; ret
         let skip: [UInt8] = [0xB8, 0x02, 0x00, 0x00, 0x00, 0xC3]        // mov eax,2; ret
         var code: [(offset: Int, bytes: [UInt8])] = [
-            (0x100, je), (0x102, revocation), (0x122, skip),
+            (0x100, testEax), (0x102, je), (0x104, revocation), (0x124, skip),
         ]
-        for off in stride(from: 0x108, to: 0x122, by: 1) { code.append((off, [0xCC])) }
+        for off in stride(from: 0x10A, to: 0x124, by: 1) { code.append((off, [0xCC])) }
         let image = MachOFixture.thin(cputype: MachOFixture.x64CPU, size: 0x400, code: code)
 
         let pristineURL = try writeFixture(image, name: "pristine.dylib", in: work)
         let patchedURL = try writeFixture(image, name: "patched.dylib", in: work)
         let outcomes = try Patcher.patch(
             binary: patchedURL,
-            entries: [MachOFixture.entry(.x86_64, addr: "100", asm: "EB20",
+            entries: [MachOFixture.entry(.x86_64, addr: "102", asm: "EB20",
                                          expected: ["7420"])],
             identifier: "revoke")
         #expect(outcomes == [.written])
-        #expect(try fileBytes(patchedURL, offset: 0x100, count: 2) == Data(jmp))
+        #expect(try fileBytes(patchedURL, offset: 0x102, count: 2) == Data(jmp))
 
         typealias FlipFn = @convention(c) (UInt32) -> UInt32
         func run(_ source: URL, poisonRevocation: Bool, input: UInt32) -> UInt32 {
@@ -169,12 +173,12 @@ struct PatchTraversalTests {
                            MAP_ANON | MAP_PRIVATE, -1, 0)
             #expect(mem != MAP_FAILED)
             let codeBytes = (try? Data(contentsOf: source)) ?? Data()
-            let slice = codeBytes.subdata(in: 0x100..<0x128)
+            let slice = codeBytes.subdata(in: 0x100..<0x12A)
             _ = slice.withUnsafeBytes { raw in
-                memcpy(mem, raw.baseAddress, 0x28)
+                memcpy(mem, raw.baseAddress, 0x2A)
             }
             if poisonRevocation {
-                memset(mem! + 0x02, 0xCC, 0x22 - 0x02)   // int3 × 撤回路径区
+                memset(mem! + 0x04, 0xCC, 0x24 - 0x04)   // int3 × 撤回路径区
             }
             #expect(mprotect(mem, 4096, PROT_READ | PROT_EXEC) == 0,
                     "RX 切换（Rosetta 下 mprotect 可用）")
@@ -183,9 +187,9 @@ struct PatchTraversalTests {
         }
 
         #expect(run(pristineURL, poisonRevocation: false, input: 0) == 2,
-                "pristine ZF=1 → je 走 SKIP")
+                "pristine eax=0 → ZF=1 → je 走 SKIP")
         #expect(run(pristineURL, poisonRevocation: false, input: 1) == 1,
-                "pristine ZF=0 → 落入撤回路径")
+                "pristine eax=1 → ZF=0 → 落入撤回路径")
         #expect(run(patchedURL, poisonRevocation: false, input: 0) == 2)
         #expect(run(patchedURL, poisonRevocation: false, input: 1) == 2,
                 "patched → 无条件 SKIP（x64 对称，125 续 x64 翻转对称门的执行面）")
