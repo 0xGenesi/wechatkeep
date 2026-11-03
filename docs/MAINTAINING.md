@@ -615,6 +615,11 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   mergedRecord（键级：undo 还原出账/新写 upsert/app 或 build 漂移弃旧账），
   `--only`/部分重跑不再丢账；改 Engine/CLI 事务编排后必跑 PatchAuditTests
   合并三测 + VariantSwitchTests restoredSites 断言。
+- **三武装 thunk 执行级缝（129 轮遗留①）**：`wxkeep_runtime_test_arm_thunk_
+  setup/invoke/capture/state`（which 0=cm 1=lu 2=clone）——naked driver 从
+  全局装 x0..x8/x19/q0/q1 后 bl 目标 thunk，far 端 capture stub 读回寄存器
+  透传/快照/到达 marker。改 runtime.m 三条 naked thunk（clone/cm/lu）后
+  必跑 ArmThunkTests（寄存器合同逐位断言）；用例间 serialized（共享装载体）。
 - **写故障注入缝（126 轮遗留⑦）**：测试进程内复现 EIO/ENOSPC 形中途写
   失败——`Patcher.debugWriteFailureAt = { url, idx in ... }`（DEBUG-only；
   **URL 限定**防误伤并行套件；fail-at(k)=前 k 条已落盘）+

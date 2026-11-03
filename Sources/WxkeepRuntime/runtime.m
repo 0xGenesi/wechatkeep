@@ -2597,6 +2597,190 @@ static void *revoke_lu_hook(void) { return NULL; }   // x64 行不带 lu 组
 
 
 // ---------------------------------------------------------------------------
+// 三武装 thunk 执行级覆盖缝（129 轮遗留①收口）：revoke_clone_hook /
+// revoke_cm_hook / revoke_lu_hook 三条 naked thunk 生产只在微信进程内执行——
+// clone 0xE0 帧全寄存器保存/恢复、x19/sp 快照、lu ldaddal 序号、三者的
+// ldar 尾跳合同此前零执行覆盖（body 有直驱缝——clone_rows/parse_invoke；
+// thunk 骨架没有，登记 124①）。缝 = driver（从全局装 x0..x8/x19/q0/q1 →
+// 按 which bl 目标 thunk）+ far 端 capture stub（存 x0..x8/q0/q1 + marker
+// → ret）。生产路径零触碰（thunk 未改一字节，仅被 driver 按名引用；C 侧
+// 地址逃逸防 LTO 内化，同 used 注释惯例）。clone thunk 的 bl _clone_hook_body
+// 走真 body——g_clone_message 关（本缝不置位）→ body 首卫纯透传返回，
+// 合成指针零解引用；「bl 确实进 body 且返回」由 capture-hit 侧面证明
+//（body 不返回则尾跳/ret 链断裂，测试当场崩）。
+// ---------------------------------------------------------------------------
+enum { kArmThunkCM = 0, kArmThunkLU = 1, kArmThunkClone = 2 };
+
+__attribute__((used)) static volatile unsigned long long g_test_arm_which;
+__attribute__((used)) static volatile unsigned long long g_test_arm_in[10];  // x0..x8, x19
+__attribute__((used)) static volatile unsigned long long g_test_arm_q[4];    // q0/q1 各 2 词
+__attribute__((used)) static volatile unsigned long long g_test_cap_x[9];
+__attribute__((used)) static volatile unsigned long long g_test_cap_q[4];
+__attribute__((used)) static volatile unsigned long long g_test_cap_hit;
+#if !defined(__arm64__) && !defined(__aarch64__)
+__attribute__((used)) static unsigned long long g_test_cap_c[6];  // x64 clone 直驱捕获
+#endif
+
+#if defined(__arm64__) || defined(__aarch64__)
+__attribute__((naked)) static void arm_thunk_capture_stub(void) {
+    __asm__ volatile(
+        "adrp x9, _g_test_cap_x@PAGE\n"
+        "add x9, x9, _g_test_cap_x@PAGEOFF\n"
+        "str x0, [x9], #8\n"
+        "str x1, [x9], #8\n"
+        "str x2, [x9], #8\n"
+        "str x3, [x9], #8\n"
+        "str x4, [x9], #8\n"
+        "str x5, [x9], #8\n"
+        "str x6, [x9], #8\n"
+        "str x7, [x9], #8\n"
+        "str x8, [x9]\n"
+        "adrp x10, _g_test_cap_q@PAGE\n"
+        "add x10, x10, _g_test_cap_q@PAGEOFF\n"
+        "str q0, [x10], #16\n"
+        "str q1, [x10]\n"
+        "mov x11, #1\n"
+        "adrp x12, _g_test_cap_hit@PAGE\n"
+        "str x11, [x12, _g_test_cap_hit@PAGEOFF]\n"
+        "ret\n");
+}
+
+__attribute__((naked)) static void arm_thunk_driver(void) {
+    __asm__ volatile(
+        "stp x29, x30, [sp, #-0x20]!\n"
+        "str x19, [sp, #0x10]\n"
+        "adrp x9, _g_test_arm_in@PAGE\n"
+        "add x9, x9, _g_test_arm_in@PAGEOFF\n"
+        "ldr x0, [x9], #8\n"
+        "ldr x1, [x9], #8\n"
+        "ldr x2, [x9], #8\n"
+        "ldr x3, [x9], #8\n"
+        "ldr x4, [x9], #8\n"
+        "ldr x5, [x9], #8\n"
+        "ldr x6, [x9], #8\n"
+        "ldr x7, [x9], #8\n"
+        "ldr x8, [x9], #8\n"
+        "ldr x19, [x9]\n"
+        "adrp x10, _g_test_arm_q@PAGE\n"
+        "add x10, x10, _g_test_arm_q@PAGEOFF\n"
+        "ldr q0, [x10], #16\n"
+        "ldr q1, [x10]\n"
+        "adrp x11, _g_test_arm_which@PAGE\n"
+        "ldr x11, [x11, _g_test_arm_which@PAGEOFF]\n"
+        "cbz x11, 90f\n"                 // 0 = cm
+        "cmp x11, #1\n"
+        "b.eq 91f\n"                     // 1 = lu
+        "bl _revoke_clone_hook\n"        // 2 = clone（g_clone_message 关 → body 纯透传）
+        "b 92f\n"
+        "90: bl _revoke_cm_hook\n"
+        "b 92f\n"
+        "91: bl _revoke_lu_hook\n"
+        "92:\n"
+        "ldr x19, [sp, #0x10]\n"
+        "ldp x29, x30, [sp], #0x20\n"
+        "ret\n");
+}
+#endif
+
+void wxkeep_runtime_test_arm_thunk_setup(int which) {
+#if defined(__arm64__) || defined(__aarch64__)
+    void *cap = (void *)&arm_thunk_capture_stub;
+    g_test_arm_which = (unsigned long long)which;
+    g_test_cap_hit = 0;
+    for (int i = 0; i < 9; i++) g_test_cap_x[i] = 0;
+    for (int i = 0; i < 4; i++) g_test_cap_q[i] = 0;
+    if (which == kArmThunkCM) {
+        g_cm_real_wrapper = (void *(*)(void))cap;
+    } else if (which == kArmThunkLU) {
+        g_lu_real_wrapper = (void *(*)(void))cap;
+    } else {
+        g_clone_real_wrapper = (void *(*)(void *, void *, void *, void *,
+                                         void *, void *))cap;
+    }
+#endif
+}
+
+#if !defined(__arm64__) && !defined(__aarch64__)
+static void *arm_capture_c(void *a0, void *a1, void *a2, void *a3,
+                           void *a4, void *a5);
+#endif
+
+void wxkeep_runtime_test_arm_thunk_invoke(int which, const unsigned long long *x,
+                                          const unsigned long long *q) {
+#if defined(__arm64__) || defined(__aarch64__)
+    // C 侧地址逃逸（防 LTO 内化改名——naked driver 按名引用，同 used 注释惯例）
+    (void)(uintptr_t)&revoke_clone_hook;
+    (void)(uintptr_t)&revoke_cm_hook;
+    (void)(uintptr_t)&revoke_lu_hook;
+    g_test_arm_which = (unsigned long long)which;
+    for (int i = 0; i < 10; i++) g_test_arm_in[i] = x[i];
+    for (int i = 0; i < 4; i++) g_test_arm_q[i] = q ? q[i] : 0;
+    arm_thunk_driver();
+#else
+    // x64：cm/lu 行 inert（return NULL 桩，不带组）；clone thunk 是平 C——
+    // 直驱透传合同（弱覆盖；arm64 是主合同面）。g_clone_message 关 → 纯透传。
+    if (which == kArmThunkClone) {
+        void *a[6];
+        for (int i = 0; i < 6; i++) a[i] = (void *)(uintptr_t)x[i];
+        g_test_cap_hit = 0;
+        g_clone_real_wrapper = (void *(*)(void *, void *, void *, void *,
+                                         void *, void *))arm_capture_c;
+        revoke_clone_hook(a[0], a[1], a[2], a[3], a[4], a[5]);
+    }
+#endif
+}
+
+#if !defined(__arm64__) && !defined(__aarch64__)
+static void *arm_capture_c(void *a0, void *a1, void *a2, void *a3,
+                           void *a4, void *a5) {
+    g_test_cap_c[0] = (unsigned long long)(uintptr_t)a0;
+    g_test_cap_c[1] = (unsigned long long)(uintptr_t)a1;
+    g_test_cap_c[2] = (unsigned long long)(uintptr_t)a2;
+    g_test_cap_c[3] = (unsigned long long)(uintptr_t)a3;
+    g_test_cap_c[4] = (unsigned long long)(uintptr_t)a4;
+    g_test_cap_c[5] = (unsigned long long)(uintptr_t)a5;
+    g_test_cap_hit = 1;
+    return (void *)(uintptr_t)0x51B4DE;   // capture marker（x64 直驱）
+}
+#endif
+
+/// far 端捕获读回（hit=1 表示尾跳链完整走通；x/q 为调用方缓冲）。
+int wxkeep_runtime_test_arm_thunk_capture(unsigned long long *ox, unsigned long long *oq) {
+#if defined(__arm64__) || defined(__aarch64__)
+    if (ox) memcpy(ox, (const void *)g_test_cap_x, sizeof g_test_cap_x);
+    if (oq) memcpy(oq, (const void *)g_test_cap_q, sizeof g_test_cap_q);
+    return (int)g_test_cap_hit;
+#else
+    if (ox) {
+        for (int i = 0; i < 6; i++) ox[i] = g_test_cap_c[i];
+        for (int i = 6; i < 9; i++) ox[i] = 0;
+    }
+    if (oq) for (int i = 0; i < 4; i++) oq[i] = 0;
+    return (int)g_test_cap_hit;
+#endif
+}
+
+/// 快照读回：cm → [consumer, msg]；lu → [svc, keyptr, seq]；
+/// clone → [caller_x19, caller_sp]。返回写入数。
+int wxkeep_runtime_test_arm_thunk_state(int which, unsigned long long *out, int max) {
+    int n = 0;
+#if defined(__arm64__) || defined(__aarch64__)
+    if (which == kArmThunkCM) {
+        if (n < max) out[n++] = __atomic_load_n(&g_cm_consumer, __ATOMIC_RELAXED);
+        if (n < max) out[n++] = __atomic_load_n(&g_cm_msg, __ATOMIC_RELAXED);
+    } else if (which == kArmThunkLU) {
+        if (n < max) out[n++] = __atomic_load_n(&g_lu_svc, __ATOMIC_ACQUIRE);
+        if (n < max) out[n++] = __atomic_load_n(&g_lu_keyptr, __ATOMIC_ACQUIRE);
+        if (n < max) out[n++] = __atomic_load_n(&g_lu_seq, __ATOMIC_ACQUIRE);
+    } else {
+        if (n < max) out[n++] = __atomic_load_n(&g_clone_caller_x19, __ATOMIC_ACQUIRE);
+        if (n < max) out[n++] = __atomic_load_n(&g_clone_caller_sp, __ATOMIC_ACQUIRE);
+    }
+#endif
+    return n;
+}
+
+// ---------------------------------------------------------------------------
 // 函数级身份核对（77 续）：install 期按镜像自身元数据（段表 +
 // LC_FUNCTION_STARTS）核对行携带的 func_size/anchor。语义与 tools/machutil.py
 // 同源（VA 换算走段表、function starts 基址 = __TEXT 段 vmaddr、0 增量条目

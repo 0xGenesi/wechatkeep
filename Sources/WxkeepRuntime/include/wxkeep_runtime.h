@@ -166,6 +166,17 @@ int wxkeep_runtime_test_hook_row_ins(int idx, unsigned long *ctor_off,
 // M4 接线缝：clpub/clins 证据计数 + 插入护栏读回。
 void wxkeep_runtime_test_clone_ins_counts(int *probes, int *matches,
                                           int *calls, int *inserts, int *cnt_caps);
+// 三武装 thunk 执行级覆盖缝（129 轮遗留①）：which 0=cm 1=lu 2=clone。
+// setup 装 far 端 capture stub（测试独占，用例间重装）；invoke 经 driver 装
+// x0..x8/x19/q0/q1 后 bl 目标 thunk（clone 的 body 走 g_clone_message 关的
+// 纯透传——合成指针零解引用）；capture 读回寄存器透传与到达 marker；
+// state 读回快照（cm: consumer/msg；lu: svc/keyptr/seq；clone:
+// caller_x19/caller_sp）。x64 仅 clone 平 C 直驱。
+void wxkeep_runtime_test_arm_thunk_setup(int which);
+void wxkeep_runtime_test_arm_thunk_invoke(int which, const unsigned long long *x,
+                                          const unsigned long long *q);
+int wxkeep_runtime_test_arm_thunk_capture(unsigned long long *out_x, unsigned long long *out_q);
+int wxkeep_runtime_test_arm_thunk_state(int which, unsigned long long *out, int max);
 // M4 接线缝：探针直驱（生产 clone_ins_probe 同一条代码；base 非 0 时按
 // 认证门形态走，pub_vt_off=认证 vtable 切片偏移，0=门关闭）。
 void wxkeep_runtime_test_clone_ins_probe(unsigned long long svc,

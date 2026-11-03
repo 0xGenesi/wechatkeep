@@ -470,6 +470,30 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 129·三武装 thunk 执行级覆盖轮（124① 原文关账；2026-11-03；316 测全绿 +4）
+
+1. **[可注入 driver 缝]**：runtime.m 内 naked driver（从全局装 x0..x8/x19/
+   q0/q1 → 按 which bl 目标 thunk）+ far 端 capture stub（存 x0..x8/q0/q1 +
+   marker → ret）。生产路径零触碰（thunk 未改一字节，仅被 driver 按名引用；
+   C 侧地址逃逸防 LTO 内化，同 used 惯例）。clone thunk 的 bl _clone_hook_body
+   走真 body——g_clone_message 关（缝不置位）→ 首卫纯透传，合成指针零解
+   引用；「body 返回」由 capture-hit 侧面钉死（body 不返回则 ret 链断裂
+   测试当场崩）。
+2. **[ArmThunkTests 四测]**：①cm（R14 直挂）：x0/x1 快照 + 参数穿透 ldar
+   尾跳（蹦床收到的与入口恒等）；②lu（R15 直挂）：快照 + ldaddal 原子
+   序号两次 invoke +2（124 轮 P3 原子缝的执行面）；③clone（V3-M2 写点
+   thunk）：0xE0 帧全量保存/恢复——x0..x8 逐寄存器 + q0/q1 逐词恒等（错
+   位 ldp 在此现形）+ x19=0x1977 快照 + caller_sp 在场；④x64 clone 平 C
+   直驱弱覆盖（cm/lu 行 inert 不带组）。
+3. **[首跑自纠]**：套件并行跑共享 driver 全局装载体（g_test_arm_*）——
+   clone 的 cx 混入 cm/lu 字面量尾巴（3,4,5…）→ @Suite(.serialized) 收口
+   （RuntimeHookTests serialized 纪律同款）。
+4. **[验证链]**：316 测全绿（+4）；双架构 clang -c 零错（x64 本地兜底铁
+   律）；26 锚点 canonical 门绿；fuzz 20 万跑后入账（本缝非 parse 面不进
+   corpus——runtime.m 有改动按 SOP 复跑防回归）。
+5. **[遗留]**：124① 关账。pristine+毒药 SIGILL 对照面（128 登记）与
+   runtime 真机三 SLOT 链路验收维持用户窗口。
+
 ## 128·执行级遍历证明轮（V5-DEPTH 最后登记项关闭；2026-11-03；312 测全绿 +2）
 
 1. **[PatchTraversalTests]**：branch-flip 补丁类的执行级遍历证明——合成
