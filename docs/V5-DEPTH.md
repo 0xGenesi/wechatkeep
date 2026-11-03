@@ -79,9 +79,11 @@ spctl/codesign(1)（系统判官）；openssl Ed25519（三方互证）；Python
   - arm64 补丁的**执行级**遍历证明（毒化后继/映射执行）仍缺——L9 的
     branch-flip 是解码级证明（B 目标=cbz 目标 ⇒ 语义等价），非运行观测；
     与 ROADMAP 遗留①（三武装函数执行级覆盖）同族，独立工程轮。
-  - L7 oracle 的变异负控「空洞绿」未在本轮重设计（登记 ROADMAP）。
-  - L2/L6 全链 oracle 仍无法在 CI 跑（runner 无语料）——合成 fixture 上
-    runner 是已登记的独立轮。
+  - ~~L7 oracle 的变异负控「空洞绿」~~（127 轮收口：A/B 双 dump 三代
+    设计，跳过洞反转+灵敏度 floor，见 ROADMAP 127）。
+  - ~~L2/L6 全链 oracle 无法在 CI 跑~~（127 轮部分收口：合成 L2/L6 在 CI
+    真跑同一组不变量；真切片深度覆盖仍本地 SOP——差距如实入
+    SyntheticL2L6Tests docstring）。
   - `--patched` 局部性直证的对象是切片/未重签件或 __LINKEDIT 单列语义；
     全 bundle 级（多文件+Info.plist 面）未做。
 - 台账索引：`var/logs/isa-diff-*.txt`（L9）；`var/logs/launch-soak-*.txt`

@@ -470,6 +470,41 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 127·余留项实施轮：L7 负控三代收口（遗留②）+ 合成 L2/L6 CI oracle（遗留③）+ audit --app bundle 级复算（遗留④）（2026-11-03；310 测全绿 +2）
+
+1. **[遗留②：L7 负控三代]**：函数体在 77 续㊰ 已迁树级但 docstring 仍自称
+   「空洞绿」（文档漂移）+ 残余跳过洞（`guard let m = dumps[…] else
+   continue` 静默跳过 + 无 liveness 半边）。三代重写：**A/B 双 dump**——
+   同一 worker 对原始/变异语料各跑 treedump，逐变异件双向断言
+   （liveness=原始 dump 节点在场且取到值 / sensitivity=变异后消失或值
+   改变）+ 断言计数==变异数（跳过洞反转为断言）+ 灵敏度 floor≥8（语料
+   漂移防缩水）。**变异选择以 dumpOrig 为基准面**——首跑负控自己抓到
+   真语义：CDATA 形元素 .value() 是空串（文本在子节点），「翻转后值
+   改变」对空→空不成立；tag 改名恒可用、字节翻转只选 dump 值非空的
+   tag（oracle 自称看得见的面才需要证明灵敏度）。
+2. **[遗留③：合成 L2/L6 CI oracle]**：`SyntheticL2L6Tests`（无环境、CI
+   真跑——真 oracle 静默 skip 的「绿≠跑过」面收口）。L2：6 单点态
+   {variant × --only} + 链式态（切换往返/子集交叉）× 分组 inspect 无
+   .unknown × restore 后整文件 sha==pristine；**防洞断言**：每态 patch 后
+   sha 必变（引擎静默不写时 legal-sites 与 restore-sha 双双假绿——真
+   oracle 靠独立 269602 链测补、合成版内联）。L6：双独立副本 silent/
+   keeptip（切换路径）输出 sha 恒等 + ≠pristine + ≠彼此 + restore 归一。
+   与真 oracle 的差距如实入 docstring（无真链接器布局/签名/340MB/多
+   binary/lipo 拓扑；深度覆盖仍本地 SOP）。
+3. **[遗留④：audit --app bundle 级]**：`audit_patch.py --app <dir>
+   [--userData <dir>]`——逐 binary 自动取最新 `.wxkeep-bak-*`（Backup
+   惯例：主可执行在 userData/backups/<bundle>/，其余原目录；字典序=时序
+   同 prune 判据）作 pristine 参考，逐 arch 复算，任一 FAIL → 整体 FAIL。
+   单对模式语义不变（verify_pair 抽取共用）；备份缺失 FAIL 指路（prune/
+   删除不可复算如实报告）；变体切换机上备份可能是上一变体补丁态（warn
+   不 FAIL，与单对 before 语义一致）。**bundle 模式首版正负判据反转**
+   （verify_pair 返回 fail 被当 ok 用）——三态演练当场抓获即修（正例
+   EXIT=0 / 位点外注入 EXIT=1 / 备份缺失 FAIL 指路）。
+4. **[遗留①不动]**：arm64 执行级遍历证明维持独立工程轮（mini-loader
+   改造面，见 V5-DEPTH §5）。
+5. **[验证链]**：310 测全绿（+2 合成 L2/L6）；L7 负控本机实弹资产跑绿
+   （0.7s）；audit --app 三态演练绿；26 锚点 canonical 门绿。
+
 ## 126·遗留项实施轮：写故障注入缝（M08 十四轮首杀）+ 账本合并（B6）+ 处方分层（C6）+ 全量变异重基线 25/26（2026-11-03；308 测全绿 +5）
 
 1. **[遗留⑦：写故障注入缝]**：`Patcher.debugWriteFailureAt`（DEBUG-only；

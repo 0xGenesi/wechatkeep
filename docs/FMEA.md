@@ -61,7 +61,7 @@
 | E2 | 锚点漂移/歧义 → 变异静默 SKIP → 杀灭率分母缩水 | 代码演进 | canonical-anchor 门（计数恰 1 + 变异形态不在盘——125 续双评审 P1 后同 apply 口径） | pre-commit/CI | 125 轮首捕 M05/M12/M20；125 续再捕 M08（在场≠唯一，死 14 轮） | P1 |
 | E3 | 等价变异体误判防线缺口 | 数学等价形 | 等价判例成文（M23：无符号模运算蕴含）+ 换可杀形 | 杀灭率口径 | MAINTAINING 变异节 | P2 |
 | E5 | 写路径故障面不可观测（EIO/ENOSPC 中途写失败） | 无注入缝 → 恢复链行为不可测（M08 十四轮存活根因） | **注入缝**（126 轮遗留⑦：Patcher debugWriteFailureAt——DEBUG/URL 限定/fail-at(k)；Resigner debugAttemptHook 观测恢复重签是否被尝试） | undoMidWriteFailureTriggersRecoveryResign | M08 首杀（126 轮） | P1 |
-| E4 | oracle 在 CI 静默 skip（绿≠跑过） | runner 无语料 | 显式登记 + Makefile/SOP 入口 | MAINTAINING 孤岛清单 | V5-DEPTH §5 | P2 |
+| E4 | oracle 在 CI 静默 skip（绿≠跑过） | runner 无语料 | 显式登记 + Makefile/SOP 入口 + **合成 L2/L6 CI oracle**（127 轮：同一组不变量 CI 真跑 + 防洞 sha 断言；真切片仍本地 SOP） | CI 腿 + SyntheticL2L6Tests | 127 轮部分关账 | P2 |
 
 ## 使用约定
 

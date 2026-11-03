@@ -621,6 +621,11 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   `Resigner.debugAttemptHook`（观测恢复重签是否被尝试）。用例 defer 复位。
   范例：undoMidWriteFailureTriggersRecoveryResign（M08 首杀）。新增写入/
   恢复防线时优先用此缝做故障路径回归，不再接受「不可观测」的暴露登记。
+  **bundle 级复算（127 轮遗留④）**：`python3 tools/audit_patch.py --app
+  /Applications/WeChat.app --audit <userData>/wxkeep.audit.json
+  [--userData <userData>]`——逐 binary 自动取最新 `.wxkeep-bak-*` 写前
+  备份做 pristine 参考（主可执行在 backups/<bundle>/，其余原目录），单
+  命令复算全 bundle；备份被 prune 的 binary 如实 FAIL 指路。
 - **变异器护栏（125 轮）**：`make hooks` 安装 pre-commit（sentinel 在场或
   任一 MUTATIONS 锚点不在 canonical 态 → 拒提交）；变异器自带启动自愈
   （检见泄漏 sentinel → 逐项反向还原 → 拒跑 exit 2）；CI canonical-anchor

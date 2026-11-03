@@ -158,11 +158,19 @@ struct ParseOracleTests {
         }
     }
 
-    /// 变异负控：翻转 tag 字节 → 对应变体断言必红（oracle 灵敏度证明，
-    /// 防空转绿灯）。每语料至少一个变异体，断言其与原始期望分歧。
-    /// ⚠️ 提取面待迁 0x4bd26a8 前，分歧判据 `m.newmsgid != expected` 对
-    /// "oracle 什么都提取不出"也成立——本测当前为**空洞绿**（灵敏度
-    /// 证明力要等断言面迁移后恢复；见 corpusGreenMatrix 注）。
+    /// 变异负控（127 轮收口，遗留②）——A/B 双 dump 灵敏度证明：
+    /// 同一 worker 对**原始语料**与**变异语料**各跑一次 treedump，逐变异
+    /// 文件断言双向：liveness（原始 dump 里目标节点在场且取到值——
+    /// oracle 看得见本该存在的东西）+ sensitivity（变异后节点消失/值
+    /// 改变——oracle 能报出损伤）。判据完全自持，不再依赖
+    /// corpusGreenMatrix 的旁证。
+    ///
+    /// 126 轮前的两代空洞及其关闭：
+    /// - 一代（run() struct 判分歧）：0x4bc4d34 提取臂是死代码，恒真绿；
+    /// - 二代（树级但单向）：判据自持了，但 `guard let m = dumps[…] else
+    ///   continue` 是静默跳过洞（worker 对变异件整树失败 → 零断言仍绿），
+    ///   且无 liveness 半边（「变异后节点消失」对「oracle 从来什么都
+    ///   看不见」也成立）。三代：断言计数 == 变异数（零跳过）+ A/B 双向。
     @Test(.disabled(if: !ParseOracleTests.assetsPresent,
                     "实弹语料/pristine 切片不在场（CI）——空过"))
     func mutationNegativeControls() throws {
@@ -171,57 +179,90 @@ struct ParseOracleTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        // 变异面：newmsgid tag 字节（'d'→'e'）/ newmsgid 数字 / replacemsg 内容字节
-        var mutated = 0
+        // —— A/B 基准面先立：原始语料 dump ——
+        // 变异选择以 dumpOrig 为基准（首跑实证：CDATA 形的元素 .value()
+        // 是空串——文本在子节点，「翻转后值改变」对空→空不成立。oracle
+        // 自称看得见的面才需要证明灵敏度：tag 改名恒可用；字节翻转只选
+        // dump 值非空的 tag）。
+        let dumpOrig = try ParseOracle.runTreeDumps(binary: ParseOracleTests.binary,
+                                                    corpusDir: ParseOracleTests.repoRoot.appendingPathComponent("var/wxarm"),
+                                                    executable: ParseOracleTests.wxkeepBinary)
+        func value(_ kvs: [ParseOracle.TreeKV]?, _ tag: String) -> String? {
+            kvs?.first { $0.tag == tag }?.value
+        }
+
+        // 变异面（按基准面择伤）：①newmsgid tag 改名（'d'→'e' → 节点
+        // 消失，对 CDATA 形恒有效）；②否则取 dump 值非空的 replacemsg/
+        // content 翻内文首字节（值改变）。都不满足 = 该件不在 oracle
+        // 可见面内 = 不 eligible（如实跳过，不计入证明面）。
+        var mutatedFiles: [(file: String, kind: String)] = []
         for url in ParseOracleTests.corpusFiles {
             guard var data = try? Data(contentsOf: url) else { continue }
-            let fact = ParseOracleTests.facts(from: data, file: url.lastPathComponent)
-            var did = false
-            if let r = data.range(of: Data("<newmsgid>".utf8)) {
-                data[r.lowerBound + 9] = UInt8(ascii: "e")   // <newmsgie>
-                did = true
-            } else if let r = data.range(of: Data("<replacemsg>".utf8)), r.upperBound < data.count {
-                data[r.upperBound] ^= 0x20                    // replacemsg 内文首字节翻转
-                did = true
-            } else if let r = data.range(of: Data("<content>".utf8)), r.upperBound < data.count {
-                data[r.upperBound] ^= 0x20
-                did = true
+            let origDump = dumpOrig["\(url.lastPathComponent)|orig"]
+            var kind: String? = nil
+            if data.range(of: Data("<newmsgid>".utf8)) != nil {
+                if let r = data.range(of: Data("<newmsgid>".utf8)) {
+                    data[r.lowerBound + 9] = UInt8(ascii: "e")
+                    kind = "newmsgid-tag"
+                }
+            } else {
+                for tag in ["replacemsg", "content"] {
+                    guard value(origDump, tag)?.isEmpty == false,
+                          let r = data.range(of: Data("<\(tag)>".utf8)),
+                          r.upperBound < data.count else { continue }
+                    data[r.upperBound] ^= 0x20
+                    kind = "\(tag)-byte"
+                    break
+                }
             }
-            guard did, fact.newmsgid != nil || (fact.replacemsg?.isEmpty == false) else { continue }
+            guard let k = kind else { continue }
             try data.write(to: dir.appendingPathComponent(url.lastPathComponent))
-            mutated += 1
+            mutatedFiles.append((url.lastPathComponent, k))
         }
-        guard mutated > 0 else { return }
+        // 灵敏度 floor：实弹语料 ≥16 件（assetsPresent），群/私形态 16/16
+        // 零例外（T5 语料事实）——eligible 全量变异后必须仍成规模，防
+        // 「语料漂移后只剩零星件」让证明力悄然缩水。
+        #expect(mutatedFiles.count >= 8,
+                "可变异语料件 \(mutatedFiles.count) < 8——语料漂移，灵敏度 floor 失守")
 
-        // 树级负控（77 续㊰）：变异体经 treedump 与原始期望比对——
-        // tag 改名 → 对应节点消失；内容字节翻转 → 对应节点值改变。
-        // （旧实现用 run() 的 struct 提取判分歧——0x4bc4d34 提取臂是死代码，
-        // 恒真绿；树级判定无此空洞。）
-        let dumps = try ParseOracle.runTreeDumps(binary: ParseOracleTests.binary,
-                                                 corpusDir: dir,
-                                                 executable: ParseOracleTests.wxkeepBinary)
-        func value(_ kvs: [ParseOracle.TreeKV], _ tag: String) -> String? {
-            kvs.first { $0.tag == tag }?.value
-        }
-        for url in ParseOracleTests.corpusFiles {
-            guard let m = dumps["\(url.lastPathComponent)|orig"] else { continue }
-            let original = ParseOracleTests.facts(from: try Data(contentsOf: url),
-                                                  file: url.lastPathComponent)
-            guard original.newmsgid != nil || (original.replacemsg?.isEmpty == false) else { continue }
-            var diverged = false
-            if original.newmsgid != nil {
-                // <newmsgie> 变异 → newmsgid 节点从树中消失
-                diverged = value(m, "newmsgid") == nil
-            } else if let repData = original.replacemsg, !repData.isEmpty,
-                      let rep = String(data: repData, encoding: .utf8) {
-                // 内容字节翻转 → replacemsg/content 节点值 != 原文
-                if let mv = value(m, "replacemsg") { diverged = mv != rep }
-                else if let cv = value(m, "content"), let oc = String(data: repData, encoding: .utf8) {
-                    diverged = cv != oc
-                } else { diverged = true }
+        // —— 变异语料 dump（同一 worker、同一模式）——
+        let dumpMut = try ParseOracle.runTreeDumps(binary: ParseOracleTests.binary,
+                                                   corpusDir: dir,
+                                                   executable: ParseOracleTests.wxkeepBinary)
+
+        // 零静默跳过：每个变异件两条断言（liveness + sensitivity）都必须
+        // 实际执行——dump 缺键 = worker 对该件整树失败 = 红（这正是二代
+        // 的跳过洞，反转为断言）。
+        var asserted = 0
+        for m in mutatedFiles {
+            let o = dumpOrig["\(m.file)|orig"]
+            let v = dumpMut["\(m.file)|orig"]
+            guard o != nil, v != nil else {
+                Issue.record("\(m.file): dump 缺键（orig=\(o != nil) mut=\(v != nil)）——worker 对该件失败，负控链断裂")
+                continue
             }
-            #expect(diverged, "\(url.lastPathComponent): 变异体应使树级断言变红（oracle 灵敏度）")
+            switch m.kind {
+            case "newmsgid-tag":
+                let live = value(o, "newmsgid")
+                #expect(live != nil, "\(m.file): liveness——原始 dump 必须含 newmsgid 节点（oracle 看得见在场物）")
+                #expect(value(v, "newmsgid") == nil,
+                        "\(m.file): sensitivity——<newmsgie> 变异后节点必须消失")
+                if live != nil && value(v, "newmsgid") == nil { asserted += 1 }
+            case "replacemsg-byte", "content-byte":
+                let tag = String(m.kind.dropLast(5))
+                let origVal = value(o, tag)
+                #expect(origVal?.isEmpty == false,
+                        "\(m.file): liveness——\(tag) 原始值非空（变异即按此面选的伤）")
+                let mutVal = value(v, tag)
+                #expect(mutVal != origVal,
+                        "\(m.file): sensitivity——首字节翻转后 \(tag) 值必须改变（got \(mutVal.map { String($0.prefix(24)) } ?? "nil")）")
+                if origVal?.isEmpty == false && mutVal != origVal { asserted += 1 }
+            default:
+                Issue.record("\(m.file): 未知变异类 \(m.kind)")
+            }
         }
+        #expect(asserted == mutatedFiles.count,
+                "断言执行 \(asserted)/变异 \(mutatedFiles.count)——差额 = 静默跳过（灵敏度证明不完整）")
     }
 
     /// 纯逻辑面（不依赖资产，CI 可跑）：zero_tag_digits 移植与
