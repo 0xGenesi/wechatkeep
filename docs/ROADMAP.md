@@ -470,6 +470,36 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 131·SOP 补账轮：L1/L2/L6 真 oracle 于 125-127 改动后全量复验（L2/L6 各 32/32 分批绿；2026-11-03）
+
+> 缺口来源：MAINTAINING 铁律「改 Engine/Patcher/restoreAsm 语义后必跑
+> verify_reversibility/verify_determinism」——125-127 轮改了 Patcher 写循环
+> （auditSink 逐条交付）、Engine restoreTargets（siteSink 贯通）、CLI 合并
+> 落账，真切片全链 oracle 却停在 123 轮基线。本轮补上。
+
+1. **[L1]**：747 OK / 0 失配（44 quarantined + 1007 无切片跳过=既有诚实
+   边界）；交叉核对未启（--otool-sample 默认 0）。
+2. **[L2 可逆性 32/32]**：首跑 21 构建后进程无摘要硬死（✘ 行 0、无崩溃
+   报告）——定性链：resume 尾批 270345 单构建隔离跑 1.5s 全绿 → 数据无
+   恙；采样器抓现行 → **swapfiles 吃穿卷**（swap 峰值 48G 的匿名内存在
+   swift-test 长链下振荡，Data 卷 0 avail → ENOSPC/lipo errno=28/静默杀
+   三种面同一根因）；机器内存高度受压（91% 容量+swap 8-48G 振荡）为环
+   境性。处置：--resume 分批（21+11）→ **32/32 全 ✓**。安全链正面记录：
+   ENOSPC 时 Backup 拒写=「拒无备份补丁」防线按设计工作。
+3. **[L6 确定性 32/32]**：首跑 20 构建全 ✓（silent/keeptip 双路径双副本
+   sha 恒等）→ 同墙 → resume 12/12 → **32/32**。
+4. **[工具加固]**：两 oracle 脚本 +①磁盘预检（<8G 拒跑并说明防线语义）；
+   ②scratch 自清；③失败时三要素诊断（rc/✘ 行数/df 水位）；④--resume
+   续跑（读当日台账 ✓ 集；修 **冒号 bug**：台账行 split()[1] 带「:」与
+   plan 裸构建号永不匹配=resume 静默失效——首版即被「台账 42 行>21 构建」
+   异常当场暴露）。
+5. **[教训入册]**：①长链 oracle 在低余量机器上必须可分批（resume 是机
+   制不是补丁）；②管道 `| head` 会 SIGPIPE 杀后台跑（本轮实证：前台
+   诊断跑被自己 head 杀、退出码误读 0）；③harness 里 kill 采样器会覆盖
+   `$?`——SCRIPT_EXIT 判读须以脚本自身判定行为准。
+6. **[验证链]**：L1 747/0；L2 32/32；L6 32/32——125-127 的 Engine/Patcher
+   语义改动在真切片全链上复验通过；26 锚点门绿不变。
+
 ## 130·SIGILL 对照面 + 实机冒烟轮（2026-11-03；317 测全绿 +1）
 
 1. **[SIGILL 对照面收口（128 登记诚实边界）]**：子进程骨架——测试内

@@ -13,6 +13,7 @@ sha256）——这是「全管线（patch+resign）确定性」命题的前置�
 
 用法: python3 tools/verify_determinism.py
 """
+import argparse
 import datetime
 import json
 import os
@@ -28,11 +29,20 @@ ROOT = os.path.dirname(HERE)
 WXARM = os.path.join(ROOT, "var", "wxarm")
 
 
-def build_plan():
+def build_plan(skip_done=False):
     builds = sorted({f[:f.index("_")] for f in os.listdir(WXARM)
                      if re.match(r"^\d+_(arm64|x64)\.dylib$", f)})
+    # resume（2026-11-03）：跳过当日台账已 ✓ 的构建（长链在内存受压机器上
+    # 分批完成；同 L2 的 jetsam 实证）
+    done = set()
+    log = os.path.join(ROOT, "var", "logs",
+                       f"l6-determinism-{datetime.date.today().strftime('%Y%m%d')}.txt")
+    if skip_done and os.path.exists(log):
+        done = {ln.split()[1].rstrip(":") for ln in open(log) if ln.startswith("L6 ")}
     plan = []
     for b in builds:
+        if b in done:
+            continue
         arm = os.path.join(WXARM, f"{b}_arm64.dylib")
         x64 = os.path.join(WXARM, f"{b}_x64.dylib")
         if os.path.exists(arm) and os.path.exists(x64):
@@ -66,7 +76,11 @@ def codesign_determinism_probe():
 
 
 def main():
-    plan = build_plan()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--resume", action="store_true",
+                    help="续跑：跳过当日台账已 ✓ 的构建（长链在内存受压机器上分批完成）")
+    args = ap.parse_args()
+    plan = build_plan(skip_done=args.resume)
     if not plan:
         print("var/wxarm 无成对切片——无事可做")
         sys.exit(1)
@@ -108,7 +122,7 @@ def main():
     os.makedirs(os.path.dirname(log), exist_ok=True)
     header = (f"L6 确定性 oracle — {len(plan)} 构建 × 双架构（{stamp}）\n"
               f"codesign ad-hoc 确定性（informational）: {cs_verdict}\n\n")
-    open(log, "w").write(header + out)
+    open(log, "a" if args.resume and any("✓" in ln for ln in out.splitlines()) else "w").write(header + out)
 
     l6_lines = [l for l in out.splitlines() if l.startswith("L6 ")]
     failed = "✘" in out or "failed" in out or len(l6_lines) != len(plan)

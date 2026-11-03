@@ -636,7 +636,7 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   （检见泄漏 sentinel → 逐项反向还原 → 拒跑 exit 2）；CI canonical-anchor
   Guard 步同判据。**代码演进后锚点漂移 = 变异静默 SKIP = 杀灭率分母缩水**，
   125 轮首捕 3 例（M05/M12/M20）——改被变异覆盖的行时必须同步刷新锚点。
-- **可逆性穷举** `python3 tools/verify_reversibility.py`：真 Patcher/真切片
+- **可逆性穷举** `python3 tools/verify_reversibility.py [--resume]`：真 Patcher/真切片
   lipo 合 fat → {silent, keeptip, --only 各子集, 链式切换} 全状态迁移，每态
   「位点字节∈合法集」+ restore 后整文件 sha256 == pristine。改 Engine/
   Patcher/restoreAsm 语义后必跑（比位点比对强的哈希预言）。
@@ -650,11 +650,14 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   等价变异体判例（125 轮 M23）：`a>=b && a-b<c` 与 `a-b<c` 无符号模运算
   下数学等价（下溢回环补位）——等价行不得计入杀灭率分母，须换可杀形
   （整门移除/界宽）并登记。
-- **确定性 oracle（L6）** `python3 tools/verify_determinism.py`：真切片
+- **确定性 oracle（L6）** `python3 tools/verify_determinism.py [--resume]`：真切片
   双副本独立运行 → patch 输出 sha256 恒等（silent+keeptip 双路径）+ restore
   回 pristine；附带 codesign ad-hoc 确定性实证（informational——实证为
   每次相异 1 字节，全管线 sha 恒等不作标准）。改 Engine/Patcher 写入语义
   后必跑。证据落 var/logs/l6-determinism-*.txt。
+  **--resume（2026-11-03）**：两 oracle 支持续跑——读当日台账 ✓ 集跳过已
+  完成构建（长链在内存受压机器上会被 jetsam/swapfiles 挤盘打断，分批完
+  成；台账冒号 bug 修复后语义可靠）。磁盘 <8G 预检拒跑。
 - **启动浸泡门槛** `python3 tools/launch_soak.py [--plan]`：隔离副本全链
   patch → 浸泡 → 存活断言 → DiagnosticReports(WeChat .ips) 零新增。
   --plan（不启 GUI）可在 CI/无人值守跑；真 soak 弹登录窗属用户触发。
