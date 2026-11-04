@@ -20348,11 +20348,9 @@
   "version": "23440"
  },
  {
-  "version": "270350",
   "targets": [
    {
     "binary": "Contents/Resources/wechat.dylib",
-    "identifier": "revoke",
     "entries": [
      {
       "addr": "4e7ccd0",
@@ -20381,11 +20379,11 @@
       ],
       "source": "wxkeep:parse-guard test→xor 翻转（270350 冗余 silent，locate_x64_parse_guard 几何派生）"
      }
-    ]
+    ],
+    "identifier": "revoke"
    },
    {
     "binary": "Contents/Resources/wechat.dylib",
-    "identifier": "revoke-keeptip",
     "entries": [
      {
       "addr": "516d2a0",
@@ -20425,11 +20423,11 @@
       ],
       "source": "wxkeep:270350 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
      }
-    ]
+    ],
+    "identifier": "revoke-keeptip"
    },
    {
     "binary": "Contents/Resources/wechat.dylib",
-    "identifier": "update",
     "entries": [
      {
       "addr": "2d4fc0",
@@ -20575,16 +20573,16 @@
       ],
       "source": "wxkeep:objc:objc:setCanCheckForUpdate:@270350"
      }
-    ]
+    ],
+    "identifier": "update"
    }
-  ]
+  ],
+  "version": "270350"
  },
  {
-  "version": "270351",
   "targets": [
    {
     "binary": "Contents/Resources/wechat.dylib",
-    "identifier": "revoke",
     "entries": [
      {
       "addr": "4e79a44",
@@ -20613,11 +20611,11 @@
       ],
       "source": "wxkeep:parse-guard test→xor 翻转（270351 冗余 silent，locate_x64_parse_guard 几何派生）"
      }
-    ]
+    ],
+    "identifier": "revoke"
    },
    {
     "binary": "Contents/Resources/wechat.dylib",
-    "identifier": "revoke-keeptip",
     "entries": [
      {
       "addr": "516cf00",
@@ -20657,11 +20655,11 @@
       ],
       "source": "wxkeep:270351 keeptip arm64——revoke_arm64_gen3 几何派生（cbz 归一 + 存储清零）"
      }
-    ]
+    ],
+    "identifier": "revoke-keeptip"
    },
    {
     "binary": "Contents/Resources/wechat.dylib",
-    "identifier": "update",
     "entries": [
      {
       "addr": "2d4fc0",
@@ -20807,8 +20805,39 @@
       ],
       "source": "wxkeep:objc:objc:setCanCheckForUpdate:@270351"
      }
-    ]
+    ],
+    "identifier": "update"
    }
-  ]
+  ],
+  "version": "270351"
+ },
+ {
+  "targets": [
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "4e7d74c",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "516de40",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ],
+    "identifier": "revoke"
+   }
+  ],
+  "version": "270352"
  }
 ]
