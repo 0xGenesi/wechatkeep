@@ -256,18 +256,22 @@ def main():
                 try:
                     req = urllib.request.Request(url, headers={"User-Agent": "wxkeep-backfill"})
                     with urllib.request.urlopen(req, timeout=900) as r, open(dmg.name, "wb") as f:
-                        # 限速下载（2026-11-04 用户要求 ≤3MB/s——回填轮整兆带宽
-                        # 会挤占机器正常网络）：64KB 块 + 节流 sleep。
+                        # 分时限速（2026-11-05 用户指示）：白天（08:00–23:00
+                        # 本地时间）≤3MB/s——整兆带宽挤占正常网络；夜间解除。
+                        # 64KB 块 + 节流 sleep 实现。
                         expected = int(r.headers.get("Content-Length") or 0)
                         got = 0
                         pace = 0.0216   # 64KB / 3MB/s
+                        hour = time.localtime().tm_hour
+                        throttle = 8 <= hour < 23
                         while True:
                             chunk = r.read(65536)
                             if not chunk:
                                 break
                             f.write(chunk)
                             got += len(chunk)
-                            time.sleep(pace)
+                            if throttle:
+                                time.sleep(pace)
                     actual = os.path.getsize(dmg.name)
                     if expected and actual != expected:
                         print(f"      下载不完整: {actual}/{expected} 字节，跳过 {tag}")
