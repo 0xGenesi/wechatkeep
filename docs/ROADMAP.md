@@ -568,6 +568,19 @@ WeChat.app）→ 对冲失败误判 3 份可归因。修正=签名 procPath 归�
 不受影响）。重跑全绿：补丁臂 45s 存活 + 5 份噪声全对冲 +
 「门槛通过」行落台账（launch-soak-20261104-112735.txt）。
 
+**133 续㊂·270352 三域派生 + v0.2.17 发版（2026-11-04）**：①CDN 拉
+4.2.0.16 dmg（544MB，7.3MB/s）→ thin 双切片入 var/wxarm（pristine 抽验
+双架构 ✓）→ **keeptip 4 + update 16 + parse-guard 三域派生入目**（目录达
+123 构建）——newmsgid 转换 call 位点以「三构建同模式第 9 站点」对位法
+派生（270350@568fb8d/270351@568f7ed/270352@569072d，rel32 E8DE3DE9FF 跨
+构建恒同=call 目标恒定函数——模式+序位双锚定，比单 VA 外推强一级）；
+arm64 store 位点实读 60E600F9 与 270351 全等。L1 抽验 23/23；manifest
+重签 + openssl 独立验签；326 测全绿（首跑 3 issues = 并行资源竞争抖动，
+两连重跑绿）。②**v0.2.17 发版**（源码-only）：CI 三 job 全绿 @16f8975 →
+tag + notes + git archive sha256（fe22ceed…），release assets 空 ✓（资产
+停发 closure criterion）；**发版门=evidence-ledger 八族全 PASS 首发**——
+L14 台账门自本版起成为发版实体。微信已恢复启动（用户态还原）。
+
 ## 132·push + CI 首跑轮（八轮提交上 origin；CI 三腿抓三真 bug 全修全绿；2026-11-03）
 
 > push 范围 825d47a..ce54acf（125 续至 131 全部轮次 + 本轮三修）。CI 首跑
