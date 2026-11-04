@@ -121,7 +121,16 @@ def crash_signature(report_file):
                 idx = fr.get("imageIndex", 0)
                 img = imgs[idx] if idx < len(imgs) else {}
                 frame_sig = f'{img.get("name", "?")}+{fr.get("symbol", "?")}'
-        return f'{b.get("procName", "?")}|{b.get("procPath", "?")}|{exc}|{frame_sig}'
+        # procPath 归一（133 续实证修正）：soak 两臂副本路径必不同
+        # （control-WeChat.app vs WeChat.app 隔离区名）——全路径进签名会让
+        # 同类环境崩溃永远无法对冲（本次 AppEx 沙盒噪声 3+3 份同签名构型
+        # 仅路径异 → 补丁臂 3 份误判可归因）。归一为 bundle 尾段
+        # （X.app/Contents/MacOS/exe），真机实例归因已由 classify_reports
+        # 的全路径比对提前分流，不受影响。
+        path = b.get("procPath", "?")
+        m = re.search(r"([^/]+\.app)/Contents/MacOS/([^/]+)$", path)
+        path_sig = f"{m.group(1)}/{m.group(2)}" if m else path
+        return f'{b.get("procName", "?")}|{path_sig}|{exc}|{frame_sig}'
     except Exception:
         return None
 

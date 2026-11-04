@@ -558,6 +558,16 @@ manifest-sign job 合并后补签（D3 行设计内）。同窗：`launch_soak -
 干跑前置全绿（工具链 ✓）；真 soak 待用户窗口（微信在运行，需退出+
 副本弹登录窗）。
 
+**133 续㊁·真 soak 全绿 + 归因签名路径漏洞修正（2026-11-04）**：SOAK
+门收口（ledger 八族全 PASS exit=0——发版门自此全绿）。首跑红揭出 89 轮
+签名对冲设计的路径漏洞：AppEx 沙盒噪声（EXC_BREAKPOINT|
+_libsecinit_appsandbox，副本路径启动的已知环境形态）控制组 3 份与补丁臂
+3 份同签名构型，唯 procPath 隔离区目录名异（control-WeChat.app vs
+WeChat.app）→ 对冲失败误判 3 份可归因。修正=签名 procPath 归一为 bundle
+尾段（X.app/exe；真机实例归因由 classify_reports 全路径比对提前分流，
+不受影响）。重跑全绿：补丁臂 45s 存活 + 5 份噪声全对冲 +
+「门槛通过」行落台账（launch-soak-20261104-112735.txt）。
+
 ## 132·push + CI 首跑轮（八轮提交上 origin；CI 三腿抓三真 bug 全修全绿；2026-11-03）
 
 > push 范围 825d47a..ce54acf（125 续至 131 全部轮次 + 本轮三修）。CI 首跑
