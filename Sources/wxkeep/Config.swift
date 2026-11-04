@@ -244,6 +244,14 @@ struct Config {
     /// 备份/OTA 与普通用户 doctor 同域），不跟 euid 漂到 /var/root。
     static var userDataURL: URL {
         if let override = _userDataURLOverride { return override }
+        #if DEBUG
+        // L16 非合作崩溃缝（V7-DEPTH D20/R20）的隔离钥匙：子进程真跑 CLI 时
+        // 把 journal/备份导向沙盒目录，不污染真实用户数据位。DEBUG-only +
+        // 未设环境变量时零行为差（与 Patcher.debugWriteFailureAt 同款纪律）。
+        if let dir = ProcessInfo.processInfo.environment["WXKEEP_DATA_DIR"], !dir.isEmpty {
+            return URL(fileURLWithPath: dir, isDirectory: true)
+        }
+        #endif
         return RealUser.homeURL()
             .appendingPathComponent("Library/Application Support", isDirectory: true)
             .appendingPathComponent("wxkeep")

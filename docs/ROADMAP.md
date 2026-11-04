@@ -1,5 +1,13 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-11-05 134 轮后状态修订（V7-DEPTH 第四代）**：①「更深不大」
+> 第四代交付——L15 单群闭包（深度尾巴消灭）/ L16 非合作崩溃矩阵
+> （SIGKILL 模型首测）/ L17 差分引擎孪生（独立实现逼出五条真 spec）/
+> L18 目录自洽审计（23 指纹 + 172/172 耦合不变量）/ L19 台账复算门
+> （七族重跑匹配）；②124-②applySwaps 启动清扫落地；③Windows M1-R1
+> 侦察轮收窄攻击面（wxkeep-core 已推）。**334 测全绿**；在册用户窗口项
+> 不变：3.x 行为五格 / M4 认证值实弹（r8pub/r9pub）/ clsvc 副本 E2E。
+
 > **2026-11-02 124 轮后状态修订**：①**P0 x86_64 编译损坏修复**（R14/R15
 > 全局错嵌 arm64 分支——120/122 轮引入，23 提交未推期 CI Rosetta 腿从未
 > 见过；本地双架构 clang 兜底揭出，教训=CI 绿不等于当前 HEAD 可编译）；
@@ -469,6 +477,87 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 达）；Rosetta 翻译切片盲区（doctor nativeArch 过滤，实机 x64-on-AS 场
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
+
+## 134·V7-DEPTH 第四代「更深不大」轮——消灭穷举自己的尾巴（L15-L19 + 124-② + Win M1-R1；2026-11-05）
+
+> 原始需求（同句第四次重提）：「我需要这个程序的更深版本，而不是更大版本。」
+> 第四代答卷 [V7-DEPTH.md](V7-DEPTH.md)——D19-D24 / L15-L19 / R19-R24。
+> 前三代把证明从抽样升到穷举；这一代每一条都精确封掉 V6 §6 显式登记的一条
+> 未证明面。产品行为零变更（R24：CLI 表面/字节产出不变；唯二产品码改动 =
+> 124-②既登记强化 + 两条 DEBUG-only 测试缝）。
+
+1. **[L15 变换单群闭包]**：L11 深度 3/4 穷举的「无限尾巴」用代数闭包消灭
+   （W-方法脉络，Chow 1978）：不枚举序列，枚举**状态变换**——5 生成元在
+   6 抽象态上的可达变换集合 BFS 到饱和 = **恰 7 类、半径 2**（代数推导
+   预言 = 实测命中）；①闭包自证（任一变换 × 任一生成元仍可达）②半径即
+   封口（≤R+2 词域变换集合 == 闭包集合）③每类最短代表词真引擎实测折叠
+   预言成立 ④每类另取非最短词（>R 优先）实测与代表词**逐字节恒等**——
+   「同变换类引擎行为一致」残差假设的直接采样 ⑤生成元幂等代数面钉死。
+   深度数字从此不再是论证的一部分。
+2. **[L16 非合作崩溃矩阵]**：L10 fail-at(k) 是合作式（throw→unwind→
+   清理执行）；断电/SIGKILL 零展开形态首次实测——同位点自毙缝
+   （Patcher.debugKillAtWriteSite，双钥匙 WXKEEP_KILL_AT+WXKEEP_KILL_BIN
+   防误武装；计数 = 跨 Patcher 调用写序号，与 L10 同口径）。**子进程真跑
+   CLI**（完整编排链 journal→引擎→收口；WXKEEP_DATA_DIR DEBUG 缝隔离
+   journal/备份不污染真实用户数据位）。20 格矩阵 + 随机墙钟偏移抖动臂
+   （kill 落在运行窗外 = 干净跑断言面同构 + killedCount>0 灵敏度自证），
+   五断言全绿：死于信号 9 / 尸体盘面合法集 / doctor 只读判读不崩 /
+   restore 收敛 == pristine / 跨崩溃确定性。**首跑揭出三真问题**：
+   kill@k off-by-one（0 基 vs 1 基）、夹具不可过 codesign 严格校验
+   （ResignerTests 同结论——合成 Mach-O 从不存活）→ 全链 --no-resign、
+   写位点计数缝跨套件互踩 flaky → 改 RunSummary 自报口径（written 行 +
+   restoredSites，天然无竞态）。诚实边界：resign 相位非合作 kill 未覆盖
+   （由 L10 throw 臂 + journal resigned 位 + 残留强制重签间接承接；真件
+   resign 相位 SIGKILL = 真件 SOP 增量，V7 §6 登记）。
+3. **[L17 差分引擎孪生]**：引擎写入语义的**第二独立实现**（Python 槽位级
+   字节模拟：变体互斥 undo / 归一化 / only 过滤 / always-apply / 共享 VA
+   后写者赢 / 混长 / 隔离条目 alreadyPatched 先于 missingExpected /
+   restore preflight）× 真 CLI 随机差分。真 catalog 全 123 构建 2001 条目
+   VA 重排进合成 fat 夹具（dylib + 主可执行**双 binary 分域**——3.x 老构建
+   target 落在 Contents/MacOS/WeChat）；种子化 60 试验 × 多种子全绿。
+   **差分迭代逼出五条真 spec 规则**（每条都是首跑红 → 判读 → 收进孪生）：
+   ①restore 对不可物化 target 整体拒绝（268850）；②无 expected 条目在
+   alreadyPatched 时不拒（268851 multiInstance 无操作条目）；③undo 臂被
+   跳过时共享 VA 后写者赢（268851 @488c734）；④undo 触发条件 = 变体
+   target ∈ 选中集（--only update 不含 → 不触发；--only revoke 含 → 触发，
+   270352 parse-guard 位点实证）；⑤**同名多 target**（37335 双 revoke
+   target 分属两 binary——引擎循环选中全部、undo 只还原 first）。
+   工具 make engine-twin；asm 含通配槽位只断合法集（计数登记）。
+4. **[L18 目录自洽审计]**：家族同构断言从 ROADMAP 散文升格为常态机检
+   （Daikon/BinDiff 脉络）：INV1 变体配对 / **INV2 共享 VA 归一化耦合
+   （172/172 对零破例——revoke.asm 与 pristine 双双 ⊆ keeptip.expected）** /
+   INV3 三域不可还原条目白名单（28 构建 = 133 续㊃ 永久缺口定案集）/
+   INV4 重复 identifier 白名单（8 构建 per-binary 拆分先例——37335 类）/
+   **INV5 家族指纹表（23 指纹 × 计数固化；新指纹须显式登记 + 出处，计数
+   缩水即红——auto-PR 键序重排类威胁自此有守卫）** / INV6 target 内
+   (arch,addr) 唯一 / 总量 tripwire（123 构建/2001 条目）。负控双红实证
+   （改单 asm → 新指纹红；破坏耦合 → INV2 红）。
+5. **[L19 台账复算门]**：证据从「记录历史」升格为「可重推导」（reproducible-
+   builds 学派）：gen_evidence_ledger.py --recheck 重跑各族生成命令断言
+   判定行复现——L1/L2/L6/L15/L16/L17/L18 七族重跑匹配；L9/L12/L13 真件
+   语料族如实登记 needs-corpus（缺席不红，复算域显式化）；SOAK = 用户
+   窗口族（不可无人值守）。台账族注册扩至 11 族；make evidence-recheck。
+6. **[124-② applySwaps 启动清扫]**：单 rename 崩溃窗（.bak 在场+final
+   缺席半套态）此前要等下次成功重跑才自愈——installStaged 入口
+   sweepCrashResidue 先修复（孤儿 .bak 放回 final 恢复完整旧集）；
+   正常并存态不误伤；两回归测试（清扫前置可见性 + 混合态全链）。
+7. **[Windows M1-R1 侦察轮]**（时间盒）：排除 reedit 枢纽（纯字符串分析
+   器，零存储调用）与解析层（0x1817db510 = secmsg JSON 字段构建器——
+   secmsg/newmsgid/sec_msg_node/bubble-type/preview-type/fr-type/
+   risk-file-flag/risk-file-md5-list 明文实证）；消息表三锚点落位
+   （Msg/Message cstring + 引用者，0x180a5fcb0 正是谓词族街区）；
+   Ghidra 快路复现（noanalysis + .pdata 播种 + 定点反编译 7 函数）；
+   M1 主攻面修正至 newmsgid 消费链下游执行层。详见
+   [wxkeep-core ROADMAP M1-R1](https://github.com/0xGenesi/wxkeep-core)。
+
+[验证链] swift test 全量绿（**334 测** = 326 + L15×3 + L16×3 + 124-②×2；
+case 展开另计 +22：崩溃矩阵 20 格 + 计数/抖动臂）；fuzz 20 万输入零报告（SOP 全跑）；L17 60 试验 ×
+多种子零分歧；L18 全 catalog 审计绿 + 负控双红；L19 复算门七族匹配；
+release 构建干净（0.2.17，DEBUG 缝零泄漏）；变异重基线台账另存
+（var/logs/mutation-test-20261105.txt）。台账索引：var/logs/
+monoid-closure-*、kill-matrix-*、engine-twin-*、family-invariants-*、
+evidence-recheck-*。make 新目标：monoid-ledger / kill-ledger / engine-twin
+/ family-invariants / evidence-recheck。
 
 ## 133·V6-DEPTH 第三代「更深不大」轮（证明完备性：穷举替代抽样；产品码零变更；2026-11-04）
 

@@ -65,6 +65,12 @@
 | E2 | 锚点漂移/歧义 → 变异静默 SKIP → 杀灭率分母缩水 | 代码演进 | canonical-anchor 门（计数恰 1 + 变异形态不在盘——125 续双评审 P1 后同 apply 口径） | pre-commit/CI | 125 轮首捕 M05/M12/M20；125 续再捕 M08（在场≠唯一，死 14 轮） | P1 |
 | E3 | 等价变异体误判防线缺口 | 数学等价形 | 等价判例成文（M23：无符号模运算蕴含）+ 换可杀形 | 杀灭率口径 | MAINTAINING 变异节 | P2 |
 | E5 | 写路径故障面不可观测（EIO/ENOSPC 中途写失败） | 无注入缝 → 恢复链行为不可测（M08 十四轮存活根因） | **注入缝**（126 轮遗留⑦：Patcher debugWriteFailureAt——DEBUG/URL 限定/fail-at(k)；Resigner debugAttemptHook 观测恢复重签是否被尝试） | undoMidWriteFailureTriggersRecoveryResign | M08 首杀（126 轮） | P1 |
+| E6 | 崩溃安全证明只有合作式模型（throw→unwind→清理路径执行）——断电/SIGKILL 零展开形态从未实测 | 真实崩溃（kill -9/断电） | **非合作崩溃缝**（134 轮：Patcher.debugKillAtWriteSite 同位点自毙，双钥匙 WXKEEP_KILL_AT+WXKEEP_KILL_BIN + WXKEEP_DATA_DIR 隔离） | KillMatrixTests 20 格 + 抖动臂 | 134 轮 | P1 |
+| E7 | 状态机主张带深度尾巴（≤4 穷举 + 「浅层蕴含」论证） | 更长命令序列 | **变换单群闭包**（134 轮 L15：枚举到饱和 7 类 + 半径 2 + 代表词/非最短词双实测） | StateMachineMonoidTests | 134 轮 | P1 |
+| E8 | 引擎写入语义只有同源测试（Swift 测 Swift，共享误解不可见） | 引擎逻辑缺陷 | **差分引擎孪生**（134 轮 L17：Python 槽位级独立实现 × 真 CLI 随机差分 60 试验/种子） | make engine-twin | 134 轮 | P1 |
+| E9 | 家族同构断言活在散文里（auto-PR 键序重排类威胁无人守卫） | config.json 机械改动 | **目录自洽审计**（134 轮 L18：23 指纹表 + 172/172 共享 VA 耦合 + 白名单） | make family-invariants | 134 轮 | P1 |
+| E10 | 证据台账只记录历史（sha 漂移失真不可见） | 时间/后续轮覆盖 | **复算门**（134 轮 L19：--recheck 重跑各族生成命令断言判定行复现；SOAK=用户窗口/语料族如实登记） | make evidence-recheck | 134 轮 | P1 |
+| B10 | applySwaps 单 rename 崩溃窗留半套态（.bak 在场+final 缺席）直到下次成功重跑 | 进程死于两次 rename 之间 | **启动清扫**（134 轮 124-②：installStaged 入口 sweepCrashResidue——孤儿 .bak 放回 final 恢复完整旧集） | UpdateDataTests 两测 | 134 轮 | P2 |
 | E4 | oracle 在 CI 静默 skip（绿≠跑过） | runner 无语料 | 显式登记 + Makefile/SOP 入口 + **合成 L2/L6 CI oracle**（127 轮：同一组不变量 CI 真跑 + 防洞 sha 断言；真切片仍本地 SOP） | CI 腿 + SyntheticL2L6Tests | 127 轮部分关账 | P2 |
 
 ## 使用约定

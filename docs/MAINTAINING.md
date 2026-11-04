@@ -1747,6 +1747,28 @@ var/wxarm/SeedFunctionStarts.java 入库（复现入口）；无代码改动；/
 > 自主可做项至此全部收口；剩余 = 今晚对照轮（用户窗口，协议在
 > t5-live-session-state 记忆）+ L7/L8 独立轮 + v0.2.14（T5 收口后）。
 
+## V7 深度轮 SOP（134 轮起）
+
+「更深不大」第四代（docs/V7-DEPTH.md）的五件仪器与发版接线：
+
+| 目标 | 命令 | 频率 | 判定行 |
+|---|---|---|---|
+| L15 单群闭包台账 | `make monoid-ledger` | 结构变更后 + 发版前 | `Suite StateMachineMonoidTests passed` |
+| L16 非合作崩溃台账 | `make kill-ledger` | 写路径变更后 + 发版前 | `Suite KillMatrixTests passed` |
+| L17 差分引擎孪生 | `make engine-twin`（`WXKEEP_TWIN_TRIALS=200` 加大） | 引擎语义变更后 + 发版前 | `L17 PASS trials=… diffs=0` |
+| L18 目录自洽审计 | `make family-invariants` | config.json 任何改动后（含 watcher auto-PR 审）+ 发版前 | `L18 PASS …` |
+| L19 台账复算门 | `make evidence-recheck` | 发版前（evidence-ledger 之后） | `RECHECK PASS families=… mismatches=0` |
+
+- L17/L18 是 **auto-PR 审查的一等工具**：键序重排不伤指纹（语义 diff），
+  数据丢失/损坏必红——133 续 watcher 首审的人工判断自此有机器底座。
+- L18 白名单三处（QUARANTINED_BUILDS / DUP_ID_BUILDS / 指纹表）改动
+  必须带 ROADMAP 轮号出处；新派生轮 = 新指纹登记后入表。
+- L16 的 DEBUG 缝纪律：WXKEEP_KILL_AT/WXKEEP_KILL_BIN 双钥匙防误武装
+  （release 二进制无此缝）；WXKEEP_DATA_DIR 仅 DEBUG——子进程隔离
+  journal/备份。真件 resign 相位的非合作 kill 为登记未做面（需真
+  WeChat 副本 SOP）。
+- 变异 SOP 不变（杀灭率 ≥90% 门）；台账 var/logs/mutation-test-*.txt。
+
 ## 发版策略（2026-10-31 起）：源码-only
 
 > 用户裁定：release 资产额度耗尽，此后**只发源码，不再自打包上传任何

@@ -95,6 +95,56 @@ final class UpdateDataTests {
         #expect(leftovers.isEmpty, "成功后不留暂存/备份")
     }
 
+
+    /// 124-② 崩溃残留启动清扫（134 轮）：applySwaps 单 rename 崩溃窗留下
+    /// 「.bak 在场 + final 缺席」半套态——installStaged 入口清扫必须先修复
+    /// （孤儿 .bak 放回 final = 恢复完整旧集），随后正常安装照常完成；
+    /// 正常 .bak+final 并存态（上次成功换位的清理失败）不被误伤。
+    @Test func stagedInstallSweepsCrashResidueBakOrphans() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-swp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dest = dir.appendingPathComponent("dest")
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        let src = dir.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        // 崩溃尸体：a 有孤儿 .bak（final 缺席）；b 正常 .bak+final 并存；
+        // c 完整旧集。
+        try "old-a".write(to: dest.appendingPathComponent(".bak-a.json"), atomically: true, encoding: .utf8)
+        try "old-b".write(to: dest.appendingPathComponent("b.json"), atomically: true, encoding: .utf8)
+        try "old-b-bak".write(to: dest.appendingPathComponent(".bak-b.json"), atomically: true, encoding: .utf8)
+        try "old-c".write(to: dest.appendingPathComponent("c.json"), atomically: true, encoding: .utf8)
+        for f in ["a.json", "b.json", "c.json"] {
+            try "new-\(f)".write(to: src.appendingPathComponent(f), atomically: true, encoding: .utf8)
+        }
+
+        try UpdateData.installStaged(from: src, to: dest, payload: ["a.json", "b.json", "c.json"])
+
+        // 全部换位完成 + 残留清光（孤儿 .bak 已被清扫消费，b 的并存 .bak
+        // 被 applySwaps 预清处理）。
+        for f in ["a.json", "b.json", "c.json"] {
+            #expect(try String(contentsOf: dest.appendingPathComponent(f), encoding: .utf8) == "new-\(f)")
+        }
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dest.path)
+            .filter { $0.hasPrefix(".staging-") || $0.hasPrefix(".bak-") }
+        #expect(leftovers.isEmpty, "清扫+换位后不留残留：\(leftovers)")
+    }
+
+    /// 孤儿 .bak 修复的**前置可见性**：只调清扫（不装新集）也恢复完整旧集。
+    @Test func sweepAloneHealsOrphanedBakToCompleteOldSet() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-swp2-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try "old-a".write(to: dir.appendingPathComponent(".bak-a.json"), atomically: true, encoding: .utf8)
+        UpdateData.sweepCrashResidue(dest: dir, payload: ["a.json"])
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("a.json").path),
+                "孤儿 .bak 应已放回 final")
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(".bak-a.json").path),
+                "孤儿 .bak 应已消费")
+    }
+
     /// staging 换位回滚：①payload 中途缺文件（阶段一失败）→ 既有安装集
     /// 一字未动 + 暂存清光；②换位中途失败（applySwaps 直驱：第二文件的
     /// stage 在换位时缺席）→ **已换位的第一文件回滚回旧内容**——目录停

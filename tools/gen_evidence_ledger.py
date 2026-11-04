@@ -41,6 +41,10 @@ LEDGERS = {
     # 「测试绿」判据面；台账索引见 V6-DEPTH §6）。
     "L12": (r"confusion-matrix.*\.txt", [r"L12 PASS"]),
     "L13": (r"bundle-effect.*\.txt", [r"L13 PASS"]),
+    "L15": (r"monoid-closure.*\.txt", [r"Suite StateMachineMonoidTests passed"]),
+    "L16": (r"kill-matrix.*\.txt", [r"Suite KillMatrixTests passed"]),
+    "L17": (r"engine-twin.*\.txt", [r"L17 PASS"]),
+    "L18": (r"family-invariants.*\.txt", [r"L18 PASS"]),
     "SOAK": (r"launch-soak.*\.txt", [r"门槛通过"]),
 }
 # 精确失败形态（计数为 0 的 FAIL 是成功形态——L9 台账 "PASS 660 FAIL 0"）：
@@ -51,7 +55,7 @@ FAIL_MARKERS = (r"FAIL\s+[1-9]", r"FAIL=[1-9]", r"MISMATCH=[1-9]",
 # 登记不假装跑过）；真件深度族（L2/L6/L9/SOAK）缺失 = 发版门红——源码-only
 # 发版策略下它们是「全绿」的实体。L10 崩溃矩阵/L12+L13 合成矩阵在 swift
 # test 全量（CI 双腿）常跑，其真件腿台账在场时验 PASS、缺席降级登记。
-OPTIONAL = {"L1", "L12", "L13"}
+OPTIONAL = {"L1", "L12", "L13", "L15", "L16", "L17", "L18"}
 
 
 def sha256(path):
@@ -79,9 +83,86 @@ def latest_ledger(family, pattern):
     return os.path.join(LOGS, best) if best else None
 
 
+# 复算命令注册（--recheck 用）：family → shell 命令（在 ROOT 下执行）。
+# 判定提取复用 LEDGERS 正则；时间戳/耗时类噪声天然排除在判定行外。
+# SOAK 无命令 = 用户窗口族（需真微信退出+副本弹登录窗，不可无人值守重跑）。
+RECHECK_CMDS = {
+    "L1": "var/venv/bin/python tools/sweep_ground_truth.py 2>&1 | tee /tmp/l1-recheck.txt || true",
+    "L2": "swift test --disable-sandbox -Xswiftc -load-plugin-library -Xswiftc "
+          "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib "
+          "--filter L2ReversibilityTests 2>&1 | tee /tmp/l2-recheck.txt || true",
+    "L6": "swift test --disable-sandbox -Xswiftc -load-plugin-library -Xswiftc "
+          "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib "
+          "--filter L6DeterminismTests 2>&1 | tee /tmp/l6-recheck.txt || true",
+    "L15": "swift test --disable-sandbox -Xswiftc -load-plugin-library -Xswiftc "
+           "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib "
+           "--filter StateMachineMonoidTests 2>&1 | tee /tmp/l15-recheck.txt || true",
+    "L16": "swift test --disable-sandbox -Xswiftc -load-plugin-library -Xswiftc "
+           "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib "
+           "--filter KillMatrixTests 2>&1 | tee /tmp/l16-recheck.txt || true",
+    "L17": "python3 tools/diff_engine_twin.py --trials 20 --seed 99 2>&1 | tee /tmp/l17-recheck.txt || true",
+    "L18": "python3 tools/verify_family_invariants.py 2>&1 | tee /tmp/l18-recheck.txt || true",
+}
+RECHECK_USER_WINDOW = {"SOAK"}
+# L9/L12/L13 需真件语料/var-venv 或真 WeChat 副本且命令参数随环境——
+# 首版复算门覆盖「可无人值守重跑」的族；这些族按 recheck:needs-corpus
+# 如实登记（缺席不红，复算域显式化——V7 §6 诚实边界）。
+
+
+def derive_verdict(family, text):
+    """与主流程同一套规则（suite-last / 判定正则 / 失败标志）→ PASS|FAIL*。"""
+    pattern, verdict_rxs = LEDGERS[family]
+    suite_name = {"L2": "L2ReversibilityTests", "L6": "L6DeterminismTests",
+                  "L15": "StateMachineMonoidTests", "L16": "KillMatrixTests"}.get(family)
+    if suite_name:
+        runs = [r for r in re.findall(r"(✘|✔)\s+Suite (\w+Tests) (passed|failed)", text)
+                if r[1] == suite_name]
+        if runs:
+            return "PASS" if runs[-1][0] == "✔" and runs[-1][2] == "passed" else "FAIL"
+        return "NO-VERDICT-LINE"
+    hits = [rx for rx in verdict_rxs if re.search(rx, text)]
+    has_fail = any(re.search(m, text) for m in FAIL_MARKERS)
+    if hits and not has_fail:
+        return "PASS"
+    return "FAIL-MARKERS-PRESENT" if hits else "NO-VERDICT-LINE"
+
+
+def recheck(ledger):
+    """重跑每族生成命令 → 新判定 vs 台账判定（语义一致才绿）。"""
+    report = {}
+    mismatches = []
+    for family in sorted(LEDGERS):
+        entry = ledger["families"].get(family, {})
+        stored = entry.get("result")
+        if family in RECHECK_USER_WINDOW:
+            report[family] = {"recheck": "user-window",
+                              "note": "真 soak 需用户窗口（微信退出+副本登录）——不可无人值守复算"}
+            continue
+        cmd = RECHECK_CMDS.get(family)
+        if cmd is None:
+            report[family] = {"recheck": "needs-corpus",
+                              "note": "真件语料族（var/venv + var/wxarm + 真 WeChat 副本），首版复算域外"}
+            continue
+        if not stored:
+            report[family] = {"recheck": "skipped", "note": "无在场台账（复算无基准）"}
+            continue
+        r = subprocess.run(cmd, shell=True, cwd=ROOT, capture_output=True, text=True, timeout=1800)
+        fresh = r.stdout
+        # tee 已写 /tmp 文件，但 stdout 也带全量（shell tee 双写）
+        fresh_verdict = derive_verdict(family, fresh)
+        ok = fresh_verdict == stored
+        report[family] = {"recheck": "ran", "stored": stored, "fresh": fresh_verdict,
+                          "match": ok}
+        if not ok:
+            mismatches.append(family)
+    return report, mismatches
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(LOGS, "evidence-ledger.json"))
+    ap.add_argument("--recheck", action="store_true",
+                    help="复算门：重跑各族生成命令并断言判定行复现（V7-DEPTH R23）")
     args = ap.parse_args()
 
     ledger = {
@@ -163,6 +244,26 @@ def main():
               f"（真件深度族是发版门实体，见 V6-DEPTH §3）。")
     if failing:
         print(f"✗ FAIL/无结论行族：{', '.join(failing)}")
+
+    if args.recheck:
+        report, mismatches = recheck(ledger)
+        ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        rc_path = os.path.join(LOGS, f"evidence-recheck-{ts}.txt")
+        with open(rc_path, "w") as f:
+            for fam, rep in sorted(report.items()):
+                f.write(f"{fam}: {json.dumps(rep, ensure_ascii=False)}\n")
+            verdict = "RECHECK PASS" if not mismatches else "RECHECK FAIL"
+            line = f"{verdict} families={len(report)} mismatches={len(mismatches)}"
+            f.write(line + "\n")
+        print(f"复算门：{rc_path}")
+        for fam, rep in sorted(report.items()):
+            tag = rep.get("recheck", "?")
+            detail = rep.get("match", rep.get("note", ""))
+            print(f"  {fam}: {tag} {detail}")
+        if mismatches:
+            print(f"✗ 复算不一致族：{', '.join(mismatches)}")
+            sys.exit(1)
+
     sys.exit(0 if ledger["result"] == "PASS" else 1)
 
 

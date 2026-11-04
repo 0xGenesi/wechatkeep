@@ -84,6 +84,33 @@ struct Patcher {
     /// 进程全局缝会误伤并发用例——注入器只对目标二进制路径生效。DEBUG-only
     ///（生产零缝）；用例 defer 复位。
     static nonisolated(unsafe) var debugWriteFailureAt: ((URL, Int) -> Error?)?
+
+    /// 非合作崩溃缝（V7-DEPTH D20/R20，134 轮）：与 fail-at(k) 同位点、
+    /// **同位点自毙**——`kill(getpid(), SIGKILL)`，零栈展开（throw 式注入会
+    /// 走 unwind，defer/清理路径照常执行——那是「引擎优雅处理错误」，不是
+    /// 「断电后盘面合法」；两个故障模型，SQLite 崩溃测试机械的分工）。测试
+    /// 以子进程真跑 CLI 时经环境变量武装：**双钥匙**（WXKEEP_KILL_AT=位点序
+    /// 号 + WXKEEP_KILL_BIN=目标二进制绝对路径），任一不匹配不触发——防误
+    /// 武装真实补丁。
+    /// 位点序号语义与 L10 fail-at(k) 对齐 = **跨 Patcher.patch 调用的写序号**
+    /// （引擎按 target 分多次调用，每调内 index 从 0 起——按闭包调用次数计
+    /// 数，CrashMatrixTests 同款）。kill 在单写 syscall 边界生效（内核完成
+    /// 当前小写入），单写内部撕裂不在此模型（归 APFS/硬件层，V6 §6 已登记
+    /// 同类边界）。DEBUG-only，未设环境变量时零行为差。
+    nonisolated(unsafe) static var debugKillWriteCounters: [String: Int] = [:]
+    static func debugKillAtWriteSite(_ binary: URL, _ index: Int) {
+        _ = index   // 单调词内序号不作门（跨调用计数才与 L10 的 k 同义）
+        guard ProcessInfo.processInfo.environment["WXKEEP_KILL_AT"] != nil,
+              let bin = ProcessInfo.processInfo.environment["WXKEEP_KILL_BIN"],
+              bin == binary.standardizedFileURL.path
+        else { return }
+        let path = binary.standardizedFileURL.path
+        debugKillWriteCounters[path, default: 0] += 1
+        if let want = ProcessInfo.processInfo.environment["WXKEEP_KILL_AT"],
+           String(debugKillWriteCounters[path]!) == want {
+            kill(getpid(), SIGKILL)
+        }
+    }
 #endif
 
     /// per-site 审计数据（125 轮 V5 深度轮）：被覆写的字节与出处。Phase-1
@@ -165,6 +192,7 @@ struct Patcher {
         for (index, write) in writes.enumerated() {
 #if DEBUG
             if let injected = Patcher.debugWriteFailureAt?(binary, index) { throw injected }
+            Patcher.debugKillAtWriteSite(binary, index)
 #endif
             try handle.seek(toOffset: write.offset)
             try handle.write(contentsOf: write.data)

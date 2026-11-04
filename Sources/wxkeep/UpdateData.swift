@@ -162,6 +162,7 @@ enum UpdateData {
     /// 既有安装集一字未动）；阶段二 applySwaps 逐文件 rename 换位。
     static func installStaged(from workDir: URL, to dest: URL,
                               payload: [String] = UpdateData.payload) throws {
+        sweepCrashResidue(dest: dest, payload: payload)
         var staged: [StagedItem] = []
         do {
             for rel in payload {
@@ -180,6 +181,27 @@ enum UpdateData {
             throw error
         }
         try applySwaps(staged)
+    }
+
+    /// 崩溃残留启动清扫（124-② 强化，134 轮落地）：applySwaps 的单 rename
+    /// 崩溃窗（final 已移入 .bak、stage 未及移入 final——进程死在两 rename
+    /// 之间）会留下「.bak-<rel> 在场 + final 缺席」的半套态，直到下次成功
+    /// 重跑才自愈。本清扫在 installStaged **入口**先修复该态：孤儿 .bak 放
+    /// 回 final（恢复完整旧集——旧集永远是安全基线）；正常的 .bak+final
+    /// 并存（上次成功换位的清理失败，窄路径）不动——applySwaps 自身的
+    /// 预清逻辑按需处理。清扫失败如实抛（半套态下继续安装可能放大混乱）。
+    static func sweepCrashResidue(dest: URL, payload: [String]) {
+        let fm = FileManager.default
+        for rel in payload {
+            let final = dest.appendingPathComponent(rel)
+            let backup = dest.appendingPathComponent(".bak-" + rel)
+            if !fm.fileExists(atPath: final.path),
+               fm.fileExists(atPath: backup.path) {
+                try? fm.moveItem(at: backup, to: final)
+                // move 失败（如 final 突然出现）不视为致命——applySwaps 预清
+                // 会再处理；此处只保证「尽力恢复完整旧集」。
+            }
+        }
     }
 
     /// 换位阶段：逐文件 rename（同卷原子，换位窗=单文件 rename 微秒级）。

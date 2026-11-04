@@ -5,7 +5,8 @@
 #   make release    单文件分发产物 ./wxkeep（universal + stripped + ad-hoc 签名）
 #   make clean
 
-.PHONY: build release clean test verify-isa verify-confusion evidence-ledger hooks
+.PHONY: build release clean test verify-isa verify-confusion evidence-ledger \
+	evidence-recheck engine-twin family-invariants monoid-ledger kill-ledger hooks
 .ONESHELL:
 
 # 交叉编译双架构需要完整 Xcode（xcbuild）；CLT-only 环境回退单架构。
@@ -48,6 +49,31 @@ verify-confusion:
 # tag 前必跑，接线见 MAINTAINING 发版策略节）。
 evidence-ledger:
 	python3 tools/gen_evidence_ledger.py
+
+# L19 台账复算门（134 轮）：重跑各族生成命令并断言判定行复现（SOAK=
+# 用户窗口族如实登记；L9/L12/L13 真件语料族首版域外）。
+evidence-recheck:
+	python3 tools/gen_evidence_ledger.py --recheck
+
+# L15/L16 台账生成（swift Suite 行；TestingMacros 显式装载——本机
+# macOS 27 CLT 插件发现间歇失效的可靠解）。
+TM = /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib
+monoid-ledger:
+	swift test --disable-sandbox -Xswiftc -load-plugin-library -Xswiftc $(TM) \
+	  --filter StateMachineMonoidTests 2>&1 | tee var/logs/monoid-closure-$$(date +%Y%m%d-%H%M%S).txt
+
+kill-ledger:
+	swift test --disable-sandbox -Xswiftc -load-plugin-library -Xswiftc $(TM) \
+	  --filter KillMatrixTests 2>&1 | tee var/logs/kill-matrix-$$(date +%Y%m%d-%H%M%S).txt
+
+# L17 差分引擎孪生（134 轮）：Python 独立实现 vs 真 CLI 随机差分
+# （--trials 加大 = 本地 SOP 档）。
+engine-twin:
+	python3 tools/diff_engine_twin.py --trials $${WXKEEP_TWIN_TRIALS:-60}
+
+# L18 目录自洽审计（134 轮）：家族指纹 + 语义不变量 + 白名单。
+family-invariants:
+	python3 tools/verify_family_invariants.py
 
 # 变异器护栏（125 轮）：安装 pre-commit 钩子（sentinel/锚点 canonical 门）。
 hooks:
