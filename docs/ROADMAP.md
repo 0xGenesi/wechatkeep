@@ -610,6 +610,17 @@ M0 验收=5+4 测全绿（seed 装载门防手写漂移）；M1 第一优先=「
 docs/3X-ACCEPTANCE-RUNBOOK.md（数据隔离警告/撤回行为矩阵五格/已知边界
 如实/收尾还原），行为级五格待用户窗口。
 
+**133 续㊅·GitHub runner 容量回收故障模式（2026-11-04 晚，133 续㊄ 的 CI 收尾取证）**：
+2c195b3（文档+测试 commit）的 CI 三轮被 cancel——latest-stable ×2（各跑
+~15 分钟后被回收）+ manifest-sign ×1（runner 已分配但从未执行）。取证：
+①无 concurrency 配置（非互斥取消）；②16.4 腿同 commit rerun 即绿（非
+测试红——测试红带失败步骤，cancelled 无日志落盘）；③时间形态与官方
+「macos arm64 runner 容量告警」吻合。**权威门判定不受影响**：双测试腿在
+最终 commit 全绿（rerun 确证）+ 腿内 openssl manifest 验签门随行通过
+（2c195b3 未触碰 config/signatures，manifest 自 b9e2279 起即对 master
+有效——re-sign job 本轮无内容可签）。E 面新行候选：runner 回收=「cancelled
+且无失败步骤且 rerun 即绿」三联判据，遇之 rerun 即可，不当作代码红。
+
 ## 132·push + CI 首跑轮（八轮提交上 origin；CI 三腿抓三真 bug 全修全绿；2026-11-03）
 
 > push 范围 825d47a..ce54acf（125 续至 131 全部轮次 + 本轮三修）。CI 首跑
