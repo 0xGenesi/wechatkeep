@@ -176,6 +176,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.json")
     ap.add_argument("--limit", type=int, default=3, help="本次最多处理的构建号数")
+    ap.add_argument("--only", help="逗号分隔构建号白名单（133 续实证：268-269 老"
+                   "线 8 构建全灭烧 2-3GB/个——3.x/4.0 早期线在 zsbai dated tag，"
+                   "用 --only 直达避免降序排序先烧无归档线）")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--dylib", help="本地 dylib（跳过下载，逻辑验证用）")
     ap.add_argument("--version", help="配合 --dylib 指定构建号")
@@ -198,6 +201,12 @@ def main():
     print(f"隔离区: {len(quarantined)} 个构建号, "
           f"{sum(len(x) for x in quarantined.values())} 条 entry")
 
+    only = set(args.only.split(",")) if args.only else None
+    if only:
+        quarantined = {k: v for k, v in quarantined.items() if k in only}
+        if not quarantined:
+            print("--only 白名单内无隔离条目")
+            return
     todo = {}
     if args.dylib and args.version:
         todo[args.version] = args.dylib
@@ -247,8 +256,18 @@ def main():
                 try:
                     req = urllib.request.Request(url, headers={"User-Agent": "wxkeep-backfill"})
                     with urllib.request.urlopen(req, timeout=900) as r, open(dmg.name, "wb") as f:
-                        shutil.copyfileobj(r, f)
+                        # 限速下载（2026-11-04 用户要求 ≤3MB/s——回填轮整兆带宽
+                        # 会挤占机器正常网络）：64KB 块 + 节流 sleep。
                         expected = int(r.headers.get("Content-Length") or 0)
+                        got = 0
+                        pace = 0.0216   # 64KB / 3MB/s
+                        while True:
+                            chunk = r.read(65536)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            got += len(chunk)
+                            time.sleep(pace)
                     actual = os.path.getsize(dmg.name)
                     if expected and actual != expected:
                         print(f"      下载不完整: {actual}/{expected} 字节，跳过 {tag}")

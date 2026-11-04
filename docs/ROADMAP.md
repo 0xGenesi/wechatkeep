@@ -581,6 +581,18 @@ tag + notes + git archive sha256（fe22ceed…），release assets 空 ✓（资
 停发 closure criterion）；**发版门=evidence-ledger 八族全 PASS 首发**——
 L14 台账门自本版起成为发版实体。微信已恢复启动（用户态还原）。
 
+**133 续㊃·quarantined 74 条目回填终审轮（2026-11-04）**：backfill_expected
+全量穷尽（官方 CDN 直链 + zsbai 111 release，候选降级链 + tagmap 跨轮缓存）
+→ **74 条目 / 28 构建全部无对应小版本归档 = 永久缺口定案**（2026-10-29
+的「CDN 可得」翻案对这 28 构建不成立——可得性仅覆盖有营销版本映射的构建）。
+工具同步三改入库：①`--only` 白名单（268-269 线 8 构建全灭烧 2-3GB/个的
+教训——降序排序先烧无归档线，白名单直达有希望域）；②**下载限速 ≤3MB/s**
+（用户要求——整兆带宽挤占正常网络，64KB 块+节流 sleep）；③日志直写
+（tee 管道全缓冲曾丢整轮日志——`python3 -u` + 直接重定向）。真机侧同窗：
+doctor 揭出升级器抹除态（字节 pristine + runtime 在役双层独立——两次误判
+教训入 memory：判态必须 doctor 全行解读）→ keeptip+update 重打恢复
+protected（免 sudo——app 对用户可写）+ update-guard 重开。
+
 ## 132·push + CI 首跑轮（八轮提交上 origin；CI 三腿抓三真 bug 全修全绿；2026-11-03）
 
 > push 范围 825d47a..ce54acf（125 续至 131 全部轮次 + 本轮三修）。CI 首跑
