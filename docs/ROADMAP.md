@@ -470,6 +470,82 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 景罕见）；3.x 真机验收/Windows GO/群聊 tip 的 R3 RE 仍待后续轮+用户
 窗口。
 
+## 133·V6-DEPTH 第三代「更深不大」轮（证明完备性：穷举替代抽样；产品码零变更；2026-11-04）
+
+> 原始需求（同句三提）：「我需要这个程序的更深版本，而不是更大版本。」
+> 第三代答卷 [V6-DEPTH.md](V6-DEPTH.md)——D14-D18 / L10-L13+L14 / R13-R18。
+> 前两代把防线立起，这一代把「防线有效」的证明从抽样升格为**穷举**；
+> 产品代码/CLI 表面零变更（R18 反目标），全部落点 = 测试 + 工具 + 文档。
+
+1. **[L10 崩溃点穷举矩阵]**：M08 写故障缝（126 轮立）此前只有 fail-at-0
+   一个杀例——「任意写位点失败都可收敛」从未被证明。`CrashMatrixTests`
+   把穷举补满：5 命令场景 × 各自**全部**写位点（20 格参数化），每格
+   fail-at(k) 注入断言五不变量（PartialWriteFailure 族 / 盘面合法集 /
+   restore 位点级收敛 / 跨崩溃确定性 == 干净直打 / 恢复重签防线触达——
+   patch 场景 ≥1、restore 场景按设计 ==0：Engine.restoreTargets 失败无
+   恢复重签，journal+doctor interrupted 承接）。
+   设计要点：对照副本**实测**写位点数与登记对账（格子自校验——位点数
+   不是拍脑袋）；收敛判据用位点级字节直证而非整文件 sha（恢复重签的
+   codesign 签名尾是设计内噪声，位点级直证把「崩溃收敛」与「局部性」
+   解耦——后者归 L13）；`.serialized` + URL 限定双保险（全局缝并发纪律）。
+2. **[L11 有界模型检查]**：L2 固定链是设计者想象的一条路径；用户实际
+   命令序列是任意组合。`StateMachineExhaustiveTests` 对 5 命令字母表
+   BFS 穷举深度 3（**155 序列**，参数化），每序列：逐步合法集 + **净效应幂等**
+   （X;X 的值恒等——写计数不作断言面，双变体共享 VA 上第二次执行可经
+   undo 臂产生净零但非零次的写）+ **折叠预言**（终态位点字节只是净效果
+   {变体态 × update 触达} 的函数——任何序列依赖记忆效应即红）+ restore
+   右零元。归一化条目「keeptip 态 revoke 位点 == pristine 字节」语义在
+   预言函数中显式建模。155 条深度 3 全绿；深度 4（625 条）登记为可选增量
+   （迁移函数不变 ⇒ 深层翻车必先在浅层露出）。
+3. **[L12 混淆矩阵]**：「expected 门挡错版」从未被证伪测量——共享序言
+   构型下字节门对错版条目**按设计放行**，此前从未写成契约。
+   `ConfusionMatrixTests`：4×4 合成全矩阵（对角 4 接受 + 共享序言对 2
+   接受=边界契约 + 其余 10 格精确 expectedMismatch 零假接受）+ patched
+   态再拒负控；`ConfusionMatrixRealTests`（env-gated）+ `tools/verify_
+   confusion_matrix.py`（真语料普查：config.json revoke 条目 × var/wxarm
+   切片，inspect 只读；python 独立实现双向复核——接受格 ⇔ 独立确认字节
+   相等，不一致=假接受红灯；共享构型规模量化入台账）。
+4. **[L13 bundle 级局部性]**：关闭 V5 §5 登记项（「全 bundle 级未做」）。
+   `BundleEffectTests`：合成 app 四类诱饵（Info.plist/主可执行族/
+   framework 内 Mach-O/普通文件）逐字节不动；全树差分 ⊆ {目标 dylib ∪
+   备份}；目标内位点级 diff ⊆ 声明区间（直证）；restore 全树恒等；
+   负控双向（位点外注入必红 / 位点内合法写不误报）。真件 SOP
+   `tools/verify_bundle_effect.py`：clonefile 副本 → --no-resign patch →
+   独立 python 全树差分逐文件分类（位点/备份/签名面/macho，未归类=FAIL；
+   --no-resign 下 signature/macho 改动同为越界 FAIL；machutil 段表口径
+   独立换算；位点直证全文件差分——64MiB 截断被双评审揭出后修正，真 dylib
+   位点 VA≈70MB 曾落截断区外，修复后直证从 8 段升至 20 段全貌；诱饵负控
+   前置注入，缺席=检测器失灵）。
+5. **[L14 证明随行]**：「全绿」的读者此前只有作者——证据链无机器可核验
+   索引。`tools/gen_evidence_ledger.py`：各 L 族最新台账 + sha256 + 结论行
+   + git HEAD → evidence-ledger.json；缺必需族/FAIL/无结论行 = 退出非零
+   （发版门）；Makefile `evidence-ledger` 目标 + `verify-confusion` 目标。
+   FMEA 新行 A11/B8/B9/D4（防线登记册四补）。
+6. **[设计修正五则]**：①「journal+样例杀例=崩溃安全」抽样过度概括 →
+   穷举矩阵；②「L2 链=状态机对」固定路径谬误 → BFS 折叠预言；③「expected
+   门挡错版」未证伪测量 → 混淆矩阵契约；④「局部性=单文件」作用域缺口 →
+   bundle 级；⑤「零错误零崩溃」沿用 V5 修正：预算化判据 + 未证明面显式
+   登记（V6-DEPTH §6：深度封顶 3 的理由 / 真件抽样策略 / 签名面结构性
+   判别边界 / 单点写故障覆盖域）。
+
+[验证链] swift test 全量绿（317+9=326 测，汇总口径=测试函数；case 展开
++182：20 格崩溃矩阵 + 155 序列状态机 + 混淆矩阵 3 + bundle 2 + 自校验 2，
+8.2s）；新套件负控双向全绿（注入必检出/合法写不误报）；写位点数登记被
+对照副本实测推翻重登记（5/7→4/4——undo 臂先还原、归一化条目随后 skip
+的顺序效应，登记只能由实测产生）；零产品代码变更（R18 反目标）。
+**穷举的两个真收获**：①混长位点语义（x64 update asm 4B < expected 8B，
+终态=asm+pristine 尾）由折叠预言逼出显式建模；②幂等的正确定义=净效应
+（X;X 的**值**恒等）而非写入次数（双变体共享 VA 上第二次执行可经 undo 臂
+产生净零但非零次的写）——两个都是引擎既有行为的显式化，非缺陷。
+**双评审修正（六项工具/文档 + 三项测试收紧）**：L13 真件 64MiB 截断
+（P0——直证空洞化，全量读入后 8→20 段）；keeptip 变体位点域缺失假红；
+--no-resign 签名面合同落地（signature/macho 越界 FAIL）；pristine 抽查
+多点化+list 形 expected 支持；混淆矩阵读取半边独立化（slice_va_bytes
+直读 vs swift 上报，962 格 0 不符）+mask 掩码语义+对角/跨构建接受分口径
+（30/0 如实）；ledger L10 死条目移除+verdict_lines 落台账原文+L2/L6
+suite 名校验；测试拒绝格断言收紧到 expectedMismatch 精确 case+缝生命周期
+defer 兜底+跨套件互踩窗口登记（红向 flaky，无假绿）。
+
 ## 132·push + CI 首跑轮（八轮提交上 origin；CI 三腿抓三真 bug 全修全绿；2026-11-03）
 
 > push 范围 825d47a..ce54acf（125 续至 131 全部轮次 + 本轮三修）。CI 首跑

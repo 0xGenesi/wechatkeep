@@ -21,6 +21,7 @@
 | A8 | asm/expected 数据坏（空串/坏 hex/跨度） | 数据 OTA 事故 | 三层门（Config 装载 / Signatures / Patcher 兜底） | 装载期拒绝 | 空 asm/坏 hex/跨度三测；M04/M05/M22 | P1 |
 | A9 | 撕裂写（非原子覆写） | 磁盘故障 | SafeWrite .atomic + 权限保留 | journal/备份完整性 | HardeningTests；M17 | P1 |
 | A10 | 备份截断/落错位 | 磁盘满/路径事故 | 大小校验 + 主可执行识别 + bundle 外落点 | Backup 拒绝 | BackupTests；M10/M11 | P1 |
+| A11 | 任意写位点失败后不收敛（恢复链只被 fail-at-0 单格证明过） | EIO/ENOSPC/SIGKILL 落在写序第 k 位 | **崩溃点穷举矩阵**（133 轮：L10——5 命令场景 × 全部写位点 20 格，每格五不变量：抛错类型/盘面合法集/restore 收敛/跨崩溃确定性/恢复重签触达〔patch ≥1、restore ==0 分流〕；对照副本实测写位点数对账） | CrashMatrixTests 格级失败定位 | 133 轮起 20 格全绿（测试内嵌报告） | P0 |
 
 ## B. 语义面（补丁到底做了什么）
 
@@ -33,6 +34,8 @@
 | B5 | arm64 补丁执行级效果未观测 | — | **执行级遍历证明**（128 轮：PatchTraversalTests——真 Patcher 写入 + MAP_JIT 执行 + 毒化后继零遍历；x64 对称走 Rosetta 腿） | 本测三面断言 | 128 轮关账（124① runtime.m 缝另立） | P2 |
 | B6 | 账本覆盖面 < 盘上差异面（--only 子集/部分重跑后） | `--only update` 后全量重打：alreadyPatched 位点不入账 → 账本只含新写 | **账本合并**（126 轮：mergedRecord 键级删/增——undo 出账、新写 upsert、app/build 漂移弃旧账；CLI 成功/失败双路径） | PatchAuditTests 合并三测 + restoredSites 断言 | 126 轮关闭 | P2 |
 | B7 | runtime 注入写入面污染离线局部性复算 | 装了 runtime hooks 的机器 | **登记边界**（audit 合同=未装 runtime 或注入前 diff；注入面由 doctor LC/marker 判据覆盖） | audit_patch 输出注记 | FMEA 本行 | P2 |
+| B8 | 错版目录数据事故（他构建条目打本构建二进制） | config 合并/OTA 事故 | **混淆矩阵**（133 轮：L12——字节互异构型零假接受 + patched 态仍拒；共享序言构型字节门按设计放行 = 显式契约，上层防线=L9 目标恒等门+行为 verify+build 号选表） | ConfusionMatrixTests 合成全矩阵 + verify_confusion_matrix.py 真件普查台账 | 133 轮起 16 格全绿 | P0 |
+| B9 | bundle 级越界写（诱饵/Info.plist/嵌套 code 被触碰） | 引擎缺陷 | **全树差分分类**（133 轮：L13——patch 后差分 ⊆ {目标 ∪ 备份}；目标内位点级 diff ⊆ 声明区间；restore 后全树恒等；负控双向灵敏度） | BundleEffectTests 合成镜像 + verify_bundle_effect.py 真件 SOP（独立 python 差分） | 133 轮起（关闭 V5 §5「全 bundle 级未做」登记项） | P0 |
 
 ## C. 签名/启动面
 
@@ -52,6 +55,7 @@
 | D1 | config/signatures 被篡改 | 中间人/误改 | Ed25519 manifest + openssl 三方互证（CI master 腿） | doctor manifest 态 / CI 红 | ManifestTests；M14；CI 步 | P0 |
 | D2 | 私钥材料入库 | 误提交 | CI 泄漏门 + keys/ 卫生 | CI 红 | ci.yml Guard | P0 |
 | D3 | manifest 与分支改动暂时失配 | PR 改 config 未重签 | 验签门 master-only（PR 分支非红） | — | ci.yml 注释 | P3 |
+| D4 | 「全绿」无机器可核验索引（台账散落/被后续轮覆盖/结论靠散文） | 发版审阅 | **证据台账**（133 轮：L14——gen_evidence_ledger.py 收敛各 L 族最新台账 + sha256 + 结论行 + git HEAD；缺必需族/FAIL/无结论行 = 退出非零） | make evidence-ledger 发版门红 | var/logs/evidence-ledger.json | P2 |
 
 ## E. 测量仪器面（125 轮新立）
 

@@ -5,7 +5,7 @@
 #   make release    单文件分发产物 ./wxkeep（universal + stripped + ad-hoc 签名）
 #   make clean
 
-.PHONY: build release clean test verify-isa hooks
+.PHONY: build release clean test verify-isa verify-confusion evidence-ledger hooks
 .ONESHELL:
 
 # 交叉编译双架构需要完整 Xcode（xcbuild）；CLT-only 环境回退单架构。
@@ -36,6 +36,18 @@ verify-isa:
 	  var/venv/bin/python tools/verify_instruction_diff.py --variant silent && \
 	  var/venv/bin/python tools/verify_instruction_diff.py --variant keeptip; \
 	else echo "缺 var/venv（capstone）——工具链准备见 docs/MAINTAINING.md"; exit 1; fi
+
+# L12 真切片混淆矩阵（133 轮）：合成矩阵已在 swift test 常跑；本目标跑
+# 真语料普查（config.json × var/wxarm，inspect 只读 + python 独立复核）。
+verify-confusion:
+	@if [ -x var/venv/bin/python ]; then \
+	  var/venv/bin/python tools/verify_confusion_matrix.py; \
+	else python3 tools/verify_confusion_matrix.py; fi
+
+# L14 证明随行（133 轮）：各 L 族台账 → evidence-ledger.json（发版门；
+# tag 前必跑，接线见 MAINTAINING 发版策略节）。
+evidence-ledger:
+	python3 tools/gen_evidence_ledger.py
 
 # 变异器护栏（125 轮）：安装 pre-commit 钩子（sentinel/锚点 canonical 门）。
 hooks:

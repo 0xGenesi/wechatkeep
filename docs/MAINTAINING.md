@@ -626,6 +626,13 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   `Resigner.debugAttemptHook`（观测恢复重签是否被尝试）。用例 defer 复位。
   范例：undoMidWriteFailureTriggersRecoveryResign（M08 首杀）。新增写入/
   恢复防线时优先用此缝做故障路径回归，不再接受「不可观测」的暴露登记。
+  **崩溃点穷举矩阵（L10，133 轮）**：`CrashMatrixTests` 把该缝用满——
+  5 命令场景 × 各自全部写位点（20 格），每格五不变量（抛错族/盘面合法集/
+  restore 位点级收敛/跨崩溃确定性/恢复重签触达——patch 场景 ≥1、restore
+  场景按设计 ==0，Engine.restoreTargets 失败无恢复重签，journal+doctor
+  interrupted 承接）。**改 Engine/Patcher 写入或恢复语义后必跑**（swift
+  test --filter CrashMatrixTests）。写位点登记表只能由对照副本实测产生
+  （人工推演在 undo-先还原/归一化-skip 顺序效应上翻过车）。
   **bundle 级复算（127 轮遗留④）**：`python3 tools/audit_patch.py --app
   /Applications/WeChat.app --audit <userData>/wxkeep.audit.json
   [--userData <userData>]`——逐 binary 自动取最新 `.wxkeep-bak-*` 写前
@@ -670,6 +677,37 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
 - **openssl 独立验签** `bash tools/verify_manifest_openssl.sh`：CryptoKit 之外
   的 Ed25519 验证（手构 SPKI DER + pkeyutl + shasum），每次重签 manifest 后
   顺手跑一次防共因。
+- **状态机穷举（L11，133 轮）**：`StateMachineExhaustiveTests`——5 命令字母表
+  BFS 深度 3（155 序列参数化），每序列：合法集 + **净效应幂等** + 折叠预言
+  （终态只是净效果 {变体态×update 触达} 的函数）+ restore 右零元。改
+  Engine.patch/restoreTargets/only 过滤/undo 臂语义后必跑（合成件秒级）。
+  深度 4（625 序列）登记为可选增量；**幂等断言面=位点字节恒等**（写计数
+  在双变体共享 VA 上不成立——undo 净零写语义，133 轮穷举实证）。
+- **混淆矩阵（L12，133 轮）**：合成全矩阵 `ConfusionMatrixTests` CI 常跑
+  （16 格：对角 4 接受 + 共享序言对 2 接受=**设计边界契约** + 10 拒绝零假
+  接受 + patched 态再拒）；真语料普查 `make verify-confusion`（config.json
+  revoke 条目 × var/wxarm 切片，inspect 只读 + python 独立双向复核；接受格
+  ⇔ 独立确认字节相等，不一致=假接受红灯）。改 expected 门/Patcher inspect
+  语义或新构建入目后必跑合成矩阵；真件普查发版前跑。
+- **bundle 级局部性（L13，133 轮）**：合成镜像 `BundleEffectTests` CI 常跑
+  （四类诱饵逐字节不动 + 全树差分 ⊆ {目标∪备份} + 位点级 diff ⊆ 声明区间
+  + 负控双向）；真件 SOP `var/venv/bin/python tools/verify_bundle_effect.py
+  [--app …] [--resign]`（默认 --no-resign 精确位点级主张；--resign 升级为
+  签名面分类主张。clonefile 副本 → 独立 python 全树差分逐文件分类，
+  未归类=FAIL，--no-resign 下 signature/macho 改动同为越界 FAIL；位点
+  直证全文件差分——64MiB 截断被双评审揭出后修正；machutil 段表口径独立
+  换算；诱饵负控前置注入，缺席=检测器失灵）。Preconditions：磁盘
+  ≥15G + pristine 件在场（工具内建多点 pristine 抽查，非 pristine 拒跑）。
+  改写入路径或 Backup 落点后必跑合成镜像；真件 SOP 发版前跑（关闭 V5 §5
+  「全 bundle 级未做」登记项）。
+- **证明随行（L14，133 轮）**：`make evidence-ledger`——各 L 族最新台账
+  + sha256 + 命中判定行原文 + git HEAD → var/logs/evidence-ledger.json；
+  **必需族**（L2/L6/L9/SOAK）缺失/FAIL/无判定行 = 退出非零；CI 合成面族
+  （L1/L12/L13）缺席降级 optional 如实登记（L10/L11 为测试内嵌报告，无
+  独立台账族）。**发版清单新步骤（tag 前必跑）**：CI 绿 + L2/L6/L9 台账 +
+  launch_soak 真跑 + `make evidence-ledger` PASS，release notes 引用
+  ledger。台账文件按日期戳递增（confusion 工具为追加模式，不截断同日
+  首跑记录）。
 - **x64 Swift 面仅 CI Rosetta 腿可验（2026-11-03 制度化）**：本机 macOS 27
   CLT arm64-only（libxcrun 无 x86_64 切片）——x86_64 编译并发检查与执行
   测试只有 CI latest-stable 腿的 `arch -x86_64 swift test` 能担。改 x64
