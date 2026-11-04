@@ -1,13 +1,13 @@
 class Wxkeep < Formula
   desc "Dual-architecture anti-revoke toolchain for WeChat 3.x/4.x on macOS"
   homepage "https://github.com/0xGenesi/wechatkeep"
-  version "0.2.16"
+  version "0.2.17"
   license "AGPL-3.0"
 
   # v0.2.16 起源码-only（release 资产停发，MAINTAINING「发版策略」）：
   # 从 git tag 源码构建；数据四件套随仓库分发，安装后走
   # `wxkeep update-data` OTA 升级目录（与随包数据的供应链门同构）。
-  url "https://github.com/0xGenesi/wechatkeep.git", tag: "v0.2.16"
+  url "https://github.com/0xGenesi/wechatkeep.git", tag: "v0.2.17"
 
   # 与 homebrew-core 纯 SPM 构建惯例对齐（swiftformat 等）：
   # uses_from_macos "swift" 接受 Command Line Tools（CLT 即可构建——与
