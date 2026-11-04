@@ -546,6 +546,18 @@ remove（多步变更日志化=独立工程项）；FAT_MAGIC_64 显式报错（
 suite 名校验；测试拒绝格断言收紧到 expectedMismatch 精确 case+缝生命周期
 defer 兜底+跨套件互踩窗口登记（红向 flaky，无假绿）。
 
+**133 续·watcher auto-PR 首审（2026-11-04）**：PR #3（自动定位 270352，
+OPEN 待审）审查后合并——①键序重排经 JSON 语义 diff 证零丢失（构建集/
+target 集/条目字段集全等）+ 真实引擎装载通过（`versions` 列 270352
+revoke）；②270352 revoke 双架构条目（gen3 0x4E7D74C cbz + x64 0x516DE40
+序言）与 270350/270351 同构，签名代未变故 day-0 生效；③**auto-locate
+设计边界如实登记：仅 revoke 域**——revoke-keeptip/update 缺域（keeptip
+用户与 update 防护在 270352 暂缺），待人工派生轮（270350/270351 的
+keeptip 三条目为几何派生手工轮产物）；④manifest 失配由 master 的
+manifest-sign job 合并后补签（D3 行设计内）。同窗：`launch_soak --plan`
+干跑前置全绿（工具链 ✓）；真 soak 待用户窗口（微信在运行，需退出+
+副本弹登录窗）。
+
 ## 132·push + CI 首跑轮（八轮提交上 origin；CI 三腿抓三真 bug 全修全绿；2026-11-03）
 
 > push 范围 825d47a..ce54acf（125 续至 131 全部轮次 + 本轮三修）。CI 首跑
