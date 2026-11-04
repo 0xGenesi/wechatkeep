@@ -82,15 +82,24 @@ struct StateMachineExhaustiveTests {
         "x86_64:1c0": "31C09090CA000000",   // asm 4B + pristine 尾 4B（混长）
     ]
 
-    /// 序列深度 3 全穷举：155 条。
+    /// 穷举深度：默认 3（155 条，CI 常跑）；`WXKEEP_SM_DEPTH=4` 升全量
+    /// 625 条（V6-DEPTH §6 登记的可选增量——133 续轮实跑关闭；本地 SOP
+    /// 档，CI 不设 env 故恒 155）。迁移函数不变 ⇒ 深层翻车必先在浅层
+    /// 露出的论证由 4 层实跑复核。
+    private static let depth: Int = {
+        Int(ProcessInfo.processInfo.environment["WXKEEP_SM_DEPTH"] ?? "") ?? 3
+    }()
+
+    /// 全部 ≤d 长非空序列（Σ 5^k, k=1..d）：出栈先收录再展开——域是
+    /// 「全部 ≤d」而非「长度恰 d」（自证计数器当场抓获只出 5^d 的首版）。
     private static func allSequences() -> [[String]] {
         var out: [[String]] = []
-        for a in alphabet {
-            out.append([a])
-            for b in alphabet {
-                out.append([a, b])
-                for c in alphabet {
-                    out.append([a, b, c])
+        var stack: [[String]] = [[]]
+        while let seq = stack.popLast() {
+            if !seq.isEmpty { out.append(seq) }
+            if seq.count < Self.depth {
+                for cmd in alphabet {
+                    stack.append(seq + [cmd])
                 }
             }
         }
@@ -280,9 +289,13 @@ struct StateMachineExhaustiveTests {
         }
     }
 
-    /// 穷举完备性自证：字母表 × 深度生成的序列数必须 = 5+25+125（防手滑
-    /// 把 BFS 写浅）。
-    @Test func enumerationCoversFullDepth3() {
-        #expect(Self.allSequences().count == 155)
+    /// 穷举完备性自证：默认深度 3 = 5+25+125；WXKEEP_SM_DEPTH=4 时 625。
+    /// （断言面随深度门走——计数错误任何档都红。）
+    @Test func enumerationCoversFullDepth() {
+        // Σ 5^k (k=1..d)：3→155，4→780（V6-DEPTH 原文「625」是「长度恰 4」
+        // 的口径——本套件域为 ≤4，如实以 780 登记并回写文档）。
+        var expected = 0
+        for _ in 0..<Self.depth { expected = expected * 5 + 5 }
+        #expect(Self.allSequences().count == expected)
     }
 }

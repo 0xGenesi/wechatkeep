@@ -593,6 +593,23 @@ doctor 揭出升级器抹除态（字节 pristine + runtime 在役双层独立�
 教训入 memory：判态必须 doctor 全行解读）→ keeptip+update 重打恢复
 protected（免 sudo——app 对用户可写）+ update-guard 重开。
 
+**133 续㊄·Windows GO 执行（wxkeep-core M0 建仓）+ L11 深度 4 关账 + 3.x runbook（2026-11-04）**：
+①**L11 深度 4 可选增量收口**——`WXKEEP_SM_DEPTH` 门控实跑 **780 条 ≤4 长
+序列全绿 1.6s**（V6 原文「625」是「长度恰 4」口径，域为 ≤4 如实 780；自证
+计数器当场抓获枚举器首版只出 5^d 的域错误——先收录再展开修正，与 326 测
+全量回归双绿）；②**Windows GO 落地**（用户「继续完成剩下的」按 GO 执行）：
+新仓 [0xGenesi/wxkeep-core](https://github.com/0xGenesi/wxkeep-core) M0 建
+成推公网——Rust workspace 四 crate + wxcat-core 数据模型（两级锚 cstring/
+imm64/ref32/prologue/offset-mask；entry 级校验 sha256/VA/锚链结构/裸地址
+拒绝；chain/counterparts 对位查询）+ **catalog 0 号版 13 条目**（spike §3
+Windows 撤回持久链 7 + §4 macOS 270135 对位 6，module_sha256 双实件溯源门）
++ README/schema/ROADMAP（方法论红线成文：xref 一律 rel32 算术扫描）+
+CI 双腿（ubuntu fmt+clippy -D warnings+test / windows test）+ AGPL；
+M0 验收=5+4 测全绿（seed 装载门防手写漂移）；M1 第一优先=「原消息行删除
+点」derive（spike §7 风险表头项）。③3.x 验收可机部分完成：
+docs/3X-ACCEPTANCE-RUNBOOK.md（数据隔离警告/撤回行为矩阵五格/已知边界
+如实/收尾还原），行为级五格待用户窗口。
+
 ## 132·push + CI 首跑轮（八轮提交上 origin；CI 三腿抓三真 bug 全修全绿；2026-11-03）
 
 > push 范围 825d47a..ce54acf（125 续至 131 全部轮次 + 本轮三修）。CI 首跑
