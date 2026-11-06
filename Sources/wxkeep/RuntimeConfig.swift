@@ -4,9 +4,11 @@ import Foundation
 /// hook_row_parse——两侧行 schema 必须一致）。
 ///
 /// 外部表是新构建 day-0 支持的数据通道：研究产出新构建的 hook 行后，
-/// 更新 `knownHooks`（或经 update-data 分发的数据）重跑
-/// `wxkeep runtime install` 即生效，dylib 不必重编。dylib 侧规则：
-/// runtime.json 有合法 hooks 行则只用外部表，否则回落编译期内置表。
+/// 更新 `knownHooks` 并随**工具新版**发布（135 轮体检 P3 更正：update-data
+/// 分发的四件套 = config/signatures/manifest/manifest.sig，**不含 hooks**
+/// ——hooks 表编译进 CLI，`brew upgrade` 后跑 `wxkeep runtime hooks`
+/// 刷新即可，dylib 不必重装）。dylib 侧规则：runtime.json 有合法 hooks
+/// 行则只用外部表，否则回落编译期内置表。
 enum RuntimeConfig {
     struct HookRow: Codable, Equatable {
         /// 诊断标注（构建号）
@@ -136,12 +138,13 @@ enum RuntimeConfig {
     /// CDN 归档补齐（同款拓扑 + 序言门，与 ㉒ parse 直挂口径一致）；270084-89
     /// 十行为同日一致性轮发现的家族前段（4.1.15.4-.9，.7 从未发布）；270101/
     /// 102 于 2026-10-20 补齐、270131-135 于 10-14/10-17 派生——地址表达
-    /// 66 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-135
-    /// + 4.2.0 线 270340-270351（2026-11-02 补齐，11 构建 × 双架构）
-    /// × 双架构（22 构建 × 2）。
+    /// 68 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-135
+    /// + 4.2.0 线 270340-270352（11/02 补齐 340-351，11/07 补 352）
+    /// × 双架构（23 构建 × 2）。
     ///
-    /// funcSize 覆盖率（77 续②补 16 行、⑫ zsbai 回填 6 行，2026-10-26/27）：
-    /// 11 构建 × 双架构 = 22 行已带函数级身份门字段（270094/097/099——
+    /// funcSize 覆盖率（77 续②补 16 行、⑫ zsbai 回填 6 行，2026-10-26/27；
+    /// 135 轮补 270352 双架构 2 行）：
+    /// 12 构建 × 双架构 = 24 行已带函数级身份门字段（270094/097/099——
     /// zsbai 三件 dmg 切片；270100/101/102/131-135——本地 pristine 切片在
     /// var/ab + var/wxarm）。派生经三重校验（hook_off 必为
     /// LC_FUNCTION_STARTS 起点、切片 LC_UUID 与行全同、距离 = 到下一函数
@@ -267,6 +270,11 @@ enum RuntimeConfig {
                 expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270351", uuid: "dfa91bf9-0aa6-3963-9204-4947bd6af85a",
                 arch: "x86_64", hook_off: "0x568ef90", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        // 270352 x64（2026-11-07 补齐，135 轮）：derive_runtime_hooks.py
+        //（guard 0x56901b9 → parse 0x568fed0，fs 5216 家族指纹）。
+        HookRow(build: "270352", uuid: "02f82d10-e6be-3df7-bfec-0a23ff577a7a",
+                arch: "x86_64", hook_off: "0x568fed0", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154", func_size: 5216),
         HookRow(build: "270084", uuid: "a08e3e78-cc29-3927-9375-883c644d8ff8",
                 arch: "arm64", hook_off: "0x4bb380c", msg_arg: 1, xml_sso_off: 0,
@@ -411,6 +419,12 @@ enum RuntimeConfig {
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270351", uuid: "e0cc3ac1-baf2-35cd-ad60-80efb2ccbafa",
                 arch: "arm64", hook_off: "0x4e797d4", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        // 270352 arm64：revoke cbz 0x4e7d74c 所在函数起点 0x4e7d4dc
+        //（LC_FUNCTION_STARTS，序言门 PASS，fs 4380；与 270351 的
+        // cbz→entry delta=0x270 几何对齐）。
+        HookRow(build: "270352", uuid: "a284d335-ae98-32f9-ab7c-900718f239e4",
+                arch: "arm64", hook_off: "0x4e7d4dc", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
     ]
 

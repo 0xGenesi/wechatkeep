@@ -105,8 +105,18 @@ enum UpdateData {
         // 3. 信息对比（新旧 catalog 规模——只数本次会被替换/安装的**签名目录**
         //    本体，不含 config.local.json 合并条目；否则旧值虚高、增量失真）
         let oldCount = installedCatalogBuildCount()
-        let newCount = (try? Config(data: Data(contentsOf: workDir.appendingPathComponent("config.json")),
-                                    origin: "remote"))?.versions.count
+        // 远端 config 解析失败即拒装（135 轮体检 P3）：Ed25519 有效但 JSON
+        // 损坏（发布流水线事故）装进去后，所有隐式载入 config 的命令全数
+        // 拒载——工具瘫痪到下一次成功 update-data。此处 try? 只取计数、
+        // 失败照装的旧行为恰是这个面的洞。
+        let remoteConfig: Config
+        do {
+            remoteConfig = try Config(data: Data(contentsOf: workDir.appendingPathComponent("config.json")),
+                                      origin: "remote")
+        } catch {
+            throw UpdateError.notVerified("远端 config.json 不可解析（发布流水线异常）：\(error.localizedDescription)")
+        }
+        let newCount = remoteConfig.versions.count
 
         // 4. 安装（staging + 逐文件原子 rename + 失败全量回滚）：四件套逐
         // 个 copy 原来有半个安装窗——中途崩会留下「新 config + 旧 manifest」
@@ -126,7 +136,8 @@ enum UpdateData {
         }
 
         print("✓ 已安装最新补丁数据 → \(dest.path)")
-        if let o = oldCount, let n = newCount {
+        if let o = oldCount {
+            let n = newCount
             print("  catalog 构建：\(o) → \(n)\(n > o ? "（+\(n - o)）" : "")")
         }
         print("  下一步：wxkeep versions / wxkeep doctor 查看新构建支持")

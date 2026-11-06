@@ -183,7 +183,8 @@ extension EngineTests {
     @Test func partialWriteFailureIsNotPreWrite() {
         let wrapped = Engine.PartialWriteFailure(
             underlying: Patcher.PatchError.overlappingEntries(
-                first: 0, second: 1, va: 0x1000, identifier: "revoke"))
+                first: 0, second: 1, va: 0x1000, identifier: "revoke"),
+            summary: Engine.RunSummary())
         #expect(Wxkeep.isPreWriteFailure(wrapped) == false,
                 "已写字节的失败必须保留 journal")
         #expect(Wxkeep.isPreWriteFailure(Patcher.PatchError.noArchMatched) == true,
@@ -250,6 +251,50 @@ extension EngineTests {
         // fail-at(0) 注入语义自证：第一条还原写之前抛——盘面未动
         #expect(try Data(contentsOf: dylib).range(of: silentBytes) != nil,
                 "fail-at(0) = 前 0 条已落盘（silent 字节原样）")
+        #endif
+    }
+
+    /// 135 轮体检 P1 回归锁：Phase-2 中途写故障（fail-at(k)）时，
+    /// **已落盘位点的审计账目必须经 PartialWriteFailure.summary 带出**。
+    /// 此前 CLI 从 `summaryOrNil = try Engine.patch(…)` 取账——try 抛错时
+    /// 赋值不发生，catch 里恒 nil，125/126 轮宣称的失败路径账目保全是
+    /// 死代码（字节在盘、audit 无记录 → 离线复算假红）。本锁在 Engine
+    /// 出错口断言「盘上 k 条 = summary.auditSites k 条」。
+    @Test func partialWriteFailureCarriesAuditAccount() throws {
+        #if DEBUG
+        let app = try makeApp()
+        let json = """
+        [{"version":"999998","targets":[
+          {"identifier":"revoke","binary":"Contents/Resources/wechat.dylib","entries":[
+            {"arch":"arm64","addr":"100","expected":"F44FBEA9FD7B01A9","asm":"00008052C0035FD6"},
+            {"arch":"x86_64","addr":"100","expected":"554889E553504889FB","asm":"31C0C3"}
+          ]}
+        ]}]
+        """
+        let config = try Config(data: Data(json.utf8), origin: "inline")
+        let dylib = app.appendingPathComponent("Contents/Resources/wechat.dylib")
+        let targetPath = dylib.path
+        struct InjectedWriteFailure: Error {}
+        // fail-at(1)：第 1 条（arm64）写入成功并交付账目，第 2 条抛错。
+        Patcher.debugWriteFailureAt = { url, idx in
+            url.path == targetPath && idx == 1 ? InjectedWriteFailure() : nil
+        }
+        defer { Patcher.debugWriteFailureAt = nil }
+        do {
+            _ = try Engine.patch(app: app, build: "999998", config: config, variant: "silent",
+                                 dryRun: false, allowUnverified: false, only: nil)
+            Issue.record("fail-at(1) 必须抛 PartialWriteFailure")
+        } catch let pwf as Engine.PartialWriteFailure {
+            #expect(pwf.summary.auditSites.count == 1,
+                    "盘上 1 条已写位点 = summary 账目恰 1 条（字节在盘 = 账目在场）")
+            #expect(pwf.summary.auditSites.first?.arch == "arm64",
+                    "账目对应第 1 条（成功落盘的 arm64 位点）")
+        } catch {
+            Issue.record("错误类型不对（应 PartialWriteFailure，得 \(error)）")
+        }
+        // fail-at(1) 注入语义自证：第 1 条（arm64 asm 前缀 00008052）确已落盘
+        #expect(try Data(contentsOf: dylib).range(of: Data([0x00, 0x00, 0x80, 0x52])) != nil,
+                "fail-at(1) = 前 1 条已落盘（arm64 asm 前缀在盘）")
         #endif
     }
 }

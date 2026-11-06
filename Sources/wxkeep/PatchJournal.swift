@@ -40,14 +40,15 @@ enum PatchJournal {
     }
 
     /// 事务开始：在引擎可能写盘之前调用。原子覆写（上一轮残留同时被
-    /// 覆盖——新事务的意图即当前事实）。
+    /// 覆盖——新事务的意图即当前事实）。fsync（135 轮体检 P3-6）：WAL
+    /// 前提 = 意图记录先于引擎写入**持久**——小文件，代价趋零。
     static func begin(kind: Kind, build: String, variant: String?, app: String, userData: URL? = nil) throws {
         let record = Record(
             v: 1, kind: kind, build: build, variant: variant, app: app,
             startedAt: ISO8601DateFormatter().string(from: Date()),
             pid: Int(ProcessInfo.processInfo.processIdentifier))
         let data = try JSONEncoder().encode(record)
-        try SafeWrite.overwrite(data, to: url(userData: userData))
+        try SafeWrite.overwrite(data, to: url(userData: userData), sync: true)
     }
 
     /// 事务确认成功：移除 journal。幂等、无抛（清除失败不得让成功的
@@ -67,7 +68,7 @@ enum PatchJournal {
         guard record.resigned != true else { return }
         record.resigned = true
         if let out = try? JSONEncoder().encode(record) {
-            try? SafeWrite.overwrite(out, to: target)
+            try? SafeWrite.overwrite(out, to: target, sync: true)
         }
     }
 
@@ -77,7 +78,7 @@ enum PatchJournal {
     /// 洗掉，doctor 将从 INTERRUPTED 误降级为普通 partial 指引。
     static func restore(record: Record, userData: URL? = nil) {
         if let out = try? JSONEncoder().encode(record) {
-            try? SafeWrite.overwrite(out, to: url(userData: userData))
+            try? SafeWrite.overwrite(out, to: url(userData: userData), sync: true)
         }
     }
 

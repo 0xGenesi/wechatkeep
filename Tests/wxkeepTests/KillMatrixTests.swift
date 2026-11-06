@@ -279,14 +279,13 @@ struct KillMatrixTests {
                                            config: config, variant: cmd, dryRun: false,
                                            allowUnverified: false, only: nil)
             }
-            // 与 L10 seam 口径对齐 = Patcher 写调用数：新写（lines 的
-            // written 计数）+ undo/restore 臂还原写（restoredSites 逐位点账）。
-            var writeCount = summary.restoredSites.count
-            for line in summary.lines {
-                for m in line.matches(of: /(?<n>\d+) (?:written|restored)/) {
-                    writeCount += Int(m.n) ?? 0
-                }
-            }
+            // 与 L10 seam 口径对齐 = Patcher 写调用数（135 轮改纯位点账）：
+            // auditSites（patch 写）+ restoredSites（undo/restore 写）——135 轮
+            // P1 起 restoreTargets 对两类写都逐位点自记（auditSink 1:1 交付），
+            // 旧公式「restoredSites + lines 汇总数字」在 restore 场景把同一批
+            // 写位点数了两遍（实测 8≠4 确定性红）；纯位点账与 seam 语义恒等
+            // 且天然无竞态。
+            let writeCount = summary.auditSites.count + summary.restoredSites.count
             #expect(writeCount == writes,
                     "\(pre ?? "pristine") → \(cmd): 实测写位点 \(writeCount) ≠ 登记 \(writes)（lines=\(summary.lines.joined(separator: " | "))）")
         }

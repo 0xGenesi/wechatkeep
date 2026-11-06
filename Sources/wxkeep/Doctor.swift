@@ -296,7 +296,10 @@ struct Doctor {
         // .ips：系统崩溃记录 =「最近真的崩过吗」的客观观测（watch 级，与
         // launch_soak 的浸泡判据同源；CODESIGNING 击杀与 AMFI risk 行合读）。
         let crashReports: CrashSummary? = {
-            let dir = FileManager.default.homeDirectoryForCurrentUser
+            // RealUser 锚定（135 轮体检 P3）：doctor 常以 sudo 跑——euid 家
+            // 目录落在 /var/root，真实用户的 DiagnosticReports 整体失明。
+            // 与 journal/备份的 RealUser 纪律对齐（RealUser.swift 头注同源）。
+            let dir = RealUser.homeURL()
                 .appendingPathComponent("Library/Logs/DiagnosticReports")
             let appName = app.deletingPathExtension().lastPathComponent
             return scanCrashReports(directory: dir, appName: appName)
@@ -592,9 +595,13 @@ struct Doctor {
                   let ts = header["timestamp"] as? String,
                   let date = parseIpsTimestamp(ts),
                   date >= cutoff else { continue }
-            // 正文整段 JSON（可多行；>8MB 跳过——诊断扫描不吞内存）
+            // 正文整段 JSON（可多行；>8MB 跳过——诊断扫描不吞内存）。
+            // 先按文件大小跳过再整读（135 轮体检 P3）：String(contentsOf:)
+            // 会先完整载入再被长度门丢弃——大报告先撑内存后扔掉，与注释
+            // 意图相反。
+            let bodySize = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64) ?? 0
+            guard bodySize > 0, bodySize <= 8 << 20 else { continue }
             guard let bodyText = try? String(contentsOf: url, encoding: .utf8),
-                  bodyText.utf8.count <= 8 << 20,
                   let bodyStart = bodyText.firstIndex(of: "\n"),
                   let body = try? JSONSerialization.jsonObject(
                       with: Data(bodyText[bodyText.index(after: bodyStart)...].utf8))

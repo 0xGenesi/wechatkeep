@@ -205,6 +205,37 @@ struct AutoLocateTests {
         Engine.mergeLocated(located, into: &versionEntry)
         #expect(versionEntry.targets.count == 1)
         #expect(versionEntry.targets[0].entries.count == 1, "同 arch 已有精编条目，recipe 条目不追加")
+        #expect(versionEntry.targets[0].entries.first?.addr == "4e8d440",
+                "精编条目（无 recipe 溯源）不被配方派生覆盖")
+    }
+
+    /// 135 轮体检 P2 回归锁：既有条目来自先前 locate（source=recipe:*）时，
+    /// 重跑 locate 的新派生**胜出**——旧行为按 arch 静默丢弃新条目，签名代
+    /// 更新后本地文件永远停在陈旧地址（CLI 还打印了「✓ site 0x<新址>」），
+    /// 用户被锁进 expectedMismatch 死循环。同 addr 重跑 = 无刷新（幂等）。
+    @Test func mergeLocatedRefreshesRecipeSourcedEntries() {
+        var versionEntry = Config.VersionEntry(version: "270999", targets: [
+            Config.Target(identifier: "revoke", binary: "Contents/Resources/wechat.dylib", entries: [
+                MachOFixture.entry(.x86_64, addr: "4e8d440", asm: "30C0",
+                                   expected: ["84C00F84????????"], source: "recipe:revoke_x64"),
+            ])
+        ])
+        let located: [(binary: String?, identifier: String, entry: Config.PatchEntry)] = [
+            ("Contents/Resources/wechat.dylib", "revoke",
+             MachOFixture.entry(.x86_64, addr: "537de29", asm: "30C0",
+                                expected: ["84C00F84????????"], source: "recipe:revoke_x64")),
+        ]
+        let refreshed = Engine.mergeLocated(located, into: &versionEntry)
+        #expect(versionEntry.targets[0].entries.count == 1)
+        #expect(versionEntry.targets[0].entries.first?.addr == "537de29",
+                "recipe 溯源的旧条目被新派生刷新")
+        #expect(refreshed.count == 1)
+        #expect(refreshed.first?.oldAddr == "4e8d440" && refreshed.first?.newAddr == "537de29")
+
+        // 幂等：同 addr 重跑不再报刷新
+        let again = Engine.mergeLocated(located, into: &versionEntry)
+        #expect(again.isEmpty)
+        #expect(versionEntry.targets[0].entries.count == 1)
     }
 
     /// 配方名 → identifier 归类：update*/multiInstance* 前缀进各自目标域，

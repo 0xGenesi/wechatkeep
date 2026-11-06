@@ -1,5 +1,31 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-11-07 135 轮后状态修订（全仓深审 + 270352 hooks 补齐 + P1 审计链修复）**：
+> ①双评审并行深读（CLI/配置面 + 补丁引擎面，两 agent 独立命中同一条
+> P1）+ 逐项人工复核；②**P1 修复：失败路径审计账目合并是死代码**
+>（`summaryOrNil = try Engine.patch(…)` 抛错不赋值 → catch 恒 nil，
+> 125/126 轮宣称的「失败路径账目保全」两轮落空——PartialWriteFailure
+> 携带 summary 快照 + restoreTargets 逐位点自记 + 嵌套 undo 解包合并，
+> Engine 级回归锁 fail-at(k) 位点账）；③**P2×2**：locate --append 溯源
+> 感知刷新（recipe 源旧条目被新派生胜出，陈旧地址死循环排障面消除）+
+> runtime remove 兜底跳板全扫（EntrySlot.scanTrampolines：hooks 行缺失/
+> 偏移漂移的漏还原面 → 显式失败+主程序回滚，LC-only 安装零误伤）；
+> ④P3 批：Verifier execMap 病态段表双 trap 收敛/stub 未对齐 load 三处/
+> UpdateData 远端坏 JSON 拒装/journal fsync（WAL 前提严格化）/auto-locate
+> 旧账保全对齐/Doctor .ips 扫描 RealUser 锚定+大小先行/DbKeys 管道
+> 读序/Config binary 逃逸门/跨 app journal 覆盖警示/README 六处口径
+> （123 构建/68 行 hooks/337 测/根浅签/幂等重跑/dbkeys 边界+DMCA 定位）；
+> ⑤**270352 runtime hooks 双架构补齐**（66→68 行，x64 fs5216/arm64
+> fs4380 家族指纹+0x270 几何对齐双验证）；⑥KillMatrix 计数口径迁移
+> （位点账替代 lines 汇总——135 P1 自记面揭出双重计数，纯位点账与 seam
+> 恒等且无竞态）。**337 测全绿**；L18 目录审计 PASS（123 构建/23 指纹）；
+> 实机 doctor=protected。**明确不做（登记防重考）**：Shell.run 超时
+> （挂起概率极低，全链债）/Patcher 写后回读（expected 门+L6+doctor 对账
+> 三重兜底，闭环收益小于热路径成本）/Clone --replace 拷贝中断（数据容器
+> 在，bundle 可重建，可辩护）。全网调研要点：4.2.0 线仅本仓覆盖（独占
+> 窗口）；Rosetta 死期=macOS 28（2027 秋）；腾讯 DMCA 打击面=数据库
+> 导出类（dbkeys 保持本机自用定位）；sunnyyoung 上游已转字节补丁引擎。
+
 > **2026-11-05 134 轮后状态修订（V7-DEPTH 第四代）**：①「更深不大」
 > 第四代交付——L15 单群闭包（深度尾巴消灭）/ L16 非合作崩溃矩阵
 > （SIGKILL 模型首测）/ L17 差分引擎孪生（独立实现逼出五条真 spec）/

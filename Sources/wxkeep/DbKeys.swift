@@ -432,8 +432,11 @@ extension Wxkeep {
                 cs.standardOutput = pipe
                 cs.standardError = Pipe()
                 do { try cs.run() } catch { return false }
-                cs.waitUntilExit()
+                // 先读后等（135 轮体检 P3）：输出超管道缓冲（64KB）时
+                // waitUntilExit 在前 = 子进程写阻塞 + 父进程等退出 = 死锁
+                //（runSQL 同文件已是正确序，形态对齐）。
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                cs.waitUntilExit()
                 return String(data: data, encoding: .utf8)?.contains("get-task-allow") == true
             }
 

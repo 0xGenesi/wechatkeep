@@ -290,6 +290,18 @@ struct Config {
     private func validate() throws {
         for v in versions {
             for t in v.targets {
+                // binary 必须是 bundle 内相对路径（135 轮体检 P3-5）：
+                // `sudo wxkeep patch` 以 root 按 binary 字段定点写——主 catalog
+                // 有 Ed25519 清单守护，但 config.local.json 是无签名输入，
+                // 植入 `../` 逃逸或绝对路径可把 root 定点写引出 bundle。
+                // 精编数据全为 "Contents/…" 形态，此门零误伤。
+                if let binary = t.binary {
+                    if binary.hasPrefix("/") || binary.components(separatedBy: "/").contains("..") {
+                        throw LoadError.malformed(
+                            "build \(v.version) target \(t.identifier): binary must be a "
+                            + "bundle-relative path without escapes, got \"\(binary)\"")
+                    }
+                }
                 for e in t.entries {
                     if e.addr == nil && e.recipe == nil {
                         throw LoadError.malformed(

@@ -123,6 +123,40 @@ extension EntrySlotTests {
         #expect(clone.original12.count == 12)
     }
 
+    /// 135 轮体检 P2 回归锁：兜底跳板全扫——pristine 零命中（objc_stubs
+    /// 原生三连被落区/零内容门排除）；打上真补丁后恰好命中该位点；
+    /// 还原后回到零命中。remove 的「行缺失/偏移漂移漏还原」面由此可检。
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: "var/wxarm/270135_arm64.dylib")),
+          .disabled(if: ProcessInfo.processInfo.environment["CI"] != nil))
+    func scanTrampolinesOnRealSlice() throws {
+        let src = URL(fileURLWithPath: "var/wxarm/270135_arm64.dylib")
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-scan-\(UUID().uuidString).dylib")
+        try FileManager.default.copyItem(at: src, to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        #expect(try EntrySlot.scanTrampolines(file: tmp).isEmpty,
+                "pristine 切片零命中（__objc_stubs 等原生形态被落区门排除）")
+
+        let plan = try EntrySlot.planArm64(
+            file: tmp, hookOff: 0x4d1f8d8,
+            expectedHex: "F85FBCA9F65701A9F44F02A9FD7B03A9")
+        var data = try Data(contentsOf: tmp)
+        data.replaceSubrange(plan.entryFileOffset..<plan.entryFileOffset + 12, with: plan.patch12)
+        try data.write(to: tmp)
+
+        let found = try EntrySlot.scanTrampolines(file: tmp)
+        #expect(found.count == 1, "恰好命中补丁位点（objc_stubs 仍被排除）")
+        #expect(found.first?.hookVA == 0x4d1f8d8)
+        #expect(found.first?.slotVA == plan.slotVA)
+
+        // 还原后回到零命中（remove 的行驱动还原覆盖面 == 扫描可见面）
+        var restored = try Data(contentsOf: tmp)
+        restored.replaceSubrange(plan.entryFileOffset..<plan.entryFileOffset + 12, with: plan.original12)
+        try restored.write(to: tmp)
+        #expect(try EntrySlot.scanTrampolines(file: tmp).isEmpty)
+    }
+
     /// 108 轮 P0 数据回归：knownHooks 270135 行的 clone_expected 必须与
     /// pristine 切片 0x4cd5e8c 处的**完整 16B**逐字节一致——12B 行会让补丁态
     /// 蹦床把 4B 零当第 4 指令重放（UDF#0 = 首次撤回写点调用即 SIGILL）。

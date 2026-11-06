@@ -53,8 +53,16 @@ enum Engine {
     /// 全是写前」假设；恢复重签失败时盘上就是「字节已改+陈旧签名」必崩态）
     /// ——journal 必须保留给 doctor 的 interrupted 判读，故 `isPreWriteFailure`
     /// 对本包装恒 false。description 透传底层错误，CLI 输出不变。
+    ///
+    /// `summary`（135 轮体检 P1 修）：失败瞬间的 RunSummary 快照——
+    /// auditSink 逐条交付后「已写成的位点」账目在此。此前 CLI 的失败路径
+    /// 从 `summaryOrNil` 取账，但 `summaryOrNil = try Engine.patch(…)` 抛错
+    /// 时赋值不发生，catch 里恒 nil——125/126 轮宣称的「失败路径账目保全」
+    /// 实为死代码（字节在盘、audit 无记录 → 离线复算假红）。包装携带
+    /// summary 后两本账（journal 记中断、audit 记已写）在失败路径也齐。
     struct PartialWriteFailure: Error, CustomStringConvertible {
         let underlying: Error
+        let summary: RunSummary
         var description: String { "\(underlying)" }
     }
 
@@ -111,29 +119,57 @@ enum Engine {
     /// 条目互不相干——gen0 主程序配方与 wechat.dylib 配方并存时，单键合并会把
     /// 主程序条目塞进 dylib 的 Target（或反之），expected 门就去错误的文件上
     /// 校验，patch 必然 expectedMismatch。命中 identifier+binary 双键的已有
-    /// Target 则按 arch 去重追加（精编条目优先，与 Config.merge 同语义）。
+    /// Target 则按 arch 去重追加；精编条目（无 recipe 溯源）优先不被覆盖。
+    ///
+    /// 溯源感知刷新（135 轮体检 P2）：已有条目本身是 locate 产物
+    ///（`source` 以 `recipe:` 起头）时，**新派生胜出**——签名代更新后重跑
+    /// locate 是更新的知识；旧行为按 arch 静默丢弃新条目，本地文件永远停在
+    /// 陈旧地址，而 CLI 已打印「✓ site 0x<新址>」，用户被锁进
+    /// expectedMismatch 死循环且无提示指向 config.local.json。返回被刷新的
+    /// (arch, 旧址, 新址) 清单供 CLI 如实输出。
+    @discardableResult
     static func mergeLocated(
         _ located: [(binary: String?, identifier: String, entry: Config.PatchEntry)],
         into versionEntry: inout Config.VersionEntry
-    ) {
+    ) -> [(arch: String, oldAddr: String, newAddr: String)] {
         var groups: [String: (binary: String?, identifier: String, entries: [Config.PatchEntry])] = [:]
         for item in located {
             groups["\(item.identifier)|\(item.binary ?? "Contents/MacOS/WeChat")",
                    default: (item.binary, item.identifier, [])]
                 .entries.append(item.entry)
         }
+        var refreshed: [(arch: String, oldAddr: String, newAddr: String)] = []
         for (_, group) in groups.sorted(by: { $0.key < $1.key }) {
             if let idx = versionEntry.targets.firstIndex(where: {
                 $0.identifier == group.identifier
                 && ($0.binary ?? "Contents/MacOS/WeChat") == (group.binary ?? "Contents/MacOS/WeChat")
             }) {
-                let archs = Set(versionEntry.targets[idx].entries.map(\.arch))
-                versionEntry.targets[idx].entries += group.entries.filter { !archs.contains($0.arch) }
+                var archIdx: [Config.Arch: Int] = [:]
+                for (i, e) in versionEntry.targets[idx].entries.enumerated() {
+                    archIdx[e.arch] = i
+                }
+                for entry in group.entries {
+                    if let i = archIdx[entry.arch] {
+                        let existing = versionEntry.targets[idx].entries[i]
+                        if existing.source?.hasPrefix("recipe:") == true {
+                            if existing.addr != entry.addr {
+                                refreshed.append((entry.arch.rawValue,
+                                                  existing.addr ?? "-", entry.addr ?? "-"))
+                            }
+                            versionEntry.targets[idx].entries[i] = entry
+                        }
+                        // 精编条目（无 recipe 溯源）：保持不被覆盖（旧行为）
+                    } else {
+                        versionEntry.targets[idx].entries.append(entry)
+                        archIdx[entry.arch] = versionEntry.targets[idx].entries.count - 1
+                    }
+                }
             } else {
                 versionEntry.targets.append(Config.Target(
                     identifier: group.identifier, binary: group.binary, entries: group.entries))
             }
         }
+        return refreshed
     }
 
     /// `--only` 逗分子集解析：修剪元素空白（"--only revoke, update" 与
@@ -302,21 +338,22 @@ enum Engine {
                             if !summary.patchedBinaries.contains(relative) {
                                 summary.patchedBinaries.append(relative)
                             }
-                        },
-                        // 还原位点出账（126 轮 B6）：undo 撤回的键在账本合并时删除
-                        //（此时 bytes==pristine，留键 = doctor 对账假 stale）。
-                        siteSink: { site, relative in
-                            summary.restoredSites.append(PatchAudit.Site(
-                                binary: relative, arch: site.arch.rawValue,
-                                identifier: site.identifier,
-                                va: String(site.va, radix: 16),
-                                before: site.before.hexUppercase,
-                                after: site.after.hexUppercase, source: site.source))
                         })
+                    // 还原位点出账（126 轮 B6）：undo 撤回的键在账本合并时删除
+                    //（此时 bytes==pristine，留键 = doctor 对账假 stale）。
+                    // 135 轮 P1 改从 undo 结果合并（restoreTargets 自记——
+                    // undo 中途失败时其账目经内层 PartialWriteFailure.summary
+                    // 到达外层 catch 的解包合并，流式 siteSink 做不到这一点）。
+                    summary.restoredSites += undo.restoredSites
                 } catch let e as EngineError {
                     if case .restoreUnavailable = e {
                         // 另一变体缺 expected（如无溯源条目）——跳过还原，不阻塞
                     } else { throw e }
+                } catch let inner as PartialWriteFailure {
+                    // undo 中途写失败：内层账目（已还原位点）并入外层 summary
+                    // 后按原语义重抛——外层 catch 会再包一层，不并即丢失。
+                    summary.restoredSites += inner.summary.restoredSites
+                    throw inner
                 }
                 if undo.wroteAnything {
                     summary.lines.append("  [switch] restored previous variant \(otherID) writes")
@@ -405,9 +442,11 @@ enum Engine {
                 }
             }
             // 已写字节（即使恢复重签成功也是 mixed 态）：包装重抛，journal 由
-            // CLI 保留（isPreWriteFailure 对本类型恒 false）。
+            // CLI 保留（isPreWriteFailure 对本类型恒 false）。summary 快照随行
+            //（135 轮 P1：CLI 的 `try` 赋值在抛错时不发生，失败路径账目
+            // 只有经错误对象才出得来）。
             if !dryRun && summary.wroteAnything {
-                throw PartialWriteFailure(underlying: error)
+                throw PartialWriteFailure(underlying: error, summary: summary)
             }
             throw error
         }
@@ -512,7 +551,19 @@ enum Engine {
                     outcomes = try Patcher.patch(
                         binary: binary, entries: inverted, identifier: target.identifier,
                         dryRun: dryRun,
-                        auditSink: { site in siteSink?(site, relative) })
+                        auditSink: { site in
+                            // 自记（135 轮 P1）：已还原位点账目先落本 summary
+                            //——失败路径经 PartialWriteFailure.summary 带出
+                            //（此前只经 siteSink 流式外送，throw 即随调用方
+                            // 局部态丢失）；siteSink 保留为调用方实时观测缝。
+                            summary.restoredSites.append(PatchAudit.Site(
+                                binary: relative, arch: site.arch.rawValue,
+                                identifier: site.identifier,
+                                va: String(site.va, radix: 16),
+                                before: site.before.hexUppercase,
+                                after: site.after.hexUppercase, source: site.source))
+                            siteSink?(site, relative)
+                        })
                 } catch {
                     // 与 patch 路径同款的记账滞后洞（110 轮修）：restore 反演条目
                     // 的 Phase-2 中途抛错时字节已部分还原——记账必须先于重抛。
@@ -524,8 +575,9 @@ enum Engine {
                         partialWrite?(relative)
                         // 部分还原后未重签=陈旧签名态，比 patch 侧更需要 journal
                         //（doctor interrupted → 指引收口）；包装重抛防 CLI 按
-                        // 写前失败误清（123 轮体检 P1 同款）。
-                        throw PartialWriteFailure(underlying: error)
+                        // 写前失败误清（123 轮体检 P1 同款）。summary 随行
+                        //（restoredSites 经 siteSink 已入账——失败路径出账同源）。
+                        throw PartialWriteFailure(underlying: error, summary: summary)
                     }
                     throw error
                 }

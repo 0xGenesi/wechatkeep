@@ -99,6 +99,13 @@ extension Wxkeep {
             // 成 protected——110 轮修（双评审 P1）。重签幂等，未必要时多花几秒。
             let journalAtStart = PatchJournal.pending()
             let journalPendingAtStart = !dryRun && journalAtStart.exists
+            // 跨 app 残留如实可见（135 轮体检 P3）：journal 是单槽——本事务的
+            // begin 会覆盖另一 app 的未收口记录；提示先行（不拒——doctor 的
+            // 判读语义本就是「跨 app 残留不劫持本 app」）。
+            if let prev = journalAtStart.record, !dryRun, prev.app != options.app.path {
+                print("⚠️ 另一 app 有未收口事务（\(prev.app)，\(prev.kind.rawValue) @ \(prev.startedAt)）"
+                      + "——本次事务将覆盖其 journal；如需保全其证据，先对该 app 跑 doctor/restore")
+            }
             // WAL 意图 journal：引擎获得写入机会之前落盘；全链成功（含重签）
             // 后由 complete 收口。中断（SIGKILL/断电）→ journal 残留 →
             // doctor 精确指路。dry-run 不写盘，不立 journal。
@@ -119,15 +126,29 @@ extension Wxkeep {
                     // journal 即刻收口（108 轮修）——否则新构建日的正常失败会
                     // 被 doctor 报成 interrupted patch，把「跑 wxkeep locate」
                     // 的正确指引覆盖成注定再失败的 re-patch。
+                    // 旧账保全（135 轮体检 P3，124 轮 P3 同款）：complete 会把
+                    // begin 覆盖掉的上一事务中断记录一并洗掉——原样写回。
                     let signatures = try {
                         do { return try Signatures.load(explicit: signaturesPath) }
                         catch {
-                            if !dryRun { PatchJournal.complete() }
+                            if !dryRun {
+                                if let prev = journalAtStart.record, journalAtStart.exists {
+                                    PatchJournal.restore(record: prev)
+                                } else {
+                                    PatchJournal.complete()
+                                }
+                            }
                             throw error
                         }
                     }()
                     guard let synthesized = Engine.autoLocatedEntry(app: options.app, signatures: signatures) else {
-                        if !dryRun { PatchJournal.complete() }
+                        if !dryRun {
+                            if let prev = journalAtStart.record, journalAtStart.exists {
+                                PatchJournal.restore(record: prev)
+                            } else {
+                                PatchJournal.complete()
+                            }
+                        }
                         throw Engine.EngineError.unsupportedBuild(build, known: config.versions.count)
                     }
                     print("recipes resolved: \(synthesized.targets.map { t in t.identifier }.joined(separator: ", "))")
@@ -137,13 +158,17 @@ extension Wxkeep {
                 }
             } catch {
                 Wxkeep.printPermissionHintIfTCC(error)
-                // 失败路径的账目保全（125 续双评审 P1 修 + 126 轮合并）：
-                // Phase-2 逐条交付后，「已写成的位点」账目在 summary 里——
-                // 字节在盘 = 账目必须在场（journal 记中断事实，audit 记已写
-                // 位点，两本账各司其职）。合并语义与成功路径一致（undo 臂
-                // 已还原的键同样出账）；失败路径不 clear（收口只属于成功的
-                // restore）；坏账不覆盖；账本层失败不拆错误路径语义。
-                if !dryRun, let failed = summaryOrNil {
+                // 失败路径的账目保全（125 续双评审 P1 修 + 126 轮合并；
+                // 135 轮 P1 再修）：Phase-2 逐条交付后，「已写成的位点」
+                // 账目必须随错误对象带出——`summaryOrNil = try Engine.patch(…)`
+                // 抛错时赋值不发生，从 summaryOrNil 取账恒 nil（125/126 轮的
+                // 合并块在此前是死代码）。现从 PartialWriteFailure.summary 取
+                //（Engine 两个抛点都携带）；字节在盘 = 账目必须在场（journal
+                // 记中断事实，audit 记已写位点，两本账各司其职）。合并语义
+                // 与成功路径一致（undo 臂已还原的键同样出账）；失败路径不
+                // clear（收口只属于成功的 restore）；坏账不覆盖；账本层失败
+                // 不拆错误路径语义。
+                if !dryRun, let failed = (error as? Engine.PartialWriteFailure)?.summary ?? summaryOrNil {
                     let pendingAudit = PatchAudit.pending()
                     if !(pendingAudit.exists && pendingAudit.record == nil) {
                         let merged = PatchAudit.mergedRecord(
@@ -314,6 +339,12 @@ extension Wxkeep {
             // journal 残留在场 → 成功路径强制重签一次（与 patch 同款洗白链防线）。
             let journalAtStart = PatchJournal.pending()
             let journalPendingAtStart = !dryRun && journalAtStart.exists
+            // 跨 app 残留如实可见（135 轮体检 P3，patch 侧同款）：单槽 journal
+            // 的 begin 会覆盖另一 app 的未收口记录。
+            if let prev = journalAtStart.record, !dryRun, prev.app != options.app.path {
+                print("⚠️ 另一 app 有未收口事务（\(prev.app)，\(prev.kind.rawValue) @ \(prev.startedAt)）"
+                      + "——本次事务将覆盖其 journal；如需保全其证据，先对该 app 跑 doctor/restore")
+            }
             // WAL 意图 journal：restore 也是多点写（Patcher 反演），同样有
             // 中断窗口；成功收口时顺带清掉任何残留（含 patch 留下的）。
             if !dryRun {
@@ -481,7 +512,14 @@ extension Wxkeep {
                 let existingIdx = localConfig.versions.firstIndex { $0.version == build }
                 var versionEntry = existingIdx.map { localConfig.versions[$0] }
                     ?? Config.VersionEntry(version: build, targets: [], note: nil)
-                Engine.mergeLocated(located, into: &versionEntry)
+                let refreshed = Engine.mergeLocated(located, into: &versionEntry)
+                // 如实输出（135 轮体检 P2）：同 arch 旧条目被新配方派生刷新时
+                // 显式点名——否则「✓ site 0x<新址>」与实际写入（新址）一致，
+                // 但用户不知道旧地址为何失效；被丢弃的从来不是精编条目。
+                for r in refreshed {
+                    print("  ↳ 刷新 \(r.arch) 位点 0x\(r.oldAddr) → 0x\(r.newAddr)"
+                          + "（本地旧条目来自先前 locate，新配方派生胜出）")
+                }
                 if let idx = existingIdx {
                     localConfig.versions[idx] = versionEntry
                 } else {
@@ -1819,6 +1857,21 @@ extension Wxkeep {
                                              site.label, site.off, dylibBackup.lastPathComponent))
                             }
                         }
+                    }
+                    // 135 轮体检 P2 兜底：hooks 行缺失（工具降级）或行内偏移
+                    // 漂移（数据修正轮）时，上面的行驱动还原探不到自家跳板
+                    // ——静默继续删 dylib = 留「跳板 + 空 SLOT = 撤回解析即崩」
+                    // 必崩态（与 100 轮修复的失败路径同威胁模型）。全扫发现
+                    // 未被覆盖的跳板即抛错：catch 走主程序回滚，整事务以
+                    // 失败收场（保安装态）而不是留崩溃。LC-only 安装（无跳板）
+                    // 扫描零命中，正常清理路径不受影响。
+                    let uncovered = (try? EntrySlot.scanTrampolines(file: dylibURL)) ?? []
+                    if !uncovered.isEmpty {
+                        throw ValidationError(
+                            "检测到 \(uncovered.count) 个未还原的入口跳板（hooks 行缺失或偏移漂移）: "
+                            + uncovered.map { String(format: "0x%llx", $0.hookVA) }.joined(separator: ", ")
+                            + "——已中止。升级 wxkeep（含本构建 hooks 行）后重试 `wxkeep runtime remove`，"
+                            + "或从备份手工还原 wechat.dylib 入口字节。")
                     }
                 } catch {
                     // 进此分支 ⟹ 跳板在位而还原链失败。此刻主程序 LC 移除已

@@ -226,4 +226,59 @@ enum EntrySlot {
         }
         return slotVA
     }
+
+    // MARK: - 兜底扫描（135 轮体检 P2）
+
+    /// 未知 hook_off 的跳板全扫（remove 的漏还原兜底）：__text 内所有
+    /// `adrp x16 / ldr x16,[x16,#imm] / br x16` 三连，其解码 SLOT 落
+    /// __DATA 段尾填充区且当前内容全零——与 detectPatched 同落区/零内容
+    /// 门（排除 __objc_stubs 原生形态：其 ldr 目标在 GOT/__DATA_CONST，
+    /// 非零且不在段尾填充）。hooks 行缺失（工具降级）或行内偏移漂移
+    /// （数据修正轮）时，remove 的行驱动还原探不到这些跳板——静默删
+    /// dylib 即留「跳板 + 空 SLOT = 撤回解析即崩」必崩态。本扫描把该面
+    /// 变成显式失败（调用方回滚主程序保安装态）。
+    static func scanTrampolines(file url: URL) throws -> [(hookVA: UInt64, slotVA: UInt64)] {
+        let image = try MachImage(file: url, arch: .arm64)
+        guard let text = try? image.section("__text") else { return [] }
+        guard let dataSection = image.sections.first(where: { $0.segment == "__DATA" && $0.offset > 0 }),
+              let seg = image.segments.first(where: {
+                  dataSection.addr >= $0.vmaddr && dataSection.addr - $0.vmaddr < $0.vmsize
+              }) else { return [] }
+        let lastEnd = image.sections
+            .filter { $0.segment == "__DATA" && $0.offset > 0 }
+            .map { $0.offset + Int(min($0.size, UInt64(max(0, image.data.count - $0.offset)))) }
+            .max() ?? 0
+        let nextFileOff = image.segments.map(\.fileoff).filter { $0 > seg.fileoff }.min()
+            ?? UInt64(image.data.count)
+        let segFileEnd = min(nextFileOff, UInt64(image.data.count))
+        guard seg.fileoff <= segFileEnd, seg.fileoff <= UInt64(Int.max),
+              Int(seg.fileoff) <= image.data.count, lastEnd > 0 else { return [] }
+        let padStart = max(lastEnd, Int(seg.fileoff))
+        let padStartVA = seg.vmaddr + UInt64(padStart - Int(seg.fileoff))
+        let padEndVA = seg.vmaddr + (segFileEnd - seg.fileoff)
+
+        var out: [(hookVA: UInt64, slotVA: UInt64)] = []
+        let size = Int(min(text.size, UInt64(image.data.count)))
+        let end = min(text.offset + size, image.data.count) - 12
+        func le32(_ at: Int) -> UInt32 {
+            UInt32(image.data[at]) | UInt32(image.data[at + 1]) << 8
+                | UInt32(image.data[at + 2]) << 16 | UInt32(image.data[at + 3]) << 24
+        }
+        var o = text.offset
+        while o <= end {
+            // 先比 br x16（每 4B 一次单比较），命中才全套解码——全 __text
+            // 扫描的代价面控制在字面量过滤级。
+            if le32(o + 8) == brX16 {
+                let pc = text.addr + UInt64(o - text.offset)
+                if let slot = decodeSlotVA(pc: pc, w0: le32(o), w1: le32(o + 4), w2: brX16),
+                   slot >= padStartVA, slot % 8 == 0,
+                   slot - padStartVA <= padEndVA - padStartVA - 8,
+                   image.bytes(va: slot, count: 8) == Data(repeating: 0, count: 8) {
+                    out.append((pc, slot))
+                }
+            }
+            o += 4
+        }
+        return out
+    }
 }

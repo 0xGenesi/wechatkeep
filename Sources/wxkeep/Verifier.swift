@@ -473,10 +473,18 @@ enum Verifier {
                 guard cmdsize > 0 else { break }
                 if cmd == 0x19 {
                     let fs = raw.loadUnaligned(fromByteOffset: p + 48, as: UInt64.self)
-                    if fs > 0 {   // skip __PAGEZERO-style contentless segments
-                        segs.append((raw.loadUnaligned(fromByteOffset: p + 24, as: UInt64.self),
-                                     raw.loadUnaligned(fromByteOffset: p + 32, as: UInt64.self),
-                                     Int(raw.loadUnaligned(fromByteOffset: p + 40, as: UInt64.self)),
+                    // 病态段表防 trap（135 轮体检 P3-3，L3⑤ 家族）：fileoff/fs
+                    // 超 Int 表示域的强转、vmaddr+vmsize 溢出（下方 top 计算）
+                    // 都是进程崩溃面——损坏输入按「该段不存在」收敛，worker
+                    // 走 blob/映射失败路径干净退出而不是 trap 死。
+                    let vmaddr = raw.loadUnaligned(fromByteOffset: p + 24, as: UInt64.self)
+                    let vmsize = raw.loadUnaligned(fromByteOffset: p + 32, as: UInt64.self)
+                    let fileoff = raw.loadUnaligned(fromByteOffset: p + 40, as: UInt64.self)
+                    if fs > 0, fs <= UInt64(Int.max), fileoff <= UInt64(Int.max),
+                       vmaddr <= UInt64.max - vmsize {   // skip __PAGEZERO-style contentless segments
+                        segs.append((vmaddr,
+                                     vmsize,
+                                     Int(fileoff),
                                      fs,
                                      raw.loadUnaligned(fromByteOffset: p + 60, as: UInt32.self) & 0x4 != 0))   // initprot EXEC
                     }
@@ -700,11 +708,14 @@ enum Verifier {
                 let slotOffset: Int
                 if isARM64 {
                     guard Int(stubVA - base) + 12 <= mappedSize else { exit(4) }
+                    // loadUnaligned（135 轮体检 P3-4）：spec 桩 VA 是外部数据，
+                    // 奇数 VA 的 load(as:) 是未对齐 UB——x64 分支同位点早已
+                    // 逐字节组装（对齐纪律一致）。
                     guard let s = ARM64.stubSlotOffset(
                         pcOffset: stubVA - base,
-                        w0: stub.load(as: UInt32.self),
-                        w1: stub.load(fromByteOffset: 4, as: UInt32.self),
-                        w2: stub.load(fromByteOffset: 8, as: UInt32.self)) else {
+                        w0: stub.loadUnaligned(fromByteOffset: 0, as: UInt32.self),
+                        w1: stub.loadUnaligned(fromByteOffset: 4, as: UInt32.self),
+                        w2: stub.loadUnaligned(fromByteOffset: 8, as: UInt32.self)) else {
                         FileHandle.standardError.write(Data(
                             "wxkeep-verify: spec 桩 0x\(String(stubVA, radix: 16)) 不是 adrp x16/ldr x16/br x16 形态——verify spec 不适用于此镜像\n".utf8))
                         exit(4)

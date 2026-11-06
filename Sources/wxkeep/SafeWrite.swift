@@ -18,13 +18,24 @@ enum SafeWrite {
     /// 权限回写失败如实抛出（110 轮修）：`try?` 吞掉 = 「修好了撕裂写、
     /// 引入了无执行位」——正是本类型头注释自称要防的症状；调用方
     /// （journal/备份链）都承接 throws。
-    static func overwrite(_ data: Data, to url: URL) throws {
+    ///
+    /// `sync`（135 轮体检 P3-6）：写后 fsync 一次（文件数据级）。WAL 的
+    /// 「意图先于写入持久」前提要求 journal 落盘真正持久——无 fsync 时
+    /// journal 收口（删除）与补丁字节的落盘顺序在断电下不受控。journal
+    /// 是小文件，代价趋零；340MB 级二进制不走此参（V6 §6 已登记边界）。
+    /// fsync 失败如实抛（调用方都承接 throws）。
+    static func overwrite(_ data: Data, to url: URL, sync: Bool = false) throws {
         let fm = FileManager.default
         let perms = ((try? fm.attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber)?
             .intValue
         try data.write(to: url, options: .atomic)
         if let perms {
             try fm.setAttributes([.posixPermissions: perms], ofItemAtPath: url.path)
+        }
+        if sync {
+            let fh = try FileHandle(forWritingTo: url)
+            defer { try? fh.close() }
+            try fh.synchronize()
         }
     }
 }
