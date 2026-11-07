@@ -1,5 +1,7 @@
 # V2 方案 — 原位撤回提示（群聊可用 + 标记被撤回的是哪条）
 
+> **状态：历史档案（2026-10-25）**——已被 [V2-PIVOT-DECISION.md](V2-PIVOT-DECISION.md) 裁决换道，保留为决策链。现行行为以 README / FMEA 为准。
+
 > 2026-09-16 定稿。综合 zengtianli/WeChatTweak、EEEEhex/RevokeHook（Windows）、
 > zetaloop/BetterWX、a244573118/WeChatIntercept、sunnyyoung/WeChatTweak 调研结论。
 

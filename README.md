@@ -1,8 +1,25 @@
 # WeChatKeep (wxkeep)
 
-macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具链。
+[![CI](https://github.com/0xGenesi/wechatkeep/actions/workflows/ci.yml/badge.svg)](https://github.com/0xgenesi/wechatkeep/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey.svg)](#从源码构建)
 
-安全第一：**expected 原始字节门 → 全量写前预检 → 自动备份 → 幂等 restore → entitlements 保留重签 → strict verify → 行为级验证**，任何一环失败宁可不写。
+macOS 微信 3.x/4.x 防撤回工具链，**Apple Silicon + Intel 双架构**，覆盖 123 个构建（4.x 全线 + 3.x 主程序时代 16 构建）。
+
+> 撤回的消息留在聊天里 · 字节级安全补丁 · 每一步写盘都可逆、可审计、可验证
+
+## 功能一览
+
+| 功能 | 命令 | 说明 |
+|---|---|---|
+| **防撤回** | `sudo wxkeep patch` | 撤回的消息保留在聊天里（silent）；私聊同时保留撤回提示（keeptip）。x64 群聊提示为已知限制 |
+| **行为验证** | `wxkeep verify` | 把补丁函数拉出进程直接调用，机器证明补丁有效——无需人工撤回测试 |
+| **更新防护** | 随 patch 附带 | 二进制级屏蔽（XAppUpdateManager 8 点）+ 偏好层三开关兜底 |
+| **隐私加固** | `wxkeep privacy-guard` | 遥测/诊断/埋点上报最小化 |
+| **多开** | `wxkeep clone create` | 独立数据目录的第二/第 N 个微信，与构建号无关 |
+| **体检** | `wxkeep doctor` | 补丁状态 + 崩溃报告扫描 + 精确下一步命令 |
+| **撤回复原** | `wxkeep dbkeys recover` | 从全文索引（FTS）导出被撤回消息的原文（约半数可复原） |
+| **运行时组件**（可选） | `wxkeep runtime install` | 自定义撤回提示文案 · 30 秒热生效 · 通用 keeptip |
 
 ## 安装
 
@@ -10,138 +27,134 @@ macOS 微信 4.x **双架构（Apple Silicon + Intel x86_64）**防撤回工具�
 # brew 7+ 首次使用第三方 tap 需一次性放行（brew 7.0.11 起默认不信任）：
 brew trust 0xGenesi/tap
 brew install 0xGenesi/tap/wxkeep   # v0.2.16 起从源码构建（需 Command Line Tools，约几分钟）
-wxkeep update-data   # 拉取最新补丁数据（brew 安装的 catalog 随发版冻结；此命令 day-0 跟进新构建）
+wxkeep update-data                 # 拉取最新补丁数据（day-0 跟进新微信构建）
 ```
 
-或从源码构建（v0.2.16 起 release 不再附预构建二进制——发版策略见 [docs/MAINTAINING.md](docs/MAINTAINING.md)）：
+或从源码构建：
 
 ```bash
 git clone https://github.com/0xGenesi/wechatkeep && cd wechatkeep
-swift build -c release   # 产出 .build/release/wxkeep（含 wxprobe 探针与 runtime dylib）
+swift build -c release             # 产出 .build/release/wxkeep（含 wxprobe 探针与 runtime dylib）
 ```
-
-## 功能
-
-- **防撤回**（silent / keeptip 双架构）——撤回的消息留在聊天里；keeptip 在私聊保留撤回提示（x64 群聊提示为已知限制；旧实验变体 keeptip2 已废弃移除）。覆盖 4.1.13 全线 + 4.1.15 全家族（270084-270102/270131-270135）+ 4.2.0 线（270340-270352）共 123 构建（双架构全量清单见 docs/COMPATIBILITY.md，`wxkeep versions` 看本地目录）
-- **行为验证**——`verify` 拉补丁函数出进程直接调用，机器证明有效（x64 探针=补丁后的 isRevokemsg 本体；arm64 探针=喂值给 cbz 分支的独立谓词，家族完整性+输入路径自检，补丁效果由 strict verify 字节级证明承担）
-- **更新防护**（偏好层，best-effort）——`SUEnableAutomaticChecks/SUAutomaticallyUpdate/SUSendProfileInfo` 三开关（patch 时自动附带）。诚实边界：微信 4.1.13+ 启动时会把前两键改回「开」（社区+本机实证），`SUSendProfileInfo` 可长期存活；被改回时 `doctor`/`update-guard status` 会明确提示。**二进制级 update 目标**（XAppUpdateManager 四方法+访问器对全套 8 点，双架构同构覆盖 4.1.13 全线 + 4.1.15 全家族；270100 真机行为验证；269602 为纯 C++ 更新器时代，双架构周期工人→ret 单点）
-- **隐私加固**——遥测/诊断/埋点上报最小化（`privacy-guard`）
-- **多开（克隆式）**——独立数据目录的第二/第 N 个微信，与构建号无关（`clone create`）
-- **体检**——`doctor` 含 AMFI 观察级提示与精确修复指引
-- **运行时组件（可选，默认不装）**——`runtime install` 注入支持 dylib：自定义撤回提示文案（支持 `{from}` 占位符；自发撤回默认不改写，`rewrite_self` 可开）。hook 地址表经 runtime.json 数据通道装载——新构建地址行**随工具新版发布**（`brew upgrade wxkeep` 后跑 `wxkeep runtime hooks` 刷新即生效，免退出免重装 dylib）
-
-## 撤回原文复原（被撤回的历史消息导出）
-
-撤回发生时，微信会把消息库里的原文原地覆写为灰条提示——但全文索引（FTS）里往往仍留着原文（实测约半数可复原）。wxkeep 可以捕获数据库密钥并把这些残留导出：
-
-```bash
-brew install sqlcipher            # 前置：SQLCipher 命令行工具
-sudo wxkeep patch                 # 前置：capture 需要调试权限（get-task-allow）
-wxkeep dbkeys capture             # 捕获数据库密钥（会重启微信并要求重新扫码登录，最长等 7 分钟）
-wxkeep dbkeys recover             # 导出被撤回原文（默认写 jsonl 到用户数据目录，0600 权限）
-wxkeep dbkeys audit               # 撤回审计：按会话/联系人统计历史撤回
-```
-
-多账号自动按账号隔离。密钥只落在本机（`~/Library/Application Support/wxkeep/dbkeys.json`，0600；开发检出内在仓库 `var/dbkeys/` 已存在时优先用该位）。已知边界：`capture` 目前固定目标 `/Applications/WeChat.app`（自定义安装位/克隆容器暂不支持）。**定位与用途**：本机自用的撤回审计/复原；不做批量导出面（腾讯 2026-01 DMCA 打击面=聊天记录提取/导出类工具，防撤回补丁类不在名单——保持低暴露）。
 
 ## 快速上手
 
 ```bash
-wxkeep doctor          # 体检：AMFI 观察级提示（watch 级，非杀机预测）+ 补丁状态 + 精确下一步命令
-sudo wxkeep patch      # 打补丁（自动备份→打点→重签→strict verify，附带更新防护+隐私加固）
-wxkeep verify          # ★ 行为级证明：拉补丁函数出进程直接调用（无需真机撤回测试）
-wxkeep restore         # 全量还原（幂等）
-wxkeep versions        # 已装构建号 + catalog
-wxkeep locate          # 未知构建号：签名配方自动定位
+wxkeep doctor          # 先体检：看当前状态与精确下一步
+sudo wxkeep patch      # 打补丁（备份→打点→重签→验证，附带更新防护+隐私加固）
+wxkeep verify          # 行为级证明补丁生效
+wxkeep restore         # 全量还原（幂等，随时可退）
+wxkeep versions        # 本机构建号与兼容目录
+wxkeep locate          # 未知新构建号：签名配方自动定位
 
-wxkeep clone create    # 多开：创建独立数据的第二微信
-wxkeep clone list      #   列出 / launch 1 启动 / remove 1 删除
-wxkeep privacy-guard --action status  # 隐私：查看遥测/上报状态
+wxkeep clone create    # 多开（list / launch N / remove N）
 wxkeep update-guard --action status   # 更新防护状态
+wxkeep privacy-guard --action status  # 隐私加固状态
 ```
+
+## 支持版本
+
+完整双架构清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，123 个构建号）。
+
+- **4.x**：4.1.13 全线、4.1.15 全家族、4.2.0 线（270340-270352）——revoke/keeptip/update 三面双架构
+- **3.x**（3.5.5-3.8.10.17，16 构建）：silent/keeptip/update 三面双架构（行为差异见[已知限制](#已知限制)）
+- **未收录的新构建**：`wxkeep patch` 自动跑签名配方定位（配方代不变时 day-0 可用），或显式 `wxkeep locate [--append]`
+
+## 撤回原文复原
+
+撤回发生时，微信把消息库里的原文原地覆写为灰条提示——但全文索引（FTS）里往往仍留着原文：
+
+```bash
+brew install sqlcipher            # 前置
+sudo wxkeep patch                 # capture 需要调试权限（get-task-allow）
+wxkeep dbkeys capture             # 捕获数据库密钥（会重启微信并要求重新登录）
+wxkeep dbkeys recover             # 导出被撤回原文（jsonl，0600 权限）
+wxkeep dbkeys audit               # 撤回审计：按会话/联系人统计
+```
+
+多账号自动隔离；密钥只落本机（0600）。已知边界：`capture` 固定目标 `/Applications/WeChat.app`；本工具定位为本机自用的撤回审计/复原，不做批量导出面。
 
 ## 运行时组件（可选）
 
-在字节补丁之上注入支持 dylib，提供**自定义撤回提示文案**（字节补丁给不了的运行时能力）：
+在字节补丁之上注入支持 dylib，提供字节补丁给不了的能力：
 
 ```bash
-wxkeep runtime install   # 注入（要求微信退出；brew 安装自带 dylib，源码用户先 swift build -c release）
-wxkeep runtime status    # 状态：注入/dylib/地址表/文案/hook 武装 + fires/hits/zero 证据计数
-wxkeep runtime hooks     # 只刷新地址表（免退出免重签；微信下次启动生效）
-wxkeep runtime tip '"⚠️" 撤回了一条消息'   # 设置文案（骨架/长度校验；省略参数=查看当前）
+wxkeep runtime install   # 注入（要求微信退出）
+wxkeep runtime tip '"⚠️" 撤回了一条消息'   # 自定义文案（{from} 占位符可用）
+wxkeep runtime status    # 状态与证据计数（fires/hits/zero）
+wxkeep runtime hooks     # 只刷新地址表（免退出免重签）
 wxkeep runtime remove    # 完整移除（幂等）
 ```
 
-文案配置**双位写入**：微信 App Group 容器（`~/Library/Group Containers/5A4RE8SF68.com.tencent.xinWeChat/wxkeep/runtime.json`，XML plist，CLI 正位）+ 微信沙盒容器 Application Support（ad-hoc 装机进程内的实际可读位，同内容双写保证「进程读哪份哪份就对」）。两份不一致时 `runtime status` 会告警——重跑 `wxkeep runtime tip`/`hooks` 写入即收敛：
 | 键 | 说明 |
 |---|---|
-| `tip_text` | 自定义文案。**必须保持官方骨架** `"<X>" 撤回了一条消息`（渲染层按此模式匹配，非规范形态显示为 Unsupported 占位；`wxkeep runtime tip` 会强制校验）；`{from}` 占位符展开为撤回者昵称（纯 `"{from}"` 形态展开后与原内文恒等长，最稳）；总长 ≤ 原提示内文（约 31B，超长自动放弃保原文）。推荐：`"⚠️" 撤回了一条消息` |
-| `rewrite_self` | `true` 时自发撤回（「你撤回了一条消息」）也改写；默认 false 保持诚实反馈 |
-| `keep_message` | 通用 keeptip（**默认 true**）：解析前清零撤回 XML 的 `<newmsgid>` → 原消息保留（详见下方专节） |
-| `clone_message` | **实验（V3 克隆缝，默认 false）**：撤回 XML 捕获 + 写点事件 + msgid↔content 配对 + 异步按 msgid 重查消息对象（R6 读路径，上限 32 次/进程）+ M4 插入表证据步（publisher 形态探针 `clpub=`，bootlog r8pub/r9pub 行=认证值+容器候选派生输入），marker 证据 `clone=/clrow=/clpair=/clsvc=/clhit=/clget=/clpub=`。消息行插入激活前**零消息副作用**——机制在跑且惰性（`clmiss=` 即证据；插入 ABI runner 在位——pair 对象位随认证值+容器合同两项 R9 定案后激活）。开关面：`wxkeep runtime clone on\|off\|status`；真共存实验需显式关 keep_message（keep 开时撤回写点不触发、消息由 keep 保留） |
+| `tip_text` | 自定义撤回提示文案。须保持官方骨架 `"<X>" 撤回了一条消息`（CLI 强制校验）；`{from}` 展开为撤回者昵称；超长自动放弃保原文。**≤30 秒热生效**，无需重启微信 |
+| `keep_message` | **默认 true**：解析前清零撤回 XML 的 `<newmsgid>`——原消息保留 + 提示正常显示，无需 keeptip 字节补丁 |
+| `rewrite_self` | 默认 false：自发撤回（「你撤回」）保持原生行为 |
+| `clone_message` | 实验特性（默认 false）：消息行克隆共存，详见 [docs/V3-CHARTER.md](docs/V3-CHARTER.md) |
 
-示例：`tip_text = "⚠️" 撤回了一条消息`（实测可渲染形态）。改写是**等长原位替换**（多余长度空格填充），文案长于原提示时放弃保原文；tip/开关类配置 **≤30 秒热生效**（77 续㉘ 双缓冲热重载，无需重启微信；hooks 地址表仍随启动装载）；**自发撤回零干预**（「你撤回」判别门放行原生删除+原生提示，77 续㉘/T5 F1）；hook 按构建 UUID + 入口字节双门匹配，未知构建零作用；23 个构建（270094/097/099/100/101/102/131-135 + 4.2.0 线 270340-352）双架构行另带函数级身份门（func_size 布局指纹）——微信自更新「同 UUID 换函数」时 hook 拒装而非错挂（`runtime status` 诊断位 func-id-mismatch 可见；270100 arm64 曾实测该场景破坏消息渲染，详见 docs/RUNTIME-DESIGN.md）。地址表随 `install` 写入（68 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-270135 + 4.2.0 线 270340-352 × 双架构），新构建由 `tools/derive_runtime_hooks.py` 产出数据行即生效。**格式约束（实测）**：渲染层按官方骨架 `"…" 撤回了一条消息` 匹配显示，非规范形态会显示为 Unsupported 占位。**群聊**：提示文本由服务端在撤回推送里原文下发（群=replacemsg/私=content，16 条实弹捕获零例外），改写与 keep_message 在群聊数据层同构成立（逆向定案 2026-10-28）；渲染校验终验随 T5 真机验证。
-
-**通用 keeptip（默认开启）**：hook 还会在解析前把撤回 XML 的 `<newmsgid>` 清零——撤回删除按目标查不到，**原消息保留**。runtime 用户无需 keeptip 字节补丁即得「消息保留 + 提示正常显示」（实测消息与灰条提示同时成立）；`keep_message: false` 可关闭。进阶配置：`wxkeep restore` 撤掉 revoke/keeptip 字节补丁 + `wxkeep patch --variant keeptip --only update` 仅保留更新屏蔽——撤回防护完全由 runtime 承担，微信升级后 revoke 域无需重新打点。
+安全设计：hook 按构建 UUID + 入口字节 + 函数布局指纹三重门匹配，未知构建零作用；配置双容器双写，不一致时 `runtime status` 告警。机制细节见 [docs/RUNTIME-DESIGN.md](docs/RUNTIME-DESIGN.md)。
 
 ## 安全模型
 
-1. **expected 多变体字节门**：写入前逐点校验原始字节（接受 pristine/已打补丁两态），错版/未知修改零写入
-2. **全量预检**：所有 target 所有 entry 先验后写，杜绝「打到第 5 个点失败留下半套补丁」
-3. **崩溃一致性（WAL journal）**：每次 patch/restore 事务写前落 intent journal（fsync 持久）确认成功后收口——中途被杀（SIGKILL/断电，catch 型恢复覆盖不到的路径）后 `doctor` 判定「中断」并给收敛指引（restore 幂等永远安全；字节态完好时处方为幂等重跑 patch，verify 为人读确认步骤；写前失败指回修因重跑；跨 app 残留不劫持本 app 判定）
-4. **自动备份**：写入前生成 `<binary>.wxkeep-bak-<ts>`（大小校验）
-5. **restore 幂等反演**：`expected[0]` 恒为原始字节；有 target 不可恢复则整体不动
-6. **重签流水线**：entitlements 快照 → 嵌套先签（注入保命键）→ 根浅签（2026-09-21 起不用 `--deep`——深签会把未触碰嵌套代码改签并封坏分离签名资源）→ 漂移恢复（deepest-first）→ root 复封 → strict verify
-7. **隔离区**：无 expected 溯源的条目（如上游导入数据）默认拒写——手上有对应构建原版 dylib 可一键回填：`python3 tools/contribute_expected.py /Applications/WeChat.app`
-8. **发布清单签名**：`manifest.json`+`manifest.sig`（Ed25519）守护 config/signatures 供应链——篡改过的补丁数据会被 `wxkeep manifest` / doctor 检出并拒载；`python3 tools/contribute_expected.py /Applications/WeChat.app --hashes` 可登记本机构建切片哈希
-9. **数据 OTA**：`wxkeep update-data` 从仓库拉取最新已签名 catalog（Ed25519 验签后原子安装到用户目录）——新构建适配 day-0 生效，无需升级工具本体
-10. **行为验证**：`verify` 把补丁函数拉出进程调用，证明补丁生效——不再依赖人工撤回测试
-11. **深度证据台账**（[docs/V3-DEPTH.md](docs/V3-DEPTH.md)）：L1 地面真值全扫 / L2 可逆性 sha 恒等 / L6 补丁确定性（双副本独立运行恒等，7/7 构建）+ 篡改负控 + 随机化性质测试；`tools/launch_soak.py` 提供补丁后启动浸泡对照实验（隔离副本 + DiagnosticReports 零新增断言）
-12. **指令级结构证明（L9）**（[docs/V5-DEPTH.md](docs/V5-DEPTH.md)，125 轮）：`tools/verify_instruction_diff.py` 对全语料双变体做补丁前后指令流验证——asm 边界完整解码、cbz→b 翻转目标恒等、具名语义类（retify/branch-flip/force-flag/store-zero/nop-out/prologue-restore）100% 覆盖（1245 位点实例 0 失败）；错目标 B / 撕裂边界 / 位点外写入三型负控钉死灵敏度
-13. **per-site 审计清单 + 系统判官**（125 轮）：patch 落 `wxkeep.audit.json` 逐位点账目（doctor `audit_state` 对账，第三方可用 `tools/audit_patch.py` 拿 pristine+patched+账目三件套零信任离线复算）；doctor 新增近 7 天 `.ips` 崩溃报告扫描（CODESIGNING 击杀计数）、spctl Gatekeeper 评估行与 `--deep` 全量校验选项
+写入路径七道防线，任何一环失败宁可不写：
 
-## 版本兼容
+```
+expected 原始字节门 → 全量写前预检 → WAL journal → 自动备份
+    → 幂等 restore → entitlements 保留重签 → strict verify + 行为级验证
+```
 
-见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，123 个构建号——4.x 全线 + **3.x 主程序时代 16 构建（3.5.5→3.8.10.17）双变体双架构**）。
-catalog 未收录的新构建：`wxkeep patch` 会自动跑签名配方定位（配方代不变时 day-0 可用），或显式 `wxkeep locate [--append]`。
+| 机制 | 一句话 |
+|---|---|
+| expected 字节门 | 写入前逐点校验原始字节，接受 pristine/已打补丁两态；错版零写入 |
+| 全量预检 | 所有位点先验后写，杜绝半套补丁 |
+| 崩溃一致性 | 写前 journal（fsync）+ 恢复重签 + 启动清扫；SIGKILL/断电后 `doctor` 精确判读并指路 |
+| 自动备份 | 每次写入前落带时间戳备份（大小校验，保留 3 代） |
+| 幂等 restore | `expected[0]` 恒为原始字节；不可恢复则整体不动 |
+| 重签流水线 | entitlements 快照 → 嵌套先签 → 根浅签 → 漂移恢复 → 复封 → strict verify |
+| 供应链 | 补丁数据 Ed25519 清单签名 + 隔离区（无溯源条目拒写）+ `update-data` 验签 OTA |
+
+深度证据体系（崩溃点穷举矩阵 / 指令级结构证明 / per-site 审计对账 / 确定性孪生）见 [docs/FMEA.md](docs/FMEA.md) 与 [docs/V7-DEPTH.md](docs/V7-DEPTH.md)；第三方可离线复算：`tools/audit_patch.py`。
 
 ## 从源码构建
 
-要求：macOS 13+，Swift 6 工具链（Xcode 或 Command Line Tools；测试使用 swift-testing，无 XCTest 依赖）。
+要求：macOS 13+，Swift 6 工具链（Xcode 或 Command Line Tools）。
 
 ```bash
-swift build -c release          # 产出 .build/release/wxkeep
-swift test                      # 全部测试（337 项（合成 fixture + 真 codesign 集成 + 解析面模糊/变异测试杀灭套件 + 崩溃一致性/确定性/负控/性质/指令级/审计对账深度门；arm64 行为项在非 arm64 主机自动 skip）
-WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路（开发机）
-```
-
-## 目录
-
-```
-Sources/wxkeep/   CLI 与引擎（Patcher/RecipeEngine/Resigner/Doctor/Verifier/…）
-config.json       双架构补丁库（条目级溯源：zengtianli/tanranv5/wxkeep-analysis）
-signatures.json   定位配方 SSOT（x64 imm64 锚点 + arm64 几何三代 + verify 规格）
-tools/            Python 孪生（定位/合并/矩阵，machutil 统一 Mach-O 解析）与 spike 存档
-docs/             兼容矩阵 / AMFI 知识 / 方法论 / 逆向发现 / 工具审计记录
-.github/          CI（macos-15 双 Xcode 腿 build+test + Rosetta x64 全量测试）+ 新版本追踪流水线
+swift build -c release
+swift test                    # 337 项（含真 codesign 集成、模糊/变异测试、崩溃一致性深度门）
+WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路
 ```
 
 ## 诚实的限制
 
-- **3.x 主程序时代（3.5.5-3.8.10.17，16 构建）**：撤回链在 ObjC 方法级（非 4.x 的 C++ 谓词）——silent=撤回 sysmsg 入口裸 ret（原消息保留、无灰条、无落库），keeptip=执行体 `DelRevokedMsg:msgData:` 裸 ret（原消息保留+灰条提示并存）。入口选择子四代改名谱系全裁决（FFToNameFavChatZZ→processNewXMLMsg→onRevokeRoomHistory→onSecMsg，`__FUNCTION__` 字面量+xref 双信号验证门）；**update 屏蔽面**=MMUpdateMgr 三方法（onServiceInit 吞 Sparkle 调度+checkForUpdates:+3.8.2 起 startBackgroundUpdatesCheck:，体内 100% update 专属实读）随 patch 附带；引擎级往返 64+32 组全绿；**`wxkeep verify` 行为级可用**——3.x 位点是可调用的方法入口（裸 ret），verify 逐个调用「已打补丁」位点证调用即返回（87 轮；worker 返回类型 UInt8 归一修复裸 ret 垃圾寄存器 UB）。**多开**：3.x 主程序无内建单实例锁（85 轮终裁——already-running 簇两架构死引用、无拦截对话框、无锁原语；4.x 的锁是 4.0.x+ 时代引入），`open -n /Applications/WeChat.app` 原生可多开，无需补丁。**行为差异（vs 4.x）**：静态裸 ret 无法区分自发/他发撤回——自己撤回时自己的视图同样保留原文（对端仍见已撤回）；拍一拍撤回同样被保留。3.x 的 Sparkle 本体在独立 framework（主机侧无法字节触达）——但调度入口 onServiceInit 在主程序，屏蔽面已闭合
-- **keeptip 覆盖**：4.1.13 全线 + 4.1.15 全家族双架构对称（revoke-keeptip 每构建 x64+arm64 各 2 点；例外：270152 仅 x64 silent）；私聊提示保留，群聊提示为字节路线已知限制——全生态皆然；silent 双架构全可用。无 keeptip 条目的构建上 `--variant silent`（或 `--only update`——已放行变体域外作用域）
-- **二进制级屏蔽更新**：4.1.13 全线 + 4.1.15 全家族双架构同构 8 点（XAppUpdateManager 四方法+访问器对；270100 真机行为验证，其余同构派生+字节级往返）；269602 为纯 C++ 更新器时代（周期工人→ret 双架构单点）；4.1.12 及更老构建的 arm64 8/9 点来自 zengtianli/fzlzjerry 导入。偏好层三开关（`wxkeep update-guard`，patch 时自动附带）在无二进制目标的构建上兜底
-- verify 的行为验证双架构可用：worker 在 arm64 走 **MAP_JIT 拆分映射**（EXEC 前缀段=MAP_JIT，数据段=普通 RW 匿名映射紧贴其后——macOS 27 的 W^X 是执行级：写态页不可执行、保护态页不可写且 mprotect 全封，代码数据同区即死锁；2026-10-14 最小探针定案），x64 直接 RWX 映射；写入后 `sys_icache_invalidate` + `np(1)` 回保护态再执行。arm64 执行路径已 CI（macos-15）与 **macOS 27 真机**（270100 装机件四探针全对）双端验收；stock arm64 真机无需 AMFI boot-arg
-- **verify spec 按构建变体**（`verify_variants`）：stubs/zero_regions 是绝对 VA、逐构建漂移——legacy spec 覆盖 270099 族，270131-135（当前家族）已各派生双架构变体（arm64 真件端到端 5/5 全绿；x64 走 CI Rosetta 验收）。无变体的构建上 `verify` 优雅跳过并提示（worker 有 stub 形态/越界门；x64 探针条目按配方 asm 匹配，无匹配即跳过；arm64 位点形态不符同样跳过）——补丁效果始终由 strict verify 字节级证明承担，`doctor` / `patch --dry-run` 不受影响。CI 另在 Rosetta 下跑 x86_64 全量测试覆盖 Intel worker 路径
-- 74 个隔离条目缺 expected 溯源字节（28 构建：268xxx-269xxx x64 30 条 + 3xxxx-37xxx arm64 44 条）——2026-11-04 终审回填轮（官方 CDN 直链 + zsbai 111 release 全量穷尽，候选降级链含 tagmap 跨轮缓存）实证：**两线均无对应小版本归档 = 永久缺口**（CDN 可得性仅覆盖有营销版本映射的构建；此 28 构建的 dmg 从未上过任一归档）。隔离门按设计拒写拒还原，涉及时官方 dmg 重装；数量以 `python3 tools/count_quarantined.py` 为准
-- 运行时组件地址表 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-270135 + 4.2.0 线 12 构建 × 双架构 68 行（270101/270102 于 2026-10-20 补齐——CDN 实为在档，旧「无 dmg 工件」结论有误；270352 于 2026-11-07 补齐）；M-R2 parse 直挂已实机验证（270100），其余家族行为同构派生（序言门全过，未单独实机验收）
-- 270087/270092 与 4.1.13.1-.4、.12-.49 段（含 269602）、4.1.14 整线（2026-10-19 全区间 CDN 扫描定案无归档）官方 CDN 无归档（疑似从未公开发布）——269602 条目已由历史轮次覆盖，其余为目录永久缺口
+| 限制 | 详情 |
+|---|---|
+| keeptip 群聊提示（x64） | 群聊提示文本由服务端下发，字节路线无法改写——全生态皆然；silent 双架构全可用 |
+| 3.x 行为差异 | 静态裸 ret 无法区分自发/他发撤回（自己撤回时自己的视图也保留原文）；拍一拍撤回同样被保留。多开无需补丁（3.x 无单实例锁，`open -n` 原生可用） |
+| 更新防护（偏好层） | 微信 4.1.13+ 启动时会把 `SUEnableAutomaticChecks/SUAutomaticallyUpdate` 改回「开」；`SUSendProfileInfo` 可长期存活。二进制级 8 点不受影响，被改回时 doctor 明确提示 |
+| 74 个隔离条目（28 构建） | 缺 expected 溯源字节，官方 CDN 与社区归档全量穷尽无存档=永久缺口；隔离门按设计拒写，涉及时官方 dmg 重装 |
+| 部分 CDN 缺口构建 | 270087/270092、4.1.13.1-.4/.12-.49 段、4.1.14 整线官方从未归档（269602 已由历史条目覆盖） |
+| runtime 地址表实机验收 | M-R2 parse 直挂已实机验证（270100）；其余家族行为同构派生（序言门全过，未单独实机验收） |
+| dbkeys capture | 固定目标 `/Applications/WeChat.app`（自定义安装位/克隆容器暂不支持） |
 
 ## 贡献
 
-- 新构建适配优先自动：CI 流水线每日盯官方新版本→自动跑配方→开 PR（人工审核合入）
-- 手动适配 SOP 与每代签名的逆向记录：`docs/MAINTAINING.md`
+- 新构建适配优先自动：CI 流水线每日盯官方新版本 → 自动跑配方 → 开 PR（人工审核合入）
+- 手动适配 SOP 与每代签名逆向记录：[docs/MAINTAINING.md](docs/MAINTAINING.md)
 - 补丁数据 AGPL-3.0 继承；条目级溯源（`source` 字段）必须保留
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/README.md](docs/README.md) | **文档索引**（现行契约 / 方法论 / 历史档案导航） |
+| [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 123 构建双架构兼容矩阵（自动生成） |
+| [docs/MAINTAINING.md](docs/MAINTAINING.md) | 维护 SOP：新构建适配、发版、审计方法 |
+| [docs/FMEA.md](docs/FMEA.md) | 故障模式登记册：每行 = 模式 × 防线 × 检出 × 测试 |
+| [docs/RUNTIME-DESIGN.md](docs/RUNTIME-DESIGN.md) | 运行时组件设计：hook 谱系、身份门、安装链 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | 迭代全史（135 轮）与优先级队列 |
+| [docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) | 生态与安全态势（2026-11 全网调研） |
 
 ## 致谢
 

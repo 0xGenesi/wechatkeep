@@ -1,5 +1,7 @@
 # 269602 更新器定位结论（M2-2，2026-09-15）
 
+> **状态：历史档案（已入档）**——269602 更新器条目已进 catalog；逆向发现保留为方法记录。
+
 ## 事实
 - `XAppUpdateManager` 在 269602 的 **arm64 与 x86_64 两个 slice 中都不存在**
   （zengtianli 的 signatures.json update 段适用于 269579/269627 等构建；vvanglro 的 269602 条目同样没有 update target）

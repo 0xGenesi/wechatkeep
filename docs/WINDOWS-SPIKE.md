@@ -1,5 +1,7 @@
 # Windows Spike 报告（2026-10-25，队列第 3 项 3 天时间盒 → 实际 1 会话收口）
 
+> **状态：历史档案（侦察完成）**——GO 决议后建设转入独立仓库 [wxkeep-core](https://github.com/0xGenesi/wxkeep-core)；本文保留 Windows 撤回链对位表等侦察结论。
+
 > 用户队列定义（ROADMAP 74 轮）：新仓库 Rust + mac/Win 共用 catalog 数据层设计；
 > 拿 Windows 官方原版用现有 capstone 方法论**独立重 derive 撤回链位点**
 > （不抄 BetterWX），spike 结论决定立项与否。
