@@ -204,6 +204,7 @@ extension EngineTests {
     /// M08 变异（闭包体写 false）→ 恢复重签被跳过 → 观测缝不触发 → 红。
     @Test func undoMidWriteFailureTriggersRecoveryResign() throws {
         #if DEBUG
+        let _seamGate = PatcherSeamGate()   // 跨套件互斥（136 轮）：与 CrashMatrix 的用缝用例串行
         let app = try makeApp()
         // 双变体目录：keeptip 目标只需非空（触发切换还原臂）即可
         let json = """
@@ -262,6 +263,7 @@ extension EngineTests {
     /// 出错口断言「盘上 k 条 = summary.auditSites k 条」。
     @Test func partialWriteFailureCarriesAuditAccount() throws {
         #if DEBUG
+        let _seamGate = PatcherSeamGate()   // 跨套件互斥（136 轮）：同上
         let app = try makeApp()
         let json = """
         [{"version":"999998","targets":[

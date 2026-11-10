@@ -23,12 +23,26 @@ import Testing
 /// 串行消除歧义；对外仍靠 URL 限定（闭包对非本夹具路径恒返 nil）与其他
 /// 并行套件共存——EngineTests 同款纪律。仅 DEBUG（缝本身 DEBUG-only，
 /// swift test 即 debug 配置）。
-/// **跨套件互踩窗口（133 轮双评审 P1 登记）**：URL 限定只防误注入，防不了
-/// 全局槽的 set/复位与 EngineTests.undoMidWriteFailure 等并行用例的窗口
-/// 重叠——重叠时双方缝被互相清空，产生 flaky 红（红向安全，无假绿）。
-/// 复现时重跑该用例即可；结构性解法（每套件独立缝槽）需产品缝 API 演进，
-/// 不在测试侧硬造。
+/// **跨套件互踩窗口（133 轮双评审 P1 登记→136 轮闭口）**：URL 限定只防
+/// 误注入，防不了全局槽的 set/复位与 EngineTests.undoMidWriteFailure 等
+/// 并行用例的窗口重叠——重叠时双方缝被互相清空，产生 flaky 红（红向安全，
+/// 无假绿）。133 轮判定「结构性解法需产品缝 API 演进」过悲：测试侧跨套件
+/// 互斥锁即足（见 PatcherSeamGate）——136 轮 CI Xcode latest-stable 实弹
+/// 命中该窗口（undo 注入被邻套 defer nil → fail-at(0) 不 fire → 假成功
+/// 双红）后落锁闭口。
 #if DEBUG
+
+/// 进程全局写故障缝的跨套件互斥（136 轮）：debugWriteFailureAt /
+/// Resigner.debugAttemptHook 是进程级可变缝，.serialized 只约束套件内
+/// 并行——跨套件并行下 set/复位窗口重叠会互相清空。任何用缝用例在装缝
+/// 前先持此门（class deinit 解锁：正常/throw 路径同收；持门对象不得被
+/// 逃逸闭包捕获）。
+final class PatcherSeamGate {
+    nonisolated(unsafe) static let lock = NSLock()
+    init() { Self.lock.lock() }
+    deinit { Self.lock.unlock() }
+}
+
 @Suite(.serialized)
 struct CrashMatrixTests {
     /// 与 SyntheticL2L6Tests 同款三 target 目录：silent 位（retify）/
@@ -188,6 +202,7 @@ struct CrashMatrixTests {
     // MARK: - 单格协议
 
     private func runCell(_ cell: (pre: String?, cmd: String, writes: Int, k: Int)) throws {
+        let _seamGate = PatcherSeamGate()   // 跨套件互斥（136 轮）：全程持锁
         let config = try makeConfig()
         let work = try makeWork("\(cell.pre ?? "p")-\(cell.cmd)-\(cell.k)")
         defer { try? FileManager.default.removeItem(at: work) }
