@@ -49,7 +49,7 @@ DUP_ID_BUILDS = {
     "269363", "269362", "269336", "42530", "41754", "39917", "38959", "37335",
 }
 
-EXPECTED_TOTALS = {"builds": 123, "entries": 2001}
+EXPECTED_TOTALS = {"builds": 124, "entries": 2003}
 
 # 家族指纹表（134 轮实测固化；新派生轮 = 登记新指纹行 + 注出处）。
 EXPECTED_FINGERPRINTS = {
@@ -76,6 +76,13 @@ EXPECTED_FINGERPRINTS = {
     "revoke|arm64|C0035FD6x1;revoke|x86_64|C3x1;revoke-keeptip|arm64|C0035FD6x1;revoke-keeptip|x86_64|C3x1;update|arm64|C0035FD6x2;update|x86_64|C3x2": 8,
     "revoke|arm64|C0035FD6x1;revoke|x86_64|C3x1;revoke-keeptip|arm64|C0035FD6x1;revoke-keeptip|x86_64|C3x1;update|arm64|C0035FD6x3;update|x86_64|C3x3": 8,
     "revoke|x86_64|31C0C3909090909090x1;update|arm64|00008052C0035FD6x2,C0035FD6x6;update|x86_64|31C0C3x2,C3x6": 1,
+    # 270353（watcher auto-locate PR #4 首审轮，2026-11-10）：revoke-only 两行
+    # = gen3 几何未变代的又一实例；首例无 keeptip/update/multiInstance 伴行
+    # 的「纯 revoke 双架构」指纹。出处：CDN xWeChatMac_universal_4.2.0.17_
+    # 270353.dmg（sha256 e47d5e1c…），fat wechat.dylib d61eab4f…，expected
+    # 字节本地独立复核（arm64@4E7D404=40100034 / x64@516E9F0=
+    # 554889E553504889FB，wxkeep locate 本机重跑同址同值）。
+    "revoke|arm64|82000014x1;revoke|x86_64|31C0C3909090909090x1": 1,
 }
 
 
