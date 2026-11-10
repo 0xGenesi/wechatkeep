@@ -94,9 +94,17 @@ enum EntrySlot {
     /// 恢复：`plan.original12` 写回同位（或已知补丁态时按行 expected 恢复）。
     /// `slotIndex`：多挂点共用同一填充区时的槽位序（0=主 hook，1=克隆写点
     /// ……每槽 8B，真零验证各自独立；V3-M2 第二挂点引入）。
+    /// `file:` 变体（136 轮评审 P3）：单文件多挂点预检（主/克隆/lu/cm 四
+    /// 槽）各调一次就各全量读一遍 340MB dylib——`image:` 注入变体供调用方
+    /// 一次装载复用（runtime install 预检 ≥9 次全量读 → 1 次）。
     static func planArm64(file url: URL, hookOff: UInt64,
                           expectedHex: String, slotIndex: Int = 0) throws -> Plan {
-        let image = try MachImage(file: url, arch: .arm64)
+        try planArm64(image: MachImage(file: url, arch: .arm64),
+                      hookOff: hookOff, expectedHex: expectedHex, slotIndex: slotIndex)
+    }
+
+    static func planArm64(image: MachImage, hookOff: UInt64,
+                          expectedHex: String, slotIndex: Int = 0) throws -> Plan {
         let entry = hookOff
         // 1) 现场字节 == expected 前 12B（原始态门）
         guard let cur = image.bytes(va: entry, count: 12) else {
@@ -180,8 +188,13 @@ enum EntrySlot {
     /// 的原生形态）误判为已补丁——install 侧因此跳过武装、remove 侧因此走还
     /// 原路径，都是错动作。SLOT VA 的落区校验与 planArm64 同口径。
     static func detectPatched(file url: URL, hookOff: UInt64) -> UInt64? {
-        guard let image = try? MachImage(file: url, arch: .arm64),
-              let raw = image.bytes(va: hookOff, count: 12) else { return nil }
+        // 136 轮评审 P3：单文件多挂点调用方用 `image:` 变体一次装载复用。
+        guard let image = try? MachImage(file: url, arch: .arm64) else { return nil }
+        return detectPatched(image: image, hookOff: hookOff)
+    }
+
+    static func detectPatched(image: MachImage, hookOff: UInt64) -> UInt64? {
+        guard let raw = image.bytes(va: hookOff, count: 12) else { return nil }
         var w: [UInt32] = []
         for i in 0..<3 {
             let b0 = UInt32(raw[i * 4])

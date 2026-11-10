@@ -1,0 +1,28 @@
+{
+ "hooks": [
+  {
+   "build": "270135",
+   "uuid": "0c2f01c0-c197-3286-901d-70e1d007a1c0",
+   "arch": "arm64",
+   "hook_off": "0x4d1f8d8",
+   "msg_arg": 1,
+   "xml_sso_off": 0,
+   "expected": "F85FBCA9F65701A9F44F02A9FD7B03A9",
+   "clone_hook_off": "0x4cd5e8c",
+   "clone_expected": "FFC302D1FC6F05A9FA6706A9F85F07A9",
+   "clone_rd_lookup": "0x32edaec",
+   "clone_rd_lookup_fs": 8484,
+   "clone_rd_lookup_head": "E923B96DFC6F01A9FA6702A9F85F03A9",
+   "clone_rd_wrap": "0x309ac50",
+   "clone_rd_getter": "0x102b740",
+   "clone_rd_x2single": "0x571ce74",
+   "clone_rd_x2desc": "0xa3de0a70",
+   "clone_rd_x2ctx": "0x5720308",
+   "clone_rd_key_slot": "0x3a0",
+   "clone_rd_wrap_head": "FF0301D1F44F02A9FD7B03A9FDC30091",
+   "clone_rd_getter_head": "F44FBEA9FD7B01A9FD430091F40300AA",
+   "clone_rd_x2single_head": "F44FBEA9FD7B01A9FD430091080040F9",
+   "clone_rd_x2ctx_head": "080040F9280300B4090140F92A0D0012"
+  }
+ ]
+}

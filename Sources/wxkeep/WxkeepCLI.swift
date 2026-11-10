@@ -1470,12 +1470,17 @@ extension Wxkeep {
                             throw ValidationError("hooks 行 hook_off 非法: \(row.hook_off)（build \(row.build)）")
                         }
                         entrySlotHookOff = hookOff
-                        if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: hookOff) != nil {
+                        // 单实例复用（136 轮评审 P3）：四挂点预检此前各自构造
+                        // MachImage——对 340MB 级 wechat.dylib 合计 ≥9 次全量读
+                        //（主/克隆/lu/cm 的 detect+plan）。装载一次注入复用，
+                        // 同一文件同一快照，语义等价纯性能。
+                        let slotImage = try MachImage(file: wechatDylibURL, arch: .arm64)
+                        if EntrySlot.detectPatched(image: slotImage, hookOff: hookOff) != nil {
                             // 幂等：入口补丁已在位（重复 install）——无需重写
                             entrySlotIdempotent = true
                         } else {
                             entrySlotPlan = try EntrySlot.planArm64(
-                                file: wechatDylibURL, hookOff: hookOff,
+                                image: slotImage, hookOff: hookOff,
                                 expectedHex: row.expected)
                         }
                         if let cOffHex = row.clone_hook_off, let cExp = row.clone_expected {
@@ -1490,11 +1495,11 @@ extension Wxkeep {
                                     throw ValidationError("hooks 行 clone_hook_off 非法: \(cOffHex)（build \(row.build)）")
                                 }
                                 cloneSlotHookOff = cOff
-                                if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: cOff) != nil {
+                                if EntrySlot.detectPatched(image: slotImage, hookOff: cOff) != nil {
                                     cloneSlotIdempotent = true
                                 } else {
                                     cloneSlotPlan = try EntrySlot.planArm64(
-                                        file: wechatDylibURL, hookOff: cOff,
+                                        image: slotImage, hookOff: cOff,
                                         expectedHex: cExp, slotIndex: 1)
                                 }
                             } catch {
@@ -1516,11 +1521,11 @@ extension Wxkeep {
                            let lOff = Wxkeep.strictHexVA(lOffHex) {
                             do {
                                 luSlotHookOff = lOff
-                                if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: lOff) != nil {
+                                if EntrySlot.detectPatched(image: slotImage, hookOff: lOff) != nil {
                                     luSlotIdempotent = true
                                 } else {
                                     luSlotPlan = try EntrySlot.planArm64(
-                                        file: wechatDylibURL, hookOff: lOff,
+                                        image: slotImage, hookOff: lOff,
                                         expectedHex: lHead, slotIndex: 3)
                                 }
                             } catch {
@@ -1540,11 +1545,11 @@ extension Wxkeep {
                                     throw ValidationError("hooks 行 clone_cm_hook_off 非法: \(mOffHex)（build \(row.build)）")
                                 }
                                 cmSlotHookOff = mOff
-                                if EntrySlot.detectPatched(file: wechatDylibURL, hookOff: mOff) != nil {
+                                if EntrySlot.detectPatched(image: slotImage, hookOff: mOff) != nil {
                                     cmSlotIdempotent = true
                                 } else {
                                     cmSlotPlan = try EntrySlot.planArm64(
-                                        file: wechatDylibURL, hookOff: mOff,
+                                        image: slotImage, hookOff: mOff,
                                         expectedHex: mExp, slotIndex: 2)
                                 }
                             } catch {
@@ -1876,27 +1881,27 @@ extension Wxkeep {
                             return d.prefix(12)
                         }
                         if let hookOff = Wxkeep.strictHexVA(row.hook_off) {
-                            if EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) != nil,
+                            if EntrySlot.detectPatched(image: image, hookOff: hookOff) != nil,
                                let exp = siteExpected(row.expected, "expected") {
                                 pending.append((hookOff, exp, "入口"))
-                            } else if EntrySlot.detectPatched(file: dylibURL, hookOff: hookOff) == nil {
+                            } else if EntrySlot.detectPatched(image: image, hookOff: hookOff) == nil {
                                 print("ℹ︎ entry-slot: 主入口未检出补丁态（偏移漂移/非本工具装）——副槽仍独立探测")
                             }
                         } else {
                             print("⚠️ entry-slot: hooks 行 hook_off 非法（build \(row.build)）——无法核对主入口，副槽仍独立探测")
                         }
                         if let cOffHex = row.clone_hook_off, let cOff = Wxkeep.strictHexVA(cOffHex),
-                           EntrySlot.detectPatched(file: dylibURL, hookOff: cOff) != nil,
+                           EntrySlot.detectPatched(image: image, hookOff: cOff) != nil,
                            let exp = siteExpected(row.clone_expected ?? "", "clone_expected") {
                             pending.append((cOff, exp, "克隆写点"))
                         }
                         if let lOffHex = row.clone_rd_lookup, let lOff = Wxkeep.strictHexVA(lOffHex),
-                           EntrySlot.detectPatched(file: dylibURL, hookOff: lOff) != nil,
+                           EntrySlot.detectPatched(image: image, hookOff: lOff) != nil,
                            let exp = siteExpected(row.clone_rd_lookup_head ?? "", "clone_rd_lookup_head") {
                             pending.append((lOff, exp, "lookup"))
                         }
                         if let mOffHex = row.clone_cm_hook_off, let mOff = Wxkeep.strictHexVA(mOffHex),
-                           EntrySlot.detectPatched(file: dylibURL, hookOff: mOff) != nil,
+                           EntrySlot.detectPatched(image: image, hookOff: mOff) != nil,
                            let exp = siteExpected(row.clone_cm_expected ?? "", "clone_cm_expected") {
                             pending.append((mOff, exp, "consumer_main"))
                         }

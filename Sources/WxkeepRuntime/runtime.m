@@ -116,9 +116,24 @@ typedef struct {
     uint32_t clone_rd_wrap_off;        // wrap 0x309ac50（拷贝+dynamic_cast）
     uint32_t clone_rd_getter_off;      // getter 0x102b740（sret {obj,ctl}）
     uint32_t clone_rd_x2single_off;    // 全局单例 get 0x571ce74（out ctl, &slot）
-    uint32_t clone_rd_x2desc_off;      // 单例描述符槽 0xa3de0a70（切片偏移）
+    uint32_t clone_rd_x2desc_off;      // 单例描述符槽（270135 行 0xa3de0a70
+                                       // = 超图 16 倍的转录/滑移污染值——
+                                       // 136 轮范围门实弹定案；真值待
+                                       // Ghidra 轮重派生，期间该行 rd 表
+                                       // 惰性=野指针面拆除）
     uint32_t clone_rd_x2ctx_off;       // ctx 获取 0x5720308（&p, NULL）
     uint32_t clone_rd_key_slot;        // consumer_main 帧内 key 串对象的 sp 偏移（0x3a0）
+    // 136 轮身份门扩展（可选头锚，行带才启用对应门）：四个函数位点各 16B
+    // 原像。均为纯直调目标（从未被入口补丁触碰）→ 活读恒原像，锚仅作身份
+    // 比对、非蹦床重放源——**不套可换址门**（wrap 起点 sub-sp 家族形态合
+    // 法，套了会误拒整行）。x2desc 是数据槽（运行期内容=解析后指针≠文件
+    // 字节）锚不适用——由武装期范围门覆盖（270135 行 x2desc=0xa3de0a70
+    // 超图 16 倍实弹定案：rd_abs 出野指针喂 x2single，转录/滑移污染类
+    // 数据事故的唯一机械防线 = 段表落界检查）。
+    uint8_t clone_rd_wrap_head[16];     uint8_t has_clone_rd_wrap_head;
+    uint8_t clone_rd_getter_head[16];   uint8_t has_clone_rd_getter_head;
+    uint8_t clone_rd_x2single_head[16]; uint8_t has_clone_rd_x2single_head;
+    uint8_t clone_rd_x2ctx_head[16];    uint8_t has_clone_rd_x2ctx_head;
     // R11 parse 锚定加订（可选三件套；在场必须 rd 组完整——keyctor 是
     // rd 直调族成员，单独在场的行=笔误整行拒绝）：key 构造 0x4a2b524
     //（sret 24B 串对象, x0=parse msg 对象）+ fs/head 双身份门。
@@ -561,6 +576,9 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
         @"clone_rd_lookup", @"clone_rd_lookup_fs", @"clone_rd_lookup_head",
         @"clone_rd_wrap", @"clone_rd_getter", @"clone_rd_x2single",
         @"clone_rd_x2desc", @"clone_rd_x2ctx", @"clone_rd_key_slot",
+        // 136 轮头锚入套件触发集：孤儿锚（带锚无 rd 组/clone 对）同收口
+        @"clone_rd_wrap_head", @"clone_rd_getter_head",
+        @"clone_rd_x2single_head", @"clone_rd_x2ctx_head",
         @"clone_rd_keyctor", @"clone_rd_keyctor_fs", @"clone_rd_keyctor_head",
         @"clone_cm_hook_off", @"clone_cm_expected",
         @"clone_ins_ctor", @"clone_ins_ctor_fs", @"clone_ins_ctor_head",
@@ -617,7 +635,14 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
         NSString *rdd = [row[@"clone_rd_x2desc"] isKindOfClass:[NSString class]] ? row[@"clone_rd_x2desc"] : nil;
         NSString *rdc = [row[@"clone_rd_x2ctx"] isKindOfClass:[NSString class]] ? row[@"clone_rd_x2ctx"] : nil;
         NSString *rdk = [row[@"clone_rd_key_slot"] isKindOfClass:[NSString class]] ? row[@"clone_rd_key_slot"] : nil;
-        if (rdl || rdh || rdw || rdg || rds || rdd || rdc || rdk || rdf || rdfn) {
+        // 136 轮可选头锚（struct 注：身份比对专用，非重放源，不套可换址门）。
+        // 任一在场 → rd 组必须完整（本行只有锚没有组 = 笔误，整行拒绝）。
+        NSString *rdwh = [row[@"clone_rd_wrap_head"] isKindOfClass:[NSString class]] ? row[@"clone_rd_wrap_head"] : nil;
+        NSString *rdgh = [row[@"clone_rd_getter_head"] isKindOfClass:[NSString class]] ? row[@"clone_rd_getter_head"] : nil;
+        NSString *rdsh = [row[@"clone_rd_x2single_head"] isKindOfClass:[NSString class]] ? row[@"clone_rd_x2single_head"] : nil;
+        NSString *rdch = [row[@"clone_rd_x2ctx_head"] isKindOfClass:[NSString class]] ? row[@"clone_rd_x2ctx_head"] : nil;
+        if (rdl || rdh || rdw || rdg || rds || rdd || rdc || rdk || rdf || rdfn
+            || rdwh || rdgh || rdsh || rdch) {
             if (!(rdl && rdh && rdw && rdg && rds && rdd && rdc && rdk)) return 0;
             uint32_t v;
             if (!parse_hex_u32(ns_u8(rdl), &v) || v == 0) return 0;
@@ -654,6 +679,19 @@ static int hook_row_parse(NSDictionary *row, hook_target_t *out) {
             // 与 clone_expected 同过可换址门——含 ADRP/B/LDR-literal 的头
             // 换址重放即算错地址（108 轮同型 P0 的纪律对齐）。
             if (!arm64_prologue_relocatable(out->clone_rd_lookup_head, 16)) return 0;
+            // 可选头锚解析（恰 16B 严格 hex；缺省 = 对应门不启用，向后兼容）
+            if (rdwh && parse_hex(ns_u8(rdwh), out->clone_rd_wrap_head,
+                                  sizeof(out->clone_rd_wrap_head)) != 16) return 0;
+            out->has_clone_rd_wrap_head = (rdwh != nil);
+            if (rdgh && parse_hex(ns_u8(rdgh), out->clone_rd_getter_head,
+                                  sizeof(out->clone_rd_getter_head)) != 16) return 0;
+            out->has_clone_rd_getter_head = (rdgh != nil);
+            if (rdsh && parse_hex(ns_u8(rdsh), out->clone_rd_x2single_head,
+                                  sizeof(out->clone_rd_x2single_head)) != 16) return 0;
+            out->has_clone_rd_x2single_head = (rdsh != nil);
+            if (rdch && parse_hex(ns_u8(rdch), out->clone_rd_x2ctx_head,
+                                  sizeof(out->clone_rd_x2ctx_head)) != 16) return 0;
+            out->has_clone_rd_x2ctx_head = (rdch != nil);
             out->has_clone_rd = 1;
         }
         // R11 parse 锚定加订（可选三件套，rd 组块外独立判定）：任一在场
@@ -2811,6 +2849,22 @@ static void image_layout_free(image_layout_t *im) {
     im->fs_blob = NULL;
 }
 
+/// 136 轮 rd 表范围门：off（切片偏移 = text_vmaddr 相对）是否落在任一段的
+/// [vmaddr, vmaddr+vmsize)。段表不可用 = 不含（门从严——无法核对即不武装，
+/// 与 func_size_matches 的 -1 语义同哲学）。直调族偏移混入转录错值或调试
+/// 器滑移污染（270135 行 x2desc=0xa3de0a70 超图 16 倍实弹定案）时
+/// rd_abs 出野指针：函数位点=崩溃、数据槽=把野指针喂给宿主函数——比不
+/// 直调更糟。这是该类数据事故的唯一机械防线。
+static int layout_contains(const image_layout_t *im, uint64_t off) {
+    if (!im->has_text) return 0;
+    uint64_t va = im->text_vmaddr + off;
+    for (int i = 0; i < im->nsegs; i++) {
+        if (va >= im->segs[i].vmaddr
+            && va < im->segs[i].vmaddr + im->segs[i].vmsize) return 1;
+    }
+    return 0;
+}
+
 /// 命令区游走边界（与 uuid_matches 同规）：装载镜像信 dyld，裸缓冲信 avail。
 static const uint8_t *layout_cmd_end(const struct mach_header_64 *hdr, size_t avail) {
     const uint8_t *end = (const uint8_t *)hdr + sizeof(struct mach_header_64)
@@ -3473,6 +3527,57 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
         if (!bad && !lu_patched
             && (!kread_buf(base + t->clone_rd_lookup_off, head16, 16)
                 || memcmp(head16, t->clone_rd_lookup_head, 16) != 0)) bad = 1;
+        // 136 轮门③：范围门——六个镜像偏移逐一落段检查（layout_contains
+        // 注：270135 x2desc 超图实弹定案，转录/滑移污染的唯一机械防线）。
+        // 逐位点 bootlog 点名，排障可直接定位坏值。
+        if (!bad) {
+            image_layout_t imr;
+            if (image_layout((const struct mach_header_64 *)base, (size_t)-1, &imr)) {
+                const struct rd_site { uint32_t off; const char *name; } sites[] = {
+                    { t->clone_rd_lookup_off,   "lookup" },
+                    { t->clone_rd_wrap_off,     "wrap" },
+                    { t->clone_rd_getter_off,   "getter" },
+                    { t->clone_rd_x2single_off, "x2single" },
+                    { t->clone_rd_x2desc_off,   "x2desc" },
+                    { t->clone_rd_x2ctx_off,    "x2ctx" },
+                };
+                for (size_t i = 0; i < sizeof(sites) / sizeof(sites[0]); i++) {
+                    if (!layout_contains(&imr, sites[i].off)) {
+                        bootlog_line_ns([NSString stringWithFormat:
+                            @"clone-rd: 范围门失配 %s=0x%x 超出镜像段表——直调表不武装",
+                            sites[i].name, sites[i].off]);
+                        bad = 1;
+                    }
+                }
+            } else {
+                bootlog_line("clone-rd: 段表不可用——范围门从严不武装");
+                bad = 1;
+            }
+            image_layout_free(&imr);
+        }
+        // 136 轮门④：可选头锚（行带才启用）——纯直调目标活读 16B 比对
+        //（从未被入口补丁触碰，lookup 的补丁态特例不适用）。失配 = 行地址
+        // 与本镜像不符（数据事故/同 UUID 换字节），表不武装。
+        if (!bad) {
+            const struct rd_anchor { const uint8_t *head; uint32_t off;
+                                     const char *name; int present; } anchors[] = {
+                { t->clone_rd_wrap_head,     t->clone_rd_wrap_off,     "wrap",     t->has_clone_rd_wrap_head },
+                { t->clone_rd_getter_head,   t->clone_rd_getter_off,   "getter",   t->has_clone_rd_getter_head },
+                { t->clone_rd_x2single_head, t->clone_rd_x2single_off, "x2single", t->has_clone_rd_x2single_head },
+                { t->clone_rd_x2ctx_head,    t->clone_rd_x2ctx_off,    "x2ctx",    t->has_clone_rd_x2ctx_head },
+            };
+            for (size_t i = 0; i < sizeof(anchors) / sizeof(anchors[0]); i++) {
+                if (!anchors[i].present) continue;
+                if (!kread_buf(base + anchors[i].off, head16, 16)
+                    || memcmp(head16, anchors[i].head, 16) != 0) {
+                    bootlog_line_ns([NSString stringWithFormat:
+                        @"clone-rd: 头锚失配 %s=0x%x——直调表不武装",
+                        anchors[i].name, anchors[i].off]);
+                    bad = 1;
+                    break;
+                }
+            }
+        }
         if (bad) {
             bootlog_line("clone-rd: lookup 身份门失配——直调表不武装（worker 惰性）");
         } else {

@@ -178,3 +178,30 @@ extension EntrySlotTests {
                 "行字节与 pristine 切片不一致：行=\(exp) 实=\(real.hexUppercase)")
     }
 }
+
+// MARK: - 136 轮：image 注入变体与 file 变体等价（单实例复用回归锁）
+
+extension EntrySlotTests {
+    /// runtime install 预检（≥9 次全量读 → 1 次）的重构锁：`image:` 注入
+    /// 变体与 `file:` 变体对同一切片产出恒等 Plan / 同一 detect 判读。
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: "var/wxarm/270135_arm64.dylib")),
+          .disabled(if: ProcessInfo.processInfo.environment["CI"] != nil))
+    func imageInjectionMatchesFileVariant() throws {
+        let url = URL(fileURLWithPath: "var/wxarm/270135_arm64.dylib")
+        let expected = "F85FBCA9F65701A9F44F02A9FD7B03A9"
+        let fromFile = try EntrySlot.planArm64(file: url, hookOff: 0x4d1f8d8, expectedHex: expected)
+        let image = try MachImage(file: url, arch: .arm64)
+        // 同参对比（slotIndex 会按设计推进 SLOT 位——等价性断言必须同参）
+        let fromImage = try EntrySlot.planArm64(
+            image: image, hookOff: 0x4d1f8d8, expectedHex: expected, slotIndex: 0)
+        #expect(fromImage.entryVA == fromFile.entryVA)
+        #expect(fromImage.entryFileOffset == fromFile.entryFileOffset)
+        #expect(fromImage.slotVA == fromFile.slotVA)
+        #expect(fromImage.slotFileOffset == fromFile.slotFileOffset)
+        #expect(fromImage.patch12 == fromFile.patch12)
+        #expect(fromImage.original12 == fromFile.original12)
+        // detect 判读恒等（原始态双双 nil）
+        #expect(EntrySlot.detectPatched(image: image, hookOff: 0x4d1f8d8) == nil)
+        #expect(EntrySlot.detectPatched(file: url, hookOff: 0x4d1f8d8) == nil)
+    }
+}

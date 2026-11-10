@@ -644,3 +644,83 @@ extension RuntimeConfigTests {
         #expect(d["tip_text"] as? String == "「⚠️」撤回了一条消息")
     }
 }
+
+extension RuntimeConfigTests {
+    // MARK: - 136 轮：扩展字段保全（P1）+ rd 头锚字段透传
+
+    /// P1 回归锁：knownUUID 行上的研究面字段（clone_*/锚——knownHooks 不
+    /// 产出的键）必须在 uuid 去重替换后**存活**。此前任何一次 mergeKnownHooks
+    /// （runtime hooks / runtime install 都调）会把增强行整个换成 pristine
+    /// 行——本机 270135 克隆字段靠「装完后再手写、不再跑 sync」侥幸存活，
+    /// 下次装机即静默全丢。新语义：pristine 行没有的键回植；新旧都有 = 新
+    /// 表胜出（locate --append 溯源刷新同哲学）。
+    @Test func mergePreservesResearchFieldsOnKnownUUIDRows() throws {
+        let url = tmpConfigPath()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        // 旧 270099 行：hook_off 故意写错值（模拟手改/研究态），带全套克隆字段
+        var stale: [String: Any] = [
+            "build": "270099",
+            "uuid": "97e21436-abda-3b79-bec0-ef2653c6b423",
+            "arch": "x86_64",
+            "hook_off": "0xDEADBEEF",            // 与 knownHooks 不同 → 新表胜出
+            "msg_arg": 1, "xml_sso_off": 0, "expected": "AABB",
+            "clone_hook_off": "0x4cd5e8c",
+            "clone_expected": "FFC302D1FC6F05A9FA6706A9",
+            "clone_svc_vtable": "0x9deeb48",
+            "clone_rd_lookup": "0x32edaec",
+            "clone_rd_wrap": "0x309ac50",
+            "clone_rd_wrap_head": "FF0301D1F44F02A9FD7B03A9FDC30091",
+            "custom_research_field": "keep-me",  // 未知键同保全（用户数据）
+        ]
+        var dict: [String: Any] = [:]
+        dict["hooks"] = [stale]
+        try JSONSerialization.data(withJSONObject: dict).write(to: url)
+
+        let rows = try RuntimeConfig.mergeKnownHooks(into: [url])
+        let back = try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: url), options: [], format: nil) as? [String: Any]
+        let hooks = back?["hooks"] as? [[String: Any]]
+        let merged = hooks?.first { ($0["uuid"] as? String) == "97e21436-abda-3b79-bec0-ef2653c6b423" }
+
+        // 管理面：新表胜出（hook_off 回到 knownHooks 派生值）
+        #expect(rows.first { $0.build == "270099" }?.hook_off == "0x537db40")
+        #expect((merged?["hook_off"] as? String) == "0x537db40")
+        // 研究面：knownHooks 不产出的键全部存活
+        #expect((merged?["clone_hook_off"] as? String) == "0x4cd5e8c")
+        #expect((merged?["clone_expected"] as? String) == "FFC302D1FC6F05A9FA6706A9")
+        #expect((merged?["clone_svc_vtable"] as? String) == "0x9deeb48")
+        #expect((merged?["clone_rd_lookup"] as? String) == "0x32edaec")
+        #expect((merged?["clone_rd_wrap_head"] as? String) == "FF0301D1F44F02A9FD7B03A9FDC30091")
+        #expect((merged?["custom_research_field"] as? String) == "keep-me")
+    }
+
+    /// rd 头锚四字段：编码/解码/合并回读全链透传（CodingKeys 防漂移钉死）。
+    @Test func rdHeadFieldsRoundTripThroughMerge() throws {
+        let url = tmpConfigPath()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        var row: [String: Any] = [
+            "build": "270099",
+            "uuid": "97e21436-abda-3b79-bec0-ef2653c6b423",
+            "arch": "x86_64",
+            "hook_off": "0x537db40", "msg_arg": 1, "xml_sso_off": 0,
+            "expected": "554889E54157415641554154",
+            "clone_rd_wrap_head": "FF0301D1F44F02A9FD7B03A9FDC30091",
+            "clone_rd_getter_head": "F44FBEA9FD7B01A9FD430091F40300AA",
+            "clone_rd_x2single_head": "F44FBEA9FD7B01A9FD430091080040F9",
+            "clone_rd_x2ctx_head": "080040F9280300B4090140F92A0D0012",
+        ]
+        var dict: [String: Any] = ["hooks": [row]]
+        try JSONSerialization.data(withJSONObject: dict).write(to: url)
+        _ = try RuntimeConfig.mergeKnownHooks(into: [url])   // JSON 脏文件经迁移种子并入后落 plist
+        let back = try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: url), options: [], format: nil) as? [String: Any]
+        let hooks = back?["hooks"] as? [[String: Any]]
+        let merged = hooks?.first { ($0["uuid"] as? String) == "97e21436-abda-3b79-bec0-ef2653c6b423" }
+        #expect((merged?["clone_rd_wrap_head"] as? String) == "FF0301D1F44F02A9FD7B03A9FDC30091")
+        #expect((merged?["clone_rd_getter_head"] as? String) == "F44FBEA9FD7B01A9FD430091F40300AA")
+        #expect((merged?["clone_rd_x2single_head"] as? String) == "F44FBEA9FD7B01A9FD430091080040F9")
+        #expect((merged?["clone_rd_x2ctx_head"] as? String) == "080040F9280300B4090140F92A0D0012")
+        _ = row  // 保持命名一致性
+        _ = dict
+    }
+}

@@ -44,6 +44,33 @@
 > pick 竞一次（首推红=瞬态自愈，次推补签成功——本轮 42804677968→
 > 42804978687 实证，非新问题）。
 
+> **136 续②（同日·下轮队列两项执行 + 活雷两枚）**：①**rd 组直调表
+> 身份门落地**——武装期范围门（六偏移逐一落段检查，layout_contains 与
+> func_size 同 image_layout 定义）+ 可选头锚门（wrap/getter/x2single/
+> x2ctx 各 16B，行带才启用；纯直调目标活读恒原像、非蹦床重放源→**不套
+> 可换址门**；x2desc 数据槽锚不适用由范围门覆盖）+ 孤儿锚入
+> kCloneSuiteKeys 触发集（带锚无组/clone 对=整行拒）；派生侧
+> tools/derive_rd_heads.py（超图/全零即拒，坏值进不了 runtime.json），
+> 270135 pristine 四锚已产出；C 侧验收矩阵 6 例全绿（合法/短锚/坏
+> hex/孤儿锚），fuzz 语料 +3。②**执行中挖出活雷两枚**：**x2desc 超图
+> 16 倍**（行值 0xa3de0a70 > 镜像最大 VA 0xa530000——疑为调试器读数混
+> 入 ASLR 滑移；rd_abs 出野指针喂 x2single，该链一旦触发即崩）——范围
+> 门使其在下次 runtime install 后转惰性（fail-safe 拆除野指针面，真值
+> 待 Ghidra 轮重派生后重挂）；**mergeKnownHooks 抹克隆字段**（knownUUID
+> = dylib LC_UUID 必然同源，uuid 去重替换会把增强行整个换 pristine 行
+> ——`runtime hooks`/`runtime install` 任何一次都静默丢全部 clone_*/
+> 研究字段；本机 270135 行靠装完手写+不再 sync 侥幸存活 9 天）。修：
+> 替换前捕获旧行键值、pristine 行没有的键回植（新旧都有=新表胜出，
+> locate --append 溯源刷新同哲学），回归锁双例。③**MachImage 复用**
+> （预检 ≥9 次全量读 340MB → install 1 次 + remove 复用在册实例；
+> planArm64/detectPatched 加 image: 注入变体，file: 变体保留委托），
+> 等价回归锁（同参恒等）。**347 测全绿**（+3）；fuzz 11 种子 20 万零
+> 报告；L18 PASS；runtime.m 双架构。④tap 推送项核验=**已决态**（tap
+> 仓 Formula 与主仓字节全同、brew 供给 0.2.17，2026-11-04 同步入档；
+> 「待拍板」为过时台账）。**下轮队列新登记**：x2desc 真值 Ghidra 重派
+> 生+四锚并入 runtime.json（用户窗口随 install 生效）；armor 头锚
+> 门在克隆/rd 真机实弹轮顺验 bootlog 分支。
+
 > **2026-11-07 135 轮后状态修订（全仓深审 + 270352 hooks 补齐 + P1 审计链修复）**：
 > ①双评审并行深读（CLI/配置面 + 补丁引擎面，两 agent 独立命中同一条
 > P1）+ 逐项人工复核；②**P1 修复：失败路径审计账目合并是死代码**

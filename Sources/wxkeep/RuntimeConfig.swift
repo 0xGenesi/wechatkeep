@@ -55,8 +55,13 @@ enum RuntimeConfig {
         /// 全组完整否则整行拒绝）：异步工作函数按 msgid 重查消息对象的
         /// 宿主函数组。合同与派生值见 RUNTIME-DESIGN 111 节（270135 arm64
         /// 定点反汇编）：lookup=0x32edaec（sret 五参）、wrap=0x309ac50、
-        /// getter=0x102b740、x2 全局单例链 0x571ce74/0xa3de0a70/0x5720308、
+        /// getter=0x102b740、x2 全局单例链 0x571ce74/?/0x5720308、
         /// key 串对象在 consumer_main 帧的 sp 偏移 0x3a0。
+        /// ⚠️ x2desc：行值 0xa3de0a70 经 136 轮核验**超出镜像段表 16 倍**
+        ///（疑为调试器读数混入 ASLR 滑移——rd_abs 出野指针喂 x2single）。
+        /// dylib 侧武装期范围门将其拦截为表惰性（fail-safe，野指针面拆
+        /// 除）；真值待 Ghidra 轮重派生（tools/derive_rd_heads.py 已把
+        /// 「超图即拒」做成派生侧前置门，坏值进不了 runtime.json）。
         var clone_rd_lookup: String? = nil
         /// lookup 的函数级身份门①（LC_FUNCTION_STARTS 距离，8484@270135）
         var clone_rd_lookup_fs: Int? = nil
@@ -68,6 +73,16 @@ enum RuntimeConfig {
         var clone_rd_x2desc: String? = nil
         var clone_rd_x2ctx: String? = nil
         var clone_rd_key_slot: String? = nil
+        /// 136 轮可选头锚（wrap/getter/x2single/x2ctx 各 16B 原像，行带才
+        /// 启用对应门）：纯直调目标活读恒原像，锚=身份比对专用、非蹦床重放
+        /// 源——不套可换址门（wrap 起点 sub-sp 家族形态合法）。x2desc 数据
+        /// 槽锚不适用（运行期内容≠文件字节），由 dylib 侧武装期范围门覆盖
+        ///（270135 行 x2desc=0xa3de0a70 超图 16 倍实弹定案，见
+        /// tools/derive_rd_heads.py 与 RUNTIME-DESIGN）。
+        var clone_rd_wrap_head: String? = nil
+        var clone_rd_getter_head: String? = nil
+        var clone_rd_x2single_head: String? = nil
+        var clone_rd_x2ctx_head: String? = nil
         /// R11 parse 锚定加订（可选三件套；在场必须 rd 组完整否则整行拒绝）：
         /// key 构造 0x4a2b524（sret 24B 串对象, x0=parse msg 对象——实弹
         /// 判决写点缝死后的换锚，RUNTIME-DESIGN R11/116 轮）。
@@ -120,6 +135,8 @@ enum RuntimeConfig {
             case clone_rd_lookup, clone_rd_lookup_fs, clone_rd_lookup_head
             case clone_rd_wrap, clone_rd_getter, clone_rd_x2single
             case clone_rd_x2desc, clone_rd_x2ctx, clone_rd_key_slot
+            case clone_rd_wrap_head, clone_rd_getter_head
+            case clone_rd_x2single_head, clone_rd_x2ctx_head
             case clone_rd_keyctor, clone_rd_keyctor_fs, clone_rd_keyctor_head
             case clone_ins_ctor, clone_ins_ctor_fs, clone_ins_ctor_head
             case clone_ins_amr, clone_ins_amr_fs, clone_ins_amr_head
@@ -810,11 +827,28 @@ enum RuntimeConfig {
 
         var rows: [[String: Any]] = (dict["hooks"] as? [[String: Any]]) ?? []
         let knownUUIDs = Set(knownHooks.map(\.uuid))
+        // 扩展字段保全（136 轮体检 P1）：knownHooks 行的 uuid = wechat.dylib
+        // 的 LC_UUID，与实验派生行**必然同源**——行上的 clone_*/锚字段是
+        // 已知表不产出的研究面数据。此前按 uuid 去重替换会把增强行整个
+        // 换成 pristine 行：任何一次 `runtime hooks` / `runtime install`
+        // 都静默抹掉全部克隆字段（本机 270135 行 11-01 手工写入后从未跑过
+        // 同步才存活——下次装机即丢）。修法：替换前捕获旧行键值；pristine
+        // 行**没有的键**才回植（新旧都有 = 新表胜出，与 locate --append
+        // 溯源刷新同哲学——管理面新知识优先，研究面独有数据不丢）。
+        var extensions: [String: [String: Any]] = [:]
+        for row in rows where (row["uuid"] as? String).map(knownUUIDs.contains) ?? false {
+            guard let uuid = row["uuid"] as? String else { continue }
+            extensions[uuid, default: [:]].merge(row) { _, new in new }
+        }
         rows.removeAll { ($0["uuid"] as? String).map(knownUUIDs.contains) ?? false }
         let encoder = JSONEncoder()
         for hook in knownHooks {
             let data = try encoder.encode(hook)
-            rows.append(try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
+            var fresh = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            if let uuid = fresh["uuid"] as? String, let old = extensions[uuid] {
+                for (k, v) in old where fresh[k] == nil { fresh[k] = v }
+            }
+            rows.append(fresh)
         }
         dict["hooks"] = rows
 
@@ -846,6 +880,10 @@ enum RuntimeConfig {
                            clone_rd_x2desc: row["clone_rd_x2desc"] as? String,
                            clone_rd_x2ctx: row["clone_rd_x2ctx"] as? String,
                            clone_rd_key_slot: row["clone_rd_key_slot"] as? String,
+                           clone_rd_wrap_head: row["clone_rd_wrap_head"] as? String,
+                           clone_rd_getter_head: row["clone_rd_getter_head"] as? String,
+                           clone_rd_x2single_head: row["clone_rd_x2single_head"] as? String,
+                           clone_rd_x2ctx_head: row["clone_rd_x2ctx_head"] as? String,
                            clone_rd_keyctor: row["clone_rd_keyctor"] as? String,
                            clone_rd_keyctor_fs: row["clone_rd_keyctor_fs"] as? Int,
                            clone_rd_keyctor_head: row["clone_rd_keyctor_head"] as? String,

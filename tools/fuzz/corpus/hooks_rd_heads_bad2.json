@@ -1,0 +1,16 @@
+{
+ "hooks": [
+  {
+   "build": "270135",
+   "uuid": "0c2f01c0-c197-3286-901d-70e1d007a1c0",
+   "arch": "arm64",
+   "hook_off": "0x4d1f8d8",
+   "msg_arg": 1,
+   "xml_sso_off": 0,
+   "expected": "F85FBCA9F65701A9F44F02A9FD7B03A9",
+   "clone_rd_wrap_head": "FF0301D1F44F02A9FD7B03A9FDC30091",
+   "clone_hook_off": "0x4cd5e8c",
+   "clone_expected": "FFC302D1FC6F05A9FA6706A9F85F07A9"
+  }
+ ]
+}
