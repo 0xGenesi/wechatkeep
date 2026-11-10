@@ -12,7 +12,7 @@
   * Swift 侧：真跑 CLI 子进程（完整编排链：journal→引擎→收口）；
   * 逐命令逐位点比对：任何分歧 = 红 + 双侧字节落盘对账。
 
-语料：真实 config.json 全 123 构建 2001 条目（list 形 expected / 双 arch /
+语料：真实 config.json 全 124 构建 2003 条目（list 形 expected / 双 arch /
 dylib+主可执行双 binary / update 16 条目集 / 掩码通配），VA 重排进合成
 fat 夹具（dense 映射，字节语义不变）。随机种子化可复现。
 
