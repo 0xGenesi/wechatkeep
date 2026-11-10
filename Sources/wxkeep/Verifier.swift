@@ -5,19 +5,94 @@ import Foundation
 // 故障落在 JIT 区内即 mprotect 授 RWX 并返回（指令自动重试）；mprotect 被
 // 拒则打印 errno（= 系统最终策略的答案）。macOS ≤15 np 正常，永不触发。
 // 区域信息走文件级全局（@convention(c) 处理器不能捕获局部量）。
+//
+// 无分配纪律（136 轮评审 P2）：处理器内禁一切 malloc 路径——fault 本身
+// 可能正发生在分配器内部（堆扩容首触新页的 lazy fault 是现实常见源），
+// 处理器内重入分配器 = 同线程死锁 → worker 永挂（父进程 Shell.run 无
+// 超时=登记债，verify 整条命令挂死）。字符串插值/String(radix:)/Array
+// 追加全数回避：静态前缀在**启动时**物化为全局 [UInt8]，动态值
+//（errno/fault_addr/region/sig）经栈上指针写进预分配缓冲 + 手写 u64→hex
+// ——write(2) 本身 async-signal-safe。
 nonisolated(unsafe) var workerJITRegionAddr: UInt = 0
 nonisolated(unsafe) var workerJITRegionSize: Int = 0
+nonisolated(unsafe) var workerDiagBuf = [UInt8](repeating: 0, count: 192)
+nonisolated(unsafe) let workerDiagDeniedPrefix =
+    Array("wxkeep-verify: JIT mprotect denied errno=".utf8)
+nonisolated(unsafe) let workerDiagOutsidePrefix =
+    Array("wxkeep-verify: signal ".utf8)
+nonisolated(unsafe) let workerDiagFaultMid = Array(" fault=0x".utf8)
+nonisolated(unsafe) let workerDiagRegionMid = Array(" region=0x".utf8)
+nonisolated(unsafe) let workerDiagPlusMid = Array("+0x".utf8)
+nonisolated(unsafe) let workerDiagSigMid = Array(" sig=".utf8)
+nonisolated(unsafe) let workerDiagOutsideMid = Array(" outside-JIT addr=0x".utf8)
+nonisolated(unsafe) let workerDiagTail = Array(" unmodeled-state\n".utf8)
+
+/// 手写 u64→小写 hex（无前导零；0 输出 "0"）。只写预分配缓冲，不分配。
+@inline(__always)
+func workerDiagHex(_ v: UInt64, into p: UnsafeMutablePointer<UInt8>, from i: Int) -> Int {
+    var i = i, started = false, shift = 60
+    while shift >= 0 {
+        let nib = UInt8((v >> UInt64(shift)) & 0xF)
+        if nib != 0 || started || shift == 0 {
+            p[i] = nib < 10 ? nib + 48 : nib + 87   // '0'..'9' / 'a'..'f'
+            i += 1; started = true
+        }
+        shift -= 4
+    }
+    return i
+}
+
+/// 手写 i32→十进制（负数带 '-'；errno/sig 用）。不分配。
+@inline(__always)
+func workerDiagDec(_ v: Int32, into p: UnsafeMutablePointer<UInt8>, from i: Int) -> Int {
+    var i = i
+    var value = v
+    if value < 0 { p[i] = 45; i += 1; value = v == Int32.min ? v : -v }   // '-'
+    if v == Int32.min {   // 唯一溢出处直接落位（-(min) 不可表示）
+        for c in "2147483648".utf8 { p[i] = c; i += 1 }
+        return i
+    }
+    var digits = 0, probe = value
+    repeat { digits += 1; probe /= 10 } while probe > 0
+    i += digits
+    var w = i - 1
+    repeat { p[w] = UInt8(48 + value % 10); w -= 1; value /= 10 } while value > 0
+    return i
+}
+
 let workerJITFaultHandler: @convention(c) (Int32, UnsafeMutablePointer<siginfo_t>?, UnsafeMutableRawPointer?) -> Void = { sig, info, _ in
     let addr = info.map { UInt(bitPattern: $0.pointee.si_addr) } ?? 0
     if addr >= workerJITRegionAddr, addr < workerJITRegionAddr + UInt(max(workerJITRegionSize, 0)) {
         let page = addr & ~UInt(0x3FFF)   // 16K 页对齐
         if mprotect(UnsafeMutableRawPointer(bitPattern: page)!, 0x4000,
                     PROT_READ | PROT_WRITE | PROT_EXEC) == 0 { return }   // 重试故障指令
-        let msg = "wxkeep-verify: JIT 区 mprotect 被拒 errno=\(errno) fault_addr=\(String(addr, radix: 16)) region=\(String(workerJITRegionAddr, radix: 16))+\(String(workerJITRegionSize, radix: 16)) sig=\(sig)\n"
-        _ = write(2, msg, msg.utf8.count)
+        workerDiagBuf.withUnsafeMutableBufferPointer { b in
+            guard let p = b.baseAddress else { return }
+            var i = 0
+            for c in workerDiagDeniedPrefix { p[i] = c; i += 1 }
+            i = workerDiagDec(errno, into: p, from: i)
+            for c in workerDiagFaultMid { p[i] = c; i += 1 }
+            i = workerDiagHex(UInt64(addr), into: p, from: i)
+            for c in workerDiagRegionMid { p[i] = c; i += 1 }
+            i = workerDiagHex(UInt64(workerJITRegionAddr), into: p, from: i)
+            for c in workerDiagPlusMid { p[i] = c; i += 1 }
+            i = workerDiagHex(UInt64(UInt(max(workerJITRegionSize, 0))), into: p, from: i)
+            for c in workerDiagSigMid { p[i] = c; i += 1 }
+            i = workerDiagDec(sig, into: p, from: i)
+            p[i] = 10; i += 1   // '\n'
+            _ = write(2, p, i)
+        }
     } else {
-        let msg = "wxkeep-verify: \(sig) 于 JIT 区外 addr=\(String(addr, radix: 16))——未建模状态\n"
-        _ = write(2, msg, msg.utf8.count)
+        workerDiagBuf.withUnsafeMutableBufferPointer { b in
+            guard let p = b.baseAddress else { return }
+            var i = 0
+            for c in workerDiagOutsidePrefix { p[i] = c; i += 1 }
+            i = workerDiagDec(sig, into: p, from: i)
+            for c in workerDiagOutsideMid { p[i] = c; i += 1 }
+            i = workerDiagHex(UInt64(addr), into: p, from: i)
+            for c in workerDiagTail { p[i] = c; i += 1 }
+            _ = write(2, p, i)
+        }
     }
     _exit(129)
 }
@@ -477,10 +552,17 @@ enum Verifier {
                     // 超 Int 表示域的强转、vmaddr+vmsize 溢出（下方 top 计算）
                     // 都是进程崩溃面——损坏输入按「该段不存在」收敛，worker
                     // 走 blob/映射失败路径干净退出而不是 trap 死。
+                    // fileoff+fs ≤ 文件长（136 轮评审 P1）：截断镜像（头+命令区
+                    // 完整、尾部数据缺失——下载中断/磁盘满的典型形态）此前
+                    // 会进段拷贝，Phase-B 的 memcpy 只按 mappedSize（段表声明）
+                    // 钳位不看文件实长 → 源侧越界读 SIGSEGV，被父进程误报成
+                    // workerCrashed「函数摸了未建模状态」。（fileoff、fs 均已
+                    // ≤Int.max，两者之和不会 UInt64 溢出。）
                     let vmaddr = raw.loadUnaligned(fromByteOffset: p + 24, as: UInt64.self)
                     let vmsize = raw.loadUnaligned(fromByteOffset: p + 32, as: UInt64.self)
                     let fileoff = raw.loadUnaligned(fromByteOffset: p + 40, as: UInt64.self)
                     if fs > 0, fs <= UInt64(Int.max), fileoff <= UInt64(Int.max),
+                       fileoff + fs <= UInt64(raw.count),
                        vmaddr <= UInt64.max - vmsize {   // skip __PAGEZERO-style contentless segments
                         segs.append((vmaddr,
                                      vmsize,
@@ -573,6 +655,19 @@ enum Verifier {
         // （数据页已是普通 RW，落在那儿的 fault 属未建模状态，如实上报）。
         workerJITRegionAddr = jitSpan?.addr ?? UInt(bitPattern: mapped)
         workerJITRegionSize = jitSpan?.size ?? totalCount
+        // 无分配纪律配套（136 轮评审 P2）：诊断缓冲/静态前缀是 lazy 全局，
+        // 首次访问即初始化（会 malloc）——必须在处理器可触发的任何 fault
+        // **之前**完成初始化，否则「处理器内首次触摸全局」本身就重入分配
+        // 器。此处（sigaction 安装前、单线程、分配安全）逐个预热。
+        _ = workerDiagBuf
+        _ = workerDiagDeniedPrefix
+        _ = workerDiagOutsidePrefix
+        _ = workerDiagFaultMid
+        _ = workerDiagRegionMid
+        _ = workerDiagPlusMid
+        _ = workerDiagSigMid
+        _ = workerDiagOutsideMid
+        _ = workerDiagTail
         var act = sigaction()
         act.__sigaction_u.__sa_sigaction = workerJITFaultHandler
         act.sa_flags = SA_SIGINFO
@@ -597,19 +692,12 @@ enum Verifier {
     /// Entry for `wxkeep __verify-worker <dylib> <va> <stubs> <zeros> <probes>`.
     /// Prints `probe|<text>|<0|1>` lines and exits 0; crashes on bad state.
     static func workerMain(_ args: [String]) -> Never {
-        #if arch(arm64)
-        // 硬件异常捕获：macOS 27 真机实测 SIGBUS（CI macos-15 全绿）——头号
-        // 嫌疑是 MAP_JIT 写保护开关语义变化（开关失效时对 JIT 区首笔写即
-        // SIGBUS）。裸 crash 无法判读，捕获后以 exit 129 交出干净信息。
-        signal(SIGBUS, { _ in
-            _ = write(2, "wxkeep-verify: SIGBUS — MAP_JIT 写开关在此 macOS 版本失效（写 JIT 区即总线错误）；请回报 sw_vers 与芯片型号\n", 120)
-            _exit(129)
-        })
-        signal(SIGSEGV, { _ in
-            _ = write(2, "wxkeep-verify: SIGSEGV in worker — 请回报 sw_vers 与芯片型号\n", 76)
-            _exit(129)
-        })
-        #endif
+        // （136 轮评审 P3）worker 入口的两枚 signal() 处理器已删——它们在
+        // 下方 execMap 安装 sigaction（SIGBUS/SIGSEGV 双注册）的瞬间即被
+        // 覆盖，生效窗只剩参数解析几行（该窗内 fault 属 worker 自身 bug，
+        // 父进程按 signalled 判读本就成立）；且 write 长度是含 CJK 字面量
+        // 的手抄数（120/76 ≠ 实际 UTF-8 字节数）——真触发会打印截断/带尾
+        // 垃圾的诊断。JIT 故障的权威捕获 = execMap 的 workerJITFaultHandler。
         guard args.count >= 5,
               let data = try? Data(contentsOf: URL(fileURLWithPath: args[0])),
               let va = UInt64(args[1], radix: 16),
@@ -649,13 +737,13 @@ enum Verifier {
             // Zero magic-static regions to their runtime-start state.
             // Bound-checked: a bad spec must fail with a clear exit code, not
             // corrupt memory adjacent to the mapping before crashing.
-            for region in zeros {
-                guard region.count == 2, let vaHex = UInt64(region[0], radix: 16),
-                      let len = Int(region[1]), len > 0,
-                      vaHex >= base, Int(vaHex - base) >= 0,
-                      Int(vaHex - base) + len <= mappedSize else { exit(4) }
-                memset(mapped + Int(vaHex - base), 0, len)
-            }
+                for region in zeros {
+                    guard region.count == 2, let vaHex = UInt64(region[0], radix: 16),
+                          let len = Int(region[1]), len > 0,
+                          vaHex >= base, vaHex - base <= UInt64(Int.max),
+                          Int(vaHex - base) + len <= mappedSize else { exit(4) }
+                    memset(mapped + Int(vaHex - base), 0, len)
+                }
             // Redirect import stubs to native harness functions.
             // x64: PLT `ff 25 <rel32>` → slot = stubVA + 6 + disp32.
             // arm64: `adrp x16/ldr x16,[x16,#imm]/br x16` → slot = page + imm*8.
@@ -703,7 +791,10 @@ enum Verifier {
                 // UInt64 减法下溢是 Int 转换 trap（SIGILL）——两者都会被退出
                 // 码判读误报成「函数摸了未建模状态」，把 spec 数据问题甩锅给
                 // 镜像（㊶ 同类）。
-                guard stubVA >= base else { exit(4) }
+                // 差值上溢（136 轮评审 P2）：`va >= base` 只防下溢，diff 超
+                // Int.max 的 Int() 强转是 SIGTRAP——下方同样先 `<= UInt64(Int.max)`
+                // 再转（与 L513 顶界纪律一致），spec 数据问题干净落 exit(4)。
+                guard stubVA >= base, stubVA - base <= UInt64(Int.max) else { exit(4) }
                 let stub = UnsafeRawPointer(mapped + Int(stubVA - base))
                 let slotOffset: Int
                 if isARM64 {
@@ -754,7 +845,10 @@ enum Verifier {
         // WeChat SSO string ABI: pass 24 CONTIGUOUS bytes. Array's own
         // withUnsafeMutableBytes yields the element buffer — never &array
         // (that is the array header: pointer+count, not the data).
-        guard va >= base, Int(va - base) < mappedSize else { exit(3) }
+        // 差值上溢（136 轮评审 P2 同族）：入口 VA 是外部数据，超顶界时
+        // Int() 强转 SIGTRAP——先夹 Int.max 再转，干净落 exit(3)。
+        guard va >= base, va - base <= UInt64(Int.max),
+              Int(va - base) < mappedSize else { exit(3) }
         // 返回类型必须 UInt8 而非 Bool：Bool 契约假设 callee 写 0/1，但裸
         // ret（3.x objc3x 位点，87 轮）不写 w0——垃圾寄存器值当 Bool 是
         // UB（实测打印出 84219152 之类的值，破坏 probe|text|0/1 行契约，

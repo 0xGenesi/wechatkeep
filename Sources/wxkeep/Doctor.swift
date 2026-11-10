@@ -580,10 +580,12 @@ struct Doctor {
         var mostRecent: (date: Date, name: String)?
         for name in names where name.hasSuffix(".ips") {
             let url = directory.appendingPathComponent(name)
-            // 头行流式读（≤4KB 即可判名与时间，坏件/大件不必整读）
-            guard let handle = try? FileHandle(forReadingFrom: url),
-                  let headData = try? handle.read(upToCount: 4096) else { continue }
-            try? handle.close()
+            // 头行流式读（≤4KB 即可判名与时间，坏件/大件不必整读）。
+            // defer 收句柄（136 轮评审 P3）：read 抛错路径此前漏 close——
+            // doctor 扫全部 .ips，I/O 故障时可积累 fd。
+            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
+            defer { try? handle.close() }
+            guard let headData = try? handle.read(upToCount: 4096) else { continue }
             guard let nl = headData.firstIndex(of: 0x0A),
                   let header = try? JSONSerialization.jsonObject(
                       with: headData[..<nl]) as? [String: Any] else { continue }

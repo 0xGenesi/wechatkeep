@@ -1,5 +1,41 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **2026-11-10 136 轮后状态修订（双评审第八轮 + PR #4 首审合入 + 135 轮未推追认）**：
+> ①**基线追认**：135 轮两提交（深审 + docs 门面翻新）此前只在本地——
+> 本轮推上 origin（CI 双 Xcode 腿全绿，135 代码首过 CI）；②**watcher
+> auto-PR #4（构建 270353=4.2.0.17）首审合入**——独立验证链全绿
+>（官方 CDN 独立下载 fat dylib sha256 与 watcher 钉死值恒等；裸字节
+> 读数与 expected[0] 恒等；本机 wxkeep locate 重跑同址同值；JSON 语义
+> diff=零丢失+仅增 270353），**首个 L18 后时代的 watcher PR**：同步提交
+> 落在 PR 分支（INV5 新指纹「纯 revoke 双架构」登记+出处、总量 124/2003、
+> 4.2.0 线显示名 270349-270353 补齐——CDN 线名 HEAD 探测+下载实测），
+> 合并原子落位 master 不留红窗；行为级验证待用户窗口（与 #3 同例）；
+> ③**双评审第八轮**（CLI/配置面 + 补丁引擎面两 agent 并行深读 + 逐项
+> 人工复核 + 收紧类反向证伪）：修 **P1×1**（Verifier execMap 段拷贝缺
+> fileoff+fs≤文件长门——截断镜像源侧越界读 SIGSEGV 被误报 workerCrashed，
+> L3⑤ 收敛补齐）+ **P2×2**（dbkeys audit --since 的 vacuous PASS：--no-
+> classify/zstd 缺席下空 rows 恒打「数据面 PASS」+exit 0——可判性门
+> gateAdmissible + 组合前置拒；JIT 故障处理器内构造 Swift String 非
+> async-signal-safe——分配器重入死锁可挂死整条 verify，改启动预热全局
+> 缓冲+手写 hex/dec 零分配）+ **P3×10**（Verifier 三处 UInt64→Int 差值
+> 上溢 trap 收敛 exit(4)/exit(3)；restore 台账清理补 app 守卫=对齐 patch
+> 侧；patch 重签失败路径审计落账（writeAuditLedger 双路径共用）；runtime
+> install/remove 补 journal 旧账保全+跨 app 警示（备份段失败=写前失败）；
+> Patcher expected 坏 spec 从 compactMap 静默滤除改干净拒绝；promote 盐
+> 轮换后失效键刷新；DbKeys.page1/Doctor.scanCrashReports fd 泄漏 defer
+> 收口；capture 宿主原生架构门（Intel 上诚实拒绝不装死循环）；audit/
+> recover 明文库跳过披露行；worker 入口两枚死 signal() 处理器删除）；
+> 评审否决 1 项（「undo 臂 restoredSites 双计入」=幻觉——siteSink 无调用
+> 方传参，成功/失败路径各只进账一次）；④回归锁 +7 测（execMap 段界/
+> spec 溢出 VA×2 worker 实证 exit(4) 非 trap/gateAdmissible 三分支/
+> promote 轮换（真实 256000 轮 PBKDF2 夹具）/malformedExpected/台账 app
+> 守卫）；**344 测全绿**；fuzz 20 万零报告；L18（124 构建/24 指纹）+
+> L17 双引擎 60 试验零分歧全绿。**登记下轮队列**：rd 组直调表身份门
+>（wrap/getter/x2 族零核对即武装——可选锚同 func_size 哲学，行带
+> wrap_head 才启用，derive 工具同步产出）；runtime install 预检对 340MB
+> dylib ≥9 次全量读的复用（MachImage 注入参数）。**在册用户窗口项
+> 不变**：3.x 行为五格 / M4 认证值实弹 / clsvc 副本 E2E / tap 推送。
+
 > **2026-11-07 135 轮后状态修订（全仓深审 + 270352 hooks 补齐 + P1 审计链修复）**：
 > ①双评审并行深读（CLI/配置面 + 补丁引擎面，两 agent 独立命中同一条
 > P1）+ 逐项人工复核；②**P1 修复：失败路径审计账目合并是死代码**

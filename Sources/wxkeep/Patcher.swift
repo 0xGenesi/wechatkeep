@@ -21,6 +21,7 @@ struct Patcher {
         case missingExpected(index: Int, identifier: String)
         case expectedMismatch(index: Int, identifier: String, va: UInt64, expected: [String], current: String)
         case malformedAsm(index: Int, identifier: String, asm: String)
+        case malformedExpected(index: Int, identifier: String, spec: String)
         case overlappingEntries(first: Int, second: Int, va: UInt64, identifier: String)
 
         var description: String {
@@ -50,6 +51,10 @@ struct Patcher {
             case .malformedAsm(let i, let id, let asm):
                 "entry #\(i) (target \(id)) has bad hex asm \"\(asm)\" — refusing. "
                 + "Catalog/recipe data failed load-time validation? Please report this."
+            case .malformedExpected(let i, let id, let spec):
+                "entry #\(i) (target \(id)) has unparseable expected spec \"\(spec)\" — refusing. "
+                + "Bad specs previously fell out of the variant set silently (compactMap), "
+                + "narrowing the write gate with no diagnostic pointer; now a clean rejection."
             }
         }
     }
@@ -279,7 +284,24 @@ struct Patcher {
             guard let asm = Data(hex: entry.asm), !asm.isEmpty else {
                 throw PatchError.malformedAsm(index: index, identifier: identifier, asm: entry.asm)
             }
-            let expected = entry.expected?.values.compactMap { ExpectedPattern(spec: $0) }
+            // expected 坏 spec 干净拒绝（136 轮评审 P3，与上方 malformedAsm
+            // 同款纪律）：compactMap 静默滤除会把 3 变体门收窄成 2——方向
+            // fail-closed（坏形态只会 expectedMismatch 拒写，不会误写），
+            // 但失败时无线索指向坏 spec 本身。装载期校验覆盖 catalog/
+            // signatures 主路；restore 反演与测试合成条目仍可能带坏 spec
+            // 直落此处。
+            var expected: [ExpectedPattern]?
+            if let values = entry.expected?.values {
+                var parsed: [ExpectedPattern] = []
+                parsed.reserveCapacity(values.count)
+                for spec in values {
+                    guard let pattern = ExpectedPattern(spec: spec) else {
+                        throw PatchError.malformedExpected(index: index, identifier: identifier, spec: spec)
+                    }
+                    parsed.append(pattern)
+                }
+                expected = parsed
+            }
             plans.append(Plan(entry: entry, va: va, asm: asm, expected: expected, fileOffset: fileOffset))
         }
         guard !plans.isEmpty else { throw PatchError.noArchMatched }

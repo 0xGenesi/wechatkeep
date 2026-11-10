@@ -207,6 +207,15 @@ extension Wxkeep {
                     try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
                 } catch {
                     Wxkeep.printPermissionHintIfTCC(error)
+                    // 重签失败但字节已落盘（136 轮评审 P3）：位点账目必须先落账
+                    // 再抛——「字节在盘 = 账目必须在场」不变量（135 轮 P1 对
+                    // 引擎失败路径立的规）此前只覆盖引擎抛错；CLI 级重签失败
+                    // 同样丢弃 summary.auditSites，离线复算假红窗口。journal
+                    // 保持 pending（doctor 指引不受影响），账本 best-effort。
+                    if summary.wroteAnything {
+                        Wxkeep.writeAuditLedger(summary: summary, build: build,
+                                              variant: variant.rawValue, app: options.app.path)
+                    }
                     throw error
                 }
                 PatchJournal.markResigned()   // 重签确认位（doctor 洗白链判读依据）
@@ -237,31 +246,26 @@ extension Wxkeep {
                 print("本机架构 \(host)：可运行 `wxkeep verify` 行为级确认补丁效果")
             }
             if !dryRun {
-                // per-site 审计清单落账（125 轮）+ 合并语义（126 轮 B6）：
-                // alreadyPatched 位点不入账 → 部分重跑必须并旧账（键级
-                // 删/增），否则账本面 < 盘上差异面 = 离线复算假红。坏账
-                // （在场不可解码）不覆盖——检测能力优先（doctor 报
-                // unreadable），静默覆盖 = 把检测吞掉。账本层失败不拆已
-                // 成功的字节事务（try? + 告警，doctor 可见缺失）。
-                let pendingAudit = PatchAudit.pending()
-                if !(pendingAudit.exists && pendingAudit.record == nil) {
-                    let merged = PatchAudit.mergedRecord(
-                        previous: pendingAudit.record, build: build,
-                        variant: variant.rawValue, app: options.app.path,
-                        written: summary.auditSites, restored: summary.restoredSites)
-                    if !merged.sites.isEmpty {
-                        do {
-                            try PatchAudit.write(record: merged)
-                        } catch {
-                            print("  ⚠️ 审计清单写入失败（\(error)）——补丁本身已生效；doctor 将不显示位点对账")
-                        }
-                    } else if pendingAudit.record?.app == options.app.path {
-                        PatchAudit.clear()   // 合并归零（本次全程还原到 pristine）
-                    }
-                }
+                Wxkeep.writeAuditLedger(summary: summary, build: build,
+                                      variant: variant.rawValue, app: options.app.path)
                 PatchJournal.complete()   // 事务确认成功（无写入或写入+重签均达终态）
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
+        }
+    }
+
+    /// restore 收口时的台账清理决定（136 轮评审 P3 抽出供回归锁）：单槽
+    /// 台账可能记的是**另一** app 的位点（patch 本体 → clone → restore
+    /// 克隆体）；无守卫的 clear 会抹掉本体的账目——本体仍 patched 但
+    /// doctor 对账能力丢失。patch 侧同名清理自始有 app 守卫，此处对齐；
+    /// 外 app 台账保留并如实提示（doctor 的对账只对 record.app == app 做，
+    /// 保留不产生假 stale）。
+    static func closeAuditLedgerIfOwn(app: String, userData: URL? = nil) {
+        let pendingAudit = PatchAudit.pending(userData: userData)
+        if pendingAudit.record?.app == app {
+            PatchAudit.clear(userData: userData)   // 回到 pristine：位点账目随之收口（幂等无抛，125 轮）
+        } else if let foreign = pendingAudit.record?.app {
+            print("  ℹ︎ 审计台账属另一 app（\(foreign)）——保留不误抹；对它跑 doctor 可见位点对账")
         }
     }
 
@@ -273,6 +277,31 @@ extension Wxkeep {
     static func strictHexVA(_ s: String) -> UInt64? {
         guard s.hasPrefix("0x"), s.count > 2 else { return nil }
         return UInt64(s.dropFirst(2), radix: 16)
+    }
+
+    /// per-site 审计清单落账（125 轮）+ 合并语义（126 轮 B6）：alreadyPatched
+    /// 位点不入账 → 部分重跑必须并旧账（键级删/增），否则账本面 < 盘上差异面
+    /// = 离线复算假红。坏账（在场不可解码）不覆盖——检测能力优先（doctor 报
+    /// unreadable），静默覆盖 = 把检测吞掉。账本层失败不拆已成功的字节事务
+    /// （try? + 告警，doctor 可见缺失）。
+    /// 独立成函数（136 轮评审 P3）：成功路径与重签失败路径共用——字节已落盘
+    /// 时账目必须在场是同一不变量，两处各写一份必漂移。
+    static func writeAuditLedger(summary: Engine.RunSummary, build: String,
+                                 variant: String, app: String) {
+        let pendingAudit = PatchAudit.pending()
+        if pendingAudit.exists && pendingAudit.record == nil { return }   // 坏账不覆盖
+        let merged = PatchAudit.mergedRecord(
+            previous: pendingAudit.record, build: build, variant: variant, app: app,
+            written: summary.auditSites, restored: summary.restoredSites)
+        if !merged.sites.isEmpty {
+            do {
+                try PatchAudit.write(record: merged)
+            } catch {
+                print("  ⚠️ 审计清单写入失败（\(error)）——补丁字节已生效；doctor 将不显示位点对账")
+            }
+        } else if pendingAudit.record?.app == app {
+            PatchAudit.clear()   // 合并归零（本次全程还原到 pristine）
+        }
     }
 
     /// macOS 14+ 的「App 管理」TCC 权限：root 也绕不过（社区高频卡点，
@@ -387,7 +416,7 @@ extension Wxkeep {
                 // restore 语义 = 回到原始；不附带任何偏好写入
             }
             if !dryRun {
-                PatchAudit.clear()   // 回到 pristine：位点账目随之收口（幂等无抛，125 轮）
+                Wxkeep.closeAuditLedgerIfOwn(app: options.app.path)
                 PatchJournal.complete()   // 事务成功（幂等 restore 到达 pristine 终态）
             }
             print(dryRun ? "dry run complete — nothing written" : "done")
@@ -1558,16 +1587,36 @@ extension Wxkeep {
                 // WAL：runtime install 是「LC+跳板+dylib+重签」四步变更，
                 // SIGKILL/断电窗的半套态（catch 型回滚覆盖不到）由 journal
                 // 残留让 doctor 分辨「中断事故」并给精确收口指引。
+                // 旧账保全 + 跨 app 警示（136 轮评审 P3，与 patch/restore 的
+                // 124/135 修对齐）：单槽 journal 的 begin 会静默覆盖另一 app
+                // 的未收口记录；备份段（下方两处 Backup.make）失败时尚未写
+                // 任何目标字节——旧记录原样写回，无旧账才 complete。
+                let journalAtStart = PatchJournal.pending()
+                if let prev = journalAtStart.record, prev.app != options.app.path {
+                    print("⚠️ 另一 app 有未收口事务（\(prev.app)，\(prev.kind.rawValue) @ \(prev.startedAt)）"
+                          + "——本次事务将覆盖其 journal；如需保全其证据，先对该 app 跑 doctor/restore")
+                }
                 try PatchJournal.begin(kind: .runtimeInstall, build: build, variant: nil,
                                        app: options.app.path)
-                let backup = try Backup.make(binary: main)
-                print("backup: \(backup.lastPathComponent)")
-                // 入口补丁将改写 wechat.dylib（340MB 级资源文件）——同样先备份
-                // + 原子写（撕裂写/无备份 = 修不好也回不去；主可执行同款防线）。
+                var backup: URL!
                 var wechatDylibBackup: URL?
-                if entrySlotPlan != nil || cloneSlotPlan != nil || cmSlotPlan != nil || luSlotPlan != nil {
-                    wechatDylibBackup = try Backup.make(binary: wechatDylibURL)
-                    print("backup: \(wechatDylibBackup!.lastPathComponent)")
+                do {
+                    // —— 备份段（零目标字节写入；失败=写前失败）——
+                    backup = try Backup.make(binary: main)
+                    print("backup: \(backup.lastPathComponent)")
+                    // 入口补丁将改写 wechat.dylib（340MB 级资源文件）——同样先备份
+                    // + 原子写（撕裂写/无备份 = 修不好也回不去；主可执行同款防线）。
+                    if entrySlotPlan != nil || cloneSlotPlan != nil || cmSlotPlan != nil || luSlotPlan != nil {
+                        wechatDylibBackup = try Backup.make(binary: wechatDylibURL)
+                        print("backup: \(wechatDylibBackup!.lastPathComponent)")
+                    }
+                } catch {
+                    if let prev = journalAtStart.record, journalAtStart.exists {
+                        PatchJournal.restore(record: prev)
+                    } else {
+                        PatchJournal.complete()
+                    }
+                    throw error
                 }
 
                 var data = try Data(contentsOf: main)
@@ -1739,7 +1788,15 @@ extension Wxkeep {
                 let build = try WeChatApp.buildNumber(app: options.app)
                 // journal 残留在场 → 成功路径强制重签（同 patch/restore 的洗白链
                 // 防线；孤儿路径字节未动也重签——幂等无害）。
-                let journalPendingAtStart = PatchJournal.pending().exists
+                // 旧账保全 + 跨 app 警示（136 轮评审 P3，与 install 侧同修）：
+                // begin 覆盖另一 app 的未收口记录前如实提示；备份段失败
+                // （写前）恢复旧记录。
+                let journalAtStart = PatchJournal.pending()
+                let journalPendingAtStart = journalAtStart.exists
+                if let prev = journalAtStart.record, prev.app != options.app.path {
+                    print("⚠️ 另一 app 有未收口事务（\(prev.app)，\(prev.kind.rawValue) @ \(prev.startedAt)）"
+                          + "——本次事务将覆盖其 journal；如需保全其证据，先对该 app 跑 doctor/restore")
+                }
                 // LC 在场性预检：孤儿清理路径（LC 缺失）主程序一字节不动——
                 // 不再白造主程序备份（备份轮换 keep=3，无谓备份会挤掉有用的
                 // 历史点）。
@@ -1748,7 +1805,17 @@ extension Wxkeep {
                 try PatchJournal.begin(kind: .runtimeRemove, build: build, variant: nil,
                                        app: options.app.path)
                 var backup: URL?
-                if injectedAtStart { backup = try Backup.make(binary: main) }
+                do {
+                    // —— 备份段（零目标字节写入；失败=写前失败）——
+                    if injectedAtStart { backup = try Backup.make(binary: main) }
+                } catch {
+                    if let prev = journalAtStart.record, journalAtStart.exists {
+                        PatchJournal.restore(record: prev)
+                    } else {
+                        PatchJournal.complete()
+                    }
+                    throw error
+                }
                 var data = mainData
                 var lcWasPresent = injectedAtStart
                 if injectedAtStart {

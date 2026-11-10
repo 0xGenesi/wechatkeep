@@ -130,10 +130,21 @@ struct DbKeysStore: Codable, Equatable {
 
     /// 派生并晋升入库（限定位）。已在限定位（或裸位——keyFor 命中）时不
     /// 重复写；钥来自 secrets 现场派生时入限定位（含旧裸键的隐式迁移）。
+    ///
+    /// 失效键刷新（136 轮评审 P3）：限定位在场但**验页不过**（盐轮换——
+    /// 微信重登重新加密库）时，旧行为 `dbs[qualified] == nil` 门使失效键
+    /// 永不更新：check 仍绿（keyFor 落到 secrets 现场派生救场）但 store
+    /// 永远躺着失效键；此后 secrets 一被裁（dbs 已 populated 后看似冗余），
+    /// 全部轮换库变 RED 并被指向重跑 capture。刷新键与初次晋升同门——
+    /// 都经页 HMAC 验证，无误伤面。
     mutating func promote(basename: String, account: String = "", salt: [UInt8], page: [UInt8]) -> Bool {
         let qualified = Self.dbKey(basename: basename, account: account)
-        guard dbs[qualified] == nil,
-              let key = keyFor(basename: basename, account: account, salt: salt, page: page) else { return false }
+        if let existing = dbs[qualified],
+           let key = [UInt8](hexString: existing),
+           SQLCipherGeometry.verifyPage1(page: page, key: key) {
+            return false   // 现键有效：不重复写（原语义）
+        }
+        guard let key = keyFor(basename: basename, account: account, salt: salt, page: page) else { return false }
         dbs[qualified] = key.hexString
         return true
     }
@@ -205,9 +216,12 @@ enum WeChatDBFinder {
     }
 
     static func page1(of url: URL) -> [UInt8]? {
-        guard let fh = try? FileHandle(forReadingFrom: url),
-              let data = try? fh.read(upToCount: SQLCipherGeometry.pageSize) else { return nil }
-        try? fh.close()
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
+        // defer 收句柄（136 轮评审 P3）：此前 close 只在 guard 双条件全过
+        // （读成功）后到达——read 抛错路径句柄已开未关；audit/recover 逐库
+        // 枚举面 + I/O 故障（并发删除/权限翻转）时可积累 fd。
+        defer { try? fh.close() }
+        guard let data = try? fh.read(upToCount: SQLCipherGeometry.pageSize) else { return nil }
         guard data.count >= 64 else { return nil }
         return [UInt8](data)
     }
@@ -347,6 +361,17 @@ extension Wxkeep {
                 }
                 guard Self.entitleHasGetTaskAllow(exe: wechatExe) else {
                     throw ValidationError("微信二进制无 get-task-allow：先 `wxkeep patch`（重签带该 entitlement）再 capture")
+                }
+                // 宿主原生架构门（136 轮评审 P3）：lldb 脚本锚 arm64 寄存器
+                //（x1..x6 + `$x6 > 32000` 轮数条件）——Intel 宿主上被调试的
+                // 微信也是 x86_64，寄存器名恒不命中 → 必然超时，报「确认已
+                // 登录后重试」把工具局限误报成用户操作问题，重试死循环。
+                // 判**宿主**而非编译切片：Rosetta x64 wxkeep 调试 arm64 微信
+                // 时目标寄存器仍是 x 族，照常可用。诚实拒绝（x64 寄存器映射
+                // 待 Intel 真机实证后再补，不猜 ABI）。
+                if Doctor.nativeArch() == "x86_64" {
+                    throw ValidationError("dbkeys capture 的 lldb 断点脚本锚 arm64 寄存器，"
+                        + "本机原生架构是 x86_64——当前不支持；请在 Apple Silicon 机器上运行。")
                 }
                 let storeURL = PathUtil.expandTilde(keys).map { URL(fileURLWithPath: $0) }
                 let hitsPath = NSTemporaryDirectory() + "wxkeep-pbkdf-hits.jsonl"
@@ -499,9 +524,19 @@ extension Wxkeep {
                 let store = DbKeysFiles.loadStore(
                     url: PathUtil.expandTilde(keys).map { URL(fileURLWithPath: $0) })
                 let sinceTS = try Self.parseTimestamp(since)
+                // 门可判性前置拒（136 轮评审 P2）：--since 的判据是 [other]
+                // 分类计数，--no-classify 关闭分类 = 无证据可判。此前空 rows
+                // 恒打「数据面 PASS」+ exit 0——vacuous 绿骗过机器门。组合
+                // 本身矛盾，运行前即拒（免跑全库后才发现门不可判）。
+                if noClassify, sinceTS != nil {
+                    throw ValidationError("--since 数据面门与 --no-classify 不可并用："
+                        + "门判据是他撤模板灰条（[other] 分类计数），关闭分类即无证据可判。"
+                        + "去掉 --no-classify，或去掉 --since 只看原始计数。")
+                }
                 let needRows = latest > 0 || sinceTS != nil
                 var total: [RevokeTipClassifier.Form: Int] = [:]
                 var unknownForm = 0
+                var plainDBs = 0
                 var rows: [(ts: Int, chat: String, db: String, form: RevokeTipClassifier.Form)] = []
                 let accounts = WeChatDBFinder.accounts()
                 guard !accounts.isEmpty else { throw ValidationError("未找到 xwechat_files 账号目录") }
@@ -513,7 +548,10 @@ extension Wxkeep {
                                 && !n.contains("biz") && !n.contains("resource")
                         }
                     for db in dbs {
-                        guard let page = WeChatDBFinder.page1(of: db), !WeChatDBFinder.isPlain(page) else { continue }
+                        guard let page = WeChatDBFinder.page1(of: db) else { continue }
+                        // 明文库披露（136 轮评审 P3，check 有 plain 计数/audit 无
+                        // 的口径不一致收口）：不进统计但如实报数。
+                        if WeChatDBFinder.isPlain(page) { plainDBs += 1; continue }
                         let salt = SQLCipherGeometry.saltOfPage1(page: page)
                         guard let key = store.keyFor(basename: db.lastPathComponent, account: account, salt: salt, page: page) else {
                             throw ValidationError("密钥不可用：\(db.lastPathComponent) — 先 `wxkeep dbkeys check` / `capture`")
@@ -547,6 +585,9 @@ extension Wxkeep {
                 let zstdNote = noClassify ? "，--no-classify" : (Zstd.available ? "" : "，zstd 缺席退化")
                 let sysCount = total[.otherSystem, default: 0]
                 print("撤回灰条：xml=\(total[.xmlRevoke, default: 0]) self=\(total[.selfRevoke, default: 0]) other=\(total[.otherRevoke, default: 0])（其余系统行=\(sysCount)，未分类=\(unknownForm)\(zstdNote)）")
+                if plainDBs > 0 {
+                    print("ℹ︎ 明文库跳过 \(plainDBs) 库——其灰条不在上述统计与 --since 门内（check 的 plain 计数同口径）")
+                }
                 // 111 轮修：--latest 负值会让 prefix/suffix 触发 _precondition 崩溃——
                 // 夹到 ≥0（负语义上等价于 0：不导出）
                 for row in rows.sorted(by: { $0.ts > $1.ts }).prefix(max(latest, 0)) {
@@ -558,6 +599,16 @@ extension Wxkeep {
                     // 的轻量通知形态（content 预览+revoketime，天生 lookup-miss
                     // 独立落库——补丁态无关，广告群日更）；[self] 是自发撤回记账
                     // （R3 原生行为，v1 不触碰发起侧）。两者计入 FAIL 会让门误报。
+                    // 可判性门（136 轮评审 P2）：零已分类行 + 有未分类行 = 全量
+                    // 证据缺失（zstd 缺席机器上 4.x 灰条体全解不开）——fail==0
+                    // 不构成「无他撤灰条」的证据，拒打 PASS（此前 vacuous 绿）。
+                    let classifiedTotal = total.values.reduce(0, +)
+                    guard Self.gateAdmissible(classifiedTotal: classifiedTotal, unknownForm: unknownForm) else {
+                        print("--since \(since!) 门不可判：\(unknownForm) 条灰条全部未分类"
+                              + "（zstd \(Zstd.available ? "在场但" : "缺席，")无一可解）——"
+                              + "无分类证据即无 PASS 可言；装齐 zstd 后重跑")
+                        throw ExitCode(1)
+                    }
                     let g = Self.gateCounts(rows: rows, since: sinceTS)
                     print("--since \(since!) 他撤模板灰条=\(g.fail)"
                           + (g.xml + g.selfCnt == 0 ? "" : "（另：lite 通知 xml=\(g.xml)"
@@ -585,6 +636,16 @@ extension Wxkeep {
                     }
                 }
                 return (fail, xml, selfCnt)
+            }
+
+            /// `--since` 门的可判性（136 轮评审 P2）：判据 = [other] 分类计数，
+            /// 「窗口内零他撤灰条」只有在分类确实发生过（classifiedTotal>0）
+            /// 或库里压根没有灰条（unknownForm==0）时才是证据。零已分类 +
+            /// 有未分类 = 全量证据缺失（zstd 缺席机器上 4.x 灰条体全解不开）
+            /// ——此前空 rows 恒打「数据面 PASS」+ exit 0，机器门被 vacuous
+            /// 绿骗过。纯函数供回归测试钉死三分支。
+            static func gateAdmissible(classifiedTotal: Int, unknownForm: Int) -> Bool {
+                classifiedTotal > 0 || unknownForm == 0
             }
 
             static func resolveSQLCipher(explicit: String?) -> String? {

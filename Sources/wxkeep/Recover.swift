@@ -163,6 +163,11 @@ extension Wxkeep.DbKeysCommand {
             guard !accounts.isEmpty else { throw ValidationError("未找到 xwechat_files 账号目录") }
 
             // 1. FTS session 映射（account → username → rowid；各账号编号独立）
+            // 明文库披露（136 轮评审 P3）：isPlain 跳过此前全静默——check 有
+            // plain 计数而 recover 无，口径不一致；明文库的灰条不进任何统计，
+            // 复原覆盖面凭空缺一块且无线索。不收紧行为（加密库照旧全跑），
+            // 只如实报数（FTS/消息/通讯录三处合计）。
+            var plainSkipped = 0
             var ftsUser2Sid: [String: [String: Int]] = [:]
             var ftsKeyed: [String: (url: URL, key: [UInt8])] = [:]
             // 123 轮体检 P2：FTS 密钥缺失的账号此前被静默 continue——其灰条
@@ -172,7 +177,8 @@ extension Wxkeep.DbKeysCommand {
             for account in accounts {
                 guard let fts = WeChatDBFinder.encryptedDBs(account: account, live: true)
                     .first(where: { $0.lastPathComponent == "message_fts.db" }) else { continue }
-                guard let page = WeChatDBFinder.page1(of: fts), !WeChatDBFinder.isPlain(page) else { continue }
+                guard let page = WeChatDBFinder.page1(of: fts) else { continue }
+                if WeChatDBFinder.isPlain(page) { plainSkipped += 1; continue }
                 let salt = SQLCipherGeometry.saltOfPage1(page: page)
                 guard let key = store.keyFor(basename: fts.lastPathComponent, account: account, salt: salt, page: page) else {
                     ftsKeyMissing.append(account)
@@ -204,7 +210,8 @@ extension Wxkeep.DbKeysCommand {
                             && !n.contains("biz") && !n.contains("resource")
                     }
                 for db in dbs {
-                    guard let page = WeChatDBFinder.page1(of: db), !WeChatDBFinder.isPlain(page) else { continue }
+                    guard let page = WeChatDBFinder.page1(of: db) else { continue }
+                    if WeChatDBFinder.isPlain(page) { plainSkipped += 1; continue }
                     let salt = SQLCipherGeometry.saltOfPage1(page: page)
                     guard let key = store.keyFor(basename: db.lastPathComponent, account: account, salt: salt, page: page) else {
                         throw ValidationError("密钥不可用：\(db.lastPathComponent) — 先 `wxkeep dbkeys check` / `capture`")
@@ -238,6 +245,9 @@ extension Wxkeep.DbKeysCommand {
                 }
             }
             print("· 原地覆写灰条（复原候选）\(tips.count) 条（未分类 \(unknownForm)）")
+            if plainSkipped > 0 {
+                print("· ℹ︎ 明文库跳过 \(plainSkipped) 库（FTS/消息/通讯录合计）——其灰条不在上述统计内")
+            }
 
             // 3. FTS 反查（按账号隔离批化 ×4 分片——跨账号查同一批会把
             // sid 巧合相同的行错配进来；每账号只打自己的 fts 库）
@@ -290,7 +300,8 @@ extension Wxkeep.DbKeysCommand {
             for account in accounts {
                 guard let contact = WeChatDBFinder.encryptedDBs(account: account, live: true)
                     .first(where: { $0.lastPathComponent == "contact.db" }) else { continue }
-                guard let page = WeChatDBFinder.page1(of: contact), !WeChatDBFinder.isPlain(page) else { continue }
+                guard let page = WeChatDBFinder.page1(of: contact) else { continue }
+                if WeChatDBFinder.isPlain(page) { plainSkipped += 1; continue }
                 let salt = SQLCipherGeometry.saltOfPage1(page: page)
                 guard let key = store.keyFor(basename: contact.lastPathComponent, account: account, salt: salt, page: page) else {
                     contactKeyMissing.append(account)

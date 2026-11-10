@@ -514,3 +514,31 @@ final class ExpectedWildcardTests {
         #expect(inspectMalformed, "inspect 应同样报 malformedAsm，got \(String(describing: caught2))")
     }
 }
+
+extension PatcherTests {
+    /// 136 轮评审 P3 回归锁：坏 expected spec 干净拒绝——compactMap 静默
+    /// 滤除会把 3 变体门收窄成 2（方向 fail-closed，但 expectedMismatch 时
+    /// 无线索指向坏 spec）。与 malformedAsm 同款纪律。
+    @Test func malformedExpectedSpecIsRejected() throws {
+        let binary = try writeBinary(
+            MachOFixture.thin(cputype: MachOFixture.x64CPU, code: [
+                (0x100, [0x55, 0x48, 0x89, 0xE5]),
+            ]),
+            name: "badexpected.dylib")
+        do {
+            _ = try Patcher.patch(
+                binary: binary,
+                entries: [MachOFixture.entry(.x86_64, addr: "100", asm: "31C0C3",
+                                             expected: ["ZZ??not-hex"])],
+                identifier: "revoke")
+            Issue.record("expected malformedExpected rejection")
+        } catch let e as Patcher.PatchError {
+            guard case .malformedExpected = e else {
+                Issue.record("wrong error: \(e)")
+                return
+            }
+        }
+        #expect(try bytes(at: binary, offset: 0x100, count: 4) == "554889E5",
+                "拒绝发生在写前")
+    }
+}

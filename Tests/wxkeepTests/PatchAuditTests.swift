@@ -239,3 +239,37 @@ extension PatchAuditTests {
             "app 漂移 → 旧账弃")
     }
 }
+
+// MARK: - 136 轮评审：restore 收口的台账 app 守卫
+
+extension PatchAuditTests {
+    // MARK: - 136 轮评审：restore 收口的台账 app 守卫
+
+    /// P3 回归锁：restore 的台账清理必须带 app 守卫——单槽台账可能记的是
+    /// 另一 app（patch 本体 → clone → restore 克隆体）；无守卫的 clear 会
+    /// 抹掉本体账目（本体仍 patched 但 doctor 对账能力丢失）。patch 侧同名
+    /// 清理自始有守卫。三分支：他 app → 保留；本 app → 收口；无账 → 无操作。
+    @Test func restoreLedgerClearIsAppGuarded() throws {
+        let userData = workDir.appendingPathComponent("userData-guard", isDirectory: true)
+        try FileManager.default.createDirectory(at: userData, withIntermediateDirectories: true)
+        let site = PatchAudit.Site(
+            binary: "Contents/Resources/wechat.dylib", arch: "arm64",
+            identifier: "revoke", va: "4e795a4",
+            before: "40100034", after: "82000014", source: "recipe:revoke_arm64_gen3")
+        let record = makeRecord(sites: [site], app: "/Applications/WeChat.app")
+
+        // 他 app 的账：restore 克隆体不得清本体的账
+        try PatchAudit.write(record: record, userData: userData)
+        Wxkeep.closeAuditLedgerIfOwn(app: "/Applications/WeChat wxkeep 1.app", userData: userData)
+        #expect(PatchAudit.pending(userData: userData).record == record,
+                "外 app 台账必须保留")
+
+        // 本 app 的账：restore 收口清理
+        Wxkeep.closeAuditLedgerIfOwn(app: "/Applications/WeChat.app", userData: userData)
+        #expect(PatchAudit.pending(userData: userData).exists == false,
+                "本 app 台账随 pristine 收口")
+
+        // 无账：幂等无操作
+        Wxkeep.closeAuditLedgerIfOwn(app: "/Applications/WeChat.app", userData: userData)
+    }
+}

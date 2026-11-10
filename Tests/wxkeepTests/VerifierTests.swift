@@ -559,3 +559,91 @@ extension VerifierTests {
         #expect(Verifier.ARM64.ssoProbe("一二三四五六七") != nil)
     }
 }
+
+// MARK: - 136 轮评审：execMap 输入边界（截断镜像段拷贝 + spec VA 差值上溢）
+
+extension VerifierTests {
+    /// P1 回归锁：fileoff+filesize 超文件长的段不得进 segs——旧码 Phase-B
+    /// 段拷贝按 mappedSize（段表声明）钳位 memcpy，不看文件实长 → 截断
+    /// 镜像（头+命令区完整、尾部缺失）源侧越界读 SIGSEGV，被父进程误报成
+    /// workerCrashed。收敛语义与 135 病态段表一致：越界段按不存在。
+    @Test func execMapRejectsSegmentsBeyondEOF() throws {
+        var img = [UInt8](repeating: 0x90, count: 0x200)
+        func u32(_ off: Int, _ v: UInt32) {
+            for i in 0..<4 { img[off + i] = UInt8((v >> (8 * UInt32(i))) & 0xFF) }
+        }
+        func u64(_ off: Int, _ v: UInt64) {
+            for i in 0..<8 { img[off + i] = UInt8((v >> (8 * UInt64(i))) & 0xFF) }
+        }
+        u32(0, 0xFEEDFACF)   // MH_MAGIC_64
+        u32(4, 0x0100_000C)  // arm64
+        u32(16, 2)           // ncmds
+        u32(20, 144)         // sizeofcmds
+        // 段 A（@32）：完整在文件内（fileoff 0 + filesize 0x100 ≤ 0x200）
+        u32(32, 0x19); u32(36, 72)
+        u64(56, 0); u64(64, 0x100); u64(72, 0); u64(80, 0x100)
+        u32(92, 5)           // initprot RX
+        // 段 B（@104）：声明超出文件（fileoff 0x100 + filesize 0x400 = 0x500 > 0x200）
+        u32(104, 0x19); u32(108, 72)
+        u64(128, 0x100); u64(136, 0x400); u64(144, 0x100); u64(152, 0x400)
+        u32(164, 3)
+        let map = try #require(Verifier.execMap(data: Data(img)))
+        #expect(map.segs.count == 1, "越界段必须被拒（按不存在收敛）；实测 \(map.segs)")
+        #expect(map.segs.first?.fileoff == 0 && map.segs.first?.filesize == 0x100)
+        #expect(map.segs.first?.exec == true, "initprot RX 位保留")
+    }
+
+    /// P2 回归锁（stub 面）：spec 桩 VA - base 超 Int.max 的 UInt64→Int 强转
+    /// 旧码是 SIGTRAP → 父进程误报 workerCrashed(5)；现在干净落 exit(4) =
+    /// specNotApplicable（manifest 链内数据事故 ≠ 镜像问题）。exit(4) 先于
+    /// 架构解码分支——两宿主同一判据。
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable,
+                   "worker-capable environment required"))
+    func stubVAOverflowIsSpecNotApplicableNotTrap() throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-verifier-ovf-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let dylib = work.appendingPathComponent("mini-ovf.bin")
+        try miniImage().write(to: dylib)
+        let overflowSpec = Verifier.VerifySpec(
+            stubs: ["8000000000": "strlen"],   // 0x8000_0000_0000 > Int.max（base=0）
+            zeroRegions: [], probes: [["revokems", "1"]])
+        do {
+            _ = try Verifier.run(binary: dylib, targetVA: 0x100, spec: overflowSpec,
+                                 executable: Self.wxkeepBinary)
+            Issue.record("expected specNotApplicable for an overflow stub VA")
+        } catch let e as Verifier.VerifyError {
+            guard case .specNotApplicable = e else {
+                Issue.record("wrong error: \(e) — must be specNotApplicable, not a trap/crash")
+                return
+            }
+        }
+    }
+
+    /// P2 回归锁（zeros 面）：zero_regions VA 差值上溢同族——旧码 `Int(vaHex - base)`
+    /// 强转 SIGTRAP；现在先夹 Int.max 再转，干净落 exit(4)。
+    @Test(.disabled(if: VerifierTests.environmentUnsuitable,
+                   "worker-capable environment required"))
+    func zeroRegionVAOverflowIsSpecNotApplicableNotTrap() throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-verifier-zovf-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let dylib = work.appendingPathComponent("mini-zovf.bin")
+        try miniImage().write(to: dylib)
+        let overflowSpec = Verifier.VerifySpec(
+            stubs: [:], zeroRegions: [["8000000000", "16"]],
+            probes: [["revokems", "1"]])
+        do {
+            _ = try Verifier.run(binary: dylib, targetVA: 0x100, spec: overflowSpec,
+                                 executable: Self.wxkeepBinary)
+            Issue.record("expected specNotApplicable for an overflow zero-region VA")
+        } catch let e as Verifier.VerifyError {
+            guard case .specNotApplicable = e else {
+                Issue.record("wrong error: \(e) — must be specNotApplicable, not a trap/crash")
+                return
+            }
+        }
+    }
+}

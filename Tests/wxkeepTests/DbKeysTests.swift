@@ -182,3 +182,69 @@ struct DbKeysTests {
         #expect(Zstd.decompress(fakeFrame) == nil)
     }
 }
+
+extension DbKeysTests {
+    // MARK: - 136 轮评审：--since 门可判性 + promote 盐轮换刷新
+
+    /// P2 回归锁：零已分类 + 有未分类 = 证据全缺（zstd 缺席机器上 4.x 灰条
+    /// 体全解不开），`fail==0` 不构成「无他撤灰条」的证据——此前空 rows 恒打
+    /// 「数据面 PASS」+ exit 0，机器门被 vacuous 绿骗过。三分支：
+    /// 有分类 → 可判；零分类零未分类（真无灰条）→ 可判（且 PASS）；
+    /// 零分类有未分类 → 不可判。
+    @Test func auditGateAdmissibilityRequiresEvidence() {
+        #expect(Wxkeep.DbKeysCommand.Audit.gateAdmissible(classifiedTotal: 3, unknownForm: 0),
+                "有已分类行：门可判")
+        #expect(Wxkeep.DbKeysCommand.Audit.gateAdmissible(classifiedTotal: 0, unknownForm: 0),
+                "零灰条 = 真无灰条（合法 PASS 的证据基础）")
+        #expect(!Wxkeep.DbKeysCommand.Audit.gateAdmissible(classifiedTotal: 0, unknownForm: 5),
+                "全量未分类：fail==0 无证据意义——不可判（vacuous PASS 修复）")
+        #expect(Wxkeep.DbKeysCommand.Audit.gateAdmissible(classifiedTotal: 1, unknownForm: 7),
+                "部分覆盖：有任一已分类行门即可判（未分类行如实报数）")
+    }
+
+    /// P3 回归锁：promote 在限定位键**验页不过**（盐轮换——重登重新加密库）
+    /// 时必须用 secrets 派生键刷新入库；旧行为 `dbs[qualified] == nil` 门使
+    /// 失效键永不更新（check 仍绿靠 secrets 现场派生救场，store 却躺着
+    /// 失效键——secrets 被裁后全部轮换库变 RED）。
+    @Test func promoteRefreshesStaleKeyAfterSaltRotation() throws {
+        // 合成页构造（verifyPage1SyntheticRoundTrip 同款，rounds=8 快速路径）
+        // rounds 参数化：page2 必须用真实 256000（keyFor 的 secrets 派生
+        // 走默认参数）；page1 的 key1 只当失效存量，8 轮即可。
+        func makePage(salt: [UInt8], secret: [UInt8], rounds: Int) -> ([UInt8], [UInt8]) {
+            var page = [UInt8](repeating: 0xA5, count: SQLCipherGeometry.pageSize)
+            for (i, b) in salt.enumerated() { page[i] = b }
+            let key = SQLCipherGeometry.pbkdf2SHA512(
+                password: secret, salt: salt, rounds: rounds, outLen: 32)
+            let mac = SQLCipherGeometry.hmacSHA512(
+                key: SQLCipherGeometry.macKey(key: key, salt: salt),
+                message: Array(page[16..<4032]) + [1, 0, 0, 0])
+            for (i, b) in mac.enumerated() { page[4032 + i] = b }
+            return (page, key)
+        }
+        let salt1 = [UInt8](repeating: 0x11, count: 16)
+        let salt2 = [UInt8](repeating: 0x22, count: 16)   // 轮换后的新盐
+        let secret1 = Array("synthetic-key-1".utf8)
+        let secret2 = Array("synthetic-key-2".utf8)
+        let (page1, key1) = makePage(salt: salt1, secret: secret1, rounds: 8)
+        let (page2, _) = makePage(salt: salt2, secret: secret2, rounds: 256_000)
+        var store = DbKeysStore()
+        store.dbs = ["acc/message_0.db": key1.hexString]   // 旧盐键（对 page2 失效）
+        store.secrets = [secret2.hexString]
+        // keyFor 走 secrets 派生（256000 轮真实参数——本测试唯一重步），
+        // 对 page2 验页通过；promote 必须刷新限定位。
+        let promoted = store.promote(basename: "message_0.db", account: "acc",
+                                     salt: salt2, page: page2)
+        #expect(promoted, "盐轮换后失效键必须被刷新（旧行为返回 false 且不更新）")
+        let refreshedHex = store.dbs["acc/message_0.db"]
+        #expect(refreshedHex != key1.hexString, "限定位不再是失效键")
+        #expect(refreshedHex.flatMap { [UInt8](hexString: $0) } != nil)
+        #expect(SQLCipherGeometry.verifyPage1(
+            page: page2, key: [UInt8](hexString: refreshedHex!) ?? []),
+            "刷新键经页 HMAC 门（与初次晋升同校验）")
+        // 有效键在场：幂等不重写（原语义保留）。#expect 宏捕获会使 store
+        // 变不可变——mutating 调用先落到局部。
+        let idempotent = !store.promote(basename: "message_0.db", account: "acc",
+                                        salt: salt2, page: page2)
+        #expect(idempotent)
+    }
+}
