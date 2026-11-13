@@ -21071,5 +21071,112 @@
    }
   ],
   "version": "270353"
+ },
+ {
+  "targets": [
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "464c9f0",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "49b6200",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ],
+    "identifier": "revoke"
+   }
+  ],
+  "version": "270385"
+ },
+ {
+  "targets": [
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "464f710",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "49baa90",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ],
+    "identifier": "revoke"
+   }
+  ],
+  "version": "270386"
+ },
+ {
+  "targets": [
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "464f708",
+      "arch": "arm64",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen3"
+     },
+     {
+      "addr": "49baa80",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ],
+    "identifier": "revoke"
+   }
+  ],
+  "version": "270387"
+ },
+ {
+  "targets": [
+   {
+    "binary": "Contents/Resources/wechat.dylib",
+    "entries": [
+     {
+      "addr": "4984660",
+      "arch": "x86_64",
+      "asm": "31C0C3909090909090",
+      "expected": [
+       "554889E553504889FB"
+      ],
+      "source": "recipe:revoke_x64"
+     }
+    ],
+    "identifier": "revoke"
+   }
+  ],
+  "version": "270389"
  }
 ]
