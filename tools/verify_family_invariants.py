@@ -49,7 +49,7 @@ DUP_ID_BUILDS = {
     "269363", "269362", "269336", "42530", "41754", "39917", "38959", "37335",
 }
 
-EXPECTED_TOTALS = {"builds": 124, "entries": 2003}
+EXPECTED_TOTALS = {"builds": 128, "entries": 2010}
 
 # 家族指纹表（134 轮实测固化；新派生轮 = 登记新指纹行 + 注出处）。
 EXPECTED_FINGERPRINTS = {
@@ -82,7 +82,12 @@ EXPECTED_FINGERPRINTS = {
     # 270353.dmg（sha256 e47d5e1c…），fat wechat.dylib d61eab4f…，expected
     # 字节本地独立复核（arm64@4E7D404=40100034 / x64@516E9F0=
     # 554889E553504889FB，wxkeep locate 本机重跑同址同值）。
-    "revoke|arm64|82000014x1;revoke|x86_64|31C0C3909090909090x1": 1,
+    # 270353 计 1 → PR #5（270385/386/387 同指纹）计 4（2026-11-14 首审
+    # 轮；gen3 几何连续四构建未变代）
+    "revoke|arm64|82000014x1;revoke|x86_64|31C0C3909090909090x1": 4,
+    # 270389 x64-only（arm64 gen3 确认字节变代 +7A0=60E600F9≠家族
+    # 60CE00F9 未命中——如实登记 x64 单侧；首例「纯 revoke 单架构」指纹）
+    "revoke|x86_64|31C0C3909090909090x1": 1,
 }
 
 
