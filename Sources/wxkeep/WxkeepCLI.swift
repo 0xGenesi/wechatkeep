@@ -742,7 +742,130 @@ extension Wxkeep {
         static var _commandName: String { "runtime" }
         static let configuration = CommandConfiguration(
             abstract: "Runtime component (optional): inject a support dylib into WeChat",
-            subcommands: [RuntimeStatus.self, RuntimeHooks.self, RuntimeTip.self, RuntimeClone.self, RuntimeProbe.self, RuntimeInstall.self, RuntimeRemove.self])
+            subcommands: [RuntimeStatus.self, RuntimeCalibrate.self, RuntimeHooks.self, RuntimeTip.self, RuntimeClone.self, RuntimeProbe.self, RuntimeInstall.self, RuntimeRemove.self])
+
+        // MARK: - 计数签名校准（137 轮方案 v2）
+
+        /// 校准的计数器面别。语义依据 runtime.m marker_content 键序 + CLI
+        /// status 展示注释：
+        /// - product：用户可见结果面（zero=保留动作、fires=tip 改写）——
+        ///   合成事件唯一替代不了的面（渲染层肉眼确认的机读代理）
+        /// - boundary：selfskip 自发放行（裸 ret/自撤设计的边界确认）
+        /// - instrument：克隆证据链（R6/R8 计数——M4 采样与链路校准）
+        enum Facet { case product, boundary, instrument }
+
+        static let calibrationCounters: [(key: String, label: String, facet: Facet)] = [
+            ("zero", "保留动作", .product),
+            ("fires", "tip 改写", .product),
+            ("selfskip", "自发放行", .boundary),
+            ("clone", "捕获派发", .instrument),
+            ("clmiss", "无 newmsgid 跳过", .instrument),
+            ("clrow", "写点挂点", .instrument),
+            ("clpair", "配对完整", .instrument),
+            ("clsvc", "服务身份门", .instrument),
+            ("clkey", "key 快照", .instrument),
+            ("clhit", "重查命中", .instrument),
+            ("clmissq", "重查未中", .instrument),
+            ("clget", "取到消息对象", .instrument),
+            ("clinner", "行集合在位", .instrument),
+            ("clpub", "publisher 探针", .instrument),
+            ("clpubm", "publisher 认证命中", .instrument),
+            ("clins", "插入调用", .instrument),
+            ("clsvc2", "svc 二次命中", .instrument),
+            ("cldrop", "队列丢弃", .instrument),
+            ("clgap", "队列间隙", .instrument),
+        ]
+
+        /// marker 文本 → 计数器字典（只取 `key=<digits>` 形；字符串键
+        /// mr2/last/inner/probe 与 ts/istep 等天然落选——ts 含小数点）。
+        static func parseCounters(_ marker: String?) -> [String: Int] {
+            guard let marker else { return [:] }
+            var out: [String: Int] = [:]
+            for (key, _, _) in calibrationCounters {
+                guard let r = marker.range(of: "\(key)=") else { continue }
+                let digits = marker[r.upperBound...].prefix(while: \.isNumber)
+                if let v = Int(digits) { out[key] = v }
+            }
+            return out
+        }
+
+        struct CalibrationVerdict {
+            var lines: [String]
+            var productProven: Bool
+            var instrumentSampled: Bool
+            /// marker 重置（微信重启）= 窗口内增量不可比
+            var reset: Bool
+            /// 结构化判读（机读账本用）
+            var summary: String
+        }
+
+        /// 前后快照 → 判读（纯函数；面别语义见 calibrationCounters 注）。
+        static func calibrationVerdict(before: [String: Int], after: [String: Int])
+            -> CalibrationVerdict {
+            var deltas: [String: Int] = [:]
+            var reset = false
+            for (key, _, _) in calibrationCounters {
+                let b = before[key] ?? 0
+                let a = after[key] ?? 0
+                deltas[key] = a - b
+                if a < b { reset = true }
+            }
+            var lines: [String] = []
+            var productProven = false
+            var instrumentSampled = false
+            if reset {
+                lines.append("⚠️ marker 重置（微信重启）——窗口内计数不可比，重跑本次校准")
+            }
+            let d = { (key: String) in deltas[key] ?? 0 }
+            // 产品面（唯一不可合成的证明——137 轮方案 v2 第一性原理拆解）
+            let zeroD = d("zero"), firesD = d("fires")
+            if zeroD > 0 {
+                lines.append("✓ 保留动作 +\(zeroD)（消息保留已实证——产品面）")
+                productProven = true
+            }
+            if firesD > 0 {
+                lines.append("✓ tip 改写 +\(firesD)（自定义文案生效）")
+                productProven = true
+            }
+            if d("selfskip") > 0 {
+                lines.append("△ 自发放行 +\(d("selfskip"))（selfskip 边界确认——他撤链未经过）")
+            }
+            // 仪器面
+            var inst: [String] = []
+            for (key, label, facet) in calibrationCounters where facet == .instrument {
+                if d(key) > 0 { inst.append("\(key)=+\(d(key))（\(label)）") }
+            }
+            if !inst.isEmpty {
+                instrumentSampled = true
+                lines.append("✓ 克隆证据链：" + inst.joined(separator: " "))
+                if d("clpub") > 0 {
+                    lines.append("  M4 认证采样可行——bootlog r8pub 行携带 subvt/msgvt 切片偏移（派生输入）")
+                }
+                if d("clins") > 0 {
+                    lines.append("  插入调用已激活（pub_vt 认证门通过——克隆行插入在役）")
+                }
+            }
+            let summary: String
+            if reset {
+                summary = "reset"
+            } else if productProven && instrumentSampled {
+                summary = "product+instrument"
+            } else if productProven {
+                summary = "product-only"
+            } else if instrumentSampled {
+                summary = "instrument-only"
+            } else if d("selfskip") > 0 {
+                summary = "selfskip-only"
+            } else {
+                summary = "no-event"
+            }
+            if summary == "no-event" {
+                lines.append("窗口内无他撤事件（产品/仪器面零增量）——做一次真实撤回（他号→本机）后重跑")
+            }
+            return CalibrationVerdict(lines: lines, productProven: productProven,
+                                      instrumentSampled: instrumentSampled,
+                                      reset: reset, summary: summary)
+        }
 
         static func mainExecURL(_ app: URL) -> URL {
             WeChatApp.binaryURL(app: app, relative: "Contents/MacOS/WeChat")
@@ -1118,6 +1241,83 @@ extension Wxkeep {
                 }
                 let state = active ? (markerExists ? "已启用" : "已注入（启动微信后生效）") : "未启用"
                 print("整体:              \(state)")
+            }
+        }
+
+        /// 计数签名校准（137 轮方案 v2）：把「一场冒烟」压缩成一条命令——
+        /// 快照 → 开窗（用户做一次真实撤回）→ 快照 → 面别判读。
+        /// 第一性原理拆解（ROADMAP 137 节）：真实撤回事件的唯一不可合成
+        /// 产出 = 渲染层肉眼结果（机读代理 = 产品面计数）；仪器校准与 M4
+        /// 采样面随同一事件自动落账（此前要 N 场 ad-hoc drive 脚本）。
+        /// 合成触发边界如实登记：hook 门是字节 needle（内容可合成），但
+        /// parse 直驱注入被 R11 诚实边界①阻塞（args[0]/x0 语义未证——假
+        /// 对象入 parse 体即崩），见 RUNTIME-DESIGN「R18 合成触发边界」。
+        struct RuntimeCalibrate: ParsableCommand {
+            static var _commandName: String { "calibrate" }
+            static let configuration = CommandConfiguration(
+                abstract: "Counters signature calibration: snapshot → event window → delta verdict (机读 JSON)")
+            @OptionGroup var options: Options
+            /// 观测窗秒数（默认 300s——一次撤回 + 余量）
+            @Flag(name: .long, help: "机读 JSON 输出（账本管道用）")
+            var json: Bool = false
+            @Option(name: .long, help: "窗口秒数")
+            var window: Int = 300
+            @Option(name: .long, help: "样本标签（入 JSON；如 smoke-20261115）")
+            var label: String?
+
+            mutating func run() throws {
+                try WeChatApp.validate(options.app)
+                let main = RuntimeCommand.mainExecURL(options.app)
+                let data = try Data(contentsOf: main, options: .alwaysMapped)
+                let injected = MachOInjector.isInjectedAnySlice(data: data, path: lcPath)
+                let dylibExists = FileManager.default.fileExists(
+                    atPath: RuntimeCommand.frameworkDylibURL(options.app).path)
+                let active = injected && dylibExists
+                let beforeText = RuntimeConfig.readMarkerText()
+                guard active, let beforeText else {
+                    throw ValidationError(
+                        "runtime 组件未在位或 marker 不存在——先 `wxkeep runtime install` 并启动微信；"
+                        + "历史快照（组件已移除）不参与校准（计数冻结无事件语义）")
+                }
+                let before = RuntimeCommand.parseCounters(beforeText)
+                if !json {
+                    print("校准窗开启（\(window)s）——现在做一次真实撤回（他号 → 本机 \(options.app.lastPathComponent)）")
+                    print("before: " + RuntimeCommand.calibrationCounters
+                        .map { "\($0.key)=\(before[$0.key] ?? 0)" }.joined(separator: " "))
+                }
+                Thread.sleep(forTimeInterval: TimeInterval(window))
+                let afterText = RuntimeConfig.readMarkerText()
+                let after = RuntimeCommand.parseCounters(afterText)
+                let verdict = RuntimeCommand.calibrationVerdict(before: before, after: after)
+                if json {
+                    // 机读账本：before/after/delta 全量 + 结构化判读（证据族管道）
+                    var delta: [String: Int] = [:]
+                    for (key, _, _) in RuntimeCommand.calibrationCounters {
+                        delta[key] = (after[key] ?? 0) - (before[key] ?? 0)
+                    }
+                    let obj: [String: Any] = [
+                        "label": label ?? "",
+                        "window_s": window,
+                        "app": options.app.path,
+                        "before": before,
+                        "after": after,
+                        "delta": delta,
+                        "summary": verdict.summary,
+                        "product_proven": verdict.productProven,
+                        "instrument_sampled": verdict.instrumentSampled,
+                        "marker_reset": verdict.reset,
+                        "captured_at": ISO8601DateFormatter().string(from: Date()),
+                    ]
+                    let jsonData = try JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys, .prettyPrinted])
+                    print(String(decoding: jsonData, as: UTF8.self))
+                } else {
+                    print("after:  " + RuntimeCommand.calibrationCounters
+                        .map { "\($0.key)=\(after[$0.key] ?? 0)" }.joined(separator: " "))
+                    print("------ 判读 ------")
+                    verdict.lines.forEach { print($0) }
+                    print("summary: \(verdict.summary)（product=\(verdict.productProven) instrument=\(verdict.instrumentSampled) reset=\(verdict.reset)）")
+                }
+                if verdict.reset { throw ExitCode(2) }
             }
         }
 

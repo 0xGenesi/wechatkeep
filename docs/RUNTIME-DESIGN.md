@@ -1351,3 +1351,56 @@ worker（clone_parse_run，宿主调用合法面）:
   释放）——门②如实暴露，死则考虑浅拷贝 v2；③key 格式（svrid 十进制
   vs 会话串）由 px0 行 + lookup 命中与否联合定案；④写点版全保留
   （其它构建/其它流的可能锚）。
+
+## R18 计数签名仪器 + 合成触发边界（2026-11-15，137 轮方案 v2）
+
+> 第一性原理拆解（用户窗口三项的依赖分析）：真实撤回事件的唯一不可合成
+> 产出 = **渲染层肉眼结果**（机读代理 = 产品面计数）。仪器校准与 M4 采样
+> 面随同一事件自动落账——`wxkeep runtime calibrate` 把「N 场 ad-hoc drive」
+> 压缩成一条命令。
+
+### 仪器（已落地）
+
+`runtime calibrate [--window N] [--json] [--label]`：快照 → 开窗 → 快照 →
+面别判读。三面别（`RuntimeCommand.calibrationCounters`）：
+
+- **product**：zero=保留动作、fires=tip 改写——用户可见结果的机读代理；
+- **boundary**：selfskip 自发放行（边界确认，单独成面——不构成产品证明）；
+- **instrument**：clone/clmiss/clrow/clpair/clsvc/clkey/clhit/clmissq/
+  clget/clinner/clpub/clpubm/clins/clsvc2/cldrop/clgap——克隆证据链。
+  clpub>0 = M4 认证采样可行（bootlog r8pub 行携带 subvt/msgvt）；
+  clins>0 = 插入调用已激活（pub_vt 认证门通过）。
+
+判读 summary 七态：`product+instrument / product-only / instrument-only /
+selfskip-only / no-event / reset`。机读 JSON（--json）= before/after/delta
+全量 + summary + product_proven/instrument_sampled/marker_reset——证据族
+管道入口。回归锁：RuntimeCalibrateTests 8 例。
+
+### 合成触发边界（如实登记——137 轮修正）
+
+**hook 门可合成**：selfskip 判发 = XML 内容字节 needle（`kSelfNeedle`
+"你撤回"，runtime.m:2415），非身份/密码学检查——合成 XML 换 needle 即
+可过门（L7 语料在库）。
+
+**事件注入点不可合成（当前）**：parse 直驱注入要求构造 args——x0 语义
+= R11 诚实边界①（未证），假对象入 parse 体即崩（用户在役微信）。
+**解锁条件 = R11① 裁决**（cm 槽实弹一次即关）：x0 合同定案后，parse
+直驱可成为一等合成事件源（自 skip 合成 + phantom 语料 = 零 DB 污染的
+全链触发器）。
+
+**原料常驻事实**：session 对象图（consumer/publisher/订阅对）由日常收
+消息持续再生产（R8/R10 合同：publisher=订阅期绑定）——真实撤回事件只是
+触发器；**真实会话是常驻资源**。这就是「N 场窗口 → 1 场冒烟」的机械
+依据：一次真实事件双用（产品面证明 + 仪器面采样/真值锚点）。
+
+### 校准矩阵（真值锚 = R15-R17 台账）
+
+| 面 | 真实事件签名（R15-R17 实弹） | 合成驱动预期 | 判读 |
+|---|---|---|---|
+| fires/zero | 每他撤恰 +1（98 轮 zero=3/tip fires=3） | parse 注入后同形 | 链路等价证明 |
+| selfskip | 自撤 +1、他撤不动 | needle 合成后 +0 | 门语义锁定 |
+| lu_seq/clmissq | R16：每撤回恰 1；R12：clmissq=2 | 同上 | 深链等价 |
+| clpub | 每他撤 +1（订阅在位时） | 同上 | M4 采样可行性 |
+| clins | 0（pub_vt 未派生） | 同 | 认证门状态 |
+
+差异即诊断信号 → 降级路径 = 原「副本 E2E」（干净环境隔离变量）。

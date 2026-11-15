@@ -87,6 +87,45 @@
 > gh-proxy insteadOf，一次过（比盲等重试确定性）。brew test E2E 绿，
 > brew 版 verify 实机 10✓；master 全量 347 测绿、doctor=protected。
 
+> **137 轮（2026-11-15·用户窗口三项方案 v2 重设计）**：用户令「从第一
+> 性原理改进方案」。**拆解**：用户窗口三项（M4 实弹/clsvc 副本 E2E/
+> 3.x 五格）共享同一原语=「一次他撤事件」，成本高的根源。**两个代码级
+> 事实**改写依赖：①selfskip 门=XML 字节 needle（kSelfNeedle"你撤回"，
+> runtime.m:2415）非身份检查——hook 门内容可合成；②hook 挂 parse 入口
+> →下游是「XML+进程态」纯函数。**原料常驻事实**（R8/R10 合同）：session
+> 对象图（consumer/publisher/订阅对）由日常收消息持续再生产——真实撤回
+> 只是触发器，真实会话是常驻资源。**诚实修正**（开局判读被 ABI 合同
+> 否决）：parse 直驱注入不可落地——x0 语义=R11 诚实边界①未证，假对象
+> 入 parse 体即崩；36 个 drive 脚本全部为观察/捕获型，无一函数调用注入。
+> 解锁条件=R11① 裁决（RUNTIME-DESIGN「R18 合成触发边界」节如实登记）。
+> **交付**：①`wxkeep runtime calibrate` 子命令（快照→开窗→快照→面别
+> 判读）——三面别（product=zero/fires 机读代理渲染层肉眼结果/boundary=
+> selfskip/instrument=克隆证据链 16 计数）七态 summary + 机读 JSON
+> （before/after/delta 全量+product_proven/instrument_sampled/marker_
+> reset）——把冒烟压缩成一条命令；真实事件从「N 场 ad-hoc drive」变
+> 「1 场冒烟自记名样本」；②回归锁 8 例（判读分支/重置检测/JSON 键/
+> needle 解析边界）全绿；③实机冒烟两轮（12s/3s 窗，no-event 态判读
+> 正确，真实计数 fires=22/selfskip=6/clone=13 在册可见）；④校准矩阵
+> 入 RUNTIME-DESIGN（合成 vs R15-R17 真值锚，差异=诊断信号→降级路径
+> =原副本 E2E 降诊断手段）；⑤3.x runbook 机械化（格 3/4=裸 ret 字节
+> 证明替代肉眼、多开一格一命令；真正人工只剩格 1/2/5）+ calibrate 对
+> 3.x 适用性注。**改写后的用户窗口契约**（待用户执行）：一场 10 分钟
+> 冒烟=小号撤回+`runtime calibrate --window 120`+肉眼格 1——产品面+
+> 仪器面+M4 采样一次落账；3.x 独立窗口照旧但五格缩为三撤回+两命令。
+> **270389 arm64 gen4 补派生当日闭环**：几何变代定案=gen3 确认 store 位
+> **+0x28 平移**（+7A0→+7C8，指令字 0xF900E660 不变——函数体前段扩
+> 0x28；387 位点邻域结构配对 389 对应体 0x4614528 实证）。gen4=同锚同
+> 掩码新偏移 bytes@+7C8:60E600F9:maskFFFFFFE0——四构建互斥唯一性实测
+> （gen3 唯一 385/386/387、gen4 唯一 389，跨代零歧义）；真引擎 locate
+> ✓ site 0x4614528 expected 40100034；config arm64 条目+COMPATIBILITY
+> 再生（270389 恢复 x86_64/arm64 双侧）；L18（2011 条目、指纹行 4→5、
+> x64-only 首例行退役）。掩码语义勘误入档：confirm 大端字面=指令字、
+> 引擎实做=逐字节 mask 比较（bytes[i]&mask[i]==want[i]&mask[i]，
+> RecipeEngine:281——「大端」指字面书写序即文件字节序，两读法曾致
+> 本轮假阴性一轮）。
+> **下轮队列**：cm 槽实弹一次关 R11①（解锁 parse 合成注入）；pub_vt
+> 派生（calibrate 首个真实样本即输入）。
+
 > **2026-11-07 135 轮后状态修订（全仓深审 + 270352 hooks 补齐 + P1 审计链修复）**：
 > ①双评审并行深读（CLI/配置面 + 补丁引擎面，两 agent 独立命中同一条
 > P1）+ 逐项人工复核；②**P1 修复：失败路径审计账目合并是死代码**

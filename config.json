@@ -21165,6 +21165,15 @@
     "binary": "Contents/Resources/wechat.dylib",
     "entries": [
      {
+      "arch": "arm64",
+      "addr": "4614528",
+      "asm": "82000014",
+      "expected": [
+       "40100034"
+      ],
+      "source": "recipe:revoke_arm64_gen4 270389——gen3 确认几何 +0x28 平移（store 指令字不变位移位），四构建互斥唯一性实测"
+     },
+     {
       "addr": "4984660",
       "arch": "x86_64",
       "asm": "31C0C3909090909090",

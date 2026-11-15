@@ -2157,6 +2157,16 @@
    "asm": "00008052C0035FD6",
    "binary": "Contents/MacOS/WeChat",
    "_comment": "4.1.6-4.1.9 夹缝代（桩代布局，静态池懒初始化）。2026-09-16 在 33480 arm64 实测：定位 0x103CBE7B0（disasm 同构验证 + 真写测试）。confirm 为 null 由距离过滤+expected 门兜底。"
+  },
+  "revoke_arm64_gen4": {
+   "arch": "arm64",
+   "anchor": "bytes:40100034",
+   "derive": "self",
+   "confirm": "bytes@+7C8:60E600F9:maskFFFFFFE0",
+   "expected": "40100034",
+   "asm": "82000014",
+   "binary": "Contents/Resources/wechat.dylib",
+   "_comment": "4.2.0.53 (270389) 代：gen3 确认 store 位 +0x28 平移（+7A0→+7C8，指令字 0xF900E660 不变——函数体前段扩 0x28）；gen3 唯一命中 270385-387、gen4 唯一命中 270389（四构建互斥实测 2026-11-15）。"
   }
  }
 }
