@@ -143,6 +143,12 @@
 > /calibrate 主流程/期望判读态/selfskip 误操作自诊断/3.x 独立窗口指引/
 > 登记回传格式。③R11① 历史 bootlog 挖掘尝试：/tmp/wxkeep-boot.log
 > 不在场（tmp 清理）——不可回溯，留冒烟窗口一次事件关闭（如实）。
+> **138 续（CI flake 闭口）**：Xcode 16.4 腿 `jitterKillsAlwaysLeave-
+> RecoverableState` 红（killedCount=0）——L16 抖动臂偏移域
+> [30ms, 1.4×合跑] 的上限大半落在 restore 段/进程退出后（kill 只可能
+> 命中被杀的 patch 进程），慢 runner 方差下 12 连 miss。修：基准改测
+> patch 单独段、偏移域收进 [30ms, 0.8×T_patch]、零 kill 时半程定值
+> 兜底臂 3 次（机制自证不依赖抽签）。134 轮 L16 的已知统计面就此闭口。
 > **下轮队列**：cm 槽实弹关 R11①（冒烟即闭）；pub_vt 派生（首个
 > clpub 样本即输入）；runtime dylib 版本错位登记（brew 0.2.17 dylib
 > = pre-136——136/137 的范围门/头锚解析随下次发版 0.2.18 才进 install

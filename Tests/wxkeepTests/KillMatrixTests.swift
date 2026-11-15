@@ -346,16 +346,21 @@ struct KillMatrixTests {
         defer { try? FileManager.default.removeItem(at: work) }
         let rig = try makeRig(work: work, name: "JIT.app")
 
-        // 一次干净跑测基准时长（kill 偏移域 ≈ [30ms, 1.4×T]）。
-        let started = Date()
+        // 一次干净跑测基准时长——**只测 patch 段**（kill 只可能命中被杀的
+        // patch 进程；138 轮 CI 16.4 腿实证：旧域 [30ms, 1.4×合跑] 的上限
+        // 大半落在 restore 段/进程退出后 → 12 连 miss 的窗口重叠 flake）。
+        var patchBase = Date()
         _ = try runCLI(patchArgs(rig, variant: "silent"), env: baseEnv(rig))
+        let patchBaseline = Date().timeIntervalSince(patchBase)
         _ = try runCLI(restoreArgs(rig), env: baseEnv(rig))
-        let baseline = Date().timeIntervalSince(started)
-        #expect(baseline > 0.05, "基准时长异常小：\(baseline)s——spawn 可能未真跑")
+        #expect(patchBaseline > 0.05, "基准时长异常小：\(patchBaseline)s——spawn 可能未真跑")
 
         var killedCount = 0
+        // 偏移域 [30ms, 0.8×T_patch]：上限压进 patch 运行窗内（±时长方差
+        // 容余），每次抽样都应命中；极端抖动由下方半程定值兜底臂承接。
+        let offsetCeilingUS = UInt32(max(60_000, UInt32(patchBaseline * 0.8 * 1_000_000)))
         for trial in 0..<trials {
-            let offsetUS = UInt32.random(in: 30_000...UInt32(max(60_000, UInt32(baseline * 1.4 * 1_000_000))))
+            let offsetUS = UInt32.random(in: 30_000...offsetCeilingUS)
             let p = Process()
             p.executableURL = try cliBinary()
             p.arguments = patchArgs(rig, variant: "keeptip")
@@ -378,9 +383,36 @@ struct KillMatrixTests {
                         "jitter[\(trial)]: restore 后 \(site) ≠ pristine（\(after[site] ?? "?")）")
             }
         }
+        // 兜底臂（138 轮 flake 闭口）：随机域全 miss（runner 时长方差极端）
+        // 时，用半程定值补 3 次确定性 kill——机制自证不依赖抽签。
+        if killedCount == 0 {
+            let halfUS = UInt32(patchBaseline * 0.5 * 1_000_000)
+            for trial in 0..<3 {
+                let p = Process()
+                p.executableURL = try cliBinary()
+                p.arguments = patchArgs(rig, variant: "keeptip")
+                p.environment = ProcessInfo.processInfo.environment
+                    .merging(baseEnv(rig)) { $1 }
+                let out = Pipe()
+                p.standardOutput = out
+                p.standardError = out
+                try p.run()
+                usleep(halfUS)
+                if p.isRunning { _ = kill(p.processIdentifier, SIGKILL); killedCount += 1 }
+                p.waitUntilExit()
+                _ = out.fileHandleForReading.readDataToEndOfFile()
+                try assertLegalSites("jitter-fallback[\(trial)]", rig: rig)
+                _ = try runCLI(restoreArgs(rig), env: baseEnv(rig))
+                let after = try siteHexMap(rig)
+                for (site, hex) in Self.pristineMap {
+                    #expect(after[site] == hex,
+                            "jitter-fallback[\(trial)]: restore 后 \(site) ≠ pristine（\(after[site] ?? "?")）")
+                }
+            }
+        }
         // 灵敏度自证：试验域内确有 kill 落在运行窗（否则抖动臂退化为纯干净跑）。
         #expect(killedCount > 0,
-                "\(trials) 次试验全部落在运行窗外——偏移域需重估（基准 \(baseline)s）")
+                "\(trials)+3 次试验（含半程兜底臂）仍零 kill——注入机制本身失效，需查缝")
     }
 }
 #endif
