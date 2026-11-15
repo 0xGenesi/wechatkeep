@@ -197,6 +197,14 @@
 >（worker 走 scan 路径），svc 门修复后下一事件补判。**下轮队列**：
 > svc 门双视图修复（一行级）→ 下次冒烟收 clpub → pub_vt 派生 → 插入
 > 激活（clins）——M4 全链的剩余路程已全部显式化。
+> **140 续（svc 门双视图修复当日落地，commit 005d4e6）**：四处门点
+>（clone_hook_body 证据步/配对窗捕获/clone_rd_run 复验+consumer 回落）
+> 统一 `svc_vt_matches()`——接受主视图+第二接口视图（Δ=0xa0，110 轮 RE
+> 定案+140 px0 实弹复现）；计数语义不变（clsvc/clpub 仍验同一对象身份）。
+> 双架构 clang -c；fuzz 20 万零报告；355 测全绿。release 件已构建（0.2.18
+> dylib 含双视图门），装机面待用户：`runtime install` → 重启微信 → 再撤
+> 回一条 → clpub 落值 → pub_vt 派生 → 插入激活（clins）——M4 剩余路程
+> 全部显式化且机械化。
 
 > **2026-11-07 135 轮后状态修订（全仓深审 + 270352 hooks 补齐 + P1 审计链修复）**：
 > ①双评审并行深读（CLI/配置面 + 补丁引擎面，两 agent 独立命中同一条
