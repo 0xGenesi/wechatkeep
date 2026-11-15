@@ -154,6 +154,31 @@
 > = pre-136——136/137 的范围门/头锚解析随下次发版 0.2.18 才进 install
 > 面；发版待用户拍板）。
 
+> **139 轮（2026-11-16·五新构建三域补全 + 0.2.18 发版预备）**：PR #5
+> 只派 revoke 域的 auto-locate 边界（登记两轮）本轮人工补全——
+> **五构建（270353/270385-389）keeptip+update 域 + runtime hooks 行**：
+> ①**update 域**（locate_update_{x64,arm64}.py 机械派生，10 件全过）：
+> XAppUpdateManager 8 方法×双架构×5 构建=80 条目（ret/getter/setter 形态
+> 校验+disp 交叉验证与 270352 同规）；②**keeptip 域**：x64=归一（revoke
+> VA 还原）+E8+store 家族 parse 内唯一站点——**parse+0x85d 家族几何全
+> 家族恒等**（270352 同值；270353 expected 与 270352 rel32 逐字节同值=
+> 家族稳定旁证；270389=+0x85c 变代）+arm64=归一+存储清零位（revoke+
+> 0x7A0 gen3 代×4 / +0x7C8 gen4 代 270389，expected 60E600F9 实读全过）
+> ——20 条目/构建×5；③**runtime hooks 行 68→78**：x64=locate_x64_parse_
+> guard→derive_runtime_hooks 链（isRevokemsg 定位与 catalog revoke VA
+> 五构建逐一互证；序言家族门全过；fs 5216×4+5184），arm64=revoke−0x270
+> 家族几何+序言门+FUNCTION_STARTS 起点双验证（fs 4380×4；**270389=
+> revoke−0x278、fs 4452=变代**，与 gen4 +0x28 平移同源互证）——runtime
+> 层（keep/tip/clone）在新五构建恢复武装能力；④knownHooks 契约测试
+> 同步（78 行/39 构建/56 带门/分代家族锁：主代 5216/4380 恒定、变代值
+> 只许 270389）；⑤COMPATIBILITY 再生（五构建 keeptip/update 列全亮）
+> +L18 同步（2111 条目、组合指纹 ×5 登记入表）+L17 双引擎 2111 条目
+> 零分歧+355 测全绿；⑥**0.2.18 发版预备**：版本常量+Formula bump 完成
+> （--version 实测 0.2.18；notes 草稿 var/ 内；**tag/release 待用户
+> 拍板**——77 续⑪纪律），动机=136/137 的 runtime dylib 加固（范围门/
+> 头锚/无分配信号处理器）随 0.2.18 才进 install 面。**下轮队列**：
+> cm 槽实弹关 R11①（冒烟即闭）；pub_vt 派生（首个 clpub 样本即输入）。
+
 > **2026-11-07 135 轮后状态修订（全仓深审 + 270352 hooks 补齐 + P1 审计链修复）**：
 > ①双评审并行深读（CLI/配置面 + 补丁引擎面，两 agent 独立命中同一条
 > P1）+ 逐项人工复核；②**P1 修复：失败路径审计账目合并是死代码**

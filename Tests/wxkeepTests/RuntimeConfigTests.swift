@@ -119,32 +119,39 @@ struct RuntimeConfigTests {
     }
 
     /// funcSize 数据契约（77 续②补 16 行；⑫zsbai 三构建回填至 22 行；
-    /// 123 轮 4.2.0 线补齐至 44 行——270340-351 × 双架构，fs 家族值与
-    /// 4.1.15 线恒等=布局指纹稳定信号；135 轮补 270352 至 46 行）：
-    /// 带门行值域合法、家族值恒定（x64=5216/arm64=4380，23 构建 × 双架构
-    /// pristine 切片三重校验派生——hook_off 必为 FUNCTION_STARTS 起点、
-    /// 切片 UUID 与行一致、距离=到下一函数起点）。
+    /// 123 轮 4.2.0 线补齐至 44 行；135 轮补 270352 至 46 行；139 轮补
+    /// 270353+270385-389 至 56 行）：带门行值域合法、家族值分代恒定
+    /// （主代 x64=5216/arm64=4380；270389 变代 x64=5184/arm64=4452——
+    /// parse 函数体形变代，与 gen4 store 位 +0x28 平移同源，pristine
+    /// 切片三重校验派生——hook_off 必为 FUNCTION_STARTS 起点、切片
+    /// UUID 与行一致、距离=到下一函数起点）。
     @Test func knownHooksFuncSizeContract() {
         let gated = RuntimeConfig.knownHooks.filter { $0.func_size != nil }
-        #expect(gated.count == 46, "本地有 pristine 切片的 23 构建 × 双架构应全带门")
+        #expect(gated.count == 56, "本地有 pristine 切片的 28 构建 × 双架构应全带门")
         let inRange = gated.allSatisfy { row in
             let v = row.func_size!
             return v > 0 && v <= 1 << 21
         }
         #expect(inRange, "C 侧 func_size 门值域（0, 2MB]")
+        // 分代家族锁：主代值恒定；变代值只许出现在 270389
         let x64 = gated.filter { $0.arch == "x86_64" }
         let arm64 = gated.filter { $0.arch == "arm64" }
-        #expect(x64.allSatisfy { $0.func_size == 5216 })
-        #expect(arm64.allSatisfy { $0.func_size == 4380 })
+        let mainGen = gated.filter { $0.build != "270389" }
+        let gen389 = gated.filter { $0.build == "270389" }
+        #expect(mainGen.allSatisfy { $0.func_size == ($0.arch == "x86_64" ? 5216 : 4380) })
+        #expect(gen389.allSatisfy { $0.func_size == ($0.arch == "x86_64" ? 5184 : 4452) })
+        #expect(x64.count == 28 && arm64.count == 28)
         let builds = Set(gated.map { row in row.build })
         let want: Set<String> = ["270094", "270097", "270099",
                                  "270100", "270101", "270102",
                                  "270131", "270132", "270133", "270134", "270135",
                                  // 4.2.0 线（123 轮补齐；270347 无归档=CDN 缺口；
-                                 // 270352 于 135 轮补齐）
+                                 // 270352 于 135 轮补齐；270353+270385-389 于
+                                 // 139 轮补齐）
                                  "270340", "270341", "270342", "270343", "270344",
                                  "270345", "270346", "270348", "270349",
-                                 "270350", "270351", "270352"]
+                                 "270350", "270351", "270352",
+                                 "270353", "270385", "270386", "270387", "270389"]
         #expect(builds == want)
     }
 
@@ -182,11 +189,11 @@ struct RuntimeConfigTests {
 
     @Test func knownHooksTableContract() {
         let rows = RuntimeConfig.knownHooks
-        #expect(rows.count == 68, "4.1.15 全家族（除未发布 270087/092）+ 270131-135 + 4.2.0 线 270340-352（270352 于 135 轮补齐）× 双架构")
+        #expect(rows.count == 78, "4.1.15 全家族（除未发布 270087/092）+ 270131-135 + 4.2.0 线 270340-353+270385-389（139 轮补齐五构建）× 双架构")
         // 每构建恰好双架构各一行
         var byBuild: [String: Set<String>] = [:]
         for row in rows { byBuild[row.build, default: []].insert(row.arch) }
-        #expect(byBuild.count == 34)
+        #expect(byBuild.count == 39)
         #expect(byBuild.values.allSatisfy { $0 == ["x86_64", "arm64"] })
         // UUID 唯一 + 形制（dylib uuid_str_valid：36 字符连字符小写 hex）
         let uuids = rows.map(\.uuid)

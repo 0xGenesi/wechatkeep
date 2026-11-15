@@ -156,11 +156,16 @@ enum RuntimeConfig {
     /// 十行为同日一致性轮发现的家族前段（4.1.15.4-.9，.7 从未发布）；270101/
     /// 102 于 2026-10-20 补齐、270131-135 于 10-14/10-17 派生——地址表达
     /// 68 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-135
-    /// + 4.2.0 线 270340-270352（11/02 补齐 340-351，11/07 补 352）
-    /// × 双架构（23 构建 × 2）。
+    /// + 4.2.0 线 270340-270389（11/02 补齐 340-351，11/07 补 352，
+    /// 139 轮补 353+385-389）
+    /// × 双架构（28 构建 × 2）。
     ///
     /// funcSize 覆盖率（77 续②补 16 行、⑫ zsbai 回填 6 行，2026-10-26/27；
-    /// 135 轮补 270352 双架构 2 行）：
+    /// 135 轮补 270352 双架构 2 行；139 轮补 270353+270385-389 双架构
+    /// 10 行——x64=derive_runtime_hooks（guard→FUNCTION_STARTS→parse，
+    /// 序言家族门全过；270389 fs 5184=变代）、arm64=revoke−0x270 家族
+    /// 几何+序言门+FUNCTION_STARTS 双验证（270389=revoke−0x278、fs 4452
+    /// 与 gen4 +0x28 平移同代））：
     /// 12 构建 × 双架构 = 24 行已带函数级身份门字段（270094/097/099——
     /// zsbai 三件 dmg 切片；270100/101/102/131-135——本地 pristine 切片在
     /// var/ab + var/wxarm）。派生经三重校验（hook_off 必为
@@ -293,6 +298,40 @@ enum RuntimeConfig {
         HookRow(build: "270352", uuid: "02f82d10-e6be-3df7-bfec-0a23ff577a7a",
                 arch: "x86_64", hook_off: "0x568fed0", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154", func_size: 5216),
+        // —— 4.2.0 线 270353+270385-389（139 轮补齐）：x64=guard→
+        // FUNCTION_STARTS→parse 链（isRevokemsg 与 catalog revoke VA 逐
+        // 构建互证；序言家族门全过），arm64=revoke−0x270 几何（270389=
+        // −0x278 变代，fs 4452）。
+        HookRow(build: "270353", uuid: "329eae01-bf4d-3237-bfae-57265219e84e",
+                arch: "x86_64", hook_off: "0x5690a80", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270385", uuid: "cc417e95-b506-35e1-9cb8-117bf7ff4d74",
+                arch: "x86_64", hook_off: "0x4e15f80", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270386", uuid: "40ecd1d7-7365-3635-ba25-8b3fae45ed7e",
+                arch: "x86_64", hook_off: "0x4e1a810", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270387", uuid: "a30451f4-f882-35d0-9ab4-867184c8e519",
+                arch: "x86_64", hook_off: "0x4e1a800", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5216),
+        HookRow(build: "270389", uuid: "b61e1c74-d6ee-3e4b-bd7b-4ab90005fb63",
+                arch: "x86_64", hook_off: "0x4dd1d90", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5184),
+        HookRow(build: "270353", uuid: "8cb5f29e-fc1d-3d47-897a-272a4651e916",
+                arch: "arm64", hook_off: "0x4e7d194", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270385", uuid: "711cd287-f12c-31ec-a18e-f1ff517ce7d2",
+                arch: "arm64", hook_off: "0x464c780", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270386", uuid: "2256c137-4fd7-3f42-b735-77285e63003f",
+                arch: "arm64", hook_off: "0x464f4a0", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270387", uuid: "d97d2381-409b-35d1-9df0-76cf8987f7e0",
+                arch: "arm64", hook_off: "0x464f498", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
+        HookRow(build: "270389", uuid: "3802854f-9ff3-3e4b-9852-b9f20761555c",
+                arch: "arm64", hook_off: "0x46142b0", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4452),
         HookRow(build: "270084", uuid: "a08e3e78-cc29-3927-9375-883c644d8ff8",
                 arch: "arm64", hook_off: "0x4bb380c", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9"),

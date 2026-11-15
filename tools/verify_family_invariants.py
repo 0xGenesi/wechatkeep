@@ -49,7 +49,7 @@ DUP_ID_BUILDS = {
     "269363", "269362", "269336", "42530", "41754", "39917", "38959", "37335",
 }
 
-EXPECTED_TOTALS = {"builds": 128, "entries": 2011}
+EXPECTED_TOTALS = {"builds": 128, "entries": 2111}
 
 # 家族指纹表（134 轮实测固化；新派生轮 = 登记新指纹行 + 注出处）。
 EXPECTED_FINGERPRINTS = {
@@ -82,9 +82,10 @@ EXPECTED_FINGERPRINTS = {
     # 270353.dmg（sha256 e47d5e1c…），fat wechat.dylib d61eab4f…，expected
     # 字节本地独立复核（arm64@4E7D404=40100034 / x64@516E9F0=
     # 554889E553504889FB，wxkeep locate 本机重跑同址同值）。
-    # 270353 计 1 → PR #5（270385/386/387 同指纹）计 4 → 137 轮 270389
-    # arm64 gen4 补派生计 5（gen3 确认 store 位 +0x28 平移，gen4=+7C8）
-    "revoke|arm64|82000014x1;revoke|x86_64|31C0C3909090909090x1": 5,
+    # 139 轮：五新构建（270353/270385-389）补 keeptip+update 域 → 组合指纹
+    # ×5（revoke 双侧 + keeptip 双侧归一/置零/存储清零 + update 16 点；
+    # 五构建 asm 多重集全同——仅地址与 270389 的 gen4 变代偏移不同）
+    "revoke|arm64|82000014x1;revoke|x86_64|31C0C3909090909090x1;revoke-keeptip|arm64|40100034x1,7FE600F9x1;revoke-keeptip|x86_64|4831C06690488983C8010000x1,554889E553504889FBx1;update|arm64|00008052C0035FD6x2,C0035FD6x6;update|x86_64|31C0C3x2,C3x6": 5,
 }
 
 
