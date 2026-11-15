@@ -963,8 +963,14 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
 
 - **x2 链定案**：lookup（0x32edaec）的 x2 **不可为 NULL**（`cbz x2 → 早退
   miss`）；consumer_main 中 x2 = `0x4bd8164([sp+0x408])` = `0x5720308(
-  0x8a8b8([sp+0x408]), 0)`，而 [sp+0x408] = `0x571ce74(sp+0x410, 0xa3de0a70)`
+  0x8a8b8([sp+0x408]), 0)`，而 [sp+0x408] = `0x571ce74(sp+0x410, x1)`
   ——**全局单例两跳，生命周期与进程等价，异步可复现**（非流内对象）。
+  **x1（描述符槽）真值勘误（138 轮 RE 重派生）**：初版转写 `0xa3de0a70`
+  = 转写事故（超镜像段表 16 倍——0xa530000 上界外，武装后 rd_abs 出野
+  指针）。真值 = **0xA3DEA24**（__DATA 段内，BL 调用点 0x31a97f8
+  adrp x1,0xa3de000+add 全量解码实证；consumer_main 内 3 调用点共用同
+  槽，0xa3dea24 系 5 处调用点）。x2desc 描述符槽族语义校验：0x571ce74
+  全镜像 ~400 调用点的 x1 常量全落 0xA2-0xA4 段内（槽区一致）。
 - **key 格式定案**：key 构造 0x4a2b524(sysmsg) 的撤回分支（type==10000）
   = **第一个 optional string 字段原样拷贝**（[x20+8]→[+8] 链，非复合键）。
   但该字段是 sysmsg 对象的字段——异步侧无此对象。**解法：thunk 快照

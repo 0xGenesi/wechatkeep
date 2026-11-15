@@ -116,11 +116,10 @@ typedef struct {
     uint32_t clone_rd_wrap_off;        // wrap 0x309ac50（拷贝+dynamic_cast）
     uint32_t clone_rd_getter_off;      // getter 0x102b740（sret {obj,ctl}）
     uint32_t clone_rd_x2single_off;    // 全局单例 get 0x571ce74（out ctl, &slot）
-    uint32_t clone_rd_x2desc_off;      // 单例描述符槽（270135 行 0xa3de0a70
-                                       // = 超图 16 倍的转录/滑移污染值——
-                                       // 136 轮范围门实弹定案；真值待
-                                       // Ghidra 轮重派生，期间该行 rd 表
-                                       // 惰性=野指针面拆除）
+    uint32_t clone_rd_x2desc_off;      // 单例描述符槽（真值 0xa3dea24——
+                                       // 138 轮 RE 重派生；初版行值
+                                       // 0xa3de0a70=超图 16 倍转录事故，
+                                       // 136 轮范围门曾实弹拦截拆雷）
     uint32_t clone_rd_x2ctx_off;       // ctx 获取 0x5720308（&p, NULL）
     uint32_t clone_rd_key_slot;        // consumer_main 帧内 key 串对象的 sp 偏移（0x3a0）
     // 136 轮身份门扩展（可选头锚，行带才启用对应门）：四个函数位点各 16B

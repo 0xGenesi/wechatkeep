@@ -57,11 +57,11 @@ enum RuntimeConfig {
         /// 定点反汇编）：lookup=0x32edaec（sret 五参）、wrap=0x309ac50、
         /// getter=0x102b740、x2 全局单例链 0x571ce74/?/0x5720308、
         /// key 串对象在 consumer_main 帧的 sp 偏移 0x3a0。
-        /// ⚠️ x2desc：行值 0xa3de0a70 经 136 轮核验**超出镜像段表 16 倍**
-        ///（疑为调试器读数混入 ASLR 滑移——rd_abs 出野指针喂 x2single）。
-        /// dylib 侧武装期范围门将其拦截为表惰性（fail-safe，野指针面拆
-        /// 除）；真值待 Ghidra 轮重派生（tools/derive_rd_heads.py 已把
-        /// 「超图即拒」做成派生侧前置门，坏值进不了 runtime.json）。
+        /// x2desc：138 轮 RE 重派生真值 = **0xa3dea24**（__DATA 描述符槽，
+        /// BL 调用点 0x31a97f8 adrp/add 全量解码实证）。初版行值
+        /// 0xa3de0a70 = 转写事故（超镜像 16 倍——136 轮范围门曾将其拦截
+        /// 为表惰性，live 行已修）；tools/derive_rd_heads.py 的「超图即拒」
+        /// 派生侧前置门保留为防再犯。
         var clone_rd_lookup: String? = nil
         /// lookup 的函数级身份门①（LC_FUNCTION_STARTS 距离，8484@270135）
         var clone_rd_lookup_fs: Int? = nil
