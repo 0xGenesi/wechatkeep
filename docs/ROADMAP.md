@@ -179,6 +179,25 @@
 > 头锚/无分配信号处理器）随 0.2.18 才进 install 面。**下轮队列**：
 > cm 槽实弹关 R11①（冒烟即闭）；pub_vt 派生（首个 clpub 样本即输入）。
 
+> **140 轮（2026-11-16·冒烟实弹关案轮）**：用户窗口一场 10 分钟冒烟
+>（docs/SMOKE-RUNBOOK.md 首秀）——**产品面关案**：小号私聊撤回，肉眼
+> 两格全过（消息保留 + 灰条 tip），calibrate 机读互证（fires+3/
+> selfskip=0/clone+1，summary=product+instrument，账本 var/logs/
+> smoke-1116.json）。**138 轮 x2desc 修复首次真机实证**：重启后
+> bootlog 全链武装（clone-rd 直调表+keyctor+clone-ins 探针模式+
+> clone-arm 写点 SLOT）——野指针面拆除定案。**R11① 裁决材料到手**
+>（bootlog px0 行，真实事件 ts=…594）：①**key 帧快照活体工作**——
+> lu_key6="wxid_f"（小号 wxid 前缀 ASCII，登录期对照行为全零）；
+> ②**svc 扫描单例复证**（lu_svc=0x7bf4c794b8 跨事件稳定）；③**svc 门
+> 缺口定案 = 双 vtable 第二接口视图**——扫描读出 0x9ded4a8（svc_vt−
+> 0xa0）≠ 行门 0x9deeb48（110 轮「双 vtable 对象」发现的实弹复现），
+> worker 于此退出（clmissq+1、clpub 未达）。**M4 采样路径明确**：svc
+> 门修双视图（行门接受两视图或行值改第二视图）后，下一次撤回即产
+> clpub 样本——pub_vt 派生解锁。R11① 的 args[0] 直接判据仍未触发
+>（worker 走 scan 路径），svc 门修复后下一事件补判。**下轮队列**：
+> svc 门双视图修复（一行级）→ 下次冒烟收 clpub → pub_vt 派生 → 插入
+> 激活（clins）——M4 全链的剩余路程已全部显式化。
+
 > **2026-11-07 135 轮后状态修订（全仓深审 + 270352 hooks 补齐 + P1 审计链修复）**：
 > ①双评审并行深读（CLI/配置面 + 补丁引擎面，两 agent 独立命中同一条
 > P1）+ 逐项人工复核；②**P1 修复：失败路径审计账目合并是死代码**

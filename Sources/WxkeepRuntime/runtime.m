@@ -1856,6 +1856,17 @@ static void clone_dispatch_full(uint64_t msgid, uint64_t svc, uint64_t consumer,
 /// 溢出安全换算：切片偏移 → 绝对 VA（base 已知合法）。
 static uint64_t rd_abs(uint64_t base, uint32_t off) { return base + off; }
 
+/// svc vtable 身份门的视图宽容（140 轮冒烟实弹定案）：x19+0xb78 到达的
+/// 服务对象可能呈**第二接口视图**（[svc] = svc_vt − 0xa0——110 轮「双
+/// vtable 对象」发现的实弹复现：px0 行 lu_svcvt_off=0x9ded4a8 ≠ 行门
+/// 0x9deeb48 → svc=<miss>，worker 于此退出、clpub 不可达）。两视图同一
+/// 对象（Δ=0xa0 恒定，RE 定案），双视图皆过门——计数语义不变（clsvc/
+/// clpub 仍验同一对象身份，只是视图不同）。
+static inline int svc_vt_matches(uint64_t base, unsigned long svc_vt_off, uint64_t vt) {
+    const uint64_t want = rd_abs(base, svc_vt_off);
+    return vt == want || vt + 0xa0 == want;
+}
+
 /// R11 拆分壳（写点配对字节路径）：svc 重建与复验 + key 字节重建 → core。
 /// （配对与执行之间 consumer 可能销毁——vtable 门重走；失配/不可读 →
 /// 守卫退出，绝不用未验句柄调宿主。）
@@ -1865,12 +1876,12 @@ static int clone_rd_run(const clone_full_t *rec, const clone_rd_fns_t *fns,
     uint64_t svc = rec->svc;
     if (svc > 0x10000) {
         uint64_t vt = 0;
-        if (!kread64(svc, &vt) || vt != rd_abs(base, svc_vt_off)) svc = 0;
+        if (!kread64(svc, &vt) || !svc_vt_matches(base, svc_vt_off, vt)) svc = 0;
     }
     if (svc <= 0x10000 && rec->consumer > 0x10000) {
         uint64_t s = 0, vt = 0;
         if (kread64(rec->consumer + 0xb78, &s) && s > 0x10000
-            && kread64(s, &vt) && vt == rd_abs(base, svc_vt_off)) {
+            && kread64(s, &vt) && svc_vt_matches(base, svc_vt_off, vt)) {
             svc = s;
         }
     }
@@ -2208,7 +2219,7 @@ __attribute__((used)) static void clone_hook_body(void *const *args) {
         if (x19v > 0x10000
             && kread64(x19v + 0xb78, &svc) && svc > 0x10000
             && kread64(svc, &vt)
-            && vt == (uint64_t)g_image_base + g_clone_svc_vt_off) {
+            && svc_vt_matches(g_image_base, g_clone_svc_vt_off, vt)) {
             g_clone_svc_hits++;
         }
     }
@@ -2264,7 +2275,7 @@ __attribute__((used)) static void clone_hook_body(void *const *args) {
                 uint64_t s = 0, vt = 0;
                 if (kread64(x19v + 0xb78, &s) && s > 0x10000
                     && kread64(s, &vt)
-                    && vt == (uint64_t)g_image_base + g_clone_svc_vt_off) {
+                    && svc_vt_matches(g_image_base, g_clone_svc_vt_off, vt)) {
                     svc = s;
                 }
             }
