@@ -185,6 +185,15 @@ struct RuntimeConfigTests {
         // R14 cm 第三挂点对
         #expect(row.clone_cm_hook_off == "0x31a96d8")
         #expect(row.clone_cm_expected == "FC6FBCA9F65701A9F44F02A9FD7B03A9")
+        // x2desc 真值锁（140 轮实弹教训：本行 SSOT 旧值经 install merge
+        // 「新表胜出」覆盖 runtime.json 的真值修复——改错这里=全机器回退）
+        #expect(row.clone_rd_x2desc == "0xa3dea24",
+                "138 轮重派生真值（0xa3de0a70=超图转写事故，禁回退）")
+        // 136 身份门头锚四件套
+        #expect(row.clone_rd_wrap_head == "FF0301D1F44F02A9FD7B03A9FDC30091")
+        #expect(row.clone_rd_getter_head == "F44FBEA9FD7B01A9FD430091F40300AA")
+        #expect(row.clone_rd_x2single_head == "F44FBEA9FD7B01A9FD430091080040F9")
+        #expect(row.clone_rd_x2ctx_head == "080040F9280300B4090140F92A0D0012")
     }
 
     @Test func knownHooksTableContract() {

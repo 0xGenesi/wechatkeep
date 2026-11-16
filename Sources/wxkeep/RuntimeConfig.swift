@@ -419,8 +419,18 @@ enum RuntimeConfig {
                 clone_rd_lookup: "0x32edaec", clone_rd_lookup_fs: 8484,
                 clone_rd_lookup_head: "E923B96DFC6F01A9FA6702A9F85F03A9",
                 clone_rd_wrap: "0x309ac50", clone_rd_getter: "0x102b740",
-                clone_rd_x2single: "0x571ce74", clone_rd_x2desc: "0xa3de0a70",
+                clone_rd_x2single: "0x571ce74",
+                // x2desc 真值（138 轮 RE 重派生 + 140 冒烟实证武装）：初版
+                // 0xa3de0a70 = 转写事故（超图 16 倍，136 范围门曾拦截）——
+                // 本行是编译期 SSOT，install merge「新表胜出」会用此值覆盖
+                // runtime.json，改错这里=全机器回退（140 实弹教训）。
+                clone_rd_x2desc: "0xa3dea24",
                 clone_rd_x2ctx: "0x5720308", clone_rd_key_slot: "0x3a0",
+                // 136 轮身份门头锚（derive_rd_heads.py 从 pristine 切片派生）
+                clone_rd_wrap_head: "FF0301D1F44F02A9FD7B03A9FDC30091",
+                clone_rd_getter_head: "F44FBEA9FD7B01A9FD430091F40300AA",
+                clone_rd_x2single_head: "F44FBEA9FD7B01A9FD430091080040F9",
+                clone_rd_x2ctx_head: "080040F9280300B4090140F92A0D0012",
                 // R11 parse 锚定（116 轮换锚）：keyctor=0x4a2b524（sret 24B
                 // 串对象, x0=消息对象——consumer_main x20 直译），fs 640
                 //（0x4a2b524..0x4a2b7a4）+ 入口 16B 锚。

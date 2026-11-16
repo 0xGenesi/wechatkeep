@@ -206,6 +206,21 @@
 > 回一条 → clpub 落值 → pub_vt 派生 → 插入激活（clins）——M4 剩余路程
 > 全部显式化且机械化。
 
+> **140 续②（装机面 SSOT 回退事故闭环）**：用户装 0.2.18 dylib
+>（remove+install 全净，四挂点循环重装+54 件 strict 重签）后 x2desc
+> **回退**为 0xa3de0a70——法证：install merge「新表胜出」用**编译期
+> SSOT**（knownHooks 270135 arm64 行硬编码 clone_rd_x2desc，111 轮入表
+> 的初版错值）覆盖 runtime.json 真值；138 只修了数据面没修 SSOT=修了
+> 一半（数据面被下次 install 精确复原）。修：①SSOT 行更新（真值
+> 0xa3dea24 + 四锚入行，注释警示「改错这里=全机器回退」）；②契约锁
+> 入 knownHooks270135InsertValuesLocked（值即合同先例）；③双份
+> runtime.json 直修 + **属主归还**（sudo install 写成 root——
+> mergeKnownHooks 无 chownToRealUser，与 UpdateData 不同规，登记）；
+> ④138 保全修复实弹验证 ✓（锚/clone 字段跨 install 全存活）。
+> 教训入册：**编译期 SSOT 与数据面双源修复必须同轮**。355 测全绿。
+> **装机面就绪**：用户启动微信 → 小号撤回一条 → clpub 落值 → pub_vt
+> 派生（M4 关案）。
+
 > **2026-11-07 135 轮后状态修订（全仓深审 + 270352 hooks 补齐 + P1 审计链修复）**：
 > ①双评审并行深读（CLI/配置面 + 补丁引擎面，两 agent 独立命中同一条
 > P1）+ 逐项人工复核；②**P1 修复：失败路径审计账目合并是死代码**
