@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey.svg)](#从源码构建)
 
-macOS 微信 3.x/4.x 防撤回工具链，**Apple Silicon + Intel 双架构**，覆盖 124 个构建（4.x 全线 + 3.x 主程序时代 16 构建）。
+macOS 微信 3.x/4.x 防撤回工具链，**Apple Silicon + Intel 双架构**，覆盖 128 个构建（4.x 全线 + 3.x 主程序时代 16 构建）。
 
 > 撤回的消息留在聊天里 · 字节级安全补丁 · 每一步写盘都可逆、可审计、可验证
 
@@ -54,9 +54,9 @@ wxkeep privacy-guard --action status  # 隐私加固状态
 
 ## 支持版本
 
-完整双架构清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，124 个构建号）。
+完整双架构清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，128 个构建号）。
 
-- **4.x**：4.1.13 全线、4.1.15 全家族、4.2.0 线（270340-270352）——revoke/keeptip/update 三面双架构
+- **4.x**：4.1.13 全线、4.1.15 全家族、4.2.0 线（270340-270353 + 270385-270389）——revoke/keeptip/update 三面双架构
 - **3.x**（3.5.5-3.8.10.17，16 构建）：silent/keeptip/update 三面双架构（行为差异见[已知限制](#已知限制)）
 - **未收录的新构建**：`wxkeep patch` 自动跑签名配方定位（配方代不变时 day-0 可用），或显式 `wxkeep locate [--append]`
 
@@ -91,7 +91,7 @@ wxkeep runtime remove    # 完整移除（幂等）
 | `tip_text` | 自定义撤回提示文案。须保持官方骨架 `"<X>" 撤回了一条消息`（CLI 强制校验）；`{from}` 展开为撤回者昵称；超长自动放弃保原文。**≤30 秒热生效**，无需重启微信 |
 | `keep_message` | **默认 true**：解析前清零撤回 XML 的 `<newmsgid>`——原消息保留 + 提示正常显示，无需 keeptip 字节补丁 |
 | `rewrite_self` | 默认 false：自发撤回（「你撤回」）保持原生行为 |
-| `clone_message` | 实验特性（默认 false）：消息行克隆共存，详见 [docs/V3-CHARTER.md](docs/V3-CHARTER.md) |
+| `clone_message` | 实验特性（默认 false）：消息行克隆共存，详见 [docs/V3-CHARTER.md](docs/V3-CHARTER.md)。开启前须以当前版重装 dylib（`runtime remove && runtime install`）——旧件克隆链有真机崩溃史（140 续③），CLI 会按 dylib 版本自标识拦截告警 |
 
 安全设计：hook 按构建 UUID + 入口字节 + 函数布局指纹三重门匹配，未知构建零作用；配置双容器双写，不一致时 `runtime status` 告警。机制细节见 [docs/RUNTIME-DESIGN.md](docs/RUNTIME-DESIGN.md)。
 
@@ -122,7 +122,7 @@ expected 原始字节门 → 全量写前预检 → WAL journal → 自动备份
 
 ```bash
 swift build -c release
-swift test                    # 344 项（含真 codesign 集成、模糊/变异测试、崩溃一致性深度门）
+swift test                    # 358 项（含真 codesign 集成、模糊/变异测试、崩溃一致性深度门）
 WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路
 ```
 
@@ -149,11 +149,11 @@ WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib �
 | 文档 | 内容 |
 |---|---|
 | [docs/README.md](docs/README.md) | **文档索引**（现行契约 / 方法论 / 历史档案导航） |
-| [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 124 构建双架构兼容矩阵（自动生成） |
+| [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 128 构建双架构兼容矩阵（自动生成） |
 | [docs/MAINTAINING.md](docs/MAINTAINING.md) | 维护 SOP：新构建适配、发版、审计方法 |
 | [docs/FMEA.md](docs/FMEA.md) | 故障模式登记册：每行 = 模式 × 防线 × 检出 × 测试 |
 | [docs/RUNTIME-DESIGN.md](docs/RUNTIME-DESIGN.md) | 运行时组件设计：hook 谱系、身份门、安装链 |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | 迭代全史（135 轮）与优先级队列 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | 迭代全史（141 轮）与优先级队列 |
 | [docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) | 生态与安全态势（2026-11 全网调研） |
 
 ## 致谢

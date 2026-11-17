@@ -6,11 +6,12 @@
 
 | 文档 | 内容 |
 |---|---|
-| [COMPATIBILITY.md](COMPATIBILITY.md) | 123 构建双架构兼容矩阵（`tools/gen_matrix.py` 自动生成，勿手改） |
+| [COMPATIBILITY.md](COMPATIBILITY.md) | 128 构建双架构兼容矩阵（`tools/gen_matrix.py` 自动生成，勿手改） |
 | [MAINTAINING.md](MAINTAINING.md) | 维护 SOP：新构建适配七步、发版策略、审计方法、踩坑记录 |
 | [FMEA.md](FMEA.md) | 故障模式登记册：每行 = 模式 × 触发 × 防线 × 检出 × 测试。防线退化的回归清单 |
 | [RUNTIME-DESIGN.md](RUNTIME-DESIGN.md) | 运行时组件设计：hook 谱系、三重身份门、双容器配置、安装链 |
 | [3X-ACCEPTANCE-RUNBOOK.md](3X-ACCEPTANCE-RUNBOOK.md) | 3.x 真机行为验收 runbook（待用户窗口执行） |
+| [SMOKE-RUNBOOK.md](SMOKE-RUNBOOK.md) | 4.x 冒烟 runbook（一场 10 分钟关三项用户窗口；141 轮起含 dylib 版本前置红线） |
 | [KEY-ROTATION.md](KEY-ROTATION.md) | 签名配方代际知识：每代锚点特征与换代判定 |
 
 ## 方法论与知识
@@ -40,5 +41,5 @@
 
 ## 全局导航
 
-- **逐轮迭代全史**：[ROADMAP.md](ROADMAP.md)（135 轮流水账 + 头部优先级队列）
+- **逐轮迭代全史**：[ROADMAP.md](ROADMAP.md)（141 轮流水账 + 头部优先级队列）
 - 用户可见行为以 README 为准；维护者流程以 MAINTAINING 为准；行为安全论证以 FMEA 为准。

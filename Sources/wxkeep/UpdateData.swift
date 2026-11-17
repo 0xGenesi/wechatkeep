@@ -95,9 +95,13 @@ enum UpdateData {
             throw UpdateError.network("下载超时（30s）：" + missing.joined(separator: ", "))
         }
 
-        // 2. 签名+哈希双重校验（硬门：不是 .verified 一律拒装）
-        switch Manifest.verify(directory: workDir) {
-        case .verified: break
+        // 2. 签名+哈希双重校验（硬门：不是 .verified 一律拒装）。
+        // 141 轮 P1-2：verifyCollecting 免竞窗——受保护文件与 manifest 双件
+        // 校验时刻单次读入内存，后续解析/安装一律用这批字节（验盘上 A、
+        // 装 B 的毫秒窗换文件攻击面 + 换位期间的工作目录盘读一并关死）。
+        var collected: [String: Data] = [:]
+        switch Manifest.verifyCollecting(directory: workDir) {
+        case .verified(let files): collected = files
         case .legacy: throw UpdateError.notVerified("远端缺 manifest（发布流水线异常）")
         case .invalid(let r): throw UpdateError.notVerified(r)
         }
@@ -108,10 +112,11 @@ enum UpdateData {
         // 远端 config 解析失败即拒装（135 轮体检 P3）：Ed25519 有效但 JSON
         // 损坏（发布流水线事故）装进去后，所有隐式载入 config 的命令全数
         // 拒载——工具瘫痪到下一次成功 update-data。此处 try? 只取计数、
-        // 失败照装的旧行为恰是这个面的洞。
+        // 失败照装的旧行为恰是这个面的洞。（141 轮：解析自校验内存字节）
         let remoteConfig: Config
         do {
-            remoteConfig = try Config(data: Data(contentsOf: workDir.appendingPathComponent("config.json")),
+            remoteConfig = try Config(data: collected["config.json"]
+                                        ?? Data(contentsOf: workDir.appendingPathComponent("config.json")),
                                       origin: "remote")
         } catch {
             throw UpdateError.notVerified("远端 config.json 不可解析（发布流水线异常）：\(error.localizedDescription)")
@@ -124,10 +129,11 @@ enum UpdateData {
         // 下次 update-data 成功，无网机器就此瘫痪）。改为先全部暂存到目标
         // 目录（同卷 rename 原子），再逐文件换位；中途失败把已换位的旧文
         // 件放回去——旧校验过的完整集存活到新集完全就位。
+        //（141 轮：内存字节写暂存件——不再从工作目录二次盘读。）
         let dest = Config.userDataURL
         do {
             try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
-            try installStaged(from: workDir, to: dest, payload: payload)
+            try installStaged(from: workDir, to: dest, payload: payload, bytes: collected)
             // sudo 装数据时目录交还真实用户——普通用户的后续 update-data
             // 暂存/换位写不被 root 属主目录卡死。
             RealUser.chownToRealUser(dest)
@@ -171,8 +177,11 @@ enum UpdateData {
 
     /// 四件套两阶段换位：阶段一把全部 payload 拷进 dest 同卷暂存名（此时
     /// 既有安装集一字未动）；阶段二 applySwaps 逐文件 rename 换位。
+    /// 141 轮 P1-2：`bytes` 提供校验时刻的内存字节时暂存件从内存写（无二次
+    /// 盘读=无竞窗）；键缺席的文件回落工作目录 copyItem（测试缝/旧调用）。
     static func installStaged(from workDir: URL, to dest: URL,
-                              payload: [String] = UpdateData.payload) throws {
+                              payload: [String] = UpdateData.payload,
+                              bytes: [String: Data] = [:]) throws {
         sweepCrashResidue(dest: dest, payload: payload)
         var staged: [StagedItem] = []
         do {
@@ -182,7 +191,11 @@ enum UpdateData {
                 if FileManager.default.fileExists(atPath: stage.path) {
                     try FileManager.default.removeItem(at: stage)
                 }
-                try FileManager.default.copyItem(at: workDir.appendingPathComponent(rel), to: stage)
+                if let data = bytes[rel] {
+                    try data.write(to: stage, options: .atomic)
+                } else {
+                    try FileManager.default.copyItem(at: workDir.appendingPathComponent(rel), to: stage)
+                }
                 staged.append(StagedItem(
                     stage: stage, final: final,
                     backup: dest.appendingPathComponent(".bak-" + rel)))

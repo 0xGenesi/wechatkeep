@@ -95,10 +95,33 @@ MUTATIONS = [
      "        guard removedAny else {",
      "        guard false else {",
      "LC 未找到也报成功（remove 假成功=删 dylib 必崩）"),
+    # M14 于 141 轮重锚：消费路径（Signatures/Config/UpdateData）已改道
+    # verifyCollecting（TOCTOU 收口）——变异钉消费路径侧的签名门；verify()
+    # 侧（manifest 命令面）由 M27 同款钉住。多行锚含 sigData 上下文消歧义。
     ("M14", "Sources/wxkeep/Manifest.swift",
+     "              let sigData = try? Data(contentsOf: sigURL),\n"
+     "              let sigB64 = String(data: sigData, encoding: .utf8)?\n"
+     "                  .trimmingCharacters(in: .whitespacesAndNewlines),\n"
+     "              let signature = Data(base64Encoded: sigB64),\n"
+     "              let pubRaw = Data(base64Encoded: publicKeyB64),\n"
+     "              let pubKey = try? Curve25519.Signing.PublicKey(rawRepresentation: pubRaw),\n"
+     "              let canonical = canonicalData(manifest)\n"
+     "        else {\n"
+     "            return .invalid(\"manifest 格式/签名不可读\")\n"
+     "        }\n"
      "        guard pubKey.isValidSignature(signature, for: canonical) else {",
+     "              let sigData = try? Data(contentsOf: sigURL),\n"
+     "              let sigB64 = String(data: sigData, encoding: .utf8)?\n"
+     "                  .trimmingCharacters(in: .whitespacesAndNewlines),\n"
+     "              let signature = Data(base64Encoded: sigB64),\n"
+     "              let pubRaw = Data(base64Encoded: publicKeyB64),\n"
+     "              let pubKey = try? Curve25519.Signing.PublicKey(rawRepresentation: pubRaw),\n"
+     "              let canonical = canonicalData(manifest)\n"
+     "        else {\n"
+     "            return .invalid(\"manifest 格式/签名不可读\")\n"
+     "        }\n"
      "        guard true || pubKey.isValidSignature(signature, for: canonical) else {",
-     "Ed25519 签名校验失效（供应链门洞开）"),
+     "Ed25519 签名校验失效·消费路径 verifyCollecting（供应链门洞开）"),
     ("M15", "Sources/wxkeep/WeChatApp.swift",
      '            if metachars.contains(ch) { out.append("\\\\") }',
      '            if false { out.append("\\\\") }',
@@ -138,10 +161,14 @@ MUTATIONS = [
      "if e.asm.isEmpty || Data(hex: e.asm) == nil {",
      "if Data(hex: e.asm) == nil {",
      "空 asm 假成功（Data(hex:\"\")==空 Data 过门 → 条目恒 alreadyPatched）"),
+    # M23 于 141 轮重定向：keyctor 直调已随 140 续③ UAF 事故整体移除
+    #（原「模块成员门」无消费方）——变异面改钉 svc 双视图门（第二接口
+    # 视图拒收 = clpub 不可达复活；cloneParseChainEndToEnd ② /
+    # cloneRdWorkerMarshalingEndToEnd r2v 双例抓获）。
     ("M23", "Sources/WxkeepRuntime/runtime.m",
-     "            && (uintptr_t)obj_head >= g_image_base\n            && (uintptr_t)obj_head - g_image_base < 0x20000000ULL) {",
-     "            && 1) {",
-     "keyctor 模块成员门整体失效（镜像外头照样直调宿主——复用对象崩溃面；单侧变异会被另一侧下溢回环补位，须整门移除才代表真实失效形态）"),
+     "    return vt == want || vt + 0x16a0 == want;",
+     "    return vt == want;",
+     "svc 第二接口视图门失效（0x16a0 视图拒收——140 冒烟实弹形态 svc=<miss>、M4 链 clpub 不可达复活）"),
     # —— 125 轮新面（V5 深度轮：审计账目/对账门）——
     # M24 于 125 续再刷新：交付改 enumerated 单行门（zip 耦合事故后——
     # sink nil 时 zip 会把写入一并清零，全量测试当场抓获）。
@@ -158,6 +185,31 @@ MUTATIONS = [
      '               (term["namespace"] as? String)?.uppercased() == "CODESIGNING" {',
      '               (term["namespace"] as? String)?.uppercased() != "CODESIGNING" {',
      ".ips CODESIGNING 分类反转（签名击杀证据被隐/普通崩溃误计——外部判据面失真）"),
+    # —— 141 轮新门（SOP：新增安全防线补变异行）——
+    # M27：verify() 侧的签名门（manifest 命令面；与 M14 同门不同调用点——
+    # 141 轮 TOCTOU 改道后 verifyCollecting 成主路，verify() 侧须独立钉）。
+    ("M27", "Sources/wxkeep/Manifest.swift",
+     "              let sigB64 = (try? String(contentsOf: sigURL, encoding: .utf8))?\n"
+     "                  .trimmingCharacters(in: .whitespacesAndNewlines),\n"
+     "              let signature = Data(base64Encoded: sigB64),\n"
+     "              let pubRaw = Data(base64Encoded: publicKeyB64),\n"
+     "              let pubKey = try? Curve25519.Signing.PublicKey(rawRepresentation: pubRaw),\n"
+     "              let canonical = canonicalData(manifest)\n"
+     "        else {\n"
+     "            return .invalid(\"manifest 格式/签名不可读\")\n"
+     "        }\n"
+     "        guard pubKey.isValidSignature(signature, for: canonical) else {",
+     "              let sigB64 = (try? String(contentsOf: sigURL, encoding: .utf8))?\n"
+     "                  .trimmingCharacters(in: .whitespacesAndNewlines),\n"
+     "              let signature = Data(base64Encoded: sigB64),\n"
+     "              let pubRaw = Data(base64Encoded: publicKeyB64),\n"
+     "              let pubKey = try? Curve25519.Signing.PublicKey(rawRepresentation: pubRaw),\n"
+     "              let canonical = canonicalData(manifest)\n"
+     "        else {\n"
+     "            return .invalid(\"manifest 格式/签名不可读\")\n"
+     "        }\n"
+     "        guard true || pubKey.isValidSignature(signature, for: canonical) else {",
+     "Ed25519 签名校验失效·manifest 命令面 verify()（wxkeep manifest 对篡改数据报 ✓）"),
 ]
 
 

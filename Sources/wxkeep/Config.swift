@@ -86,7 +86,8 @@ struct Config {
             switch self {
             case .notFound(let searched):
                 "config.json not found. Searched: \(searched.joined(separator: ", ")). "
-                + "Pass --config <path> or place config.json next to the executable."
+                + "Run `wxkeep update-data` to install the signed catalog, pass --config <path>, "
+                + "or place config.json next to the executable."
             case .malformed(let detail):
                 "config.json is malformed: \(detail)"
             }
@@ -136,21 +137,29 @@ struct Config {
         }
         // 供应链门：隐式发现的 config（非用户显式指定）做发布清单校验。
         // 清单缺失 = 旧分发（提示但不阻塞）；清单存在且校验不过 = 数据被改动，拒载。
+        // 141 轮 P1-2：verifyCollecting 免竞窗——哈希与解码同一份内存字节
+        //（「验盘上 A、再读换身 B」的毫秒窗换文件攻击面关死，Signatures/
+        // UpdateData 同轮改道）。
+        var verifiedData: Data?
         if explicit == nil {
             let dir = URL(fileURLWithPath: path).deletingLastPathComponent()
-            switch Manifest.verify(directory: dir) {
+            switch Manifest.verifyCollecting(directory: dir) {
             case .legacy:
                 noteToStderr("note: no signed manifest next to \(path) — pre-v0.1.3 data or dev copy")
             case .invalid(let reason):
                 throw LoadError.malformed("manifest check FAILED for \(path): \(reason). "
                     + "Refusing to load data that does not match its signed manifest.")
-            case .verified:
-                break
+            case .verified(let files):
+                verifiedData = files["config.json"]
             }
         }
         let data: Data
-        do { data = try Data(contentsOf: URL(fileURLWithPath: path)) }
-        catch { throw LoadError.malformed("unreadable at \(path): \(error.localizedDescription)") }
+        if let verifiedData {
+            data = verifiedData
+        } else {
+            do { data = try Data(contentsOf: URL(fileURLWithPath: path)) }
+            catch { throw LoadError.malformed("unreadable at \(path): \(error.localizedDescription)") }
+        }
         var config = try Config(data: data, origin: path)
         // OTA 遮蔽检测（111 轮 UX P1）：加载位 = 用户级（update-data 安装位，
         // 搜索序优先于随包数据）时与随包目录比构建数——旧快照会永久压住

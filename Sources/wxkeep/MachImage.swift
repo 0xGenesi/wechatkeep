@@ -154,7 +154,10 @@ struct MachImage {
     }
 
     func bytes(va: UInt64, count: Int) -> Data? {
-        guard let o = sliceRelativeOffset(va: va), o + count <= data.count else { return nil }
+        // 141 轮 P3：o+count 在 UInt64 域先做（Int 域 + 在 o 近 Int.max 时
+        // 先 trap——坏 VA=干净 nil，不是进程崩溃）
+        guard let o = sliceRelativeOffset(va: va),
+              UInt64(o) + UInt64(count) <= UInt64(data.count) else { return nil }
         return data.subdata(in: o..<o + count)
     }
 

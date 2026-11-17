@@ -112,20 +112,24 @@ struct Signatures: Codable {
         // 供应链门（与 Config.load 同语义）：隐式发现的 signatures 做发布
         // 清单校验（manifest 同时守护 config+signatures）；显式 --signatures
         // 是用户自己的选择，不做门。清单缺失 = 旧分发（brew Cellar 随包无
-        // manifest），提示不阻塞。
+        // manifest），提示不阻塞。141 轮 P1-2：verifyCollecting 免竞窗——
+        // 哈希与解码用同一份内存字节（验盘上 A、再读换身 B 的毫秒窗关死）。
+        var verifiedBytes: Data?
         if explicit == nil {
-            switch Manifest.verify(directory: URL(fileURLWithPath: path).deletingLastPathComponent()) {
+            switch Manifest.verifyCollecting(directory: URL(fileURLWithPath: path).deletingLastPathComponent()) {
             case .legacy:
                 print("note: no signed manifest next to \(path) — pre-v0.1.3 data or dev copy")
             case .invalid(let reason):
                 throw LoadError.malformed("manifest check FAILED for \(path): \(reason). "
                     + "Refusing to load data that does not match its signed manifest.")
-            case .verified:
-                break
+            case .verified(let files):
+                verifiedBytes = files["signatures.json"]
             }
         }
         do {
-            let signatures = try JSONDecoder().decode(Signatures.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+            let signatures = try JSONDecoder().decode(
+                Signatures.self,
+                from: verifiedBytes ?? Data(contentsOf: URL(fileURLWithPath: path)))
             // 与 Config.validate 同规：asm/expected 坏 hex 不许进入补丁链路。
             // auto-locate 合成的条目绕过 Config 的校验直达 Patcher，坏数据
             // 会让 buildPlans 的 Data(hex:) 强解包 trap 而非报干净错误。

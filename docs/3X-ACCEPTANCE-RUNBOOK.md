@@ -28,9 +28,11 @@ macOS-arm64 分支（3.x 双架构含 arm64）。
 > 入口/执行体裸 ret 不区分自发/他发是字节级事实，`wxkeep verify` 的
 > bare-ret 形态证明一次即永久成立（静态面已全绿背书），肉眼复验无增益；
 > 多开核对一条命令即证。真正需要人工的只剩格 1/2/5 三次撤回的肉眼确认。
-> 计数留痕：撤回前跑 `wxkeep runtime calibrate --window 120`（137 轮
-> 仪器），撤回后判读自动落产品面——校准仪器对 3.x 同样适用（marker
-> 面别与构建无关）。
+> 计数留痕：**仅当 4.x runtime 组件在本机在役时**可跑 `wxkeep runtime
+> calibrate --window 120` 留痕（141 轮勘误：runtime/marker 是 4.x 注入面，
+> knownHooks 无 3.x 行——纯 3.x 机器上 hook 不武装、计数不增长，校准
+> 必得误导性 no-event）。3.x 的验收判据是本表肉眼格 + `wxkeep verify`
+> 字节证明，不依赖校准仪器。
 
 | # | 事件 | 预期（keeptip） | 预期（silent 对照，可跳过） | 机械化 |
 |---|---|---|---|---|

@@ -174,14 +174,16 @@ final class PatchJournalTests {
         #expect(g.nextCommand == "wxkeep restore")
     }
 
-    /// runtime 事务（新 kind）：组件一致 → 幂等 install 收口；LC 在而 dylib
-    /// 缺（必崩混合态）→ 指向 remove 清理而非再 install。
+    /// runtime 事务（新 kind）：组件一致 → remove 收口后人工重装（141 轮 P1：
+    /// install 单跑会被已注入预检 100% 拒——机器可执行的处方只有 remove）；
+    /// LC 在而 dylib 缺（必崩混合态）→ 同指向 remove。
     @Test func guidanceRuntimeInstallByComponentConsistency() {
         let g1 = Doctor.interruptedTxGuidance(
             journalExists: true, record: record(.runtimeInstall), gatingStates: pristine,
             sudoRequired: false, appPath: appPath,
             runtimeInjected: true, runtimeDylibExists: true)
-        #expect(g1.nextCommand == "wxkeep runtime install")
+        #expect(g1.nextCommand == "wxkeep runtime remove",
+                "install 单跑必被已注入预检拒（verdict 文案自述）——处方只能 remove")
         #expect(g1.verdictLines.first?.contains("consistent") == true)
 
         let g2 = Doctor.interruptedTxGuidance(

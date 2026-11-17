@@ -11,7 +11,8 @@
   └─ LC_LOAD_DYLIB "@executable_path/../Frameworks/wxkeep_runtime.dylib"   ← 注入
 Contents/Frameworks/wxkeep_runtime.dylib                                    ← 运行时组件
   └─ 构造器(启动时) → 读配置 → 按 270099 地址表 hook 目标函数
-配置: Application Support/wxkeep/runtime.json（提示短语等）
+配置: runtime.json（App Group 容器 → 微信沙盒容器 → home 的候选序，
+dylib 按首个可读文件取值——72·L3④ 节）
 ```
 
 - 注入机制：MachOInjector 在主程序 Mach-O 头部追加 LC_LOAD_DYLIB
@@ -888,8 +889,10 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
   x19=consumer this；至写点调用 0x31aa680 区间无 x19 复写（仅 x20/x0/
   x8/x9 被写）——**写点 hook 入口处 x19 = consumer this**（自递归路径
   由被调用者保存约定保全）。
-- **读路径直译合同**（R6 工作函数照抄）：`0x4a2b524(x20, sret)` 构造
-  key → `0x32edaec(x0=[x19+0xb78], x1=&key, x2=[sp+0x488], w3=0, sret)`
+- **读路径直译合同**（R6 工作函数照抄；**141 勘误**：`0x4a2b524`
+  keyctor 直调已从 worker 移除——键改由 R15/R16 lu 快照（写点路径由
+  帧快照）字节重建，140 续③ UAF 事故闭环，见 R11 节 141 修正）：
+  `0x32edaec(x0=[x19+0xb78], x1=&key, x2=[sp+0x488], w3=0, sret)`
   → `0x102b740(x20, sret)` 取 msg_obj。
 - parse 唯一直连调用者 = wrapper 0x4d1f6c4（其自身无直连 BL 调用者，
   纯间接到达——R1 三盲实证同族）；consumer_main 不直调 parse。
@@ -899,7 +902,8 @@ consumer_main 的调用者帧回溯——0x45a5910 是 consumer_main 唯一直�
 - 克隆 thunk（revoke_clone_hook）bl 前快照 x19 进全局（x16 IP 草稿位
   寻址，帧布局零改动——透传契约测试全绿实证）；hook 体内核读
   `[x19+0xb78]→[svc+0]` 与 `base+clone_svc_vtable`（行可选字段，270135
-  =0x9deeb48）比对，命中计 marker `clsvc=`。**零宿主调用**；x19 为垃圾
+  =0x9deeb48）**双视图**比对（141 勘误：Δ=0x16a0 的第二接口视图同过门
+  ——`svc_vt_matches()`，见 R11 节 141 修正），命中计 marker `clsvc=`。**零宿主调用**；x19 为垃圾
   值时比对不中（内核读兜底），绝不放大为动作。
 - wire：HookRow += `clone_svc_vtable`（hex，坏值整行拒绝）；Swift 侧
   knownHooks 270135 行携带；`runtime status`/`runtime clone status`
@@ -1358,6 +1362,32 @@ worker（clone_parse_run，宿主调用合法面）:
   vs 会话串）由 px0 行 + lookup 命中与否联合定案；④写点版全保留
   （其它构建/其它流的可能锚）。
 
+> **141 轮修正（140 续③ 真机崩溃事故闭环）**：②③步的 keyctor 直调
+> **已移除**——worker 在 parse 返回后对 msg 的宿主直调是结构性 UAF 面
+>（模块成员门拦不住「头未动、字符串字段被复用」形态，真机 SIGSEGV
+> 实证）。现行合同：
+> - ②obj：仅内核读（svc 扫描发现/msg 基址还原），零宿主直调；
+> - ③key：**唯一来源 = R15/R16 lu 快照**（g_lu_keyptr 的 24B 头，纯
+>   内核读；R16 实弹 key="458457…" 活体）——失败 = `px0 … key=<miss>
+>   lu_keyptr=… lu_kflag=…` 证据行 + clmissq，不再有任何回退直调；
+> - 行侧 keyctor 三件套仍按「在场必须完整」解析（数据合同不变），生产
+>   零消费；`g_clone_rd_keyctor_valid` 全局与安装期身份门随消费方移除
+>   （evt worker 武装条件与字节路径对齐为 rd_valid 单门）。
+> - svc 双视图统一：`svc_vt_matches()` 收口**全部七处**门/发现点（lu/
+>   cm/cand/scan×2/clone_rd_run 复验+consumer 回落/clone_rd_run_core
+>   第五门）——第二接口视图 Δ=**0x16a0**（0x9deeb48−0x9ded4a8 实测；
+>   110/121 轮「−0xa0」为算术勘误，按 0xa0 比对永不命中即 svc=<miss>
+>   直接根因；140 续四处修复曾漏 core 第五门，141 全扫补齐）。
+> - **装面版本门**：dylib 自标识串 `WXKEEP_DYLIB_VERSION=<semver>`
+>   （runtime.m wxkeep_dylib_version_tag）——`runtime install` 装前扫
+>   描比对 CLI 版本（缺串/错版拒装），`runtime status` 披露在役版本，
+>   `runtime clone on` 对旧件（≤140 续③，keyctor 在链）告警重装先行。
+>   138 轮「brew 0.2.17=pre-136 dylib」错位教训的装机面收口。
+> - 回归锁：cloneParseChainEndToEnd（lu 主/第二视图+键 miss+keyctor
+>   观察桩零调用锁）+ cloneRdWorkerMarshalingEndToEnd r2v（core 双视图）
+>   + dylibVersionTag 契约锁/扫描器；mutation M23 重定向为
+>   svc_vt_matches 第二视图臂。
+
 ## R18 计数签名仪器 + 合成触发边界（2026-11-15，137 轮方案 v2）
 
 > 第一性原理拆解（用户窗口三项的依赖分析）：真实撤回事件的唯一不可合成
@@ -1390,9 +1420,11 @@ selfskip-only / no-event / reset`。机读 JSON（--json）= before/after/delta
 
 **事件注入点不可合成（当前）**：parse 直驱注入要求构造 args——x0 语义
 = R11 诚实边界①（未证），假对象入 parse 体即崩（用户在役微信）。
-**解锁条件 = R11① 裁决**（cm 槽实弹一次即关）：x0 合同定案后，parse
-直驱可成为一等合成事件源（自 skip 合成 + phantom 语料 = 零 DB 污染的
-全链触发器）。
+**解锁条件 = R11① 类裁决**（141 轮改口径：args[0]=consumer 原假设
+117 轮已证伪；现行裁决面 = px0 行 `src=` 发现路径 + lu 锚证据——R15/R16
+的 lu thunk（lookup 0x32edaec 直挂）已在役，`lu_seq`/`lu_svc` 即活体
+锚信号）：x0 合同定案后，parse 直驱可成为一等合成事件源（自 skip 合成
++ phantom 语料 = 零 DB 污染的全链触发器）。
 
 **原料常驻事实**：session 对象图（consumer/publisher/订阅对）由日常收
 消息持续再生产（R8/R10 合同：publisher=订阅期绑定）——真实撤回事件只是

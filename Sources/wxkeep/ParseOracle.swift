@@ -90,9 +90,12 @@ enum ParseOracle {
             throw OracleError.archMismatch(image: "not thin arm64", host: "arm64")
         }
         let exe = executable ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        // 141 轮 P1-1：挂死 deadline（语料级跑批秒级应完成——挂死=未建模
+        // 状态要有出口，父进程不再无限等）。
         let result = Shell.run(exe.path, [
             "__parse-oracle-worker", binary.path, String(parseVA, radix: 16), corpusDir.path,
-        ])
+        ], deadline: 120)
+        if result.timedOut { throw OracleError.workerCrashed(signal: 9) }
         if result.signalled {
             // 129 = worker 捕获 SIGBUS/SIGSEGV 后的干净退出诊断（裸信号不进这里）
             if result.status == SIGKILL { throw OracleError.environmentBlocked(result.stderr) }
@@ -167,7 +170,8 @@ enum ParseOracle {
         let exe = executable ?? URL(fileURLWithPath: CommandLine.arguments[0])
         let result = Shell.run(exe.path, [
             "__parse-oracle-worker", binary.path, "4a7d6ac", corpusDir.path, "treedump",
-        ])
+        ], deadline: 120)
+        if result.timedOut { throw OracleError.workerCrashed(signal: 9) }
         if result.signalled { throw OracleError.workerCrashed(signal: result.status) }
         switch result.status {
         case 0: break
@@ -868,6 +872,9 @@ enum ParseOracle {
                 guard cmdsize > 0 else { break }
                 switch cmd {
                 case 0x19:   // LC_SEGMENT_64
+                    // 141 轮 P2（L3⑤ 对齐）：字段读前置界——截断/损坏镜像的
+                    // 命令体可短于 72B（MachImage/Verifier 同款 p+72 门）。
+                    guard p + 72 <= raw.count else { return nil }
                     let segName = cstr(p + 8, p + 24)
                     let nsects = Int(u32(p + 64))
                     var q = p + 72
@@ -880,9 +887,11 @@ enum ParseOracle {
                         q += 80
                     }
                 case 0x2:   // LC_SYMTAB
+                    guard p + 24 <= raw.count else { return nil }
                     symoff = Int(u32(p + 8)); nsyms = Int(u32(p + 12))
                     stroff = Int(u32(p + 16)); strsize = Int(u32(p + 20))
                 case 0xB:   // LC_DYSYMTAB
+                    guard p + 64 <= raw.count else { return nil }
                     indirectOff = Int(u32(p + 56)); indirectCount = Int(u32(p + 60))
                 default: break
                 }

@@ -1,11 +1,22 @@
 import ArgumentParser
 import Foundation
 
+/// 全仓版本常量（141 轮提取为单点）：`--version`、装面 dylib 版本门
+///（RuntimeCommand.dylibVersionTag 扫描比对）、测试契约锁三处共用。
+/// dylib 侧的 WXKEEP_DYLIB_VERSION 串必须与本值同步（runtime.m
+/// wxkeep_dylib_version_tag；RuntimeHookTests 契约锁双侧一致）。
+enum WxkeepVersion {
+    // 141 轮 0.2.18→0.2.19：140 续② 曾以「0.2.18」名义构建并装机 pre-141
+    // dylib（含 keyctor 崩溃面、无版本自标识）——tag 未切，直接让版本身份
+    // 前进，装面版本门凭「无自标识串」即可拒旧件，避免同号双身。
+    static let current = "0.2.19"
+}
+
 struct Wxkeep: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wxkeep",
         abstract: "WeChatKeep — dual-architecture (arm64 + x86_64) anti-revoke patcher for WeChat 3.x/4.x on macOS.",
-        version: "0.2.18",
+        version: WxkeepVersion.current,
         subcommands: [Versions.self, Patch.self, Restore.self, Locate.self, Verify.self, DoctorCommand.self, UpdateDataCmd.self, ManifestCmd.self, UpdateGuardCommand.self, PrivacyGuardCommand.self, CloneCommand.self, RuntimeCommand.self, DbKeysCommand.self]
     )
 
@@ -16,7 +27,7 @@ struct Wxkeep: ParsableCommand {
             let expanded = ($0 as NSString).expandingTildeInPath
             let url = URL(fileURLWithPath: expanded)
             guard FileManager.default.fileExists(atPath: url.appendingPathComponent("Contents/Info.plist").path)
-            else { throw ValidationError("\($0) is not an app bundle") }
+            else { throw ValidationError("\($0) is not an app bundle——需要含 Contents/Info.plist 的 .app 目录（如 /Applications/WeChat.app）") }
             return url
         })
         var app: URL = URL(fileURLWithPath: "/Applications/WeChat.app")
@@ -476,7 +487,7 @@ extension Wxkeep {
             guard !derived.isEmpty else {
                 // 非零退出码：脚本/watch 流水线要能区分「无匹配」与成功
                 // （新构建日 PR 的自动定位据此走人工分析分支）。
-                throw ValidationError("no recipe matched this build (new signature generation — needs human analysis)")
+                throw ValidationError("此构建无匹配配方——先 `wxkeep update-data` 刷新签名数据；仍无匹配 = 新签名代（需人工分析，欢迎回报 build 号）")
             }
             if append {
                 // 本地定位条目写入 config.local.json（与签名目录分离）：
@@ -608,12 +619,14 @@ extension Wxkeep {
                 } else {
                     // 123 轮体检 P3：sudo+ssh 语境该路径必失败（偏好域归控制台
                     // 用户）——privacy-guard 同款诚实文案，不给死循环重试建议。
+                    // 141 轮 P1：✗ 必须配非零退出码——脚本/CI 链判据面。
                     if geteuid() == 0 && UpdateGuard.consoleUserDelegation() == nil {
                         print("✗ 未生效：sudo 语境下无法定位控制台用户（ssh 无 GUI 会话/登录窗口态）——"
                             + "请在真实用户会话的终端重试")
                     } else {
                         print("✗ 写入未完全生效，请重试或检查权限")
                     }
+                    throw ExitCode(1)
                 }
             case .on:
                 // 108 轮修：与 .off 同款运行守卫——微信运行中写入被 cfprefd
@@ -951,7 +964,12 @@ extension Wxkeep {
                     var builds: [String] = []
                     for r in rows where !builds.contains(r.build) { builds.append(r.build) }
                     print("✓ hooks: \(rows.count) 行（构建 \(builds.joined(separator: "/"))）")
-                    for u in RuntimeConfig.configWriteTargets { print("  \(u.path)") }
+                    // 141 轮 P3：只报实际写成的份（writePlist 部分失败时
+                    // ⚠️ 已点名失败份——成功块不再把两份都列上）
+                    let written = RuntimeConfig.hooksLastWrittenTargets.isEmpty
+                        ? RuntimeConfig.configWriteTargets
+                        : RuntimeConfig.hooksLastWrittenTargets
+                    for u in written { print("  \(u.path)") }
                     print("  微信下次启动生效——已装运行时组件时无需重装 dylib")
                 } catch {
                     print("⚠️ runtime.json hooks 写入失败: \(error.localizedDescription)")
@@ -988,7 +1006,7 @@ extension Wxkeep {
                         throw ValidationError("--clear 不能与 tip 文案/--keep/--rewrite-self 同时使用")
                     }
                     let written = try RuntimeConfig.removeTip()
-                    print("✓ tip_text 已移除（hook 仍武装：keep_message 通用 keeptip 不受影响）")
+                    print("✓ tip_text 已移除（不影响 hook 武装状态：keep_message 通用 keeptip 不受影响）")
                     written.forEach { print("  \($0.path)") }
                     return
                 }
@@ -1066,6 +1084,17 @@ extension Wxkeep {
                 let active = injected && dylibExists
                 print("LC_LOAD_DYLIB 注入: \(injected ? "是" : "否")")
                 print("runtime dylib:     \(dylibExists ? "存在" : "缺失") (\(dylib.path))")
+                // 版本门披露（141 轮）：装内 dylib 自标识 vs 本 CLI——错位=
+                // 加固/修复未进装机面（138 轮 brew 0.2.17=pre-136 实弹）。
+                if dylibExists {
+                    if let inst = RuntimeCommand.installedDylibVersion(app: options.app) {
+                        print("dylib 版本:        \(inst)"
+                              + (inst == WxkeepVersion.current ? " ✓（与 CLI 同版）"
+                                 : " ⚠️ ≠ CLI \(WxkeepVersion.current)——重装: `runtime remove && runtime install`"))
+                    } else {
+                        print("dylib 版本:        无自标识串（≤141 轮前旧件）⚠️ 重装: `runtime remove && runtime install`")
+                    }
+                }
                 let markerLine = RuntimeCommand.runtimeMarkerLine(active: active, markerExists: markerExists)
                 print("加载标记:          \(markerLine)")
                 // 克隆共享面披露（108 轮）：克隆保留同款 entitlements → 与本体
@@ -1089,7 +1118,7 @@ extension Wxkeep {
                     let currentBuild = (try? WeChatApp.buildNumber(app: options.app)) ?? "?"
                     let rowsForBuild = hooks.filter { ($0["build"] as? String) == currentBuild }
                     let matchNote = rowsForBuild.isEmpty
-                        ? "无地址行——hook 不会武装（新构建需 derive_runtime_hooks 产出数据）"
+                        ? "无地址行——hook 不会武装（新构建：升级 wxkeep（brew upgrade）后跑 `wxkeep runtime hooks` 写入新数据行）"
                         : "\(rowsForBuild.count) 行匹配（\(rowsForBuild.compactMap { $0["arch"] as? String }.joined(separator: "+"))）"
                     print("当前构建 \(currentBuild):    \(matchNote)")
                 } else {
@@ -1279,13 +1308,33 @@ extension Wxkeep {
                         "runtime 组件未在位或 marker 不存在——先 `wxkeep runtime install` 并启动微信；"
                         + "历史快照（组件已移除）不参与校准（计数冻结无事件语义）")
                 }
+                // 141 轮 P3：窗值负/零=立即假判读（与真实 no-event 不可区分），
+                // 拒收；微信未运行=计数永不增长，前置告知（原先是沉默 5 分钟
+                // 后误导性的 no-event）。
+                guard window > 0 else {
+                    throw ValidationError("--window 须为正秒数（got \(window)）")
+                }
+                if !WeChatApp.isRunning(app: options.app) {
+                    throw ValidationError(
+                        "微信未运行——marker 计数不会增长，校准必得误导性的 no-event 判读。"
+                        + "先启动微信再跑本命令。")
+                }
                 let before = RuntimeCommand.parseCounters(beforeText)
                 if !json {
                     print("校准窗开启（\(window)s）——现在做一次真实撤回（他号 → 本机 \(options.app.lastPathComponent)）")
                     print("before: " + RuntimeCommand.calibrationCounters
                         .map { "\($0.key)=\(before[$0.key] ?? 0)" }.joined(separator: " "))
                 }
-                Thread.sleep(forTimeInterval: TimeInterval(window))
+                // 进度心跳（30s 一拍——5 分钟纯沉默会被当成卡死）
+                var elapsed = 0
+                while elapsed < window {
+                    let slice = min(30, window - elapsed)
+                    Thread.sleep(forTimeInterval: TimeInterval(slice))
+                    elapsed += slice
+                    if !json, elapsed < window {
+                        print("  … 校准中 \(elapsed)s/\(window)s（marker 30s 粒度回写）")
+                    }
+                }
                 let afterText = RuntimeConfig.readMarkerText()
                 let after = RuntimeCommand.parseCounters(afterText)
                 let verdict = RuntimeCommand.calibrationVerdict(before: before, after: after)
@@ -1355,6 +1404,37 @@ extension Wxkeep {
                 exePath: CommandLine.arguments[0],
                 cwd: FileManager.default.currentDirectoryPath
             ).first { FileManager.default.fileExists(atPath: $0) }
+        }
+
+        /// dylib 版本门（141 轮）：dylib 二进制内的自标识串
+        /// "WXKEEP_DYLIB_VERSION=<semver>"（runtime.m wxkeep_dylib_version_tag，
+        /// __TEXT __cstring 段原样可扫）。返回 nil = 串缺席（构建过旧——
+        /// 门加入前/异常产物）。138 轮实弹教训：brew 0.2.17 在役而 CLI 已
+        /// 前行一个版本，装机面错位只能靠人工登记发现——装前扫描比对收口。
+        static func dylibVersionTag(of data: Data) -> String? {
+            let needle = Data("WXKEEP_DYLIB_VERSION=".utf8)
+            guard !data.isEmpty, !needle.isEmpty else { return nil }
+            let n = needle.count
+            guard data.count >= n else { return nil }
+            // 首块匹配（Data.range(of:) 全文件扫；340MB fat dylib 实测可承受
+            // ——install 面本来就有多次全量读，MachImage 复用已在 136 续②）
+            guard let r = data.range(of: needle) else { return nil }
+            var end = r.upperBound
+            while end < data.count {
+                let b = data[end]
+                if b == 0 || b == 0x0a { break }
+                end += 1
+                if end - r.upperBound > 31 { return nil }   // 越界长度=不是 semver 形态
+            }
+            let v = String(data: data[r.upperBound..<end], encoding: .utf8) ?? ""
+            return v.isEmpty ? nil : v
+        }
+
+        /// 装内 dylib 的版本读回（未装/不可读返回 nil）。
+        static func installedDylibVersion(app: URL) -> String? {
+            let url = WeChatApp.binaryURL(app: app, relative: "Contents/Frameworks/wxkeep_runtime.dylib")
+            guard let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
+            return dylibVersionTag(of: data)
         }
 
         // MARK: - 能力探针（93 轮）
@@ -1576,7 +1656,23 @@ extension Wxkeep {
                     print("✓ clone_message = on（捕获/写点/配对/读链重查/M4 探针——插入未激活，无消息副作用）")
                     written.forEach { print("  \($0.path)") }
                     if RuntimeCommand.runtimeInjected(app: options.app) {
-                        print("  （≤30s 热生效；R6 证据步 clsvc= 需重启微信后撤回一次可见）")
+                        // 版本门（141 轮）：在役 dylib 版本读回比对——旧件
+                        //（≤141 轮前）keyctor 链有真机崩溃史（140 续③），
+                        // 开 clone 前必须重装到当前版。**无自标识串 = pre-141
+                        // 旧件本体**（版本串 141 轮才引入——恰是最危险的
+                        // 人群），与错版同告警。
+                        switch RuntimeCommand.installedDylibVersion(app: options.app) {
+                        case .some(let inst) where inst == WxkeepVersion.current:
+                            print("  （dylib \(inst) 在役 ✓；≤30s 热生效；R6 证据步 clsvc= 需重启微信后撤回一次可见）")
+                        case .some(let inst):
+                            print("  ⚠️ 在役 dylib 自标识 \(inst) ≠ 本 CLI \(WxkeepVersion.current)——"
+                                  + "先 `wxkeep runtime remove && wxkeep runtime install` 重装再开实验："
+                                  + "旧件 keyctor 链在异步重查时有真机崩溃风险（140 续③）")
+                        case .none:
+                            print("  ⚠️ 在役 dylib 无版本自标识（141 轮前旧件）——"
+                                  + "先 `wxkeep runtime remove && wxkeep runtime install` 重装再开实验："
+                                  + "旧件 keyctor 链在异步重查时有真机崩溃风险（140 续③）")
+                        }
                     } else {
                         print("  ℹ︎ runtime 组件未安装——配置已保存，`wxkeep runtime install` 并启动微信后生效")
                     }
@@ -1639,6 +1735,26 @@ extension Wxkeep {
                         + "brew 用户升级到 ≥0.2.0 后自带；源码用户先 swift build -c release")
                 }
                 print("dylib 来源: \(dylib)")
+                // 版本门（141 轮）：装进去的 dylib 必须带与本 CLI 同版的自
+                // 标识串——缺串（门加入前的旧构建）或错版（.build/brew 残留
+                // 旧件）都拒装。错位 dylib 装面=加固不生效且难察觉（138 轮
+                // brew 0.2.17=pre-136 实弹），收口为装前硬门。alwaysMapped
+                //（mmap 零拷贝——340MB fat 件的既有全量读纪律，136 续②）。
+                guard let dylibData = try? Data(contentsOf: URL(fileURLWithPath: dylib),
+                                                options: .alwaysMapped),
+                      !dylibData.isEmpty else {
+                    throw ValidationError("runtime dylib 不可读：\(dylib)")
+                }
+                let tag = dylibVersionTag(of: dylibData)
+                guard let v = tag, v == WxkeepVersion.current else {
+                    throw ValidationError(
+                        "runtime dylib 版本错位（找到 \(tag.map { "自标识 \($0)" } ?? "无自标识串")，"
+                        + "本 CLI 是 \(WxkeepVersion.current)）——先重建/升级 dylib 再装："
+                        + "源码用户 `swift build -c release`；brew 用户 `brew upgrade wxkeep`。"
+                        + "拒装原因：错位 dylib 缺当前版本的加固与修复"
+                        + "（141 轮 keyctor 移除=崩溃面修复，旧件在 clone_message=on 时有真机崩溃风险）")
+                }
+                print("dylib 版本: \(v) ✓")
 
                 // T6 入口补丁可行性预检（只读，重排于任何写之前）：blocked 门
                 // 必须在主程序 LC 注入之前裁决——否则「blocked 且入口补丁不可
@@ -2247,8 +2363,9 @@ extension Wxkeep {
                     print("✗ 未生效：sudo 语境下无法定位控制台用户（ssh 无 GUI 会话/登录窗口态）——"
                         + "请在真实用户会话的终端重试（微信偏好域归它所有）")
                 } else {
-                    print("✗ 未完全生效，请重试（微信须已退出）")
+                    print("✗ 未完全生效，请重试（微信须已退出——运行中的偏好写入会被 cfprefd 丢弃）")
                 }
+                throw ExitCode(1)   // 141 轮 P1：✗ 配非零退出码（脚本判据面）
             }
         }
     }
@@ -2576,7 +2693,15 @@ extension Wxkeep {
         mutating func run() throws {
             let target: URL
             if let dir {
-                target = URL(fileURLWithPath: PathUtil.expandTilde(dir))
+                // 141 轮 P3：目录不存在如实报（原先落进 legacy 分支 = 与
+                // 「pre-v0.1.3 旧数据」不可区分——拼错 --dir 被误读）
+                let d = URL(fileURLWithPath: PathUtil.expandTilde(dir))
+                var isDir: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: d.path, isDirectory: &isDir),
+                      isDir.boolValue else {
+                    throw ValidationError("目录不存在或不是目录：\(d.path)")
+                }
+                target = d
             } else if let found = Config.locatedDirectory() {
                 target = found
             } else {

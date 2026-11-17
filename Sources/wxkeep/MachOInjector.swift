@@ -179,7 +179,11 @@ enum MachOInjector {
                 while nstart < end && data[nstart] == 0 { nstart += 1 }   // 跳过填充零
                 let nend = nstart + path.utf8.count
                 if nend <= end,
-                   Data(data[nstart..<nstart + path.utf8.count]) == Data(path.utf8) {
+                   Data(data[nstart..<nstart + path.utf8.count]) == Data(path.utf8),
+                   // 141 轮 P3：前缀相等还须终点=串尾（NUL 或命令界）——
+                   // "@/…/wxkeep.dylibExtra" 不再冒充 install 路径命中
+                   //（加载器语义同名才同命令）
+                   nend == end || data[nend] == 0 {
                     return true
                 }
             }
@@ -251,7 +255,9 @@ enum MachOInjector {
                     let nstart = cursor + nameOff
                     let nend = nstart + dylibInstallPath.utf8.count
                     if nend <= cursor + cmdsize,
-                       Data(commands[nstart..<nstart + dylibInstallPath.utf8.count]) == Data(dylibInstallPath.utf8) {
+                       Data(commands[nstart..<nstart + dylibInstallPath.utf8.count]) == Data(dylibInstallPath.utf8),
+                       // 141 轮 P3：同款终点判（NUL 或命令界）——删错前缀同伙命令面关死
+                       nend == cursor + cmdsize || commands[nend] == 0 {
                         commands.removeSubrange(cursor..<cursor + cmdsize)
                         removals += 1
                         continue   // 不前进：后续命令前移补位（同路径可能有多条——

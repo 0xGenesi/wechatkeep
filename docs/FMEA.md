@@ -72,6 +72,7 @@
 | E10 | 证据台账只记录历史（sha 漂移失真不可见） | 时间/后续轮覆盖 | **复算门**（134 轮 L19：--recheck 重跑各族生成命令断言判定行复现；SOAK=用户窗口/语料族如实登记） | make evidence-recheck | 134 轮 | P1 |
 | B10 | applySwaps 单 rename 崩溃窗留半套态（.bak 在场+final 缺席）直到下次成功重跑 | 进程死于两次 rename 之间 | **启动清扫**（134 轮 124-②：installStaged 入口 sweepCrashResidue——孤儿 .bak 放回 final 恢复完整旧集） | UpdateDataTests 两测 | 134 轮 | P2 |
 | E4 | oracle 在 CI 静默 skip（绿≠跑过） | runner 无语料 | 显式登记 + Makefile/SOP 入口 + **合成 L2/L6 CI oracle**（127 轮：同一组不变量 CI 真跑 + 防洞 sha 断言；真切片仍本地 SOP） | CI 腿 + SyntheticL2L6Tests | 127 轮部分关账 | P2 |
+| E11 | 异步 worker 对短命宿主对象直调（keyctor(msg) UAF——140 续③ 真机 SIGSEGV 实弹） | 解锁上游门点使旧回退路径可达（svc 双视图放行 → keyctor 首次真机到达即崩） | **keyctor 直调移除**（141 轮：键唯一来源 = lu 快照纯内核读；「模块成员门/msg_vt 门拦不住部分复用形态」的教训=可读性 ≠ 存活）+ 宿主 tail 结构性单路不变量（lu 键内嵌于 lu svc_ok 分支 ⇒ 非 lu 发现必无键）+ **装面版本门**（dylib 自标识串：install 拒旧件/clone on 告警）| cloneParseChainEndToEnd 的 keyctor 观察桩零调用锁 + 双视图锁；runtime status 的 dylib 版本行 | 141 轮 | P0 |
 
 ## 使用约定
 

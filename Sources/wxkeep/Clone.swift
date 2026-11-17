@@ -21,11 +21,13 @@ enum Clone {
         case resignFailed(String)
         case launchFailed(String)
         case notAClone(String)
+        case cloneRunning(String)   // 141 轮 P2：运行中克隆拒删（create --replace / remove 共用）
 
         var description: String {
             switch self {
             case .sourceNotFound(let p): return "源未找到: \(p)"
             case .destinationExists(let p): return "目标已存在: \(p)（用 --replace 覆盖）"
+            case .cloneRunning(let n): return "\(n) 正在运行——退出该克隆（⌘Q）后重试；沙盒数据容器不受本命令影响（第二账号消息数据保留）"
             case .copyFailed(let d): return "复制失败: \(d)"
             case .plistWriteFailed(let d): return "Info.plist 写入失败: \(d)"
             case .resignFailed(let d): return "重签名失败: \(d)"
@@ -83,6 +85,11 @@ enum Clone {
             guard let d = NSDictionary(contentsOf: destPlist) as? [String: Any],
                   d[markerKey] is Int else {
                 throw CloneError.notAClone(dest.lastPathComponent)
+            }
+            // 141 轮 P2：目标克隆正在运行时拒绝删除（源 app 的运行检查只护
+            // 住本体——live 进程的 bundle 被从脚下抽走 = 半删崩溃态）
+            if WeChatApp.isRunning(app: dest) {
+                throw CloneError.cloneRunning(dest.lastPathComponent)
             }
             try fm.removeItem(at: dest)
         }
@@ -160,11 +167,17 @@ enum Clone {
     }
 
     /// Removes a clone (refuses to touch anything without the marker).
+    /// 141 轮 P2：运行中的克隆拒绝删（live 进程 bundle 抽走 = 半删崩溃态）。
+    /// 数据面披露：App 沙盒数据容器（~/Library/Containers/<bid>）不在本命令
+    /// 的删除面——第二账号的消息数据保留。
     static func remove(_ cloneURL: URL) throws {
         let plist = cloneURL.appendingPathComponent("Contents/Info.plist")
         guard let dict = NSDictionary(contentsOf: plist) as? [String: Any],
               dict[markerKey] is Int else {
             throw CloneError.notAClone(cloneURL.lastPathComponent)
+        }
+        if WeChatApp.isRunning(app: cloneURL) {
+            throw CloneError.cloneRunning(cloneURL.lastPathComponent)
         }
         try FileManager.default.removeItem(at: cloneURL)
     }

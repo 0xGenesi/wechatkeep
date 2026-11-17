@@ -91,10 +91,29 @@ enum Shell {
         /// 此时 Darwin Foundation 的 status 是**裸信号号**（SIGKILL→9，实测），
         /// 不是 shell 约定的 128+n——退出码语义必须结合本字段判读。
         let signalled: Bool
+        /// 141 轮 P1-1：deadline 到点被杀的子进程为真（status=SIGKILL 裸值
+        /// 9 + signalled——调用方以此区分「挂死被杀」与「真崩溃」）。
+        let timedOut: Bool
+
+        init(status: Int32, stdout: String, stderr: String,
+             signalled: Bool, timedOut: Bool = false) {
+            self.status = status
+            self.stdout = stdout
+            self.stderr = stderr
+            self.signalled = signalled
+            self.timedOut = timedOut
+        }
     }
 
+    /// 141 轮 P1-1（挂死收口，作用域从严）：verify/parse-oracle worker 与
+    /// lipo -thin 这类「秒级应完成」的子进程加 deadline——映射函数/畸形
+    /// 镜像卡死时父进程不再无限等（挂死=未建模状态的另一形态，须有出口
+    /// 而非 CLI 整条命令冻死）。codesign（340MB deep 校验分钟级合法）与
+    /// 其它调用点**不加**——一刀切超时会误杀慢而正常的重签（反向证伪过的
+    /// 收紧面）。
     @discardableResult
-    static func run(_ executable: String, _ arguments: [String]) -> Result {
+    static func run(_ executable: String, _ arguments: [String],
+                    deadline: TimeInterval? = nil) -> Result {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -121,13 +140,42 @@ enum Shell {
         } catch {
             return Result(status: 127, stdout: "", stderr: error.localizedDescription, signalled: false)
         }
-        process.waitUntilExit()
+        // 141 轮 P1-1：deadline 语义 = 到点 SIGKILL + timedOut=true（status
+        // 是裸 9——与真 SIGKILL 的区分面只有本字段）。
+        var timedOut = false
+        if let deadline {
+            let wall = Date().addingTimeInterval(deadline)
+            while process.isRunning && Date() < wall {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            if process.isRunning {
+                timedOut = true
+                process.interrupt()
+                // interrupt/terminate（SIGINT/SIGTERM）对挂死在不可中断态的
+                // 进程可能无效——1s 宽限后 SIGKILL 直杀（kill(2) 绕过
+                // Foundation 的有限信号面；SIGKILL 后 waitUntilExit 必然返回，
+                // 父进程不再有无限等待面）。
+                for _ in 0..<20 where process.isRunning {
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+                if process.isRunning {
+                    kill(process.processIdentifier, SIGKILL)
+                }
+                process.waitUntilExit()
+            }
+        } else {
+            process.waitUntilExit()
+        }
         let stdoutData = (try? Data(contentsOf: outURL)) ?? Data()
         let stderrData = (try? Data(contentsOf: errURL)) ?? Data()
         return Result(
             status: process.terminationStatus,
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-            stderr: String(data: stderrData, encoding: .utf8) ?? "",
-            signalled: process.terminationReason == .uncaughtSignal)
+            stderr: timedOut
+                ? (String(data: stderrData, encoding: .utf8) ?? "")
+                  + "\n[wxkeep] 子进程 \(deadline.map { String(format: "%.0f", $0) } ?? "?")s 未完成——已终止（挂死收口，141 轮）"
+                : String(data: stderrData, encoding: .utf8) ?? "",
+            signalled: process.terminationReason == .uncaughtSignal,
+            timedOut: timedOut)
     }
 }

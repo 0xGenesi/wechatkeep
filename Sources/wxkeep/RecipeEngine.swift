@@ -85,7 +85,12 @@ struct RecipeEngine {
         let pattern = try anchorPattern(recipe.anchor)
         let hits = try image.offsets(of: pattern, in: "__text")
         guard !hits.isEmpty else { throw RecipeError.noHit(anchor: recipe.anchor) }
-        let hitVAs = hits.map { text.addr + UInt64($0 - text.offset) }
+        // 141 轮 P3： UInt64 域加法 + 溢出滤除（坏段表头 addr 近 2^64 时
+        // Int64/UInt64 + 先 trap——坏数据=过滤，不是崩溃）
+        let hitVAs = hits.compactMap { o -> UInt64? in
+            let (va, ovr) = text.addr.addingReportingOverflow(UInt64(o - text.offset))
+            return ovr ? nil : va
+        }
 
         // Derive candidate sites from anchors.
         var candidates: [UInt64]
@@ -274,9 +279,19 @@ struct RecipeEngine {
             else { throw RecipeError.malformed("bad bytes@ confirm \(confirm)") }
             var mask = Data(repeating: 0xFF, count: want.count)
             if parts.count == 3, parts[2].hasPrefix("mask"), let m = Data(hex: String(parts[2].dropFirst(4))) {
+                // 141 轮 P2：空 mask（"…:mask" 零载荷——Data(hex:"") 是非 nil
+                // 空 Data）会让下方 i % mask.count 除零 trap；与 ExpectedPattern
+                // 的同语法门对齐，坏数据=干净拒绝。
+                guard !m.isEmpty else {
+                    throw RecipeError.malformed("bad bytes@ confirm mask \(confirm)")
+                }
                 mask = m
             }
-            guard let got = image.bytes(va: site + off, count: want.count) else { return false }
+            // 141 轮 P2：site+off 在 UInt64 域相加（Int 域 + 会先 trap——
+            // 坏偏移=干净不中，不是进程崩溃）
+            let (va, ovr1) = site.addingReportingOverflow(off)
+            if ovr1 { return false }
+            guard let got = image.bytes(va: va, count: want.count) else { return false }
             for i in 0..<want.count {
                 if got[i] & mask[i % mask.count] != want[i] & mask[i % mask.count] { return false }
             }
@@ -315,7 +330,9 @@ struct RecipeEngine {
                     $0.loadUnaligned(fromByteOffset: 0, as: Int32.self)
                 }
                 let callVA = text.addr + UInt64(o - text.offset)
-                if Int64(callVA) + 5 + Int64(disp) == Int64(site) { count += 1 }
+                // 141 轮 P3：模 2^64 回绕加法判等（&+ 不 trap——坏段表值
+                // 只是判不等，与合法值上的原 Int64 判严格一致）
+                if callVA &+ 5 &+ UInt64(bitPattern: Int64(disp)) == site { count += 1 }
             }
             o += 1
         }

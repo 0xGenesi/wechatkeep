@@ -177,7 +177,10 @@ struct Doctor {
                 + "Mainstream tools ship the same configuration on stock SIP-on machines, "
                 + "so this is watch-level, not a kill prediction. If WeChat is killed at launch, "
                 + "check the crash report's Termination Reason (Namespace CODESIGNING) before changing system security settings.",
-            fixCommand: "ls -t ~/Library/Logs/DiagnosticReports/ | grep -i wechat | head -3")
+            // 141 轮 P2：给用户照抄的取证命令用绝对路径（sudo doctor 的 ~ =
+            // /var/root——与扫描器自身的 RealUser 锚定对齐，否则用户在同一
+            // sudo shell 里跑出「无报告」的假象）
+            fixCommand: "ls -t \(RealUser.homeURL().path)/Library/Logs/DiagnosticReports/ | grep -i wechat | head -3")
     }
 
     // MARK: - Collection
@@ -318,14 +321,14 @@ struct Doctor {
                             + "\(cr.codesigning)）"
                             + (cr.codesigning > 0
                                ? "——签名击杀证据与 AMFI risk 行合读；取证: "
-                                 + "ls -t ~/Library/Logs/DiagnosticReports | grep -i wechat"
+                                 + "ls -t \(RealUser.homeURL().path)/Library/Logs/DiagnosticReports | grep -i wechat"
                                : "——非签名类崩溃与补丁无必然关联，Termination Reason 见报告本体"))
         }
         if !rosettaTargets.isEmpty {
             verdicts.append("Rosetta 执行态：二进制无 \(nativeArch) 切片，\(rosettaTargets.joined(separator: "；")) —— 判定按实际执行的切片（若在「显示简介」里强制过 Rosetta 的双切片构建，此判定不覆盖，请复原设置）")
         }
         if runtimeInjected && !runtimeDylibExists {
-            verdicts.append("❌ LC_LOAD_DYLIB 在场但 runtime dylib 缺失 — 下次启动 dyld 必崩。修复：`wxkeep runtime install` 重装，或 `wxkeep runtime remove` 清掉 LC")
+            verdicts.append("❌ LC_LOAD_DYLIB 在场但 runtime dylib 缺失 — 下次启动 dyld 必崩。修复：`\(writable ? "" : "sudo ")wxkeep runtime install` 重装，或 `\(writable ? "" : "sudo ")wxkeep runtime remove` 清掉 LC")
         }
         // 供应链与切片完整性观察。目录选择（108 轮修）：显式 --config 时验
         // 实际装载文件所在目录——隐式 locatedDirectory 可能指向另一份候选
@@ -398,7 +401,7 @@ struct Doctor {
             verdicts.append("⚠️ catalog manifest INVALID — \(String(ms.dropFirst(8))). Refusing to trust bundled data; fetch a fresh copy.")
         }
         if runtimeInjected && runtimeHookArmed == false {
-            verdicts.append("runtime hook 未武装——当前构建无匹配地址行/序言不符/函数身份门不符（77 续：同序言不同函数已实证可能）：`wxkeep runtime hooks` 刷新后重启微信，`wxkeep runtime status` 看诊断位")
+            verdicts.append("runtime hook 未武装——当前构建无匹配地址行/序言不符/函数身份门不符（77 续：同序言不同函数已实证可能）：`\(writable ? "" : "sudo ")wxkeep runtime hooks` 刷新后重启微信，`wxkeep runtime status` 看诊断位")
         }
 
         // next command
@@ -778,7 +781,10 @@ struct Doctor {
                        + "(re-running install alone is rejected by the already-injected check), "
                        + "or `remove` alone clears it"],
                     "runtimeInstall@\(started)",
-                    mixedLC ? "\(sudo)wxkeep runtime remove" : "\(sudo)wxkeep runtime install")
+                    // 141 轮 P1：非混合态的 next_command 也是 remove——install
+                    // 单跑会被已注入预检 100% 拒（上方文案自己说了），机器可
+                    // 执行的处方只有 remove；remove 后人工重装。
+                    "\(sudo)wxkeep runtime remove")
         case .runtimeRemove:
             return (["⚠️ INTERRUPTED RUNTIME REMOVE detected (started \(started)) — re-run "
                      + "`\(sudo)wxkeep runtime remove` to complete it (idempotent)"],

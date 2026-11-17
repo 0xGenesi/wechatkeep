@@ -183,11 +183,10 @@ static const hook_target_t kTarget270099 = {
 static const hook_target_t *const kBuiltins[] = { &kTarget270099 };
 static const size_t kBuiltinCount = sizeof(kBuiltins) / sizeof(kBuiltins[0]);
 
-// 68 = 4.1.15 全家族 + 270131-270135 × 双架构 + 4.2.0 线 270340-270352
-// （2026-11-07 补 270352 后的 knownHooks 现量）；128 留 update-data
-// 分发新构建行的余量（越限行被静默丢弃——parse 循环的 n >= 上限 break，
-// 丢的是追加在尾部的最新构建行：容量必须显著大于 knownHooks 现量，
-// RuntimeHookTests 有 128 行全收的容量回归锁）。
+// 78 = 139 轮后 knownHooks 现量（五新构建补 keeptip/update/hooks 行，
+// 68→78）；128 留 update-data 分发新构建行的余量（越限行被静默丢弃——
+// parse 循环的 n >= 上限 break，丢的是追加在尾部的最新构建行：容量必须
+// 显著大于 knownHooks 现量，RuntimeHookTests 有 128 行全收的容量回归锁）。
 enum { kMaxExtHooks = 128 };
 static hook_target_t g_ext_hooks[kMaxExtHooks];
 static int g_ext_hook_count;
@@ -247,6 +246,16 @@ static int g_zero_fires;           // 清零计数（newmsgid 与 msgid 共用�
 static char g_last_fired[96];      // 最后一次改写后的内文前 95B（渲染问题取证）
 static char g_last_inner[96];      // 最后一次 needle 命中时的原始内文前 95B
 static int g_hook_installed;
+
+// ---------------------------------------------------------------------------
+// dylib 版本自标识（141 轮）：装面错位门。CLI 以字节扫描读 dylib 文件的
+// 此串判「装进去的 dylib 是不是当前版本」——138 轮实弹教训（brew 0.2.17
+// 在役时 CLI 已是 0.2.18 预备态，136/137 的加固全部没进装机面，靠人工
+// 登记才发现）。格式固定 "WXKEEP_DYLIB_VERSION=<semver>"；与
+// WxkeepCLI.swift 的版本常量同步（RuntimeHookTests 契约锁双侧一致，
+// 改版本必须同轮改两处+过锁）。
+__attribute__((used)) const char *const wxkeep_dylib_version_tag =
+    "WXKEEP_DYLIB_VERSION=0.2.19";
 
 // ---------------------------------------------------------------------------
 // V3-M2 克隆原型缝（R1 骨架起建，R4/R5 增写点捕获与配对，2026-11-01，
@@ -1198,7 +1207,10 @@ enum { kCloneMaxLookups = 32 };
 enum { kRdHit = 1, kRdGet = 2, kRdInner = 4 };
 typedef struct {
     uint32_t lookup_off, wrap_off, getter_off, x2single_off, x2desc_off, x2ctx_off;
-    uint32_t keyctor_off;       // R11：key 构造 0x4a2b524（sret 24B 串对象）
+    // R11 keyctor 偏移：141 轮 keyctor 直调移除后生产零读写——字段保留
+    // 供测试缝注入（parse_invoke 零调用锁断言面：变异若复活的 keyctor
+    // 调用会打到缝注入的观察桩上，测试当场红）。
+    uint32_t keyctor_off;
 } clone_rd_table_t;
 typedef struct {
     void *lookup, *wrap, *getter, *x2single, *x2ctx;
@@ -1209,7 +1221,6 @@ static uint32_t g_clone_svc_vt_off;          // 行携带（0x9deeb48）
 static clone_rd_table_t g_clone_rd;          // 安装期填充（base 相对偏移）
 static volatile int g_clone_rd_valid;        // 身份门全过才置位（RELEASE 发布）
 static volatile int g_clone_rd_lookups;      // 进程级调用上界护栏（实验封顶）
-static volatile int g_clone_rd_keyctor_valid; // R11：keyctor 三字段行在位且 rd 门过
 static int g_clone_rd_misses;                // lookup miss / 中途守卫退出（clmissq=）
 static int g_clone_key_caps;                 // key 采集成功数（clkey=）
 static uint64_t g_clone_parse_consumer;      // parse 入口 args[0] 快照（hook 体写）
@@ -1229,7 +1240,9 @@ static int clone_rd_run_core(uint64_t svc, const uint8_t *keyobj24,
                              uint32_t svc_vt_off, uint64_t *svc_out,
                              uint64_t *msg_out);
 static void clone_ins_probe(uint64_t svc, uint64_t msg_obj);
+static volatile int g_clone_ins_valid;   // 定义在 M4 节（tentative 合并）
 static uint64_t rd_abs(uint64_t base, uint32_t off);   // 定义在 R6 节
+static inline int svc_vt_matches(uint64_t base, unsigned long svc_vt_off, uint64_t vt);
 static void bootlog_line(const char *msg);             // 定义在武装节
 
 static void clone_work_evt(const clone_evt_t *evt);   // 定义在 R11 节（池 drain 后置消费）
@@ -1365,13 +1378,13 @@ static int clone_capture(const uint8_t *ptr, uint64_t size) {
 /// parse 锚定主体（R11；clone_work 消费；测试缝直驱同一条代码）。返回
 /// 位掩码 kRdHit|kRdGet|kRdInner；svc/obj/key 任一验证失败返回 0。
 /// 宿主调用合法面（异步串行队列）：
-///   ①svc 验证：[cand+0xb78]→[svc]==base+clone_svc_vtable（cand=
+///   ①svc 验证：[cand+0xb78]→[svc]==base+clone_svc_vtable 双视图（cand=
 ///     parse 入口 args[0]；验证否 = px0 行，候选身份裁决）
-///   ②obj 验证：[obj] 非零可读（parse 的 msg 结构在 worker 时点的
-///     存活竞态如实暴露——死即守卫退出，绝不带病直调）
-///   ③key 构造：keyctor(sret=keyout24, x0=obj)——宿主直调（行身份
-///     门武装后）；24B key 串对象直送 lookup，sso 快照进 px0 行
-///    （「键=svrid 十进制还是会话串」最终定案面）
+///   ②obj：**仅内核读**（svc 扫描发现/msg 基址还原）——141 轮起零宿主
+///     直调（原 keyctor 回退移除，140 续③ UAF 事故闭环）
+///   ③key：g_lu_keyptr 24B 头快照直用（live lookup 对，纯内核读；121 轮
+///     实弹 key=ASCII "458457…"）——失败即 key=<miss> px0 行 + clmissq，
+///     不再有 keyctor(msg) 回退
 ///   ④读路径 tail = 写点版同一条 clone_rd_run_core
 /// R12：经验 svc 发现（parse 锚定的 cand/msg 都不是 consumer 本体——
 /// 116 轮实弹 vtable-miss）。L0=本体直扫（msg 全深 0x240——类尺寸
@@ -1385,7 +1398,7 @@ static uint64_t clone_scan_svc(uint64_t base, uint64_t base_end,
     for (uint64_t a = base; a < base_end; a += 8) {
         uint64_t p = 0, v = 0;
         if (!kread64(a, &p) || p <= 0x10000) continue;
-        if (kread64(p, &v) && v == svc_vt) {
+        if (kread64(p, &v) && (v == svc_vt || v + 0x16a0 == svc_vt)) {
             if (found_off) *found_off = (int)(a - base);
             return p;
         }
@@ -1405,7 +1418,7 @@ static uint64_t clone_scan_svc_2hop(uint64_t root, uint64_t root_end,
         if (!kread64(a, &p) || p <= 0x10000) continue;
         for (int off = 0; off < 0x100; off += 8) {
             uint64_t v = 0;
-            if (kread64(p + (uint64_t)off, &v) && v == svc_vt) {
+            if (kread64(p + (uint64_t)off, &v) && (v == svc_vt || v + 0x16a0 == svc_vt)) {
                 if (hop1_off) *hop1_off = (int)(a - root);
                 if (hop2_off) *hop2_off = off;
                 return p + (uint64_t)off;   // 注意：返回的是 vtable 所在
@@ -1424,27 +1437,35 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
     const char *src = "scan";
     uint64_t svc_vt = rd_abs(g_image_base, g_clone_svc_vt_off);
     // R12 msg 基址还原：parse 的 x1 = msg+0x130（XML SSO 成员地址，
-    // wrapper 0x4d1f6c4 直译 x20=x21+0x130）——keyctor 吃的是 msg 基址。
+    // wrapper 0x4d1f6c4 直译 x20=x21+0x130）——msg 仅扫描发现面用（内核
+    // 读），141 轮起零宿主直调（原 keyctor 消费方已移除）。
     uint64_t msg = obj;
     if (obj > 0x10000 + 0x130) msg = obj - 0x130;
     // R15/R16 lookup 直挂快路（共用汇点，撤销标记必经）。双 vtable 门
-    //（121 轮实弹定案）：x0 = 双 vtable 对象的**第二接口视图**
-    //（[x0]=0x9ded4a8=svc_vt−0xa0；主视图 [x−0x18]=0x9deeb48）——
+    //（121/140 轮实弹定案）：x0 = 双 vtable 对象的**第二接口视图**
+    //（[x0]=0x9ded4a8=svc_vt−0x16a0；主视图 [x−0x18]=0x9deeb48）——
     // 重查调用保持 x0 原样透传（宿主 lookup 的真实 ABI 形态）。
     // 键：g_lu_keyptr 的 24B 串对象头 → 字节快照直用（live consumer 已
-    // 构造好的键——绕开 keyctor/msg 存活竞态；121 轮实弹 key=ASCII 文本
-    // "458457…"）。快照失败回落 keyctor(msg)。
+    // 构造好的键——绕开 msg 存活竞态；121 轮实弹 key=ASCII 文本
+    // "458457…"）。**141 轮：keyctor(msg) 回退已移除**——140 续③ 真机
+    // 崩溃（keyctor 解引 parse 返回后被释放/局部复用的 msg 字符串字段 →
+    // SIGSEGV）证明「模块成员门 + msg_vt 门」都拦不住部分复用形态；异步
+    // worker 对 msg 的宿主直调是结构性不安全面，唯一诚实修法=移除。快照
+    // 失败 → key=<miss> 证据行 + clmissq（byte 路径的帧快照键不受影响）。
     uint8_t lu_keybytes[64];
     uint32_t lu_keylen = 0;
-    if (__atomic_load_n(&g_lu_svc, __ATOMIC_ACQUIRE) > 0x10000) {
-        uint64_t lsvc = g_lu_svc, lvt = 0;
+    // 141 轮体检 P3 修：单次原子读（原 check-then-plain-re-read 把 acquire
+    // 序丢弃——与 cm 对 124-P3 的原子化纪律对齐；值随后仍有 vtable 门复验）。
+    uint64_t lu_svc_snap = __atomic_load_n(&g_lu_svc, __ATOMIC_ACQUIRE);
+    if (lu_svc_snap > 0x10000) {
+        uint64_t lsvc = lu_svc_snap, lvt = 0;
         if (kread64(lsvc, &lvt) && lvt == svc_vt) {
             svc = lsvc;
             svc_ok = 1;
             svc_off = -2;
             src = "lu";
             g_clone_svc2_hits++;          // clsvc2=
-        } else if (lvt == svc_vt - 0xa0) {
+        } else if (lvt == svc_vt - 0x16a0) {   // 第二接口视图（0x16a0 实测距离）
             svc = lsvc;                   // 二接口视图原样透传（lookup ABI）
             svc_ok = 1;
             svc_off = -2;
@@ -1462,35 +1483,39 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
         }
     }
     // R14 cm 直挂快路：cm pair 与 parse 嵌套一致（cm_msg==obj-0x130）→
-    // cand=consumer 本体，[cand+0xb78] 即 R6 合同位
+    // cand=consumer 本体，[cand+0xb78] 即 R6 合同位（双视图统一，141 轮）
     if (!svc_ok && cm_msg > 0x10000 && obj > 0x10000 + 0x130 && cm_msg == obj - 0x130
         && cand > 0x10000
         && kread64(cand + 0xb78, &svc) && svc > 0x10000
-        && kread64(svc, &vt) && vt == svc_vt) {
+        && kread64(svc, &vt) && svc_vt_matches(g_image_base, g_clone_svc_vt_off, vt)) {
         svc_ok = 1;
         svc_off = 0xb78;
         src = "cm";
         msg = cm_msg;
         g_clone_svc2_hits++;              // clsvc2=
     }
-    // 快路（R11 合同位）：cand=consumer this 时 [cand+0xb78] 直中
+    // 快路（R11 合同位）：cand=consumer this 时 [cand+0xb78] 直中（双视图统一）
     if (!svc_ok && cand > 0x10000
         && kread64(cand + 0xb78, &svc) && svc > 0x10000
-        && kread64(svc, &vt) && vt == svc_vt) {
+        && kread64(svc, &vt) && svc_vt_matches(g_image_base, g_clone_svc_vt_off, vt)) {
         svc_ok = 1;
         svc_off = 0xb78;
         src = "cand";
         g_clone_svc2_hits++;              // clsvc2=
     }
     // 扫描路：L0 本体（cand 头 0x100 / msg 全深 0x240）→ L1 两级
+    //（141 轮：命中也计 clsvc2——扫描发现即身份门命中，与 lu/cm/cand
+    // 同一口径；此前只在快路计，扫描命中无计数面）
     if (!svc_ok) {
         uint64_t p = clone_scan_svc(cand, cand + 0x100, svc_vt, &svc_off);
         if (p > 0x10000) {
             svc = p; svc_ok = 1;
+            g_clone_svc2_hits++;          // clsvc2=（scan L0）
         } else {
             p = clone_scan_svc(msg, msg + 0x240, svc_vt, &svc_off);
             if (p > 0x10000) {
                 svc = p; svc_ok = 1;
+                g_clone_svc2_hits++;      // clsvc2=（scan L0·msg 深扫）
             } else {
                 int h1 = -1, h2 = -1;
                 p = clone_scan_svc_2hop(cand, cand + 0x100, svc_vt, &h1, &h2);
@@ -1501,6 +1526,7 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
                     // 路径（root+hop1 → P+hop2）随下轮 px0 行回填合同。
                     svc = p;
                     svc_ok = 1;
+                    g_clone_svc2_hits++;  // clsvc2=（scan L1 两级）
                     (void)h1; (void)h2;
                 }
             }
@@ -1526,58 +1552,59 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
         }
         key_ok = 1;
         g_clone_key_caps++;               // clkey=（live 键采集）
+        // 141 轮体检 P3：svc 视图标注（r8pub 探针偏移随视图变——pub_vt
+        // 派生前必须知道证据行读的是哪个视图）
+        uint64_t svt_now = 0;
+        int view2 = 0;
+        if (kread64(svc, &svt_now)) view2 = (svt_now == svc_vt - 0x16a0);
         char kx[25];
         for (int i = 0; i < 12 && i < (int)key_len; i++)
             snprintf(kx + i * 2, 3, "%02x", (uint8_t)lu_keybytes[i]);
         char b[224];
         snprintf(b, sizeof(b),
-                 "px0: src=%s svc_off=%d lu_seq=%llu keylen=%u key=%s",
-                 src, svc_off, (unsigned long long)g_lu_seq, key_len, kx);
+                 "px0: src=%s view=%d svc_off=%d lu_seq=%llu keylen=%u key=%s",
+                 src, view2 ? 2 : 1, svc_off, (unsigned long long)g_lu_seq,
+                 key_len, kx);
         bootlog_line(b);
     }
-    if (svc_ok && !key_ok && msg > 0x10000) {
-        typedef void (*keyctor_t)(void *, void *);
-        uint64_t obj_head = 0;
-        // 123 轮体检 P0：原门=「可读且首 8B 非零」——捕获与执行间被释放/
-        // 复用的对象（页仍映射、首 8B 常非零）照样过门，宿主 keyctor 在错
-        // 对象上跑内部指针链 = 崩在宿主代码。加模块成员门：[msg]（vtable
-        // 槽）须落在 wechat.dylib 镜像跨度内（msg 类 vtable 不在行数据，
-        // 模块域是免 schema 的最强近似——堆指针/小整数/毒值全拒；svc 门
-        // 比对的 svc_vt 同域）。
-        if (kread64(msg, &obj_head) && obj_head != 0
-            && (uintptr_t)obj_head >= g_image_base
-            && (uintptr_t)obj_head - g_image_base < 0x20000000ULL) {
-            ((keyctor_t)rd_abs(g_image_base, g_clone_rd.keyctor_off))(
-                (void *)keyobj, (void *)msg);
-            uint8_t flag = keyobj[0x17];   // 串对象头合法性（短 len<<1/长 MSB）
-            if (flag != 0) {
-                uint8_t kb[64];
-                key_len = (uint32_t)sso_key_snapshot(keyobj, kb, sizeof(kb));
-                if (key_len > 0) {
-                    key_ok = 1;
-                    g_clone_key_caps++;   // clkey=（parse 锚定 key 采集）
-                    char kx[25];
-                    for (int i = 0; i < 12 && i < (int)key_len; i++)
-                        snprintf(kx + i * 2, 3, "%02x", kb[i]);
-                    uint64_t cvt = 0, mvt = 0;
-                    if (cand > 0x10000) kread64(cand, &cvt);
-                    if (msg > 0x10000) kread64(msg, &mvt);
-                    char b[288];
-                    snprintf(b, sizeof(b),
-                             "px0: src=%s svc_off=%d lu_seq=%llu lu_svc_ok=%d "
-                             "candvt_off=0x%llx msgvt_off=0x%llx keylen=%u key=%s",
-                             src, svc_off,
-                             (unsigned long long)g_lu_seq,
-                             (int)(__atomic_load_n(&g_lu_svc, __ATOMIC_ACQUIRE) > 0x10000),
-                             (unsigned long long)(cvt > g_image_base ? cvt - g_image_base : 0),
-                             (unsigned long long)(mvt > g_image_base ? mvt - g_image_base : 0),
-                             key_len, kx);
-                    bootlog_line(b);
-                }
-            }
+    // 141 轮（140 续③ 事故闭环）：keyctor(msg) 宿主直调**移除**。原回退
+    // 在异步 worker 上对 parse 时刻的 msg 直调宿主 key 构造——msg 在 parse
+    // 返回后即可被宿主释放/局部复用（kread 可读性 ≠ 存活；模块成员门/
+    // msg_vt 门都拦不住「头未动、字符串字段被复用」的形态——真机 SIGSEGV
+    // 实证）。键的唯一来源 = 上方 lu 快照（live lookup 对，纯内核读）；
+    // 失败 = 本 miss 证据行 + clmissq。字节路径（clone_hook_body 帧快照）
+    // 不经此处。g_clone_rd.keyctor_off 仅存于测试缝（零调用锁断言面）。
+    if (svc_ok && !key_ok) {
+        uint64_t kp = __atomic_load_n(&g_lu_keyptr, __ATOMIC_ACQUIRE);
+        uint64_t cvt = 0, mvt = 0;
+        if (cand > 0x10000) kread64(cand, &cvt);
+        if (msg > 0x10000) kread64(msg, &mvt);
+        uint8_t kf = 0;
+        if (kp > 0x10000) {
+            uint8_t khead[24];
+            if (kread_buf(kp, khead, 24)) kf = khead[0x17];
         }
+        uint64_t svt_now = 0;
+        int view2 = 0;
+        if (kread64(svc, &svt_now)) view2 = (svt_now == svc_vt - 0x16a0);
+        char b[288];
+        snprintf(b, sizeof(b),
+                 "px0: src=%s view=%d svc_off=%d lu_seq=%llu key=<miss> lu_keyptr=0x%llx "
+                 "lu_kflag=0x%02x candvt_off=0x%llx msgvt_off=0x%llx",
+                 src, view2 ? 2 : 1, svc_off,
+                 (unsigned long long)g_lu_seq,
+                 (unsigned long long)kp, kf,
+                 (unsigned long long)(cvt > g_image_base ? cvt - g_image_base : 0),
+                 (unsigned long long)(mvt > g_image_base ? mvt - g_image_base : 0));
+        bootlog_line(b);
     }
     int r = 0;
+    // 141 轮体检：**host tail 的结构性单路不变量**——lu 键快照内嵌于
+    // lu svc_ok 分支，cm/cand/scan 发现的 svc 必然 lu_keylen==0 ⇒
+    // key_ok==0 ⇒ 到不了 core。即宿主直调（lookup 族）只经 lu 对
+    //（宿主自身 lookup 调用点捕获、consumer 成员服务=R6 生存期论证），
+    // 扫描发现仅为证据面（140 续③ 教训的结构化形态：未论证生存期的
+    // 句柄绝不做宿主直调）。回归锁：cloneParseChainEndToEnd ⑥b。
     if (key_ok) {
         clone_rd_fns_t fns = {
             .lookup = (void *)rd_abs(g_image_base, g_clone_rd.lookup_off),
@@ -1590,7 +1617,11 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
         uint64_t probe_svc = svc, probe_msg = 0;
         r = clone_rd_run_core(svc, keyobj, &fns, g_image_base,
                               g_clone_svc_vt_off, &probe_svc, &probe_msg);
-        if ((r & kRdGet) && probe_svc > 0x10000 && probe_msg > 0x10000) {
+        // 141 轮体检 P3：探针门与字节路径（clone_work_full）对齐——ins 表
+        // 未武装不计 clpub 证据（「表未武装不计证据」口径的parse侧补齐，
+        // 否则未派生 pub_vt 时的 match=0 会被误读为「认证失配」）。
+        if ((r & kRdGet) && __atomic_load_n(&g_clone_ins_valid, __ATOMIC_ACQUIRE)
+            && probe_svc > 0x10000 && probe_msg > 0x10000) {
             clone_ins_probe(probe_svc, probe_msg);   // M4 探针（R8/R9 面）
         }
     }
@@ -1602,8 +1633,9 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
         uint64_t lvt = 0;
         if (lsvc > 0x10000) kread64(lsvc, &lvt);
         // key 字节 dump（g_lu_keyptr 的 24B 串对象头 → 快照）：键格式定案面
+        //（141 轮 P1 修：khex[8] 装不下 6B×2hex+NUL=13——诊断路径自身溢出）
         uint64_t kp = __atomic_load_n(&g_lu_keyptr, __ATOMIC_ACQUIRE);
-        char khex[8] = {0};
+        char khex[13] = {0};
         if (kp > 0x10000) {
             uint8_t khead[24];
             if (kread_buf(kp, khead, 24)) {
@@ -1631,8 +1663,11 @@ static int clone_parse_run(uint64_t cand, uint64_t obj, uint64_t cm_msg) {
 /// R11 parse 锚定：nomethods 桩退役（实弹判决写点缝零触发，clrow=0）；
 /// 门与护栏语义与写点版一致，主体见 clone_parse_run。
 static void clone_work_evt(const clone_evt_t *evt) {
+    // 141 轮：keyctor_valid 门随 keyctor 直调移除而退役——evt worker 的
+    // 武装条件与字节路径（clone_work_full）对齐为 rd_valid 单门；行侧
+    // keyctor 三件套仍按「在场必须完整」解析（数据合同不变），缺三件套
+    // 的行不再连带丧失 lu 键证据链。
     if (!__atomic_load_n(&g_clone_rd_valid, __ATOMIC_ACQUIRE)
-        || !g_clone_rd_keyctor_valid
         || g_image_base == 0) {
         g_clone_nomethods++;
         return;
@@ -1722,7 +1757,10 @@ static int g_clone_rd_gets;                 // getter 非 null（clget=）
 static int g_clone_rd_inner;                // msg_obj+0x6b0 inner 在位（clinner=）
 static int g_clone_key_caps;                // 帧内 key 串快照成功数（clkey=）
 static int g_clone_last_key_len;            // 最近一次快照的 key 字节数
-static char g_clone_last_key[64];           // 最近一次快照（bootlog 诊断面，不入 marker）
+// 141 轮 P1 修：[64]+[key_len]=0 在 64B 快照（sso_key_snapshot 上界）时
+// 越界一字节——扩到 65 使 NUL 尾零恒在界内（key_len==64 的记录在
+// clone_rd_run 侧本就按 >63 拒绝，长度语义不变）。
+static char g_clone_last_key[65];           // 最近一次快照（bootlog 诊断面，不入 marker）
 /// 24B 串对象头（arm64 变体布局，77 续⑧）→ 字节快照。返回长度（0=放弃）。
 static int sso_key_snapshot(const uint8_t head24[24], uint8_t *out, size_t cap) {
     if ((int8_t)head24[0x17] < 0) {   // 长串：ptr@0 size@8
@@ -1856,15 +1894,17 @@ static void clone_dispatch_full(uint64_t msgid, uint64_t svc, uint64_t consumer,
 /// 溢出安全换算：切片偏移 → 绝对 VA（base 已知合法）。
 static uint64_t rd_abs(uint64_t base, uint32_t off) { return base + off; }
 
-/// svc vtable 身份门的视图宽容（140 轮冒烟实弹定案）：x19+0xb78 到达的
-/// 服务对象可能呈**第二接口视图**（[svc] = svc_vt − 0xa0——110 轮「双
-/// vtable 对象」发现的实弹复现：px0 行 lu_svcvt_off=0x9ded4a8 ≠ 行门
-/// 0x9deeb48 → svc=<miss>，worker 于此退出、clpub 不可达）。两视图同一
-/// 对象（Δ=0xa0 恒定，RE 定案），双视图皆过门——计数语义不变（clsvc/
-/// clpub 仍验同一对象身份，只是视图不同）。
+/// svc vtable 身份门的视图宽容（140 轮冒烟实弹定案，141 轮全门点统一）：
+/// x19+0xb78 / lu 直挂到达的服务对象可能呈**第二接口视图**（[svc] =
+/// svc_vt − 0x16a0——110 轮「双 vtable 对象」发现的实弹复现：px0 行
+/// lu_svcvt_off=0x9ded4a8 ≠ 行门 0x9deeb48 → svc=<miss>，worker 于此
+/// 退出、clpub 不可达）。两视图同一对象（Δ=0x16a0 实测定案；110/121
+/// 注的「−0xa0」为算术勘误——按 0xa0 比对永不命中，即 svc=<miss> 的
+/// 直接根因），双视图皆过门——计数语义不变（clsvc/clpub 仍验同一对象
+/// 身份，只是视图不同）。
 static inline int svc_vt_matches(uint64_t base, unsigned long svc_vt_off, uint64_t vt) {
-    const uint64_t want = rd_abs(base, svc_vt_off);
-    return vt == want || vt + 0xa0 == want;
+    const uint64_t want = rd_abs(base, (uint32_t)svc_vt_off);   // 行偏移恒 <4G——显式截断消 -Wshorten 警告
+    return vt == want || vt + 0x16a0 == want;
 }
 
 /// R11 拆分壳（写点配对字节路径）：svc 重建与复验 + key 字节重建 → core。
@@ -1908,17 +1948,22 @@ static int clone_rd_run(const clone_full_t *rec, const clone_rd_fns_t *fns,
 }
 
 /// R11 拆分 core（读路径 tail；parse 锚定与字节路径共用单一代码路径）。
-/// keyobj24 = **就绪的 24B key 串对象**（字节路径由壳重建；parse 路径由
-/// 宿主 keyctor 产出直送）。返回位掩码 kRdHit|kRdGet|kRdInner。
+/// keyobj24 = **就绪的 24B key 串对象**（两条路径都由 lu/帧快照的字节
+/// 重建——141 轮起宿主 keyctor 直调移除）。返回位掩码 kRdHit|kRdGet|kRdInner。
 static int clone_rd_run_core(uint64_t svc, const uint8_t *keyobj24,
                              const clone_rd_fns_t *fns, uint64_t base,
                              uint32_t svc_vt_off, uint64_t *svc_out,
                              uint64_t *msg_out) {
     // svc 复验（写点路径配对与执行之间 consumer 可能销毁；parse 路径刚
-    // 验过——双验一次内核读成本，换取单一代码路径）。
+    // 验过——双验一次内核读成本，换取单一代码路径）。141 轮：改用
+    // svc_vt_matches 双视图门——140 续的四处门点修复漏了本第五门（core
+    // 尾巴的严格比对），第二视图 svc 会在此被拒、M4 链（clpub）仍不可达
+    //（141 轮全门点扫描发现——「解锁链路修复必须同轮扫全下游门点」的
+    // 又一实证）。
     {
         uint64_t vt = 0;
-        if (svc <= 0x10000 || !kread64(svc, &vt) || vt != rd_abs(base, svc_vt_off))
+        if (svc <= 0x10000 || !kread64(svc, &vt)
+            || !svc_vt_matches(base, svc_vt_off, vt))
             return 0;
     }
     if (svc_out) *svc_out = svc;   // M4 探针输入（读服务在手）
@@ -1953,7 +1998,9 @@ static int clone_rd_run_core(uint64_t svc, const uint8_t *keyobj24,
     //    生命周期诚实边界：本 worker 不做配对 release）
     big3_t got = { poison, poison, poison };
     got = ((getter_t)fns->getter)(w);
-    if (got.a <= 0x10000) return kRdHit;
+    // 141 轮体检 P3：毒值哨兵同拒（getter 未写 sret 时预置 0xAAAA… 会过
+    // <=0x10000 门——与 clone_ins_run 的 out.d==poison 判别对齐）
+    if (got.a <= 0x10000 || got.a == poison) return kRdHit;
     g_clone_rd_gets++;                     // clget=
     if (msg_out) *msg_out = got.a;         // M4 探针/插入输入（消息对象在手）
     // 7) 行集合持有者证据（+0x6b0 inner——R6 后续行枚举的入口在位性）
@@ -1995,8 +2042,11 @@ static void clone_work_full(const clone_full_t *rec) {
     int r = clone_rd_run(rec, &fns, g_image_base, g_clone_svc_vt_off, &svc, &msg_obj);
     if (!(r & kRdHit)) g_clone_rd_misses++;   // clmissq=（lookup miss / 守卫退出）
     {   // bootlog 证据行（key 前缀 12B——「键=svrid 十进制还是会话串」的
-        // 真机定案面；marker 只带长度，内容不进低敏感通道）
+        // 真机定案面；marker 只带长度，内容不进低敏感通道）。141 轮 P2 修：
+        // key_len==0（帧快照失败）是常态路径——kx 先置空串，%s 不再读未初始化
+        // 栈（原先会带出任意长度栈字节进 bootlog）。
         char kx[25];
+        kx[0] = 0;
         for (int i = 0; i < 12 && i < (int)rec->key_len; i++)
             snprintf(kx + i * 2, 3, "%02x", (uint8_t)rec->key[i]);
         char b[176];
@@ -2188,20 +2238,6 @@ static int kread_buf(uint64_t addr, void *out, size_t n) {
     return 1;
 }
 
-/// 从本地缓冲套用 per-arch SSO 布局（sso_head 的内核读版——原函数裸解引用，
-/// 只可用于自身缓冲）。buf = 对象头 24B 快照。1=长串且 (size,off) 已填
-/// （off 相对对象基址的 content 起始——长串数据指针在头内）。
-static int sso_head_buf(const uint8_t *head24, uint64_t *size) {
-    if (g_sso_layout_arm64) {
-        if ((int8_t)head24[0x17] >= 0) return 0;
-        memcpy(size, head24 + 8, 8);
-    } else {
-        if (!(head24[0] & 1)) return 0;
-        memcpy(size, head24 + 8, 8);
-    }
-    return 1;
-}
-
 /// 克隆 hook 体（109 轮合同修正版）：args = 写点整型参镜像（x0/x1/x2……）。
 /// 只读 args[1]（&shared_ptr{inner,ctl}，解一次引用得行集合持有者）；
 /// 事件 + msgid 配对走内核读 + 异步派发（队列复用 R1 的 wxkeep.clone
@@ -2212,8 +2248,11 @@ __attribute__((used)) static void clone_hook_body(void *const *args) {
     // R6 证据步：内核读 [x19+0xb78] → 成员服务对象 → [svc] vtable 与
     // base+行偏移比对。x19 来自 thunk 快照（可能是垃圾寄存器值——比如
     // 写点被非 consumer_main 路径调用），全部走内核读：错值只让比对不中，
-    // 绝不放大为崩溃。
-    if (g_clone_svc_vt_valid && g_image_base) {
+    // 绝不放大为崩溃。（141 轮体检 P3：安装期 RELEASE 发布的标志改原子
+    // ACQUIRE 读——与其余读点纪律一致；另在册：thunk 全局单槽快照在
+    // thunk 存值与 body 取值之间被并发写点穿过 = 换成他人帧（错键 miss
+    // 级，窗口数条指令，无崩溃面）。）
+    if (__atomic_load_n(&g_clone_svc_vt_valid, __ATOMIC_ACQUIRE) && g_image_base) {
         uint64_t x19v = __atomic_load_n(&g_clone_caller_x19, __ATOMIC_ACQUIRE);
         uint64_t svc = 0, vt = 0;
         if (x19v > 0x10000
@@ -2256,7 +2295,7 @@ __attribute__((used)) static void clone_hook_body(void *const *args) {
             uint32_t key_len = 0;
             char key_local[64];
             uint64_t caller_sp = __atomic_load_n(&g_clone_caller_sp, __ATOMIC_ACQUIRE);
-            if (g_clone_rd_key_slot_live && caller_sp > 0x10000) {
+            if (__atomic_load_n(&g_clone_rd_key_slot_live, __ATOMIC_ACQUIRE) && caller_sp > 0x10000) {
                 uint8_t head24[24];
                 if (kread_buf(caller_sp + 0xE0 + g_clone_rd_key_slot_off,
                               head24, sizeof(head24))) {
@@ -2271,7 +2310,7 @@ __attribute__((used)) static void clone_hook_body(void *const *args) {
                 g_clone_last_key[key_len] = 0;
             }
             uint64_t svc = 0, x19v = __atomic_load_n(&g_clone_caller_x19, __ATOMIC_ACQUIRE);
-            if (g_clone_svc_vt_valid && g_image_base && x19v > 0x10000) {
+            if (__atomic_load_n(&g_clone_svc_vt_valid, __ATOMIC_ACQUIRE) && g_image_base && x19v > 0x10000) {
                 uint64_t s = 0, vt = 0;
                 if (kread64(x19v + 0xb78, &s) && s > 0x10000
                     && kread64(s, &vt)
@@ -2299,19 +2338,8 @@ __attribute__((used)) static void clone_hook_body(void *const *args) {
 
 static int g_sso_layout_arm64;   // 安装时按行 arch 置位；测试缝可切换
 
-/// 从串对象头提取 (size, ptr)。返回 1 = 长串且字段已填；0 = 非长串/放弃。
-static int sso_head(const uint8_t *obj, uint64_t *size, uint8_t **ptr) {
-    if (g_sso_layout_arm64) {
-        if ((int8_t)obj[0x17] >= 0) return 0;   // 短串
-        memcpy(size, obj + 8, 8);
-        memcpy(ptr, obj, 8);
-    } else {
-        if (!(obj[0] & 1)) return 0;            // 短串
-        memcpy(size, obj + 8, 8);
-        memcpy(ptr, obj + 16, 8);
-    }
-    return 1;
-}
+//（141 轮体检：sso_head/sso_head_buf 两枚零调用死函数移除——123 轮
+// kread 化后仅 sso_head_kread 在役；裸解引用版留着只会误导下一位读者。）
 
 /// sso_head 的内核读版（123 轮体检 P0 修）：头 24B 先经 kread——错挂
 ///（同 UUID 同序言异函数，10-03 事故形态）时 args 里的垃圾指针只让解析
@@ -2613,7 +2641,11 @@ static void *revoke_cm_hook(void) { return NULL; }   // x64 行不带 cm 组
 // R15 lookup 直挂 thunk（第四 SLOT，0x32edaec 共用汇点）：六个 lookup 调用
 // 者（consumer 族）全走此函数——撤销标记路径必经（实测撤回被处理）。被动
 // 存 x0(svc)/x1(key 串对象指针)+序列计数后 ldar 尾跳。worker 用 [x0] 的
-// vtable 门 + keyctor(msg) 的键做自身重查——consumer 身份从此无关。
+// vtable 门（双视图）+ x1 键串 24B 头快照做自身重查——consumer 身份从此
+// 无关（141 轮：keyctor(msg) 回退已移除，键仅此一路）。三值跨线程单槽
+// 快照：worker 侧三次独立原子读可撕裂（svc 取自调用 N、key 取自 N+1）
+// ——最坏一次错键 lookup miss + 误计，svc 仍有 vtable 门复验（与 cm 对
+// 残余竞态同族的在册边界，px0 行 lu_seq 即诊断面）。
 __attribute__((used)) static volatile uint64_t g_lu_svc;
 __attribute__((used)) static volatile uint64_t g_lu_keyptr;
 __attribute__((used)) static volatile uint64_t g_lu_seq;
@@ -3264,7 +3296,6 @@ static int entry_patch_matches(uintptr_t target, const uint8_t expected[16]) {
 static void *slot_arm_target(void) { return (void *)&revoke_wrapper_hook; }
 
 static int try_slot_fill(uintptr_t target, void *trampoline) {
-    const uint32_t br_x16 = 0xD61F0200u;
     uint32_t w[3];
     // 入口 12B 读走内核读（与 entry_patch_present 同规——目标页访问 doctrine
     // 统一；直 memcpy 读在 97-98 实机虽未出事，但与「目标页一律内核读」的
@@ -3600,30 +3631,10 @@ static void arm_clone_site(const hook_target_t *t, uintptr_t base) {
             g_clone_rd_key_slot_off = t->clone_rd_key_slot;
             __atomic_store_n(&g_clone_rd_key_slot_live, 1, __ATOMIC_RELEASE);
             bootlog_line("clone-rd: 直调表已武装（R6 读路径接线，上限 32 次/进程）");
-            // R11 parse 锚定：keyctor 三件套在场则过双身份门（fs+head）后
-            // 才置 valid——直调族的第三个入口，门强与 lookup 同级。失配
-            // 只惰性 keyctor（px0/读链整体不武装），不回退 rd 门结果。
-            if (t->clone_rd_keyctor_off != 0 && t->clone_rd_keyctor_fs != 0) {
-                image_layout_t im2;
-                int kbad = !image_layout((const struct mach_header_64 *)base,
-                                         (size_t)-1, &im2);
-                if (!kbad && func_size_matches(&im2, t->clone_rd_keyctor_off,
-                                               t->clone_rd_keyctor_fs) != 1) kbad = 1;
-                image_layout_free(&im2);
-                uint8_t kh[16];
-                if (!kbad && (!kread_buf(base + t->clone_rd_keyctor_off, kh, 16)
-                              || memcmp(kh, t->clone_rd_keyctor_head, 16) != 0)) kbad = 1;
-                if (kbad) {
-                    bootlog_line("clone-rd: keyctor 身份门失配——parse 锚定链不武装");
-                } else {
-                    g_clone_rd.keyctor_off = t->clone_rd_keyctor_off;
-                    __atomic_store_n(&g_clone_rd_keyctor_valid, 1, __ATOMIC_RELEASE);
-                    bootlog_line("clone-rd: keyctor 已武装（R11 parse 锚定链启用）");
-                }
-            }
-            // 123 轮体检 P3：rd_valid 最后发布（原在 keyctor 段之前——武装窗
-            // 内首个克隆事件可见 rd_valid=1 而 keyctor_valid=0，误计一拍
-            // clmiss/nomethods 诊断噪声）。
+            // 141 轮：keyctor 直调移除——原三件套双身份门（fs+head）随消费
+            // 方消失而退役（keyctor 偏移生产零读写，验证无消费方=仪式）。
+            // 行侧 keyctor 三件套仍按「在场必须完整」解析（数据合同不变，
+            // 组门测试在役）。rd_valid 最后发布的序不变。
             __atomic_store_n(&g_clone_rd_valid, 1, __ATOMIC_RELEASE);
         }
     }
@@ -5114,8 +5125,8 @@ long wxkeep_runtime_test_slot_gate(int prefill) {
     if (rc == EIO) return 1;   // 门拒（prefill 时预期）
     if (rc == ENOENT) return -6;
     return -7;
-    // 武装成功时 SLOT 已被填——归还页即可（匿名页，无残留语义）
-    return 0;
+    //（141 轮体检：rc==0 分支后的两行原为不可达死码——SLOT 填充在
+    // try_slot_fill 内完成，成功路径已于上方 return 0。）
 }
 #endif
 
@@ -5183,6 +5194,23 @@ void wxkeep_runtime_test_set_clone_frame(unsigned long long x19,
     __atomic_store_n(&g_clone_rd_key_slot_live, enable ? 1 : 0, __ATOMIC_RELEASE);
 }
 
+/// R15/R16 lookup 直挂全局注入缝（141 轮）：生产 thunk（revoke_lu_hook）
+/// 只在微信进程内写这三值——测试以本缝直接布置 lu 快路形态（svc=0 清零
+/// 复位；serialized 套件纪律下调用方负责 defer 复位）。
+void wxkeep_runtime_test_set_lu(unsigned long long svc,
+                                unsigned long long keyptr,
+                                unsigned long long seq) {
+    __atomic_store_n(&g_lu_svc, svc, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_lu_keyptr, keyptr, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_lu_seq, seq, __ATOMIC_RELEASE);
+}
+
+/// dylib 版本自标识读回缝（141 轮）：契约锁断言面——CLI 版本常量与本串
+/// 双侧一致（错位 = 装面版本门失效）。
+const char *wxkeep_runtime_test_dylib_version(void) {
+    return wxkeep_dylib_version_tag;
+}
+
 /// 最近一次 key 快照读回（返回长度，0=无）。
 int wxkeep_runtime_test_last_key(char *out, int cap) {
     if (g_clone_last_key_len <= 0) return 0;
@@ -5207,8 +5235,10 @@ void wxkeep_runtime_test_clone_rd_counts(int *hits, int *misses, int *gets,
 
 /// R11 parse 锚定主体直驱缝（clone_parse_run 同一条代码）：注入式武装
 ///（g_image_base/g_clone_rd/g_clone_svc_vt_off 保存-改写-恢复，serialized
-/// 套件纪律）；fns 全部为**绝对地址** JIT 桩，keyctor 桩 sret 写 24B 串
-/// 对象头。cand 须过 [cand+0xb78]→[svc]==base+svc_vt_off 同门。返回位掩码。
+/// 套件纪律）；fns 全部为**绝对地址** JIT 桩。keyctor_fn = 观察桩（141 轮
+/// 起生产零调用——cloneParseChainEndToEnd 末尾的零调用锁断言面；复活直调
+/// 会打到桩上计数自增即红）。svc 门 = svc_vt_matches 双视图（[cand+0xb78]
+/// →[svc]==want 或 want−0x16a0）。返回位掩码。
 int wxkeep_runtime_test_clone_parse_invoke(unsigned long long cand,
                                            unsigned long long obj,
                                            unsigned long keyctor_fn,

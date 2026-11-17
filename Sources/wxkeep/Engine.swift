@@ -24,11 +24,11 @@ enum Engine {
                 "cannot restore: \(detail). Reinstall WeChat from the official dmg, or use a backup file."
             case .variantDeprecated(let variant):
                 "variant `\(variant)` is deprecated: experiments proved it cannot preserve messages, "
-                + "and its final revision crashes WeChat. Run `sudo wxkeep restore` to clean any "
+                + "and its final revision crashes WeChat. Run `wxkeep restore` (sudo as needed for install location) to clean any "
                 + "leftover bytes, then use `--variant keeptip`."
             case .foreignVariantPatched(let target, let sites):
                 "deprecated target `\(target)` still has patched bytes at: "
-                + "\(sites.joined(separator: ", ")). Run `sudo wxkeep restore` first, then re-run this command."
+                + "\(sites.joined(separator: ", ")). Run `wxkeep restore` (sudo as needed for install location) first, then re-run this command."
             }
         }
     }
@@ -301,8 +301,14 @@ enum Engine {
             // 未命中 token 点名（124 轮体检 P3）：多 token 部分命中此前静默收窄
             // （笔误 --only revoke,updat 只有单 token 全空才报错）——按当前
             // 构建 catalog 实际标识符判定后告警，不引入硬编码清单。
+            // 141 轮 P3：`revoke` 别名触发的插入 token（revoke-keeptip）不进
+            // unmatched——keeptip-only 目录上 `--only revoke` 恰好全量命中，
+            // 原先必报一条假「未命中」。
+            let aliasInserted = only == ["revoke"]
+                && versionEntry.targets.contains(where: { $0.identifier == "revoke-keeptip" })
             let unmatched = effective.filter { id in
-                !versionEntry.targets.contains(where: { $0.identifier == id })
+                !(aliasInserted && id == "revoke-keeptip")
+                    && !versionEntry.targets.contains(where: { $0.identifier == id })
             }
             if !unmatched.isEmpty {
                 print("⚠️ --only 未命中任何目标（按构建 \(versionEntry.version) 的 catalog）: "
@@ -438,7 +444,7 @@ enum Engine {
                     summary.lines.append("  [recovery] partial write re-signed — bundle launches; "
                                          + "run `wxkeep doctor` (expect mixed) and re-patch")
                 } catch {
-                    summary.lines.append("  [recovery] resign failed — run `sudo wxkeep restore` BEFORE launching WeChat")
+                    summary.lines.append("  [recovery] resign failed — run `wxkeep restore` (sudo as needed) BEFORE launching WeChat")
                 }
             }
             // 已写字节（即使恢复重签成功也是 mixed 态）：包装重抛，journal 由

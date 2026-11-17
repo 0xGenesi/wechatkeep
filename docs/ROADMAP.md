@@ -1,5 +1,67 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **141 轮（2026-11-17·140 续③ 崩溃事故闭环 + 全仓四面深审一次性收口轮）**：
+> ①**keyctor 直调移除**（事故根因面）：异步 worker 对 parse 时刻 msg 的
+> 宿主直调是结构性 UAF（模块成员门拦不住「头未动、字符串字段被复用」
+> 形态）——键唯一来源 = R15/R16 lu 快照（纯内核读），失败 = px0
+> `key=<miss> lu_keyptr=… lu_kflag=…` 证据行 + clmissq；行侧 keyctor
+> 三件套数据合同不变（生产零消费），`g_clone_rd_keyctor_valid` 与安装
+> 期身份门随消费方移除。②**双视图全门点统一 + 算术勘误**：Δ 定案
+> **0x16a0**（0x9deeb48−0x9ded4a8 实测；110/121/140 续的「−0xa0」为
+> 转写事故——按 0xa0 比对永不命中即 svc=<miss> 直接根因）；140 续四处
+> 门点修复**漏了 clone_rd_run_core 第五门**（严格比对会把第二视图 svc
+> 拒在 core——clpub 仍不可达），141 全扫补齐共**七处**（lu/cm/cand/
+> scan×2/rd_run 复验+回落/core）；扫描发现也计 clsvc2。③**结构性单路
+> 不变量显式化**：lu 键快照内嵌于 lu svc_ok 分支 ⇒ cm/cand/scan 发现
+> 的 svc 必然无键 ⇒ 宿主 tail 只经 lu 对（生存期论证唯一）——注释+测试
+> 双锁。④**runtime 深审修复**：P1×2（px0 `khex[8]` 溢出 5B——6B×2hex+NUL
+> 实需 13；`g_clone_last_key[64]` 的 [64]=0 越界一字节——扩 65）+ P2×1
+>（clone_work_full r6 行 key_len=0 时 kx 未初始化 %s 读——栈字节泄入
+> bootlog）+ P3 批（getter 毒值哨兵同拒/parse 侧探针 ins_valid 门对齐/
+> lu_svc 单次原子读/安装期标志 ACQUIRE 化/sso_head 死函数×2+br_x16+
+> slot_gate 尾死码移除/lu 三值撕裂与 thunk 单槽竞态在册/R15 注释勘误）。
+> ⑤**引擎深审修复**：P1×2（verify/parse-oracle worker 挂死无超时——
+> Shell.run 增 deadline 参数仅 worker/lipo 面（codesign 合法分钟级不加，
+> 反向证伪过）+ SIGKILL 兜底；**manifest verify→read TOCTOU**——Ed25519
+> 门验盘上 A、消费方再读换身 B 的毫秒窗，verifyCollecting 单次读入内存
+> 哈希+解码+安装（Signatures/Config/UpdateData 三消费点改道））+ P2×3
+>（RecipeEngine 空 mask 除零 trap/ParseOracle stubEntries 越界读/
+> Verifier zero_regions Int 溢出）+ P3 批（MachImage/RecipeEngine 溢出面
+> ×3 收敛/--only revoke 别名假告警/verify 极性反转盲区/LC 路径前缀误中/
+> PatchAudit 注释勘误+fsync/worker 129 退出码入档/Resigner deep 死参）。
+> ⑥**CLI/UX 深审修复**：P1×2（update-guard/privacy-guard ✗ 无退出码——
+> 脚本判据面；doctor 中断装 next_command 指向必被拒的 install → 改
+> remove）+ P2×6（patch 成功行「字节级目标已附带」在 22/128 构建上失实
+> ——按实写条件化【登记未落地：需 Engine 写入面回报，下轮】；doctor
+> 取证命令 ~/ 在 sudo 下解析到 /var/root——绝对化；recover --output
+> 静默覆盖唯一复原记录——拒；clone replace/remove 可删运行中克隆——
+> isRunning 门+数据面披露；**双份 runtime.json 写入互斥锁**（O_EXCL+10s
+> 等待+60s 陈旧接管）；doctor --json 守护字段【登记未做——render 侧三
+> 字段进 Report 的合同扩展，下轮】）+ P3 批（calibrate --window 负值
+> 拒收+微信未运行前置+30s 心跳/hooks 写入只报成功份【登记未落地】/
+> tip --clear 措辞/locate 失败 update-data 处方/--app 提示/Config
+> notFound 处方/manifest --dir 存在性/dbkeys 超时 lldb 披露/doctor sudo
+> 前缀对齐/Engine sudo 硬编码三处/runtime status 无地址行用户动作化）。
+> ⑦**装面版本门**：dylib 自标识串 `WXKEEP_DYLIB_VERSION=<semver>`——
+> install 装前扫描比对（缺串/错版拒装）、status 披露、clone on 对旧件
+> 告警（含无串=pre-141 本体）；**版本 0.2.18→0.2.19**（140 续② 以
+> 0.2.18 名义装机的 pre-141 dylib 与修复件同号双身——tag 未切直接前进，
+> 凭「无自标识串」即可拒旧件；Formula 同步 bump）。⑧**验证链**：358 测
+> 全绿（+3：dylibVersionTag 契约锁+扫描器、verifyCollecting 字节恒等
+> +篡改三向；cloneParseChainEndToEnd 改版为 lu 键主路径+keyctor 观察桩
+> 零调用锁+双视图锁；rd_invoke r2v core 双视图锁）；双架构 clang -c 零
+> 警零错；fuzz 20 万零报告；mutation M23 重定向（svc_vt_matches 第二视
+> 图臂）+ M14 重锚消费路径（verifyCollecting）+ M27 新增（manifest 命令
+> 面签名门——27 变异全锚 canonical）。⑨**文档收口**：SMOKE-RUNBOOK
+> 前置红线（dylib 版本行必查——旧件崩溃面）+R11① 裁决口径改 src=/
+> clsvc2+px0 view= 列；3X runbook calibrate 适用性勘误；RUNTIME-DESIGN
+> R11 链路 141 修正块+110 轮双视图勘误+R18 解锁条件改 lu 锚+头图配置
+> 路径；README 128 构建/357 测/141 轮/clone_message 重装注记；FMEA
+> E-类增行（keyctor UAF 模式）。**装机面待用户**：0.2.19 发版（或源码
+> `swift build -c release`）→ `runtime remove && runtime install` → 重启
+> 微信 → `runtime clone on` → 按 SMOKE-RUNBOOK 冒烟（clpub 采样 +
+> pub_vt 派生 = M4 关案最后一程）。
+
 > **2026-11-10 136 轮后状态修订（双评审第八轮 + PR #4 首审合入 + 135 轮未推追认）**：
 > ①**基线追认**：135 轮两提交（深审 + docs 门面翻新）此前只在本地——
 > 本轮推上 origin（CI 双 Xcode 腿全绿，135 代码首过 CI）；②**watcher
@@ -190,7 +252,7 @@
 > lu_key6="wxid_f"（小号 wxid 前缀 ASCII，登录期对照行为全零）；
 > ②**svc 扫描单例复证**（lu_svc=0x7bf4c794b8 跨事件稳定）；③**svc 门
 > 缺口定案 = 双 vtable 第二接口视图**——扫描读出 0x9ded4a8（svc_vt−
-> 0xa0）≠ 行门 0x9deeb48（110 轮「双 vtable 对象」发现的实弹复现），
+> 0xa0，**141 勘误：实为 −0x16a0**）≠ 行门 0x9deeb48（110 轮「双 vtable 对象」发现的实弹复现），
 > worker 于此退出（clmissq+1、clpub 未达）。**M4 采样路径明确**：svc
 > 门修双视图（行门接受两视图或行值改第二视图）后，下一次撤回即产
 > clpub 样本——pub_vt 派生解锁。R11① 的 args[0] 直接判据仍未触发
@@ -199,7 +261,7 @@
 > 激活（clins）——M4 全链的剩余路程已全部显式化。
 > **140 续（svc 门双视图修复当日落地，commit 005d4e6）**：四处门点
 >（clone_hook_body 证据步/配对窗捕获/clone_rd_run 复验+consumer 回落）
-> 统一 `svc_vt_matches()`——接受主视图+第二接口视图（Δ=0xa0，110 轮 RE
+> 统一 `svc_vt_matches()`——接受主视图+第二接口视图（Δ=0xa0（**141 勘误：实为 0x16a0，且四处修复漏了 core 第五门——141 轮全扫补齐七处**），110 轮 RE
 > 定案+140 px0 实弹复现）；计数语义不变（clsvc/clpub 仍验同一对象身份）。
 > 双架构 clang -c；fuzz 20 万零报告；355 测全绿。release 件已构建（0.2.18
 > dylib 含双视图门），装机面待用户：`runtime install` → 重启微信 → 再撤
@@ -1416,13 +1478,13 @@ docs/3X-ACCEPTANCE-RUNBOOK.md（数据隔离警告/撤回行为矩阵五格/已�
    级覆盖（CI Rosetta 腿）与 clone_capture 预分配事件池为登记项
    （**124 轮两项登记项均已落地**——见 124 轮节 2/3 条）。
 
-## 122·R17 第七轮实弹 + 双 vtable 门定案轮（2026-11-01：lu 直挂实测生效（lu_seq=1/2 每撤回恰一次、svc 单例稳定）——门未中对因 = x0 是 110 轮入册双 vtable 对象的第二接口视图（[x0]=0x9ded4a8=svc_vt−0xa0）；**键格式定案：ASCII 明文**（lu_key6="458457"）；live 键直用+双 vtable 门落地；285 测同轮基线）
+## 122·R17 第七轮实弹 + 双 vtable 门定案轮（2026-11-01：lu 直挂实测生效（lu_seq=1/2 每撤回恰一次、svc 单例稳定）——门未中对因 = x0 是 110 轮入册双 vtable 对象的第二接口视图（[x0]=0x9ded4a8=svc_vt−0xa0，141 勘误：实为 −0x16a0）；**键格式定案：ASCII 明文**（lu_key6="458457"）；live 键直用+双 vtable 门落地；285 测同轮基线）
 
 1. **[第七轮实弹解码]**：lu_seq 随撤回推进（汇点活证）；svc=0x7cd00d08d8
    跨撤回稳定（单例）；lu_svcvt_off=0x9ded4a8 = 110 轮双 vtable 对象
    的第二接口（主 0x9deeb48@+0/二接口@+0x18——lookup 经二接口 ABI 被
    调）；lu_key6=ASCII=**键格式定案（明文文本串）**。
-2. **[门与键修复]**：lu 门双形态（==svc_vt 直中 / ==svc_vt−0xa0 二接口
+2. **[门与键修复]**：lu 门双形态（==svc_vt 直中 / ==svc_vt−0x16a0 二接口（141 勘误）
    视图原样透传——重查保持宿主真实 ABI）；**live 键直用**（g_lu_keyptr
    24B 头 → 字节快照 → 24B 对象重建（短内联/长指本侧栈拷贝）→ 绕开
    keyctor/msg 存活竞态；keyctor 降为回落）。

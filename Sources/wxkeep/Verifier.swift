@@ -288,7 +288,7 @@ enum Verifier {
     ///   实测四信号一致）——旧实现按 128+n 约定判读，`status > 128` 与
     ///   `status == 137` 两分支在直 exec 拓扑下均不可达，SIGKILL（AMFI/
     ///   taskgated 击杀，本仓两代先例）被误报成「函数摸了未建模状态」。
-    /// - worker 自身只 exit 0/2/3/4/126：126 = mmap 拒绝 / harness 解析
+    /// - worker 自身只 exit 0/2/3/4/126/129：126 = mmap 拒绝 / harness 解析
     ///   strlen/memcmp 失败（环境门）；2 = 参数拒绝；3 = 探针目标 VA 越界
     ///   （wxkeep 数据 bug，防御位）；4 = **spec 不适用于此镜像**（stub 形态
     ///   不符或越界——spec 绑定单一构建家族，老构建上优雅跳过而非报错。
@@ -369,7 +369,7 @@ enum Verifier {
         let result = Shell.run(binary.path, [
             "__verify-worker", work.appendingPathComponent("probe.bin").path,
             "0", "{}", "[]", "[[\"x\",\"1\"]]",
-        ])
+        ], deadline: 60)
         return result.status == 0
     }
 
@@ -392,7 +392,10 @@ enum Verifier {
             let host = ImageArch.host
             let out = FileManager.default.temporaryDirectory
                 .appendingPathComponent("wxkeep-verify-\(UUID().uuidString).\(host.rawValue)")
-            let lipo = Shell.run("/usr/bin/lipo", ["-thin", host.rawValue, binary.path, "-output", out.path])
+            // 141 轮 P1-1：worker/lipo 面加挂死 deadline（秒级应完成；codesign
+            // 等 340MB 合法慢路径不加——反向证伪过的收紧边界）。
+            let lipo = Shell.run("/usr/bin/lipo", ["-thin", host.rawValue, binary.path, "-output", out.path],
+                                 deadline: 120)
             guard lipo.status == 0 else { throw VerifyError.archMismatch(
                 image: "fat (no \(host.rawValue) slice)", host: host.rawValue) }
             thin = out
@@ -416,7 +419,15 @@ enum Verifier {
         let result = Shell.run(exe.path, [
             "__verify-worker", thin.path, String(targetVA, radix: 16),
             stubsJSON, zerosJSON, probesJSON,
-        ])
+        ], deadline: 60)
+        if result.timedOut {
+            // 挂死=未建模状态的另一形态：映射函数不返回既不崩也不退出。
+            // 归 workerCrashed 族（SIGKILL 裸 9 会被 interpretWorkerExit 误
+            // 判 environmentBlocked——先声明的 timedOut 事实优先）。
+            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stderr.isEmpty { print("worker: \(stderr)") }
+            throw VerifyError.workerCrashed(signal: 9)
+        }
         if let failure = interpretWorkerExit(result.status, signalled: result.signalled) {
             // worker 的 stderr 是诊断面（SIGBUS/SIGSEGV 捕获信息、环境细节）
             // ——裸抛会把它们丢进虚空。specNotApplicable 是优雅跳过路径：
@@ -741,7 +752,10 @@ enum Verifier {
                     guard region.count == 2, let vaHex = UInt64(region[0], radix: 16),
                           let len = Int(region[1]), len > 0,
                           vaHex >= base, vaHex - base <= UInt64(Int.max),
-                          Int(vaHex - base) + len <= mappedSize else { exit(4) }
+                          // 141 轮 P2：加法在 UInt64 域做完再比（Int 域 +
+                          // 会先 trap——spec 坏值=exit(4) 干净拒绝，不是
+                          // worker SIGTRAP 被误报 workerCrashed）
+                          vaHex - base + UInt64(len) <= UInt64(mappedSize) else { exit(4) }
                     memset(mapped + Int(vaHex - base), 0, len)
                 }
             // Redirect import stubs to native harness functions.
@@ -943,6 +957,11 @@ enum Verifier {
             for (result, expected) in alignedExpectations(results: results, spec: spec) {
                 if expected == true, result.executed, result.returned {
                     return .mismatch(detail: "patched image still classifies \"\(result.text)\" as revokemsg — patch ineffective")
+                }
+                // 141 轮 P3（防御纵深）：expected==false 的探针在补丁态也应
+                // 返回 0——极性反转形态（pristine 0 → patched 1）原先验绿。
+                if expected == false, result.executed, result.returned {
+                    return .mismatch(detail: "patched image newly classifies \"\(result.text)\" as revokemsg — polarity-inverted patch state")
                 }
             }
         case .unknown:

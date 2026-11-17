@@ -127,6 +127,14 @@ int wxkeep_runtime_test_sso_key_snapshot(const unsigned char *head24,
 void wxkeep_runtime_test_set_clone_frame(unsigned long long x19,
                                          unsigned long long caller_sp,
                                          unsigned int key_slot_off, int enable);
+// R15/R16 接线缝（141 轮）：注入 lookup 直挂全局（lu svc/keyptr/seq——
+// 生产由 revoke_lu_hook thunk 写；测试布置 lu 快路形态。svc=0 即复位）。
+void wxkeep_runtime_test_set_lu(unsigned long long svc,
+                                unsigned long long keyptr,
+                                unsigned long long seq);
+// dylib 版本自标识读回（141 轮）：返回 "WXKEEP_DYLIB_VERSION=<semver>"
+// 串——与 CLI 版本常量的契约锁断言面。
+const char *wxkeep_runtime_test_dylib_version(void);
 // R6 接线缝：最近一次 key 快照读回（返回长度，0=无）。
 int wxkeep_runtime_test_last_key(char *out, int cap);
 // R6 接线缝：证据计数读回（clhit/clmissq/clget/clinner/clkey/直调次数）。

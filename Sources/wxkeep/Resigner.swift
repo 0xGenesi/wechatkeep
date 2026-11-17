@@ -315,7 +315,10 @@ enum Resigner {
             ? snapshot.resignPlist(for: url) : snapshot.plist(for: url)
     }
 
-    private static func sign(binary: URL, entitlements: [String: Any]?, deep: Bool = false) throws {
+    // 141 轮 P3：`deep` 参数移除——2026-09-21 起 --deep 退役（340MB 深签
+    // 分钟级且子件自签更准），全部调用点用缺省形态；死参留着只会诱导
+    // 下一位读者复活它。
+    private static func sign(binary: URL, entitlements: [String: Any]?) throws {
         var args = ["--force", "--sign", "-",
                     "--preserve-metadata=identifier,flags,runtime"]
         // macOS 15+ codesign 默认不再把 entitlements 嵌入库（dylib/framework）
@@ -334,7 +337,6 @@ enum Resigner {
             args += ["--entitlements", url.path]
             tempPlist = url
         }
-        if deep { args += ["--deep"] }
         args.append(binary.path)
         defer { if let tempPlist { try? FileManager.default.removeItem(at: tempPlist) } }
         let result = Shell.run("/usr/bin/codesign", args)

@@ -13,8 +13,10 @@ import Foundation
 ///
 /// 语义边界（如实）：
 /// - 只记本事务实际写入的位点（`written` outcome）；变体切换的还原臂
-///   （restoreTargets）不接 auditSink，不产生账目——审计语义 =「与 pristine
-///   的最终差异」，还原臂的位点回到 pristine 不构成差异；
+///   （restoreTargets）自 126/135 轮起接 auditSink 自记 `restoredSites`
+///   （Engine 传入；mergedRecord(restored:) 消费后清账）——还原位点不进
+///   `sites` 差异账，但清账事实有据（141 轮勘误：旧注「不产生账目」与
+///   mergedRecord 的消费面矛盾）；
 /// - 重签只动 __LINKEDIT 签名元数据，不在本清单语义内（audit_patch.py 对
 ///   __LINKEDIT 差异单列报告，不计入位点外写入）；
 /// - `before` 是写前实读字节（asm 跨度）——从 pristine 打 = 原始字节；变体
@@ -57,7 +59,9 @@ enum PatchAudit {
     }
 
     static func write(record: Record, userData: URL? = nil) throws {
-        try SafeWrite.overwrite(try JSONEncoder().encode(record), to: url(userData: userData))
+        // 141 轮 P3：fsync 对齐 journal（SafeWrite 默认 sync:false——掉电窗
+        // 内 journal 已清而台账未落盘 = 离线复算假红）
+        try SafeWrite.overwrite(try JSONEncoder().encode(record), to: url(userData: userData), sync: true)
     }
 
     /// restore 成功收口：清账（幂等无抛）。

@@ -109,4 +109,65 @@ enum Manifest {
         }
         return .verified
     }
+
+    // MARK: - 141 轮 P1-2（verify→read TOCTOU 收口）
+
+    /// 带字节回收的校验结果：`verified` 携带**校验时刻单次读入内存**的
+    /// 原始字节（受保护文件 + manifest.json/manifest.sig 本体）——消费/
+    /// 安装方一律使用返回字节，杜绝「签名门验盘上 A、引擎再读换身 B」
+    /// 的竞窗（用户级攻击者在 sudo patch 的毫秒窗内换文件即可让 Ed25519
+    /// 门形同虚设；Signatures/Config/UpdateData 三消费点 141 轮全部改道）。
+    enum Collected: Equatable {
+        case verified([String: Data])
+        case legacy
+        case invalid(String)
+    }
+
+    /// verify 的免竞窗变体：受保护文件**单次读入内存**后对内存字节做
+    /// sha256（不再二次开路径），manifest 双件一并回收（update-data 的
+    /// 换位安装从内存写——安装后再验的盘读同样免竞窗；manifest.json 的
+    /// 完整性由签名自证，manifest.sig 回收仅为安装同源）。
+    static func verifyCollecting(directory: URL,
+                                 publicKeyB64: String = releasePublicKeyB64) -> Collected {
+        let manifestURL = directory.appendingPathComponent("manifest.json")
+        let sigURL = directory.appendingPathComponent("manifest.sig")
+        guard FileManager.default.fileExists(atPath: manifestURL.path) ||
+              FileManager.default.fileExists(atPath: sigURL.path) else {
+            return .legacy
+        }
+        guard let manifestData = try? Data(contentsOf: manifestURL),
+              let manifest = try? JSONDecoder().decode(LoadedManifest.self, from: manifestData),
+              let sigData = try? Data(contentsOf: sigURL),
+              let sigB64 = String(data: sigData, encoding: .utf8)?
+                  .trimmingCharacters(in: .whitespacesAndNewlines),
+              let signature = Data(base64Encoded: sigB64),
+              let pubRaw = Data(base64Encoded: publicKeyB64),
+              let pubKey = try? Curve25519.Signing.PublicKey(rawRepresentation: pubRaw),
+              let canonical = canonicalData(manifest)
+        else {
+            return .invalid("manifest 格式/签名不可读")
+        }
+        guard pubKey.isValidSignature(signature, for: canonical) else {
+            return .invalid("签名校验失败（清单被改动或密钥不符）")
+        }
+        var collected: [String: Data] = [
+            "manifest.json": manifestData,
+            "manifest.sig": sigData,
+        ]
+        for rel in protectedFiles {
+            guard let expected = manifest.files[rel] else {
+                return .invalid("清单缺少 \(rel) 的哈希")
+            }
+            let fileURL = directory.appendingPathComponent(rel)
+            guard let bytes = try? Data(contentsOf: fileURL) else {
+                return .invalid("\(rel) 不可读（被改动或不同源）")
+            }
+            let actual = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            guard actual == expected else {
+                return .invalid("\(rel) 与清单不符（被改动或不同源）")
+            }
+            collected[rel] = bytes
+        }
+        return .verified(collected)
+    }
 }

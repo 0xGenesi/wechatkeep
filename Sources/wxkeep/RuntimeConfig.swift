@@ -775,10 +775,57 @@ enum RuntimeConfig {
     /// **部分失败如实告警**：单目标写失败（权限/容器缺失）会让双份从此分
     /// 歧——dylib 读到的一份可能仍是旧值，静默成功 = 配置面「看似写了没
     /// 生效」类问题的根源（98 轮 tip 三路陷阱同族）。
+    // MARK: - 141 轮 P2：双份写互斥锁
+    //
+    // 并发写者（tip/hooks/clone 三命令并行、或 dylib 侧热重载窗）都是
+    // 读-合-写整个 dict 的循环——两写者交错（W1A→W2A→W2B→W1B）会把
+    // Group 份与容器份永久写分歧（dylib 按首个可读文件取值，行为取决于
+    // 写序；configDivergenceDescription 只报不修）。O_EXCL 锁文件收口：
+    // - 10s 等待上限，超时如实抛（命令秒级完成，>10s = 异常态）；
+    // - 60s 陈旧接管（持锁进程崩溃后不死锁——接管窗内活写者被偷锁的
+    //   最坏结果 = 回到旧的并发语义，.atomic 单文件写保证无撕裂）。
+    private static let lockWaitLimit: TimeInterval = 10
+    private static let lockStaleLimit: TimeInterval = 60
+    /// mergeKnownHooks 最近一次实际写成的目标（CLI「hooks」只报这份——
+    /// writePlist 部分失败时另一份的名字不再出现在成功块里）。
+    /// nonisolated(unsafe)：写点在 withConfigWriteLock 内（互斥），读点在
+    /// CLI 单线程调用返回后——无并发访问面。
+    nonisolated(unsafe) static var hooksLastWrittenTargets: [URL] = []
+
+    private static func withConfigWriteLock<T>(_ body: () throws -> T) throws -> T {
+        let fm = FileManager.default
+        let dir = Config.userDataURL
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let lockURL = dir.appendingPathComponent(".runtimejson.lock")
+        let started = Date()
+        while true {
+            if fm.createFile(atPath: lockURL.path,
+                             contents: Data("\(ProcessInfo.processInfo.processIdentifier)".utf8)) {
+                defer { try? fm.removeItem(at: lockURL) }
+                return try body()
+            }
+            if Date().timeIntervalSince(started) > lockWaitLimit {
+                throw NSError(domain: "wxkeep.config", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey:
+                                "runtime.json 写锁等待超时（另一 wxkeep 命令持有 \(lockURL.path) 超过 \(Int(lockWaitLimit))s）——稍后重试；确认无其它 wxkeep 进程后可删除该锁文件"])
+            }
+            if let attrs = try? fm.attributesOfItem(atPath: lockURL.path),
+               let mtime = attrs[.modificationDate] as? Date,
+               Date().timeIntervalSince(mtime) > lockStaleLimit {
+                try? fm.removeItem(at: lockURL)   // 陈旧接管（见上：最坏=旧并发语义）
+                continue
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+
     private static func writePlist(_ dict: [String: Any], to targets: [URL]) throws -> [URL] {
         let out = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
         var written: [URL] = []
         var lastError: Error?
+        // 141 轮 P2：两份的写循环整体持锁（读-合-写在调用方——锁窗口
+        // 覆盖双份写段，收敛「W1A→W2A→W2B→W1B」交错）。
+        try withConfigWriteLock {
         for target in targets {
             do {
                 try FileManager.default.createDirectory(
@@ -797,6 +844,7 @@ enum RuntimeConfig {
                   + "——\(lastError.localizedDescription)")
             print("   双份配置已分歧：进程读到未更新的一份时新值不生效；重跑本命令或检查该路径权限。")
         }
+        }   // withConfigWriteLock
         return written
     }
 
@@ -901,7 +949,8 @@ enum RuntimeConfig {
         }
         dict["hooks"] = rows
 
-        _ = try writePlist(dict, to: targets)
+        let written = try writePlist(dict, to: targets)
+        hooksLastWrittenTargets = written   // 141 轮 P3：CLI 侧只报实际写成的份
         return rows.map { row in
             // 合并产物回读为 HookRow 只为计数/展示；不合法的自定义行会被
             // dylib 丢弃（宁可不挂也不挂错），这里不因此失败。

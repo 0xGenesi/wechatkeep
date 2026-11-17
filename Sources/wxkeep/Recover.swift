@@ -337,6 +337,13 @@ extension Wxkeep.DbKeysCommand {
             let ext = format == .markdown ? "md" : "jsonl"
             let outURL = output.map { URL(fileURLWithPath: PathUtil.expandTilde($0)) }
                 ?? Config.userDataURL.appendingPathComponent("recovered/recovered-\(stamp).\(ext)")
+            // 141 轮 P2：显式 --output 已存在 = 拒绝（默认路径带时间戳正是
+            // 为防覆盖唯一复原记录——显式路径不该绕过同一保护）
+            if output != nil, FileManager.default.fileExists(atPath: outURL.path) {
+                throw ValidationError(
+                    "--output 已存在：\(outURL.path)——为防覆盖唯一复原记录（FTS 文档可能已被微信清理、"
+                    + "不可再生），请换一个输出路径（默认文件名自带时间戳不会冲突）")
+            }
             try FileManager.default.createDirectory(
                 at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let payload: Data

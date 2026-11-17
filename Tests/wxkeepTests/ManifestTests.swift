@@ -66,6 +66,42 @@ final class ManifestTests {
         _ = sigText
     }
 
+    /// 5) verifyCollecting（141 轮 P1-2 免竞窗变体）：verified 携带的字节
+    ///    必须与校验时刻盘上内容恒等（哈希与消费同一份——TOCTOU 门的本体
+    ///    语义）；篡改签名/换钥 → invalid 且不带字节。M14 变异的现行杀点
+    ///    （消费路径已改道 verifyCollecting——verify() 仅剩 manifest 命令）。
+    @Test func verifyCollectingBytesAndTamper() throws {
+        let (dir, pubB64, sigB64, cleanup) = try makeSignedDir()
+        defer { cleanup() }
+        // 对签 → verified + 字节恒等（config/signatures/manifest 双件全回收）
+        let collected = Manifest.verifyCollecting(directory: dir, publicKeyB64: pubB64)
+        let diskConfig = try Data(contentsOf: dir.appendingPathComponent("config.json"))
+        let diskSigs = try Data(contentsOf: dir.appendingPathComponent("signatures.json"))
+        if case .verified(let files) = collected {
+            #expect(files["config.json"] == diskConfig)
+            #expect(files["signatures.json"] == diskSigs)
+            #expect(files["manifest.json"] != nil && files["manifest.sig"] != nil)
+        } else {
+            Issue.record("正确签名必须 verified（collecting）")
+        }
+        // 篡改签名字节 → invalid（供应链硬门在免竞窗路径同样在役）
+        var tampered = Array(sigB64.utf8)
+        tampered[10] = tampered[10] == UInt8(ascii: "A") ? UInt8(ascii: "B") : UInt8(ascii: "A")
+        try String(bytes: tampered, encoding: .utf8)!
+            .write(to: dir.appendingPathComponent("manifest.sig"), atomically: true, encoding: .utf8)
+        if case .invalid = Manifest.verifyCollecting(directory: dir, publicKeyB64: pubB64) {}
+        else { Issue.record("篡改签名必须 invalid（collecting）") }
+        // 换钥 → invalid
+        let other = Curve25519.Signing.PrivateKey()
+        let loaded = try JSONDecoder().decode(Manifest.LoadedManifest.self,
+                                              from: Data(contentsOf: dir.appendingPathComponent("manifest.json")))
+        let otherSig = try other.signature(for: Manifest.canonicalData(loaded)!)
+        try otherSig.base64EncodedString()
+            .write(to: dir.appendingPathComponent("manifest.sig"), atomically: true, encoding: .utf8)
+        if case .invalid = Manifest.verifyCollecting(directory: dir, publicKeyB64: pubB64) {}
+        else { Issue.record("异钥签名必须 invalid（collecting）") }
+    }
+
     /// 4) 签名语义的完整三向（72·L4 变异测试揭出的缺口：isValidSignature
     ///    行此前零覆盖——「禁用签名校验」变异曾存活）。对签 → verified；
     ///    同一清单换一把钥匙签 / 篡改签名字节 → invalid（供应链硬门）。

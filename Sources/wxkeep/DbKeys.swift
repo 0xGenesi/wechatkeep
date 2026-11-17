@@ -423,6 +423,9 @@ extension Wxkeep {
                     print("超时未捕获开库级 KDF 调用——确认已登录后重试；lldb 日志尾部：")
                     if let data = FileManager.default.contents(atPath: logPath),
                        let text = String(data: data.suffix(800), encoding: .utf8) { print(text) }
+                    // 141 轮 P3：超时路径同款 lldb 托管披露（成功路径有、这里
+                    // 漏——用户会带着被 lldb 挂着的微信离开）
+                    print("注意：微信现由 lldb 托管；要回归常态请正常重启微信一次。")
                     throw ExitCode(1)
                 }
                 print("· 捕获 KDF 调用 \(hits.count) 次（开库级 \(opens.count)）")

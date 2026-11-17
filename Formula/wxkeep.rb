@@ -1,7 +1,7 @@
 class Wxkeep < Formula
   desc "Dual-architecture anti-revoke toolchain for WeChat 3.x/4.x on macOS"
   homepage "https://github.com/0xGenesi/wechatkeep"
-  version "0.2.18"
+  version "0.2.19"
   license "AGPL-3.0"
 
   # v0.2.16 起源码-only（release 资产停发，MAINTAINING「发版策略」）：
