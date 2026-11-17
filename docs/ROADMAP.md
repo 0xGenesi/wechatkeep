@@ -20,7 +20,8 @@
 > Clone cleanup 他人克隆误删面/DbKeys modern write+退场 drain+日志清理
 > /Recover 合计数/isEqualValue expected 入键）。③**变异 SOP**：
 > 141 树 26/27=96%（M17 预登记可接受暴露）；142 终态树二跑（M28 锁
-> O_EXCL/M29 机密件 chmod 两个新行钉新防线；29 锚 canonical；终态 360 测
+> O_EXCL/M29 机密件 chmod 两个新行钉新防线，**终态二跑 28/29=97%**
+>（仅 M17 预登记暴露）；29 锚 canonical；终态 360 测
 > 全绿（+2：configWriteLockIsMutuallyExclusive **单线程确定性设计**——
 > 首版双线程+信号量在 Swift Testing 协作池上死锁的教训入册：测试内
 > 并发编排一律禁，回归锁用「持锁窗二次获取必拒」时序自证）。
