@@ -69,6 +69,22 @@ struct DbKeysTests {
 
     // MARK: 密钥库
 
+    /// 142 P2：机密件 0600 在 rename 前落定（M29 杀点——SafeWrite 的
+    /// permissions 分支 chmod 被摘时本测红：落盘即 0644 明文密钥窗复活）。
+    @Test func storeAtRestIs0600() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wxkeep-dbkeys-perm-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let target = dir.appendingPathComponent("dbkeys.json")
+        var store = DbKeysStore()
+        store.secrets = [String(repeating: "aa", count: 16)]
+        try DbKeysFiles.saveStore(store, url: target)
+        let perms = ((try? FileManager.default.attributesOfItem(
+            atPath: target.path)[.posixPermissions]) as? NSNumber)?.intValue
+        #expect(perms == 0o600, "dbkeys.json 落盘须 0600（got \(perms.map { String($0, radix: 8) } ?? "?")）")
+    }
+
     @Test func storeRoundTripAndPromote() throws {
         var store = DbKeysStore()
         store.secrets = [String(repeating: "aa", count: 16)]

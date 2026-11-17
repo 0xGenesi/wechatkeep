@@ -210,6 +210,19 @@ MUTATIONS = [
      "        }\n"
      "        guard true || pubKey.isValidSignature(signature, for: canonical) else {",
      "Ed25519 签名校验失效·manifest 命令面 verify()（wxkeep manifest 对篡改数据报 ✓）"),
+    # —— 142 轮新门（SOP：新增安全防线补变异行）——
+    # M28：配置写锁 O_EXCL 摘除（141 版 createFile-非-O_EXCL 的 P0 复活面
+    # ——configWriteLockIsMutuallyExclusive 双写者即红）。
+    ("M28", "Sources/wxkeep/RuntimeConfig.swift",
+     "            let fd = open(lockURL.path, O_CREAT | O_EXCL | O_WRONLY,",
+     "            let fd = open(lockURL.path, O_CREAT | O_WRONLY,",
+     "配置写锁 O_EXCL 摘除（双写者同时进临界区——双份 runtime.json 永久分歧复活）"),
+    # M29：SafeWrite 机密件「权限先于 rename」摘除——dbkeys.json 落盘
+    # 0644 明文密钥窗复活（storeAtRestIs0600 即红）。
+    ("M29", "Sources/wxkeep/SafeWrite.swift",
+     "            try fm.setAttributes([.posixPermissions: perms], ofItemAtPath: tmp.path)",
+     "            if false { try fm.setAttributes([.posixPermissions: perms], ofItemAtPath: tmp.path) }",
+     "机密件 0600 前置 chmod 摘除（rename 后窗口复活——dbkeys.json 明文密钥 0644 落盘）"),
 ]
 
 

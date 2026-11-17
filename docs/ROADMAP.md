@@ -1,5 +1,34 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **142 轮（2026-11-18 凌晨·夜间自治轮：第五面深审 + 141 收尾登记两项 + 变异 SOP 双跑）**：
+> ①**141 收尾两项落地**：doctor `--json` 守护字段（update_guard/
+> privacy_guard/update_guard_rewritten 入 Report——渲染与 JSON 合同同源
+> 单点采集，jsonContract 测试键集同步）；patch 成功行字节级条款按实写
+> 条件化（audit identifiers 实测三分支：本次写入/先前在位/本构建无目标
+> ——22/128 构建上的旧谎言句根除）。②**第五面深审**（RuntimeConfig/
+> ParseOracle/EntrySlot/DbKeys/SafeWrite/UpdateGuard/Clone/probe 等 8
+> 未深读区）：**P0×1 命中 141 自写的配置锁**——FileManager.createFile
+> 不是 O_EXCL（实证双 true + 内容覆盖），141 版锁零互斥、注释声称的
+> 收敛不存在；重写 POSIX open(O_CREAT|O_EXCL|0600) + dir 参数化 +
+> **P1** sudo 首命令造 root 属主锁目录（chownToRealUser 对齐 UpdateData
+> + EACCES 独立文案「chown 修复」替代幽灵并发误导）+ P2×2（dbkeys.json
+> rename 后 0600 窗——SafeWrite permissions 参数「权限先于 rename」；
+> runtime remove 兜底扫描 try? 吞错 fail-open→fail-closed）+ P3×10 全修
+> （FNV 双侧笔误勘误注记（互一致有效不改值）/ParseOracle rep-hex 严格
+> 解析+countnew debug VA 守门（exit(2) 协议）/EntrySlot __DATA 谓词对齐
+> /UpdateGuard root 委托断链 <unreadable> 哨兵（假「微信改回」根除）/
+> Clone cleanup 他人克隆误删面/DbKeys modern write+退场 drain+日志清理
+> /Recover 合计数/isEqualValue expected 入键）。③**变异 SOP**：
+> 141 树 26/27=96%（M17 预登记可接受暴露）；142 终态树二跑（M28 锁
+> O_EXCL/M29 机密件 chmod 两个新行钉新防线；29 锚 canonical；终态 360 测
+> 全绿（+2：configWriteLockIsMutuallyExclusive **单线程确定性设计**——
+> 首版双线程+信号量在 Swift Testing 协作池上死锁的教训入册：测试内
+> 并发编排一律禁，回归锁用「持锁窗二次获取必拒」时序自证）。
+> **L17/L18 回归**：
+> engine-twin 60 试验零分歧、family-invariants PASS（128 构建/24 指纹/
+> 2111 条目）。⑤文档：SMOKE-RUNBOOK 补源码二进制路径红线（brew 0.2.17
+> CLI 无版本门不识新串——装面一律 .build/release 路径）。
+
 > **141 轮（2026-11-17·140 续③ 崩溃事故闭环 + 全仓四面深审一次性收口轮）**：
 > ①**keyctor 直调移除**（事故根因面）：异步 worker 对 parse 时刻 msg 的
 > 宿主直调是结构性 UAF（模块成员门拦不住「头未动、字符串字段被复用」

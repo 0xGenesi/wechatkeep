@@ -46,6 +46,12 @@ struct Doctor {
         // 注入在位但微信尚未启动过时无法判定武装与否。
         var runtimeInjected: Bool? = nil
         var runtimeHookArmed: Bool? = nil
+        // 偏好层守护（142 轮 P2：入 JSON 合同——此前只活在人读渲染里，
+        // 机器消费方无法复现两行 canonical 视图/感知失守回退）。
+        var updateGuard: String = ""
+        var privacyGuard: String = ""
+        /// 微信把更新开关改回（失守是 verdict 外唯一可机读的回退信号）。
+        var updateGuardRewritten: Bool = false
 
         enum CodingKeys: String, CodingKey {
             case overall, build
@@ -71,6 +77,9 @@ struct Doctor {
             case nextCommand = "next_command"
             case runtimeInjected = "runtime_injected"
             case runtimeHookArmed = "runtime_hook_armed"
+            case updateGuard = "update_guard"
+            case privacyGuard = "privacy_guard"
+            case updateGuardRewritten = "update_guard_rewritten"
         }
     }
 
@@ -487,6 +496,12 @@ struct Doctor {
             nextCommand = "\(writable ? "" : "sudo ")wxkeep restore"
         }
 
+        // 偏好层守护状态（142 轮 P2：单点采集进 Report——渲染与 JSON 合同
+        // 同源，消除「JSON 缺两行」的合同缺口）。
+        let updateGuardOn = UpdateGuard.read().allSatisfy(\.guarded)
+        let updateGuardRewritten = UpdateGuard.rewrittenByApp
+        let privacyGuardOn = PrivacyGuard.read().allSatisfy(\.guarded)
+
         return Report(
             overall: overall,
             nativeArch: nativeArch,
@@ -515,7 +530,11 @@ struct Doctor {
             // LC 探测不再被 dylib 在场性掩盖（混合态 = LC 在而 dylib 缺，
             // 已有专门 verdict 行；hook 武装语义依赖 dylib 曾加载，保持门）。
             runtimeInjected: runtimeInjected,
-            runtimeHookArmed: runtimeDylibExists ? runtimeHookArmed : nil)
+            runtimeHookArmed: runtimeDylibExists ? runtimeHookArmed : nil,
+            updateGuard: Doctor.updateGuardTag(guardOn: updateGuardOn,
+                                               rewrittenByApp: updateGuardRewritten),
+            privacyGuard: privacyGuardOn ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）",
+            updateGuardRewritten: updateGuardRewritten)
     }
 
     /// 归一化恢复型条目（asm ∈ expected，如 keeptip 在 isRevokemsg 入口的
@@ -821,13 +840,10 @@ struct Doctor {
         }
         lines.append("signature:   \(report.signature)"
                      + (report.signatureValid == false ? " — ❌ VERIFY FAILED（字节与签名不符，启动必崩）" : ""))
-        let guardStatuses = UpdateGuard.read()
-        let guardTag = Doctor.updateGuardTag(
-            guardOn: guardStatuses.allSatisfy(\.guarded),
-            rewrittenByApp: UpdateGuard.rewrittenByApp)
-        lines.append("update-guard: \(guardTag)")
-        let privacy = PrivacyGuard.read()
-        lines.append("privacy-guard: \(privacy.allSatisfy(\.guarded) ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）")")
+        // 142 轮 P2：守护两行改从 Report 读（run() 单点采集——渲染与
+        // --json 合同同源，机器消费方复现 canonical 视图不再缺行）
+        lines.append("update-guard: \(report.updateGuard)")
+        lines.append("privacy-guard: \(report.privacyGuard)")
         if let injected = report.runtimeInjected {
             // armed=nil（dylib 缺失=有专门 ❌ verdict；或装好但从未启动微信）
             // 不再整行隐藏——刚 install 完的用户在 doctor 里应能看到注入在位

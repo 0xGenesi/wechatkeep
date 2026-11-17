@@ -197,7 +197,8 @@ extension Wxkeep.DbKeysCommand {
             guard !ftsUser2Sid.isEmpty else {
                 throw ValidationError("FTS name2id 不可用——密钥缺失：运行 `wxkeep dbkeys capture` 重新捕获（需微信已 patch 并重新扫码登录）")
             }
-            print("· FTS 会话映射 \(ftsUser2Sid.values.map(\.count).max() ?? 0) 项 × \(ftsUser2Sid.count) 账号")
+            // 142 P3：总数而非 max（「340 项 × 2 账号」原读作每账号 N 项）
+            print("· FTS 会话映射 合计 \(ftsUser2Sid.values.map(\.count).reduce(0, +)) 项 / \(ftsUser2Sid.count) 账号")
 
             // 2. 灰条收集（原地覆写形态：self/other；xml=78 轮已裁非洞原消息并存，不适用复原）
             var tips: [RevokeRecovery.RecoverTip] = []
@@ -319,7 +320,7 @@ extension Wxkeep.DbKeysCommand {
                 }
                 displayNames[account] = names
             }
-            print("· 会话名映射 \(displayNames.values.map(\.count).max() ?? 0) 项 × \(displayNames.count) 账号")
+            print("· 会话名映射 合计 \(displayNames.values.map(\.count).reduce(0, +)) 项 / \(displayNames.count) 账号")
 
             // 5. 复原判定与导出（纯函数 assembleRecords：账号隔离匹配）
             let assembled = RevokeRecovery.assembleRecords(

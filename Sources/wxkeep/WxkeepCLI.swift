@@ -125,8 +125,13 @@ extension Wxkeep {
                                        app: options.app.path)
             }
             var summaryOrNil: Engine.RunSummary? = nil
+            // 142 轮 P2：本构建是否带字节级 update 目标（成功行的「字节级
+            // 目标随 patch 已附带」按实写条件化的判据面）
+            var updateTargetsInCatalog = false
             do {
                 if config.entry(build: build) != nil {
+                    updateTargetsInCatalog = config.entry(build: build)!
+                        .targets.contains { $0.identifier.hasPrefix("update") }
                     summaryOrNil = try Engine.patch(
                         app: options.app, build: build, config: config, variant: variant.rawValue,
                         dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
@@ -163,6 +168,7 @@ extension Wxkeep {
                         throw Engine.EngineError.unsupportedBuild(build, known: config.versions.count)
                     }
                     print("recipes resolved: \(synthesized.targets.map { t in t.identifier }.joined(separator: ", "))")
+                    updateTargetsInCatalog = synthesized.targets.contains { $0.identifier.hasPrefix("update") }
                     summaryOrNil = try Engine.patch(
                         app: options.app, versionEntry: synthesized, variant: variant.rawValue,
                         dryRun: dryRun, allowUnverified: allowUnverified, only: onlyList)
@@ -237,7 +243,15 @@ extension Wxkeep {
                 // best-effort 如实分报，失败不拆已完成的补丁事务。
                 print("------ Update guard ------")
                 if UpdateGuard.disable() {
-                    print("  更新防护已开启（防升级覆盖补丁；4.1.13+ 两键 best-effort，字节级目标随 patch 已附带）")
+                    // 142 轮 P2：字节级条款按事实说话（审计账 identifiers 实测
+                    // ——本事务写了 update 位点 / catalog 带而已先前在位 / 本
+                    // 构建根本没有。22/128 构建无 update 目标，旧文案在那些
+                    // 构建上是谎报）
+                    let wroteUpdateNow = summary.auditSites.contains { $0.identifier.hasPrefix("update") }
+                    let byteClause = wroteUpdateNow
+                        ? "字节级更新目标已随本次 patch 写入"
+                        : (updateTargetsInCatalog ? "字节级更新目标已在位（先前事务写入）" : "本构建无字节级更新目标——偏好层是唯一防线")
+                    print("  更新防护已开启（防升级覆盖补丁；4.1.13+ 两键 best-effort，\(byteClause)）")
                 } else {
                     print("  ⚠️ 更新防护偏好未完全生效——可稍后 `wxkeep update-guard` 重试")
                 }
@@ -2253,7 +2267,16 @@ extension Wxkeep {
                     // 未被覆盖的跳板即抛错：catch 走主程序回滚，整事务以
                     // 失败收场（保安装态）而不是留崩溃。LC-only 安装（无跳板）
                     // 扫描零命中，正常清理路径不受影响。
-                    let uncovered = (try? EntrySlot.scanTrampolines(file: dylibURL)) ?? []
+                    // 142 P2：兜底扫描 fail-closed——try? 把扫描自身错误
+                    // （镜像不可读/MachImage 构造失败）吞成「无未覆盖跳板」，
+                    // 无行路径上它是最后防线，失败必须中止而非放行删除
+                    let uncovered: [(hookVA: UInt64, slotVA: UInt64)]
+                    do { uncovered = try EntrySlot.scanTrampolines(file: dylibURL) }
+                    catch {
+                        throw ValidationError(
+                            "跳板兜底扫描失败（\(error.localizedDescription)）——无法证明无残留跳板，已中止 remove；"
+                            + "修复 dylib 可读性后重试，或从备份手工还原 wechat.dylib 入口字节")
+                    }
                     if !uncovered.isEmpty {
                         throw ValidationError(
                             "检测到 \(uncovered.count) 个未还原的入口跳板（hooks 行缺失或偏移漂移）: "

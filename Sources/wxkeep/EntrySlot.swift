@@ -119,7 +119,10 @@ enum EntrySlot {
                 actual: cur.map { String(format: "%02X", $0) }.joined())
         }
         // 2) __DATA 段：由任一 segment=="__DATA" 的 section 反查其所属段
-        guard let dataSection = image.sections.first(where: { $0.segment == "__DATA" }) else {
+        // 142 P3：与 detectPatched/scanTrampolines 的 offset>0 谓词对齐
+        // ——首 __DATA section 头 offset=0 时 plan 出的位点 detect 永远
+        // 认不得（install 幂等路径死胡同进 prologueMismatch）
+        guard let dataSection = image.sections.first(where: { $0.segment == "__DATA" && $0.offset > 0 }) else {
             throw EntrySlotError.dataSegmentNotFound
         }
         guard let seg = image.segments.first(where: {

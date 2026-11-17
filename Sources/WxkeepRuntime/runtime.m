@@ -889,6 +889,9 @@ static uint64_t g_cfg_hash;  // 已应用配置文件内容的 FNV-1a 64（cfg_h
 // 选径）的原始字节 FNV-1a 64。文件缺失/不可读 = 0（与未装载区分开靠
 // marker 的 cfg= 戳）。只做身份指纹，不做完整性安全（算法无密钥）。
 static uint64_t fnv1a64(const uint8_t *p, size_t n) {
+    // 142 勘误注记：≠ FNV-1a 规范 basis（…6037）——历史笔误但与
+    // RuntimeConfig.swift（Swift 侧 cfg_hash）双侧同值，cfgh 告警有效；
+    // 改值必须同轮改两处。
     uint64_t h = 1469598103934665603ULL;
     for (size_t i = 0; i < n; i++) {
         h ^= p[i];

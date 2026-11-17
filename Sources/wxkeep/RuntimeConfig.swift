@@ -606,6 +606,9 @@ enum RuntimeConfig {
         var out: [(URL, UInt64)] = []
         for u in candidates ?? configReadCandidates {
             guard let data = try? Data(contentsOf: u) else { continue }
+            // 142 勘误注记：此常数 ≠ FNV-1a 规范 basis（…6037）——历史
+            // 笔误但与 runtime.m:892 双侧同值，cfgh 漂移告警因此有效。
+            // 改值必须同轮改两处，否则配置指纹恒失配。
             var h: UInt64 = 1_469_598_103_934_665_603
             for b in data {
                 h ^= UInt64(b)
@@ -775,15 +778,18 @@ enum RuntimeConfig {
     /// **部分失败如实告警**：单目标写失败（权限/容器缺失）会让双份从此分
     /// 歧——dylib 读到的一份可能仍是旧值，静默成功 = 配置面「看似写了没
     /// 生效」类问题的根源（98 轮 tip 三路陷阱同族）。
-    // MARK: - 141 轮 P2：双份写互斥锁
+    // MARK: - 配置双份写互斥锁（141 引入，142 P0 重写）
     //
     // 并发写者（tip/hooks/clone 三命令并行、或 dylib 侧热重载窗）都是
     // 读-合-写整个 dict 的循环——两写者交错（W1A→W2A→W2B→W1B）会把
     // Group 份与容器份永久写分歧（dylib 按首个可读文件取值，行为取决于
-    // 写序；configDivergenceDescription 只报不修）。O_EXCL 锁文件收口：
-    // - 10s 等待上限，超时如实抛（命令秒级完成，>10s = 异常态）；
-    // - 60s 陈旧接管（持锁进程崩溃后不死锁——接管窗内活写者被偷锁的
-    //   最坏结果 = 回到旧的并发语义，.atomic 单文件写保证无撕裂）。
+    // 写序；configDivergenceDescription 只报不修）。
+    //
+    // **142 P0 勘误**：141 版用 FileManager.createFile 当 O_EXCL——实证
+    // 它不是（open create|truncate，已存在文件照样返回 true 且覆盖内容），
+    // 两并发进程都「拿锁成功」，互斥为零。改 POSIX open(O_CREAT|O_EXCL)：
+    // EEXIST = 忙。等待上限（10s）/陈旧接管（60s）语义不变；dir 参数化
+    // 供并发回归测试注入独立目录（M28 变异钉：O_EXCL 摘除即红）。
     private static let lockWaitLimit: TimeInterval = 10
     private static let lockStaleLimit: TimeInterval = 60
     /// mergeKnownHooks 最近一次实际写成的目标（CLI「hooks」只报这份——
@@ -792,26 +798,51 @@ enum RuntimeConfig {
     /// CLI 单线程调用返回后——无并发访问面。
     nonisolated(unsafe) static var hooksLastWrittenTargets: [URL] = []
 
+    /// 生产入口（用户数据目录）。
     private static func withConfigWriteLock<T>(_ body: () throws -> T) throws -> T {
+        try withConfigWriteLock(at: Config.userDataURL, body)
+    }
+
+    /// O_EXCL 锁本体（142 P0 重写；dir 参数化=测试注入面）。
+    static func withConfigWriteLock<T>(at dir: URL,
+                                       waitLimit: TimeInterval = lockWaitLimit,
+                                       staleLimit: TimeInterval = lockStaleLimit,
+                                       _ body: () throws -> T) throws -> T {
         let fm = FileManager.default
-        let dir = Config.userDataURL
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        // 142 P1：sudo 首命令造目录 = root 属主（Backup.make 同病）——
+        // 不 chown 则此后所有非 sudo 配置命令在不可写目录里永远「拿不到
+        // 锁」且删不了任何东西（假超时误导为并发持有）。与 UpdateData
+        // 的 chownToRealUser 同规。
+        RealUser.chownToRealUser(dir)
         let lockURL = dir.appendingPathComponent(".runtimejson.lock")
         let started = Date()
         while true {
-            if fm.createFile(atPath: lockURL.path,
-                             contents: Data("\(ProcessInfo.processInfo.processIdentifier)".utf8)) {
+            let fd = open(lockURL.path, O_CREAT | O_EXCL | O_WRONLY,
+                          S_IRUSR | S_IWUSR)   // 0600 恒定
+            if fd >= 0 {
+                close(fd)
                 defer { try? fm.removeItem(at: lockURL) }
                 return try body()
             }
-            if Date().timeIntervalSince(started) > lockWaitLimit {
+            // 142 P1：目录不可写 ≠ 锁被持有——给出可执行修复而不是让
+            // 用户在「幽灵并发进程」误导下删一个根本不存在的锁文件。
+            if errno == EACCES || errno == EPERM {
+                let owner = getenv("SUDO_USER").map { String(cString: $0) } ?? NSUserName()
+                throw NSError(domain: "wxkeep.config", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey:
+                                "配置目录不可写（\(dir.path)，errno \(errno)）——"
+                                + "sudo 旧命令残留 root 属主目录。修复："
+                                + "sudo chown -R \(owner) \(dir.path)"])
+            }
+            if Date().timeIntervalSince(started) > waitLimit {
                 throw NSError(domain: "wxkeep.config", code: 1,
                               userInfo: [NSLocalizedDescriptionKey:
-                                "runtime.json 写锁等待超时（另一 wxkeep 命令持有 \(lockURL.path) 超过 \(Int(lockWaitLimit))s）——稍后重试；确认无其它 wxkeep 进程后可删除该锁文件"])
+                                "runtime.json 写锁等待超时（另一 wxkeep 命令持有 \(lockURL.path) 超过 \(Int(waitLimit))s）——稍后重试；确认无其它 wxkeep 进程后可删除该锁文件"])
             }
             if let attrs = try? fm.attributesOfItem(atPath: lockURL.path),
                let mtime = attrs[.modificationDate] as? Date,
-               Date().timeIntervalSince(mtime) > lockStaleLimit {
+               Date().timeIntervalSince(mtime) > staleLimit {
                 try? fm.removeItem(at: lockURL)   // 陈旧接管（见上：最坏=旧并发语义）
                 continue
             }
@@ -879,7 +910,9 @@ enum RuntimeConfig {
             // 避免无害差异噪音。
             func rowKey(_ row: Any) -> String {
                 guard let dict = row as? [String: Any] else { return String(describing: row) }
-                return "\(dict["uuid"] ?? "?")|\(dict["hook_off"] ?? "?")|\(dict["build"] ?? "?")"
+                // 142 P3：expected 入键（同 uuid/off/build 而原像字节不同的
+                // 行 = 实质漂移，分歧检测必须报）
+                return "\(dict["uuid"] ?? "?")|\(dict["hook_off"] ?? "?")|\(dict["build"] ?? "?")|\(dict["expected"] ?? "?")"
             }
             let ka = x.map(rowKey).sorted(), kb = y2.map(rowKey).sorted()
             return ka == kb

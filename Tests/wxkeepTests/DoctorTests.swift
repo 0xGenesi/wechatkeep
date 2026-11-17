@@ -87,6 +87,9 @@ struct DoctorTests {
             "running", "writable", "signature", "entitlements_ok",
             "entitlement_key_count", "restricted_entitlements", "patch_states",
             "verdicts",
+            // 142 P2：守护两行 + 失守标志入合同（机器消费方复现 canonical
+            // 视图/感知回退不再缺行）
+            "update_guard", "privacy_guard", "update_guard_rewritten",
         ]
         #expect(requiredKeys.isSubset(of: Set(object.keys)))
         #expect(!Set(object.keys).isSuperset(of: ["amfi_risk"]))  // nil omitted

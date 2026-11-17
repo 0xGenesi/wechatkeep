@@ -19,6 +19,18 @@
 >
 > `runtime install` 本身也会按版本自标识拒装旧件（141 轮装面版本门）；
 > `runtime clone on` 对旧件在役会 ⚠️ 告警——两道门都别绕过。
+>
+> **源码用户二进制路径红线**：brew 在役 CLI 是 0.2.17（141 轮前的旧件，
+> **自身没有版本门也不认识新 dylib 串**）——`sudo wxkeep …` 会静默用旧
+> CLI 装新 dylib（或用旧数据行装机）。装面一律用仓库构建件：
+>
+>     cd ~/dev/github/wechatkeep
+>     sudo .build/release/wxkeep runtime remove
+>     sudo .build/release/wxkeep runtime install
+>
+> 0.2.19 发版（tag + tap bump）后 `brew upgrade wxkeep` 才换回 `wxkeep`
+> 短命令。装完用 `wxkeep runtime status`（**同一路径的 0.2.19 CLI**）核对
+> dylib 版本行 = 0.2.19 ✓ 再进主冒烟。
 
 ## 主冒烟（约 5 分钟）
 

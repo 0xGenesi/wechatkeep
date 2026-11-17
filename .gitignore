@@ -17,3 +17,6 @@ var/
 __pycache__/
 .wxkeep-tagmap.json
 config.json.bak.*
+
+# ZCode 会话本地工件
+.zcode/

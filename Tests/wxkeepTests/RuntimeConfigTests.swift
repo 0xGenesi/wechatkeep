@@ -1,4 +1,26 @@
 import Testing
+
+/// 142 P0 回归锁：配置写锁真互斥（141 版 createFile 非 O_EXCL 的复活面）。
+/// 单线程确定性设计（142 首版双线程+信号量在 Swift Testing 协作池上死锁
+/// 的教训入册）：持锁窗内的二次获取必须被拒（M28 变异 = O_EXCL 摘除后
+/// 二次获取成功即红）；释放后重取成功（退锁语义）。
+@Test func configWriteLockIsMutuallyExclusive() throws {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("wxkeep-locktest-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    var reentered = false
+    try RuntimeConfig.withConfigWriteLock(at: dir, waitLimit: 5, staleLimit: 60) {
+        do {
+            _ = try RuntimeConfig.withConfigWriteLock(at: dir, waitLimit: 0.3, staleLimit: 60) {
+                reentered = true
+            }
+        } catch { /* 预期：EEXIST 重试到 waitLimit 超时——互斥的本体证据 */ }
+    }
+    #expect(!reentered, "持锁期间二次获取必须被拒（锁无互斥）")
+    // 释放后可重新获取（锁文件已清——退锁语义）
+    try RuntimeConfig.withConfigWriteLock(at: dir, waitLimit: 5, staleLimit: 60) {}
+}
+
 import Foundation
 @testable import wxkeep
 @testable import WxkeepRuntime

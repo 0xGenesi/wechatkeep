@@ -122,7 +122,7 @@ expected 原始字节门 → 全量写前预检 → WAL journal → 自动备份
 
 ```bash
 swift build -c release
-swift test                    # 358 项（含真 codesign 集成、模糊/变异测试、崩溃一致性深度门）
+swift test                    # 360 项（含真 codesign 集成、模糊/变异测试、崩溃一致性深度门）
 WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路
 ```
 

@@ -109,7 +109,12 @@ enum Clone {
         catch { throw CloneError.copyFailed(error.localizedDescription) }
         func cleanup() {
             try? fm.removeItem(at: staging)
-            try? fm.removeItem(at: dest)
+            // 142 P3：dest 只在本进程写过标记时才删——并发同 index create
+            // 的他人克隆不被本进程的失败路径误删
+            if let d = NSDictionary(contentsOf: dest.appendingPathComponent("Contents/Info.plist")) as? [String: Any],
+               (d[markerKey] as? Int) == idx {
+                try? fm.removeItem(at: dest)
+            }
         }
 
         // 2b. Rewrite Info.plist（在暂存位上）: unique bundle ID + marker + strip URL schemes

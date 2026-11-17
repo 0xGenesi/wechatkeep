@@ -37,8 +37,20 @@ enum UpdateGuard {
         let meaning: String
     }
 
+    /// 142 P3 哨兵值：root 语境委托链不可用（ssh 无 GUI 会话/登录窗口态）
+    /// 时读侧不再静默回落 root 自己的域——读 `<unset>` 会喂给 rewritten()
+    /// 一个假「微信改回」告警。不可读 ≠ 失守。
+    static let unreadableSentinel = "<unreadable>"
+
     static func read() -> [Status] {
-        keys.map { spec in
+        // 142 P3：root 且委托链不可用 → 全量不可读（不落 root 域）
+        if geteuid() == 0, consoleUserDelegation() == nil {
+            return keys.map { spec in
+                Status(key: spec.key, value: unreadableSentinel,
+                       guarded: false, meaning: spec.meaning)
+            }
+        }
+        return keys.map { spec in
             // root 语境经 defaultsArgs 委托控制台用户读（与写侧同款）——
             // 否则 sudo status 读的是 root 自己的域，误报「未开启」。
             let args = defaultsArgs(["read", domain, spec.key])
@@ -60,6 +72,8 @@ enum UpdateGuard {
     /// 偏好层防护失守。从未写过（无标记）则不判定。纯函数便于测试。
     static func rewritten(_ statuses: [Status], markerExists: Bool) -> Bool {
         guard markerExists else { return false }
+        // 142 P3：不可读态不判失守（假「微信改回」告警根除）
+        if statuses.contains(where: { $0.value == unreadableSentinel }) { return false }
         let toggles: Set<String> = ["SUEnableAutomaticChecks", "SUAutomaticallyUpdate"]
         return statuses.contains { toggles.contains($0.key) && !$0.guarded }
     }

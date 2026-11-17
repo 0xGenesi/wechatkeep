@@ -24,18 +24,49 @@ enum SafeWrite {
     /// journal 收口（删除）与补丁字节的落盘顺序在断电下不受控。journal
     /// 是小文件，代价趋零；340MB 级二进制不走此参（V6 §6 已登记边界）。
     /// fsync 失败如实抛（调用方都承接 throws）。
-    static func overwrite(_ data: Data, to url: URL, sync: Bool = false) throws {
+    static func overwrite(_ data: Data, to url: URL, sync: Bool = false,
+                          permissions: Int? = nil) throws {
         let fm = FileManager.default
-        let perms = ((try? fm.attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber)?
+        let perms = permissions ?? ((try? fm.attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber)?
             .intValue
+        // 142 P2（机密件面）：显式 permissions 走「权限先于 rename」——旧序
+        // （atomic rename → setAttributes）在 rename 与 chmod 之间进程死亡时
+        // 把机密留 0644（dbkeys.json = 全部聊天库解密密钥；124 轮 hits 文件
+        // 同课已修、本文件当时漏改）。唯一名临时件：撕裂面只伤 tmp。
+        if let perms, permissions != nil {
+            let tmp = url.deletingLastPathComponent()
+                .appendingPathComponent(".wxkeep-ov-\(UUID().uuidString)")
+            try data.write(to: tmp, options: .atomic)
+            try fm.setAttributes([.posixPermissions: perms], ofItemAtPath: tmp.path)
+            if sync { try fsyncDeep(tmp) }
+            guard rename(tmp.path, url.path) == 0 else {
+                try? fm.removeItem(at: tmp)
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno),
+                              userInfo: [NSLocalizedDescriptionKey:
+                                "rename → \(url.path) 失败: \(String(cString: strerror(errno)))"])
+            }
+            return
+        }
         try data.write(to: url, options: .atomic)
         if let perms {
             try fm.setAttributes([.posixPermissions: perms], ofItemAtPath: url.path)
         }
-        if sync {
-            let fh = try FileHandle(forWritingTo: url)
-            defer { try? fh.close() }
+        if sync { try fsyncDeep(url) }
+    }
+
+    /// 142 P3：F_FULLFSYNC（macOS fsync 不刷盘缓存）+ 父目录 entry 刷盘
+    /// ——journal「意图先于写入持久」前提的 Durability 收口。F_FULLFSYNC
+    /// 不可用（异常内核）回落 fsync；父目录刷盘 best-effort。
+    private static func fsyncDeep(_ url: URL) throws {
+        let fh = try FileHandle(forWritingTo: url)
+        defer { try? fh.close() }
+        if fcntl(fh.fileDescriptor, F_FULLFSYNC) != 0 {
             try fh.synchronize()
+        }
+        let dirfd = open(url.deletingLastPathComponent().path, O_RDONLY)
+        if dirfd >= 0 {
+            _ = fcntl(dirfd, F_FULLFSYNC)
+            close(dirfd)
         }
     }
 }

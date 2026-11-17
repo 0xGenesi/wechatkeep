@@ -176,9 +176,9 @@ enum DbKeysFiles {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try enc.encode(store)
-        try SafeWrite.overwrite(data, to: target)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600], ofItemAtPath: target.path)
+        // 142 P2：0600 在 rename 前落定（audit #3——旧序在「rename 与
+        // chmod 之间死亡」窗内把全部聊天库密钥留 0644）
+        try SafeWrite.overwrite(data, to: target, permissions: 0o600)
     }
 }
 
@@ -390,6 +390,11 @@ extension Wxkeep {
                 pkill.arguments = ["-TERM", "-x", "WeChat"]
                 if let _ = try? pkill.run() { pkill.waitUntilExit() }
                 Thread.sleep(forTimeInterval: 2)
+                // 142 P3：TERM 后等进程真退场（固定 2s 在慢机上竞态——
+                // 将死旧进程与 lldb 新进程并存会让 capture 命中串线）
+                for _ in 0..<40 where Shell.run("/usr/bin/pgrep", ["-x", "WeChat"]).status == 0 {
+                    Thread.sleep(forTimeInterval: 0.25)
+                }
                 let logPath = NSTemporaryDirectory() + "wxkeep-capture-lldb.log"
                 FileManager.default.createFile(atPath: logPath, contents: nil)
                 guard let log = FileHandle(forWritingAtPath: logPath) else {
@@ -725,7 +730,11 @@ extension Wxkeep {
                     throw ValidationError("sqlcipher 无法启动（\(exe)）：\(error.localizedDescription)")
                 }
                 let sql = "PRAGMA key = \"x'\(key.hexString)'\"; \(SQLCipherGeometry.pragmaPreamble); \(statements)\n"
-                inPipe.fileHandleForWriting.write(sql.data(using: .utf8)!)
+                // 142 P3：modern write(contentsOf:) 抛 Swift 错（可捕获进
+                // 下方退出码路径）——legacy write(_:) 在 reader 已死时走
+                // ObjC 异常（NSFileHandleOperationException）直接杀 wxkeep
+                do { try inPipe.fileHandleForWriting.write(contentsOf: sql.data(using: .utf8)!) }
+                catch { /* reader 已死：错误由非零退出码 + errFile 尾路径如实报 */ }
                 try? inPipe.fileHandleForWriting.close()
                 let data = outPipe.fileHandleForReading.readDataToEndOfFile()
                 p.waitUntilExit()

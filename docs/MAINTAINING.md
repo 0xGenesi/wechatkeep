@@ -652,7 +652,7 @@ expected 必须按实读字节入库（㉚ 轮 18 构建 + ㉛ 轮 6 构建全�
   （Data(hex:)/ExpectedPattern/MachOInjector/MachImage 随机畸形注入）。
   runtime.m 或解析面改动后必跑。CLT 无 libFuzzer 运行时——runtime_random.c
   为等价自研实现（种子固定可复现）。
-- **变异测试** `python3 tools/mutation_test.py`：27 个安全关键单行变异 ×
+- **变异测试** `python3 tools/mutation_test.py`：29 个安全关键单行变异 ×
   全量测套，杀灭率 ≥90% 验收。新增安全防线（新守卫/新门）时补对应变异行。
   等价变异体判例（125 轮 M23）：`a>=b && a-b<c` 与 `a-b<c` 无符号模运算
   下数学等价（下溢回环补位）——等价行不得计入杀灭率分母，须换可杀形

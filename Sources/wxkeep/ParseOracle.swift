@@ -121,9 +121,12 @@ enum ParseOracle {
                 throw OracleError.badWorkerOutput(String(line))
             }
             let hex = String(parts[6].dropFirst(4))
-            let rep = Data(stride(from: 0, to: hex.count - 1, by: 2).compactMap {
-                UInt8(hex[hex.index(hex.startIndex, offsetBy: $0)...hex.index(hex.startIndex, offsetBy: $0 + 1)], radix: 16)
-            })
+            // 142 P3：rep hex 严格解析——原 compactMap 丢非法 nibble +
+            // stride 丢奇数尾字节，坏 rep 行静默截断 replacemsg 而非
+            // badWorkerOutput（worker 协议违约面不可静默）
+            guard hex.count % 2 == 0, let rep = Data(hex: hex) else {
+                throw OracleError.badWorkerOutput(String(line))
+            }
             outcomes.append(RunOutcome(file: String(parts[1]), mode: String(parts[2]),
                                        ret: ret, ok: ok, newmsgid: newmsgid, replacemsg: rep))
         }
@@ -290,10 +293,18 @@ enum ParseOracle {
                 vstr.replaceSubrange(8..<16, with: withUnsafeBytes(of: UInt64(xml.count)) { Array($0) })
                 vstr.replaceSubrange(16..<24, with: withUnsafeBytes(of: UInt64(xml.count) | 1 << 63) { Array($0) })
                 let obj = calloc(1, 0xC0)!
+                // 142 P3：debug 分支 VA 同样守门（镜像缺该 VA 时
+                // force-unwrap 即崩——walktree/probe 分支同款纪律）
+                guard let ctorVA = map.ptr(0x55a7c1c), let convVA = map.ptr(0x4a7d6ac) else {
+                    // workerMain -> Never 非 throws——走 worker exit(2) 协议
+                    //（2 = 参数拒绝；父侧映射 badWorkerOutput 族）
+                    FileHandle.standardError.write(Data("countnew debug: VA 0x55a7c1c/0x4a7d6ac 不在镜像\n".utf8))
+                    exit(2)
+                }
                 let ctorFn: @convention(c) (UnsafeMutableRawPointer) -> Void =
-                    unsafeBitCast(map.ptr(0x55a7c1c)!, to: (@convention(c) (UnsafeMutableRawPointer) -> Void).self)
+                    unsafeBitCast(ctorVA, to: (@convention(c) (UnsafeMutableRawPointer) -> Void).self)
                 let convFn: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64 =
-                    unsafeBitCast(map.ptr(0x4a7d6ac)!, to: (@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64).self)
+                    unsafeBitCast(convVA, to: (@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> UInt64).self)
                 let before = oracleNewCount
                 vstr.withUnsafeMutableBytes { raw in
                     ctorFn(obj)
