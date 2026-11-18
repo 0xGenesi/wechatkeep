@@ -27,6 +27,21 @@ enum Manifest {
         case invalid(String)
     }
 
+    /// 143 轮（调研 #1）：数据时效自检——catalog 生成距今天数（读不了/
+    /// 无字段/解析失败 = nil，调用方跳过展示）。供应链门不变，只做可见性。
+    static func generatedAgeDays(in dir: URL) -> Int? {
+        let url = dir.appendingPathComponent("manifest.json")
+        guard let data = try? Data(contentsOf: url),
+              let m = try? JSONDecoder().decode(LoadedManifest.self, from: data),
+              let at = m.generatedAt else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate,
+                           .withColonSeparatorInTime]
+        guard let date = f.date(from: at) else { return nil }
+        let days = Int(Date().timeIntervalSince(date) / 86400)
+        return days >= 0 ? days : 0
+    }
+
     struct LoadedManifest: Codable {
         let schema: Int
         let generatedAt: String?

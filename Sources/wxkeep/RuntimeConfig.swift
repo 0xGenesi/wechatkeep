@@ -157,8 +157,8 @@ enum RuntimeConfig {
     /// 102 于 2026-10-20 补齐、270131-135 于 10-14/10-17 派生——地址表达
     /// 68 行 = 4.1.15 全家族（除从未发布的 270087/270092）+ 270131-135
     /// + 4.2.0 线 270340-270389（11/02 补齐 340-351，11/07 补 352，
-    /// 139 轮补 353+385-389）
-    /// × 双架构（28 构建 × 2）。
+    /// 139 轮补 353+385-389，143 轮补 390）
+    /// × 双架构（40 构建 × 2 = 80 行，143 轮现量）。
     ///
     /// funcSize 覆盖率（77 续②补 16 行、⑫ zsbai 回填 6 行，2026-10-26/27；
     /// 135 轮补 270352 双架构 2 行；139 轮补 270353+270385-389 双架构
@@ -317,6 +317,11 @@ enum RuntimeConfig {
         HookRow(build: "270389", uuid: "b61e1c74-d6ee-3e4b-bd7b-4ab90005fb63",
                 arch: "x86_64", hook_off: "0x4dd1d90", msg_arg: 1, xml_sso_off: 0,
                 expected: "554889E54157415641554154", func_size: 5184),
+        // —— 270390（4.2.0.54，143 轮补齐）：gen4 变代延续（keeptip store
+        // +0x7C8 实证；x64 fs 5184 / arm64 −0x278+fs 4452 与 270389 同代）。
+        HookRow(build: "270390", uuid: "7c7c2d29-07dc-37b5-b818-cd99382361b7",
+                arch: "x86_64", hook_off: "0x4dd1910", msg_arg: 1, xml_sso_off: 0,
+                expected: "554889E54157415641554154", func_size: 5184),
         HookRow(build: "270353", uuid: "8cb5f29e-fc1d-3d47-897a-272a4651e916",
                 arch: "arm64", hook_off: "0x4e7d194", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
@@ -331,6 +336,9 @@ enum RuntimeConfig {
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4380),
         HookRow(build: "270389", uuid: "3802854f-9ff3-3e4b-9852-b9f20761555c",
                 arch: "arm64", hook_off: "0x46142b0", msg_arg: 1, xml_sso_off: 0,
+                expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4452),
+        HookRow(build: "270390", uuid: "dcb33df7-9ebd-390f-a9be-0ad0eb3cdd80",
+                arch: "arm64", hook_off: "0x4613ec4", msg_arg: 1, xml_sso_off: 0,
                 expected: "F85FBCA9F65701A9F44F02A9FD7B03A9", func_size: 4452),
         HookRow(build: "270084", uuid: "a08e3e78-cc29-3927-9375-883c644d8ff8",
                 arch: "arm64", hook_off: "0x4bb380c", msg_arg: 1, xml_sso_off: 0,

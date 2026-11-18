@@ -60,6 +60,13 @@ int main(void) {
         fflush(stdout);
     } else {
         pid_t pid = fork();
+        if (pid < 0) {
+            // 143 轮 C-⑧：fork 失败原样落 waitpid(-1) 立即 -1/ECHILD，
+            // st 保持 0 被误报 remap_cow=100（「被信号 0 击杀」= 协议外
+            // 误报）。200+ 段 = 环境失败（与 runtime.m 诊断编码风格一致）。
+            printf("remap_cow=%d\n", 200 + errno);
+            fflush(stdout);
+        } else {
         if (pid == 0) {
             *(volatile unsigned int *)remap_addr = 0xD65F03C0u;   // arm64 ret
             _exit(0);   // 写成功 = 干净退出
@@ -70,6 +77,7 @@ int main(void) {
                    : 100 + (WIFSIGNALED(st) ? WTERMSIG(st) : 0);
         printf("remap_cow=%d\n", code);   // 0=可写；1xx+信号=写测被 CS 击杀
         fflush(stdout);
+        }
         vm_deallocate(task, remap_addr, page);
     }
 

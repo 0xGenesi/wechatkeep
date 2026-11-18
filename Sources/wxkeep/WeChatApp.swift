@@ -66,8 +66,12 @@ enum WeChatApp {
         process.arguments = ["-f", pgrepPattern(for: app)]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        // 143 轮 A-7：pgrep 启动失败（fork/资源耗尽）原按「未运行」放行
+        // ——fail-open 会把「运行中进程的可执行定点写」放进窗口。改
+        // fail-closed（按运行中拒）：代价是极罕见态下的一次重试，方向
+        // 与其余守卫一致（红向安全）。
         do { try process.run(); process.waitUntilExit(); return process.terminationStatus == 0 }
-        catch { return false }
+        catch { return true }
     }
 
     static func binaryURL(app: URL, relative: String?) -> URL {

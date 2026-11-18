@@ -8,6 +8,9 @@ enum Engine {
     enum EngineError: Error, CustomStringConvertible {
         case unsupportedBuild(String, known: Int)
         case variantUnavailable(String)
+        /// 143 轮：--only 全未命中此前复用 variantUnavailable，把整句嵌进
+        /// 「variant \`…\`」模板产出病句——独立成案并给可用目标处方。
+        case onlyNoMatch(requested: [String], available: [String])
         case restoreUnavailable(String)
         case variantDeprecated(String)
         case foreignVariantPatched(target: String, sites: [String])
@@ -19,7 +22,16 @@ enum Engine {
                 + "1) `wxkeep update-data` 拉取最新补丁数据（新构建 day-0 生效）；"
                 + "2) 仍不支持时 `wxkeep locate` 自动定位（新签名代需等待适配）。"
             case .variantUnavailable(let variant):
-                "this build has no curated entries for variant `\(variant)`"
+                // 143 轮 B-P2-4：同族错误（unsupportedBuild）有三条处方，这里
+                // 此前只报事实不给下一步——270152 等 x64-only 无 keeptip 条目
+                // 的构建上用户会被卡住。处方按变体给方向。
+                "此构建无 `\(variant)` 精编条目——`wxkeep patch --variant silent` 是全构建"
+                + "通用的防撤回变体（本错误常见于 x64-only 无 keeptip 条目的构建）；"
+                + "`wxkeep doctor` 可看本构建可用面。"
+            case .onlyNoMatch(let requested, let available):
+                "--only 未命中任何目标（\(requested.joined(separator: ", "))）。"
+                + "本构建可用: \(available.joined(separator: ", "))。"
+                + "核对拼写，或去掉 --only 全量打。"
             case .restoreUnavailable(let detail):
                 "cannot restore: \(detail). Reinstall WeChat from the official dmg, or use a backup file."
             case .variantDeprecated(let variant):
@@ -318,7 +330,9 @@ enum Engine {
             }
             selected = selected.filter { effective.contains($0.identifier) }
             guard !selected.isEmpty else {
-                throw EngineError.variantUnavailable("no matching targets for --only \(only?.joined(separator: ",") ?? "")")
+                throw EngineError.onlyNoMatch(
+                    requested: only ?? [],
+                    available: versionEntry.targets.map(\.identifier))
             }
         }
 

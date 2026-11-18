@@ -43,6 +43,9 @@ enum PatchJournal {
     /// 覆盖——新事务的意图即当前事实）。fsync（135 轮体检 P3-6）：WAL
     /// 前提 = 意图记录先于引擎写入**持久**——小文件，代价趋零。
     static func begin(kind: Kind, build: String, variant: String?, app: String, userData: URL? = nil) throws {
+        // 143 轮 A-1：目录先在（SafeWrite/Data.write 不建父目录——全新机器
+        // 首跑 journal 落盘即抛 Cocoa 病句）。
+        try Config.ensureUserDataDir(userData)
         let record = Record(
             v: 1, kind: kind, build: build, variant: variant, app: app,
             startedAt: ISO8601DateFormatter().string(from: Date()),

@@ -49,7 +49,7 @@ DUP_ID_BUILDS = {
     "269363", "269362", "269336", "42530", "41754", "39917", "38959", "37335",
 }
 
-EXPECTED_TOTALS = {"builds": 128, "entries": 2111}
+EXPECTED_TOTALS = {"builds": 129, "entries": 2134}
 
 # 家族指纹表（134 轮实测固化；新派生轮 = 登记新指纹行 + 注出处）。
 EXPECTED_FINGERPRINTS = {
@@ -70,7 +70,9 @@ EXPECTED_FINGERPRINTS = {
     "revoke|arm64|7F000014x1;revoke-keeptip|arm64|7FB600F9x1,E00F0034x1;update|arm64|00008052C0035FD6x2,C0035FD6x7": 4,
     "revoke|arm64|7F000014x1;revoke|x86_64|31C0C3909090909090x1;revoke-keeptip|arm64|7FB600F9x5,E00F0034x5;update|arm64|00008052C0035FD6x2,C0035FD6x6;update|x86_64|31C0C3x2,C3x6": 3,
     "revoke|arm64|82000014x1;revoke-keeptip|arm64|40100034x1,7FCE00F9x1;update|arm64|00008052C0035FD6x2,C0035FD6x6": 3,
-    "revoke|arm64|82000014x1;revoke|x86_64|30C0x1,31C0C3909090909090x1;revoke-keeptip|arm64|40100034x1,7FE600F9x1;revoke-keeptip|x86_64|4831C06690488983C8010000x1,554889E553504889FBx1;update|arm64|00008052C0035FD6x2,C0035FD6x6;update|x86_64|31C0C3x2,C3x6": 50,
+    # 143 轮：270390（4.2.0.54）入该家族（gen4 变代=地址偏移不同、asm
+    # 多重集全同；guard 30C0 在位——4.2.0 线全五构建+270390 同构）50→51
+    "revoke|arm64|82000014x1;revoke|x86_64|30C0x1,31C0C3909090909090x1;revoke-keeptip|arm64|40100034x1,7FE600F9x1;revoke-keeptip|x86_64|4831C06690488983C8010000x1,554889E553504889FBx1;update|arm64|00008052C0035FD6x2,C0035FD6x6;update|x86_64|31C0C3x2,C3x6": 51,
     "revoke|arm64|82000014x1;revoke|x86_64|30C0x1,31C0C3909090909090x1;revoke-keeptip|arm64|40100034x1,7FE600F9x1;revoke-keeptip|x86_64|4831C06690488983C8010000x1,554889E553504889FBx1;update|x86_64|31C0C3x2,C3x6": 2,
     "revoke|arm64|82000014x1;revoke|x86_64|31C0C3909090909090x1;revoke-keeptip|arm64|40100034x5,7FCE00F9x5;update|arm64|00008052C0035FD6x2,C0035FD6x6;update|x86_64|31C0C3x2,C3x6": 4,
     "revoke|arm64|C0035FD6x1;revoke|x86_64|C3x1;revoke-keeptip|arm64|C0035FD6x1;revoke-keeptip|x86_64|C3x1;update|arm64|C0035FD6x2;update|x86_64|C3x2": 8,

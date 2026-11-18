@@ -203,3 +203,22 @@ final class PatchJournalTests {
         #expect(g.journalSummary?.hasPrefix("runtimeRemove@") == true)
     }
 }
+
+// MARK: - 143 轮 A-1 回归锁
+
+/// 全新机器首跑：userData 目录不存在时 begin 必须自建目录成功——
+/// 此前 `Data.write(.atomic)` 对缺失父目录抛 Cocoa 病句
+/// （「The folder "patch.journal.json" doesn't exist.」），主命令在
+/// 打任何字节之前即死（update-data/recover 先跑过的机器全被掩盖）。
+@Test func beginCreatesMissingUserDataDirectory() throws {
+    let deep = FileManager.default.temporaryDirectory
+        .appendingPathComponent("wxkeep-journal-fresh-\(UUID().uuidString)")
+        .appendingPathComponent("nested/deeper")   // 整条链都不存在
+    defer { try? FileManager.default.removeItem(at: deep.deletingLastPathComponent().deletingLastPathComponent()) }
+    try PatchJournal.begin(kind: .patch, build: "270390", variant: "silent",
+                           app: "/Applications/WeChat.app", userData: deep)
+    #expect(PatchJournal.pending(userData: deep).exists,
+            "begin 应自建目录并落盘 journal（143 A-1）")
+    #expect(FileManager.default.fileExists(atPath: deep.path),
+            "ensureUserDataDir 应创建整条缺失链")
+}

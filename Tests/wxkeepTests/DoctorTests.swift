@@ -204,13 +204,14 @@ extension DoctorTests {
         }
         let line = String(cString: c)
         // CLI `runtime status`/doctor 消费的每一个键（markerInt/markerDigits/
-        // markerStatusDecode/直读 range 四类全集；124 轮 +cldrop/clgap 池键）
+        // markerStatusDecode/直读 range 四类全集；124 轮 +cldrop/clgap 池键；
+        // 143 轮 D④ +mr2——武装态的权威字段，此前恰好在锁外）
         let keys = ["status", "enc", "istep", "ierr",
                     "fires", "hits", "zero", "selfskip",
                     "clone", "clmiss", "clrow", "cllastlen", "clpair", "clsvc",
                     "clkey", "clhit", "clmissq", "clget", "clinner",
                     "clpub", "clpubm", "clins", "clsvc2", "cldrop", "clgap",
-                    "cfg", "cfgh", "ts"]
+                    "cfg", "cfgh", "ts", "mr2"]
         for k in keys {
             #expect(line.contains(" \(k)=") || line.hasPrefix("\(k)=") || line.contains(" \(k)=\(k == "enc" ? "2" : "")"),
                     "marker 格式串缺键 \(k)——CLI 侧将静默显 ?/0")

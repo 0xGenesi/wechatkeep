@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey.svg)](#从源码构建)
 
-macOS 微信 3.x/4.x 防撤回工具链，**Apple Silicon + Intel 双架构**，覆盖 128 个构建（4.x 全线 + 3.x 主程序时代 16 构建）。
+macOS 微信 3.x/4.x 防撤回工具链，**Apple Silicon + Intel 双架构**，覆盖 129 个构建（4.x 全线 + 3.x 主程序时代 16 构建）。
 
 > 撤回的消息留在聊天里 · 字节级安全补丁 · 每一步写盘都可逆、可审计、可验证
 
@@ -30,6 +30,13 @@ brew install 0xGenesi/tap/wxkeep   # v0.2.16 起从源码构建（需 Command Li
 wxkeep update-data                 # 拉取最新补丁数据（day-0 跟进新微信构建）
 ```
 
+生效最少三步：`brew install` → `sudo wxkeep patch`（update-data 随包已带
+数据时可直接 patch；`wxkeep doctor` 会对数据过旧给出提示）。
+
+> **版本滞后注记**：brew tap 发版滞后于 master（版本门为 0.2.19 引入）。
+> 若机器上同时存在源码构建件，装面一律用同一路径的 CLI——旧 CLI 装新
+> dylib 会被版本门拒（详见 [docs/SMOKE-RUNBOOK.md](docs/SMOKE-RUNBOOK.md) 前置红线）。
+
 或从源码构建：
 
 ```bash
@@ -54,7 +61,7 @@ wxkeep privacy-guard --action status  # 隐私加固状态
 
 ## 支持版本
 
-完整双架构清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，128 个构建号）。
+完整双架构清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)（由 `tools/gen_matrix.py` 自动生成，129 个构建号）。
 
 - **4.x**：4.1.13 全线、4.1.15 全家族、4.2.0 线（270340-270353 + 270385-270389）——revoke/keeptip/update 三面双架构
 - **3.x**（3.5.5-3.8.10.17，16 构建）：silent/keeptip/update 三面双架构（行为差异见[已知限制](#已知限制)）
@@ -122,11 +129,31 @@ expected 原始字节门 → 全量写前预检 → WAL journal → 自动备份
 
 ```bash
 swift build -c release
-swift test                    # 360 项（含真 codesign 集成、模糊/变异测试、崩溃一致性深度门）
+swift test                    # 363 项（含真 codesign 集成、模糊/变异测试、崩溃一致性深度门）
 WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib 全链路
 ```
 
+## 完全卸载
+
+```bash
+sudo wxkeep restore        # ① 字节级全量还原（幂等；重签回可启动态）
+wxkeep runtime remove      # ② 移除运行时组件注入（未装过则无操作）
+brew uninstall 0xGenesi/tap/wxkeep   # ③ 卸载 CLI 本体（可选）
+```
+
+数据目录 `~/Library/Application Support/wxkeep/`（备份/定位数据/复原报告）
+按需手动删除；微信本体不受任何影响。
+
+## 状态一目了然（可选菜单栏面板）
+
+[tools/GUI/](tools/GUI/) 提供只读菜单栏面板：定期跑 `doctor --json`、图标
+随整体状态变色、`next_command` 一键复制——「无需记得检查」的放大器，不含
+任何提权操作。CLI 为主，GUI 可选。
+
 ## 诚实的限制
+
+错误提示哲学：**每个失败给出修法**（下一步命令、退出码、`doctor` 处方），
+不做「报成功实际没生效」——这与同类工具的一句话报错是刻意分化。
 
 | 限制 | 详情 |
 |---|---|
@@ -149,7 +176,7 @@ WXKEEP_REAL_DYLIB=/path/to/pristine/wechat.dylib swift test   # + 真实 dylib �
 | 文档 | 内容 |
 |---|---|
 | [docs/README.md](docs/README.md) | **文档索引**（现行契约 / 方法论 / 历史档案导航） |
-| [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 128 构建双架构兼容矩阵（自动生成） |
+| [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 129 构建双架构兼容矩阵（自动生成） |
 | [docs/MAINTAINING.md](docs/MAINTAINING.md) | 维护 SOP：新构建适配、发版、审计方法 |
 | [docs/FMEA.md](docs/FMEA.md) | 故障模式登记册：每行 = 模式 × 防线 × 检出 × 测试 |
 | [docs/RUNTIME-DESIGN.md](docs/RUNTIME-DESIGN.md) | 运行时组件设计：hook 谱系、身份门、安装链 |

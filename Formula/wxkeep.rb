@@ -7,7 +7,9 @@ class Wxkeep < Formula
   # v0.2.16 起源码-only（release 资产停发，MAINTAINING「发版策略」）：
   # 从 git tag 源码构建；数据四件套随仓库分发，安装后走
   # `wxkeep update-data` OTA 升级目录（与随包数据的供应链门同构）。
-  url "https://github.com/0xGenesi/wechatkeep.git", tag: "v0.2.18"
+  # 143 轮 D①：url tag 与 version 同步前进（141 升 version 漏了 url——
+  # tag 未切前的中间态由三面版本锁看住；发版切 v0.2.19 tag 后即自洽）。
+  url "https://github.com/0xGenesi/wechatkeep.git", tag: "v0.2.19"
 
   # 与 homebrew-core 纯 SPM 构建惯例对齐（swiftformat 等）：
   # uses_from_macos "swift" 接受 Command Line Tools（CLT 即可构建——与

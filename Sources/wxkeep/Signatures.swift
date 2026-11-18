@@ -61,7 +61,8 @@ struct Signatures: Codable {
 
         var description: String {
             switch self {
-            case .notFound: return "signatures.json not found (searched ./, user data dir, and next to the executable)"
+            case .notFound: return "signatures.json not found (searched ./, user data dir, and next to the executable). "
+                + "Run `wxkeep update-data` to install the signed recipe catalog (config/signatures/manifest 三件套同装)."
             case .malformed(let d): return "signatures.json malformed: \(d)"
             }
         }

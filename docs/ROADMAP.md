@@ -1,5 +1,75 @@
 ## 当前优先级队列（2026-10-28 增补；77 续⑰-㉕ 逆向系列后）
 
+> **143 轮（2026-11-18 晚·四路并行深审一次性收口 + 270390 day-0 + UX 对齐轮）**：
+> 用户令「一次性全找出来，朝完美对齐」。**①270390（4.2.0.54）day-0 适配**
+> 全链闭环：watch 11-17 run 下载中被取消（日志已过期，本地接管）；CDN 归档
+> 直链下载（511MB 夜间全速）→ derive_build_from_cdn 三面派生（revoke 双架构
+> /guard/keeptip/update 16 条）→ **gen4 几何脚本化**（ARM64_GEN_KEEPTIP 表
+> 补 270389 手工代（+0x7C8/60E600F9），270390 实证纯 gen4：+0x7A0 位点为
+> 无关字节，零歧义）→ arm64 hooks 行（−0x278 变代，序言精确对齐、−0x270
+> 错位，fs 4452 FUNCTION_STARTS 实算）→ x64 hooks 行（fs 5184 家族序言门过）
+> → **SSOT 同轮**（knownHooks 78→80 行 + 契约锁 39→40 构建/gen4 变代锁）→
+> config 129 构建（staging 隔离合并，历史 staging 陈留 14 条未混入）→
+> manifest 重签（openssl 原钥直签 + CLI verify ✓）→ COMPATIBILITY 4.2.0.54
+> → L18 PASS（129 构建/24 指纹/2134 条目，家族计数 50→51 登记）→ **day-0
+> 实弹**：假 bundle 上 doctor 识别/catalog matched/patch(dry+silent+keeptip)/
+> verify/restore/pristine 复核 + runtime install（入口槽 0x4613ec4=派生行，
+> 三重身份门验收）+ remove 还原，全绿。**②四路并行深审**（第六面数据辅助
+> 文件/全 CLI UX 面/runtime.m+probe 新鲜眼/跨模块合同缝合面），逐项人工
+> 复核后全修：**P1×5**——A-1 全新机器首跑 journal 落盘即死（userData 目录
+> 无任何建点，`Data.write(.atomic)` 抛 Cocoa 病句「The folder
+> "patch.journal.json" doesn't exist」——update-data/recover 先跑过的机器全
+> 被掩盖；修=Config.ensureUserDataDir 规范入口接 journal/audit/backup 三写
+> 点+A-4 sudo 首命令 chown 同轮）；A-2 中止窗 Resources 未封存备份→verify
+> 必败态+doctor 处方死循环（restore 重签条件补 codesign-verify-failed
+> 强制门——处方真正收敛；评审场景一被否决：Patcher 内层 catch 恒标
+> wroteAnything→恢复重签自愈在位）；B-1 privacy-guard off 成功也退 1
+>（throw 在 if/else 外——141 落规时的实现事故）；B-3 --only 全未命中病句
+>（整句嵌 variantUnavailable 模板——独立 onlyNoMatch case+可用目标处方+
+> isPreWriteFailure 判写前）；D① Formula version 0.2.19↔url tag v0.2.18
+>（tag 不存在，brew fetch 即死）——url tag 同步 v0.2.19+**三面版本锁**
+>（formulaVersionTagMatchesCLI 测试）。**P2×10**：update-guard on 失败无
+> 退出码/verify arm64 pristine 反事实成功行（补丁未打却称 byte-proven——
+> 改诚实文案+doctor 指路）/patch+restore 可写前置（漏 sudo 首跑此前深入
+> 备份步才 EACCES 且指引方向错——入口早拒+doctor 同款指引）/sudo cwd
+> 拒载冠 malformed（独立 refusedSudoCwd case）/variantUnavailable 无处方/runtime status uuid-mismatch 吓人标志
+>（armed 并排时注记正常痕迹）/clone remove 数据容器披露/clone create
+> 340MB 静默（进度行）/doctor 守护行对齐（13 列栅格+priv-guard 标签）/
+> sudo+ssh sentinel 三面（status 汇总+doctor 两守护行——「不可读」独立态，
+> 不下未开启结论不给死循环处方）/README brew 滞后注记。**P3/P4 批**：A-3
+> copyItem 半截残留清理/A-5 Recover 机密件权限先于 rename（0600）/A-6
+> recover 同秒覆盖（亚秒 stamp+fileExists 拒绝）/A-7 isRunning fail-open→
+> fail-closed/A-8 killall -u 属主过滤/C-1 rd 组缺 clone_svc_vtable 哑火面
+>（武装侧组门+双 worker 纵深门，对齐字节路径）/C-2 x64 COW 写层策略拒时
+> 拒装（首层 EACCES/EPERM=CS 击杀风险面，95 轮 arm64 probe 同形态；「x64
+> 语义不同」无实测依据——诊断码 400+errno）/C-3 bootlog 环计数器
+> signed→unsigned+掩码/C-4 g_clone_last 快照挪字段填充后/C-5 pending_ts
+> 写序挪 msgid RELEASE 前/C-6 clone_queue 构造器预热（hook 体零分配注释
+> 成立）/C-7 rewrite_hits 每消息恰一次/C-8 probe fork 失败 200+errno 段/
+> C-9 g_hook_status 30 处 |= 全量 atomic_fetch_or/D-2 restore
+> PartialWriteFailure 并审计账（135 P1 对称面）/D-3 三自定义 Error 补
+> LocalizedError（中途 catch localizedName 丢描述全局修）/D-4 marker 键锁
+> 补 mr2（武装态权威字段恰在锁外）/D-5 注释漂移四处（update-data 分发
+> hooks 的过时陈述等）/locate 预览收场提示/signatures notFound 处方/
+> doctor 崩溃清单命令/--app 破折号统一/clone+runtime 运行拦截统一
+> AppError.running 全档。**③验证**：363 测全绿（+3：journal 建目录锁/
+> onlyNoMatch 文案锁/三面版本锁）；runtime.m 双架构 clang 零警零错；fuzz
+> 20 万零报告。**登记未做**：dylib 备份出 bundle 路由（A-2(a) 设计变更，
+> abort 窗已由 restore 收敛门兜底）；`[✓]` 括号风格统一（测试钉住，纯
+> 化妆）；输出语言分裂全中文化（B-P3-6，系统性工程另立项）。**装机面待
+> 用户不变**：0.2.19 发版（Formula url tag 已同步 v0.2.19）→ runtime
+> remove && install → 重启微信 → clone on → SMOKE-RUNBOOK 冒烟。
+> **④全网 UX 对照调研**（WeChatTweak/Oh My WeChat/brew·flutter doctor）：
+> 快赢四项当日落地——catalog 时效可见（versions 行+doctor >14 天 verdict，
+> manifest generated_at 只读展示，供应链门不变）/doctor protected 成功态
+> 一句人话（brew "ready to brew" 惯例）/README 完全卸载节+菜单栏 GUI
+>（tools/GUI）可见性+生效最少三步标注+「每个失败给出修法」哲学声明。
+> **登记下轮**（调研 #2/#4/#5/#7）：doctor 非零退出码（⚠ 需同步 tools/GUI
+> 的 terminationStatus 判定与 workflows 审计——行为变更面大）；GUI 状态
+> 降级系统通知（omw「无需记得检查」对等物，只读边界内）；update-data
+> --file 本地数据包（慢网出路，Ed25519 验签天然支持）；Resigner --deep/
+> dbkeys capture 长操作预告统一（clone 先例推广）。
+
 > **142 轮（2026-11-18 凌晨·夜间自治轮：第五面深审 + 141 收尾登记两项 + 变异 SOP 双跑）**：
 > ①**141 收尾两项落地**：doctor `--json` 守护字段（update_guard/
 > privacy_guard/update_guard_rewritten 入 Report——渲染与 JSON 合同同源

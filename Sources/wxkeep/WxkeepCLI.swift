@@ -27,7 +27,7 @@ struct Wxkeep: ParsableCommand {
             let expanded = ($0 as NSString).expandingTildeInPath
             let url = URL(fileURLWithPath: expanded)
             guard FileManager.default.fileExists(atPath: url.appendingPathComponent("Contents/Info.plist").path)
-            else { throw ValidationError("\($0) is not an app bundle——需要含 Contents/Info.plist 的 .app 目录（如 /Applications/WeChat.app）") }
+            else { throw ValidationError("\($0) is not an app bundle — 需要含 Contents/Info.plist 的 .app 目录（如 /Applications/WeChat.app）") }
             return url
         })
         var app: URL = URL(fileURLWithPath: "/Applications/WeChat.app")
@@ -52,6 +52,13 @@ extension Wxkeep {
             print("------ Installed ------")
             print("build \(build) (v\(version)) at \(options.app.path)")
             print("------ Catalog (\(config.versions.count) builds) ------")
+            // 143 轮（调研 #1）：数据时效可见——WeChatTweak 每次 patch 现场拉
+            // 远程 config 的「新构建零发版可用」优势，本仓以 update-data+
+            // Ed25519 验签对等实现，但用户此前看不到数据多旧。
+            if let dir = Config.locatedDirectory(),
+               let age = Manifest.generatedAgeDays(in: dir) {
+                print("catalog 生成: \(age) 天前" + (age > 14 ? "——`wxkeep update-data` 刷新补丁数据" : ""))
+            }
             let known = config.versions.contains { $0.version == build }
             print(known
                 ? "(installed build is in the catalog)"
@@ -100,6 +107,17 @@ extension Wxkeep {
             // dry-run only reads bytes from disk — safe while WeChat runs.
             if !dryRun && WeChatApp.isRunning(app: options.app) { throw WeChatApp.AppError.running }
             let config = try Config.load(explicit: options.config)
+            // 143 轮 B-P2-2：可写性前置——漏 sudo 的首跑此前要深入到备份步
+            // 才 EACCES（报错还带着 sudo 用户的 TCC 指引，方向错）。判定
+            // Contents 目录（=「能否写进这个 bundle」）：不要求主可执行在
+            // 场 Engines 单测 fixture 只造 dylib；doctor 的同款结论前置到
+            // 命令入口。
+            if !dryRun,
+               !FileManager.default.isWritableFile(
+                   atPath: options.app.appendingPathComponent("Contents").path) {
+                throw ValidationError("目标不可写——请用 `sudo wxkeep patch` 重试"
+                    + "（macOS 14+ 还需终端具备「App 管理」权限；`wxkeep doctor` 可看现状）")
+            }
             let build = try WeChatApp.buildNumber(app: options.app)
             let version = WeChatApp.marketingVersion(app: options.app).map { " (v\($0))" } ?? ""
             print("build \(build)\(version) — variant \(variant.rawValue)\(dryRun ? " — dry run" : "")")
@@ -362,7 +380,8 @@ extension Wxkeep {
         if let e = error as? Engine.EngineError {
             switch e {
             case .unsupportedBuild, .variantUnavailable, .restoreUnavailable,
-                 .variantDeprecated, .foreignVariantPatched:
+                 .variantDeprecated, .foreignVariantPatched,
+                 .onlyNoMatch:      // 143 轮：--only 全未命中=选靶失败，字节必未写
                 return true
             }
         }
@@ -388,6 +407,14 @@ extension Wxkeep {
             try WeChatApp.validate(options.app)
             if !dryRun && WeChatApp.isRunning(app: options.app) { throw WeChatApp.AppError.running }
             let config = try Config.load(explicit: options.config)
+            // 143 轮 B-P2-2：与 patch 同款可写前置（漏 sudo 早拒 + 方向正确的
+            // 指引；判 Contents 目录——语义同 patch 侧注释）
+            if !dryRun,
+               !FileManager.default.isWritableFile(
+                   atPath: options.app.appendingPathComponent("Contents").path) {
+                throw ValidationError("目标不可写——请用 `sudo wxkeep restore` 重试"
+                    + "（macOS 14+ 还需终端具备「App 管理」权限；`wxkeep doctor` 可看现状）")
+            }
             let build = try WeChatApp.buildNumber(app: options.app)
             print("restore build \(build)\(dryRun ? " — dry run" : "")")
             // journal 残留在场 → 成功路径强制重签一次（与 patch 同款洗白链防线）。
@@ -424,12 +451,29 @@ extension Wxkeep {
                         PatchJournal.complete()
                     }
                 }
+                // 143 轮 D②：部分写入后失败（PartialWriteFailure）此前不并
+                // 审计账——restore Phase-2 中途 EIO 时盘上部分位点已还原
+                // pristine，而 audit.json 仍记 after=补丁字节 → doctor 报
+                // stale、复算 FAIL（把成功一半的还原误诊为异常写入）。与
+                // patch 失败路径（135 P1）对称：summary 快照随错误对象落账。
+                if !dryRun, let partial = error as? Engine.PartialWriteFailure {
+                    Wxkeep.writeAuditLedger(summary: partial.summary, build: build,
+                                            variant: "", app: options.app.path)
+                }
                 throw error
             }
             summary.lines.forEach { print($0) }
+            // 143 轮（六面深审 A-2 收敛）：中止窗可能在 Resources 留下未封存
+            // 备份/使已封存备份消失（Backup.make 的 make→重签之间失败，如
+            // runtime remove 的 sliceRelativeOffset/兜底扫描中止路径）——字节
+            // 全 pristine 但封印已破，verify 必败态。doctor 对该态的处方就是
+            // `wxkeep restore`——处方必须真正收敛：verify 实测失败也强制重签
+            //（根签名无条件执行=封印再生；幂等，多签一次只花时间）。
+            let sealBroken = !dryRun && !noResign
+                && Shell.run("/usr/bin/codesign", ["--verify", "--strict", options.app.path]).status != 0
             // 强制重签条件（110 轮修）：全 pristine 的幂等 restore 在 journal
             // 残留时也重签——「字节已还原+旧签名」同样是启动必崩态。
-            if !dryRun && (summary.wroteAnything || journalPendingAtStart) && !noResign {
+            if !dryRun && (summary.wroteAnything || journalPendingAtStart || sealBroken) && !noResign {
                 print("------ Resign ------")
                 do {
                     try Resigner.resign(app: options.app, patchedBinaries: summary.patchedBinaries)
@@ -587,6 +631,10 @@ extension Wxkeep {
                 print("appended to \(localURL.path)"
                       + (backedUp ? " (backup: \(backup.lastPathComponent))" : " (首次定位，无先前文件)"))
                 print("next: wxkeep patch --variant silent")
+            } else {
+                // 143 轮 B-P3-2：预览态收场提示——裸 locate 静默结束会让用户
+                // 不确定「写了什么/下一步干嘛」（README 快速上手含裸 locate）。
+                print("以上为定位预览（未写盘）——patch 会自动走同款配方；持久化加 --append")
             }
         }
     }
@@ -613,8 +661,16 @@ extension Wxkeep {
                         + "偏好层挡不住自动更新——可靠的防护是 `wxkeep patch` 附带的字节级目标（可用构建）；"
                         + "若微信已升级，请重跑 `wxkeep doctor`。")
                 } else {
-                    print(allGuarded ? "更新防护：已开启（偏好层；4.1.13+ 前两键可能被微信改回，见 keys 说明）"
-                          : "更新防护：未开启（存在升级弹窗/自动安装风险）")
+                    // 143 轮 B-P2-9：sudo+ssh 下读侧全 sentinel——汇总行不
+                    // 下「未开启」结论（与 .off 失败文案「在真实用户会话的
+                    // 终端重试」同哲学，不给死循环重跑处方）。
+                    if statuses.contains(where: { $0.value == UpdateGuard.unreadableSentinel }) {
+                        print("更新防护：不可读（sudo/ssh 语境——偏好域归控制台用户所有）——在真实用户会话的终端查看")
+                    } else if allGuarded {
+                        print("更新防护：已开启（偏好层；4.1.13+ 前两键可能被微信改回，见 keys 说明）")
+                    } else {
+                        print("更新防护：未开启（存在升级弹窗/自动安装风险）——跑 `wxkeep update-guard` 开启")
+                    }
                 }
             case .off:
                 // cfprefd 把运行中沙盒 app 的域交给其 agent，外部写入会被丢弃
@@ -651,8 +707,13 @@ extension Wxkeep {
                 }
                 let ok = UpdateGuard.enable()   // enable 内部清除改回检测标记
                 print(UpdateGuard.render(UpdateGuard.read()))
-                print(ok ? "已恢复更新检查（两个更新开关；SUSendProfileInfo 遥测键保持关闭）"
-                         : "✗ 恢复未生效（写入被丢弃或键值未翻转）——确认微信已退出后重试")
+                if ok {
+                    print("已恢复更新检查（两个更新开关；SUSendProfileInfo 遥测键保持关闭）")
+                } else {
+                    // 141 轮 P1 规矩的对侧漏网：.on 的 ✗ 同样配非零退出码
+                    print("✗ 恢复未生效（写入被丢弃或键值未翻转）——确认微信已退出后重试")
+                    throw ExitCode(1)
+                }
             }
         }
 
@@ -674,9 +735,16 @@ extension Wxkeep {
             @Flag(help: "Overwrite an existing clone at the destination") var replace: Bool = false
             mutating func run() throws {
                 if WeChatApp.isRunning(app: options.app) {
-                    throw ValidationError("源微信正在运行（复制一致性风险）。退出后重试。")
+                    // 143 B-P3-3 收尾：同款全档指引（理由前缀保留复制一致性语义）
+                    throw WeChatApp.AppError.running
                 }
-                let dest = try Clone.create(source: options.app, replace: replace)
+                let dest = try {
+                    // 143 轮 B-P2-7：340MB 拷贝全程零输出会被当成卡死（calibrate
+                    // 心跳注释自认的同一条 UX 原则——「5 分钟纯沉默会被当成
+                    // 卡死」，此处是秒级但同病）。
+                    print("正在复制 WeChat.app（约 340MB，数秒～1 分钟）…")
+                    return try Clone.create(source: options.app, replace: replace)
+                }()
                 let idx = Clone.list(in: options.app.deletingLastPathComponent())
                     .first { $0.url == dest }?.index
                 print("✓ 克隆已创建: \(dest.path)")
@@ -738,6 +806,10 @@ extension Wxkeep {
                 }
                 try Clone.remove(url)
                 print("✓ 已删除 \(url.lastPathComponent)")
+                // 143 轮 B-P2-6：成功面此前不披露数据容器——用户删克隆时两种
+                // 意图（彻底清掉第二账号 vs 保留数据）都得不到答案。
+                print("  ℹ︎ 该账号数据容器（~/Library/Containers/<bundleID>）已保留；"
+                    + "如需彻底清除请手动删除")
             }
         }
 
@@ -1274,6 +1346,11 @@ extension Wxkeep {
                                 line += "——istep=\(decode.installStep.map(String.init) ?? "?") "
                                     + "errno=\(decode.installErrno.map(String.init) ?? "?")"
                                     + "（istep 1=mmap 蹦床 2=目标页改写；errno 13=W^X 拒写）"
+                            } else if flags.contains("armed") && flags.contains("uuid-mismatch") {
+                                // 143 轮 B-P2-5：健康机（armed+fires 正常）上
+                                // 「uuid-mismatch」与已武装并排出现会读成「坏」
+                                // ——位域本义是多行地址表扫描的常态残留。
+                                line += "——uuid-mismatch 为多行地址表扫描的正常痕迹（非故障）"
                             }
                             print(line)
                         } else {
@@ -1727,7 +1804,7 @@ extension Wxkeep {
             mutating func run() throws {
                 try WeChatApp.validate(options.app)
                 if WeChatApp.isRunning(app: options.app) {
-                    throw ValidationError("WeChat 正在运行。退出后重试。")
+                    throw WeChatApp.AppError.running   // 143 B-P3-3：与 patch/restore 同档（⌘Q+等待指引+自查命令）
                 }
                 // 能力探针（93 轮）：blocked = 进程内武装不可能（T4/T5 机械
                 // 定案）。94 轮 T6 起 blocked 不再拦 install——入口补丁
@@ -2117,7 +2194,7 @@ extension Wxkeep {
             mutating func run() throws {
                 try WeChatApp.validate(options.app)
                 if WeChatApp.isRunning(app: options.app) {
-                    throw ValidationError("WeChat 正在运行。退出后重试。")
+                    throw WeChatApp.AppError.running   // 143 B-P3-3：与 patch/restore 同档（⌘Q+等待指引+自查命令）
                 }
                 let main = RuntimeCommand.mainExecURL(options.app)
                 let build = try WeChatApp.buildNumber(app: options.app)
@@ -2385,10 +2462,11 @@ extension Wxkeep {
                 } else if geteuid() == 0 {
                     print("✗ 未生效：sudo 语境下无法定位控制台用户（ssh 无 GUI 会话/登录窗口态）——"
                         + "请在真实用户会话的终端重试（微信偏好域归它所有）")
+                    throw ExitCode(1)   // 141 轮 P1：✗ 配非零退出码（脚本判据面）
                 } else {
                     print("✗ 未完全生效，请重试（微信须已退出——运行中的偏好写入会被 cfprefd 丢弃）")
+                    throw ExitCode(1)
                 }
-                throw ExitCode(1)   // 141 轮 P1：✗ 配非零退出码（脚本判据面）
             }
         }
     }
@@ -2566,8 +2644,9 @@ extension Wxkeep {
                     throw ValidationError(String(describing: failure))
                 }
                 print(state == .pristine
-                      ? "✓ predicate matches the family ground truth (harness + input path verified; "
-                        + "the cbz flip itself is byte-proven by strict verify)"
+                      ? "✓ predicate matches the family ground truth (harness + input path verified)。"
+                        + "注意：本位点当前 pristine＝silent 防撤回补丁未打（keeptip 在役时这是正常态）——"
+                        + "是否需要防护以 `wxkeep doctor` 的 patch[revoke] 行为准"
                       : "✓ predicate intact and family ground truth holds (the cbz flip is byte-proven "
                         + "by strict verify — branch unconditional ⇒ revoke path unreachable)")
             } else {
@@ -2734,7 +2813,9 @@ extension Wxkeep {
             case .verified:
                 print("manifest: ✓ verified (\(target.path))")
             case .legacy:
-                print("manifest: — no signed manifest in \(target.path) (pre-v0.1.3 data or dev copy)")
+                // 143 轮 B-P3-7：「pre-v0.1.3」对用户无行动含义——换处方。
+                print("manifest: — 无签名清单（\(target.path)，随包旧数据或开发副本）——"
+                    + "brew 用户可 `wxkeep update-data` 获取带签名的最新数据四件套")
             case .invalid(let reason):
                 print("manifest: ✗ INVALID — \(reason)")
                 throw ExitCode(1)

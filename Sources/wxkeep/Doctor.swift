@@ -331,7 +331,9 @@ struct Doctor {
                             + (cr.codesigning > 0
                                ? "——签名击杀证据与 AMFI risk 行合读；取证: "
                                  + "ls -t \(RealUser.homeURL().path)/Library/Logs/DiagnosticReports | grep -i wechat"
-                               : "——非签名类崩溃与补丁无必然关联，Termination Reason 见报告本体"))
+                               : "——非签名类崩溃与补丁无必然关联（多为 AppEx helper 进程的正常崩溃形态），"
+                                 + "Termination Reason 见报告本体；清单: "
+                                 + "ls -t \(RealUser.homeURL().path)/Library/Logs/DiagnosticReports | grep -i wechat | head"))
         }
         if !rosettaTargets.isEmpty {
             verdicts.append("Rosetta 执行态：二进制无 \(nativeArch) 切片，\(rosettaTargets.joined(separator: "；")) —— 判定按实际执行的切片（若在「显示简介」里强制过 Rosetta 的双切片构建，此判定不覆盖，请复原设置）")
@@ -498,9 +500,14 @@ struct Doctor {
 
         // 偏好层守护状态（142 轮 P2：单点采集进 Report——渲染与 JSON 合同
         // 同源，消除「JSON 缺两行」的合同缺口）。
-        let updateGuardOn = UpdateGuard.read().allSatisfy(\.guarded)
+        let updateGuardStatuses = UpdateGuard.read()
+        let updateGuardUnreadable = updateGuardStatuses.contains {
+            $0.value == UpdateGuard.unreadableSentinel
+        }
+        let updateGuardOn = updateGuardStatuses.allSatisfy(\.guarded)
         let updateGuardRewritten = UpdateGuard.rewrittenByApp
-        let privacyGuardOn = PrivacyGuard.read().allSatisfy(\.guarded)
+        let privacyGuardStatuses = PrivacyGuard.read()
+        let privacyGuardOn = privacyGuardStatuses.allSatisfy(\.guarded)
 
         return Report(
             overall: overall,
@@ -532,8 +539,17 @@ struct Doctor {
             runtimeInjected: runtimeInjected,
             runtimeHookArmed: runtimeDylibExists ? runtimeHookArmed : nil,
             updateGuard: Doctor.updateGuardTag(guardOn: updateGuardOn,
-                                               rewrittenByApp: updateGuardRewritten),
-            privacyGuard: privacyGuardOn ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）",
+                                               rewrittenByApp: updateGuardRewritten,
+                                               unreadable: updateGuardUnreadable),
+            privacyGuard: {
+                // 143 轮 B-P2-9：同 updateGuardTag 的 sentinel 感知（privacy
+                // 读侧同委托链，sudo+ssh 下同态）。
+                if privacyGuardOn == false,
+                   privacyGuardStatuses.contains(where: { $0.value == "<unreadable>" }) {
+                    return "不可读（sudo/ssh 语境）——在真实用户会话的终端查看"
+                }
+                return privacyGuardOn ? "on（遥测最小化）" : "off（跑 wxkeep privacy-guard）"
+            }(),
             updateGuardRewritten: updateGuardRewritten)
     }
 
@@ -686,7 +702,13 @@ struct Doctor {
     /// update-guard 一行标签。判定顺序即语义：rewrittenByApp（写过 0、
     /// 现在读 1）蕴含 guardOn=false——先判 on/off 会让「失守」分支永不
     /// 显示（被笼统的 off 遮蔽），失守信息只能从 verdict 行看到。
-    static func updateGuardTag(guardOn: Bool, rewrittenByApp: Bool) -> String {
+    static func updateGuardTag(guardOn: Bool, rewrittenByApp: Bool,
+                               unreadable: Bool = false) -> String {
+        // 143 轮 B-P2-9：sudo+ssh 下读侧全 sentinel——不下「off」结论也不给
+        // 重跑处方（update-guard .off 在该语境必失败，死循环面）。
+        if unreadable {
+            return "不可读（sudo/ssh 语境）——在真实用户会话的终端查看"
+        }
         if rewrittenByApp {
             return "失守（微信已把更新开关改回——见判定行）"
         }
@@ -842,8 +864,11 @@ struct Doctor {
                      + (report.signatureValid == false ? " — ❌ VERIFY FAILED（字节与签名不符，启动必崩）" : ""))
         // 142 轮 P2：守护两行改从 Report 读（run() 单点采集——渲染与
         // --json 合同同源，机器消费方复现 canonical 视图不再缺行）
+        // 143 轮 B-P2-8：两标签补空格对齐既有 13 列栅格（catalog:/SIP: 等
+        // 值列起始一致；"update-guard" 12 字符 + 冒号恰 13，privacy 侧
+        // 缩写对齐——grep 兼容保留全词在括注）。
         lines.append("update-guard: \(report.updateGuard)")
-        lines.append("privacy-guard: \(report.privacyGuard)")
+        lines.append("priv-guard:   \(report.privacyGuard)")
         if let injected = report.runtimeInjected {
             // armed=nil（dylib 缺失=有专门 ❌ verdict；或装好但从未启动微信）
             // 不再整行隐藏——刚 install 完的用户在 doctor 里应能看到注入在位
@@ -875,7 +900,19 @@ struct Doctor {
                          + (cr.mostRecent.map { "，最近: \($0)" } ?? ""))
         }
         lines.append("overall: \(report.overall)")
+        // 143 轮（调研 #3）：成功态一句完整人话（brew "ready to brew" /
+        // flutter "No issues found!" 惯例）——verdicts 只在异常时出现，
+        // protected 的干巴巴一行让用户在 20 行状态里找结论。
+        if report.overall == Overall.protected && report.verdicts.isEmpty {
+            lines.append("✅ 全部就绪——防撤回防护生效中（无任何待处理事项）")
+        }
         report.verdicts.forEach { lines.append(" • \($0)") }
+        // 143 轮（调研 #1）：数据时效 verdict——只提示不自动拉（供应链门）。
+        if let dir = Config.locatedDirectory(),
+           let age = Manifest.generatedAgeDays(in: dir), age > 14,
+           report.overall != Overall.protected || report.configKnown == false {
+            lines.append(" • ℹ︎ 补丁数据 \(age) 天未更新——`wxkeep update-data` 可刷新（新构建 day-0 支持）")
+        }
         if let next = report.nextCommand { lines.append("➡️  next: \(next)") }
         return lines.joined(separator: "\n")
     }

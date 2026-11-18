@@ -390,8 +390,9 @@ import Foundation
         """) == 0)
     }
 
-    /// 容量回归锁：外部表必须全收 128 行合法数据。knownHooks 现量 66 行
-    /// 且随 update-data 分发新构建行单调增长；旧上限 32 时越限行（追加在
+    /// 容量回归锁：外部表必须全收 128 行合法数据。knownHooks 现量随新
+    /// 构建适配轮增长（143 轮 80 行；分发通道=brew upgrade 后重跑
+    /// `runtime hooks`，135 轮更正：update-data 不含 hooks 表）；旧上限 32 时越限行（追加在
     /// 尾部的新构建行——恰是未来最需要武装的）被 parse 循环静默丢弃。
     @Test func hooksTableAccepts128Rows() {
         var rows = ""
@@ -1326,6 +1327,23 @@ extension RuntimeHookTests {
         let tag = String(cString: wxkeep_runtime_test_dylib_version())
         #expect(tag == "WXKEEP_DYLIB_VERSION=\(WxkeepVersion.current)",
                 "dylib 自标识 (\(tag)) ≠ CLI 版本 (\(WxkeepVersion.current))")
+    }
+
+    /// 143 轮 D① 三面版本锁：CLI 常量 ↔ dylib 自标识 ↔ Formula（version 与
+    /// url tag 双字段）。141 轮曾升 version 漏 url tag——tag 断裂态下
+    /// `brew install ./Formula/wxkeep.rb` 在 fetch 阶段即死；若按预备态
+    /// 补切旧 tag，brew 会以新版本名义装旧代码。改版本三处必须同轮。
+    @Test func formulaVersionTagMatchesCLI() throws {
+        let formula = try String(contentsOfFile: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()      // Tests/wxkeepTests
+            .deletingLastPathComponent()      // Tests
+            .deletingLastPathComponent()      // repo root
+            .appendingPathComponent("Formula/wxkeep.rb").path, encoding: .utf8)
+        let v = WxkeepVersion.current
+        #expect(formula.contains("version \"\(v)\""),
+                "Formula version 字段 ≠ CLI \(v)——三面必须同轮同步")
+        #expect(formula.contains("tag: \"v\(v)\""),
+                "Formula url tag ≠ v\(v)——141 轮断裂态复现（tag 落后 version）")
     }
 
     /// 141 轮版本门扫描器：命中/缺席/NUL 截断/越界长度四形态。

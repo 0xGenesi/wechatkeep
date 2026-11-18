@@ -61,6 +61,12 @@ enum Backup {
         let directory = backupDirectory(for: binary, userData: userData)
         if !FileManager.default.fileExists(atPath: directory.path) {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // 143 轮 A-4：sudo 首命令造目录 = root 属主——userData 路由的
+            // backups/ 不 chown 则此后所有非 sudo 用户态写入 EACCES
+            //（RuntimeConfig 142 P1 同病同修；Resources 同目录路由无此面）。
+            if directory.path.hasPrefix((userData ?? Config.userDataURL).path) {
+                RealUser.chownToRealUser(directory)
+            }
         }
         var destination = URL(fileURLWithPath:
             directory.appendingPathComponent(binary.lastPathComponent).path + ".wxkeep-bak-" + stamp)
@@ -74,6 +80,10 @@ enum Backup {
         do {
             try FileManager.default.copyItem(at: binary, to: destination)
         } catch {
+            // 143 轮 A-3：copyfile 中途失败（ENOSPC/IO）可能已落半截文件——
+            // 未封存残件会卡死后续每笔事务的 Resigner --verify --deep
+            // --strict 硬门（verifySizes 失败路径有同款清理，此处此前漏）。
+            try? FileManager.default.removeItem(at: destination)
             throw BackupError.copyFailed(error.localizedDescription)
         }
         // A truncated backup is worse than none — verify size.
@@ -114,4 +124,13 @@ enum Backup {
             try? FileManager.default.removeItem(atPath: dir + "/" + stale)
         }
     }
+}
+
+// 143 轮 D③：自定义 Error 补 LocalizedError——中途 catch 用
+// `error.localizedDescription` 打印时 Foundation 对非 NSError/LocalizedError
+// 返回泛化串（"The operation couldn't be completed."），noSlice/
+// copyFailed/expectedMismatch 的全部线索被丢弃。顶层 ArgumentParser 出口
+// 走 String(describing:) 本就不丢；本扩展把中途 catch 面拉平到同等质量。
+extension Backup.BackupError: LocalizedError {
+    var errorDescription: String? { description }   // internal 类型成员不加 public（CI 旧工具链从严）
 }

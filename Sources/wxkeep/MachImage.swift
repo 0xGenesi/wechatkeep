@@ -186,3 +186,12 @@ struct MachImage {
         return out
     }
 }
+
+// 143 轮 D③：自定义 Error 补 LocalizedError——中途 catch 用
+// `error.localizedDescription` 打印时 Foundation 对非 NSError/LocalizedError
+// 返回泛化串（"The operation couldn't be completed."），noSlice/
+// copyFailed/expectedMismatch 的全部线索被丢弃。顶层 ArgumentParser 出口
+// 走 String(describing:) 本就不丢；本扩展把中途 catch 面拉平到同等质量。
+extension MachImage.ImageError: LocalizedError {
+    var errorDescription: String? { description }   // internal 类型成员不加 public（CI 旧工具链从严）
+}

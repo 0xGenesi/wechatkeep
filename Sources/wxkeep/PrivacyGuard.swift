@@ -91,7 +91,14 @@ enum PrivacyGuard {
             let args = delegated(["/usr/bin/defaults", "write", domain, spec.key, "-bool", "0"])
             _ = Shell.run(args[0], Array(args[1...]))
         }
-        _ = Shell.run("/usr/bin/killall", ["-hup", "cfprefsd"])
+        // 143 轮 A-8：root 下 `killall -hup cfprefsd` 无属主过滤，信号会
+        // 打到全部已登录用户的 cfprefd（其他用户偏好服务被无谓重启）。
+        // 委托语境按目标 uid 过滤；普通用户直跑时 killall 本就限自身属主。
+        if asUser, let dlg {
+            _ = Shell.run("/usr/bin/killall", ["-u", dlg.uid, "-hup", "cfprefsd"])
+        } else {
+            _ = Shell.run("/usr/bin/killall", ["-hup", "cfprefsd"])
+        }
         return allGuarded
     }
 

@@ -81,6 +81,7 @@ struct Config {
     enum LoadError: Error, CustomStringConvertible {
         case notFound(searched: [String])
         case malformed(String)
+        case refusedSudoCwd(String)
 
         var description: String {
             switch self {
@@ -90,6 +91,12 @@ struct Config {
                 + "or place config.json next to the executable."
             case .malformed(let detail):
                 "config.json is malformed: \(detail)"
+            /// 143 轮 B-P2-3：sudo 下隐式 cwd 拒载此前复用 malformed——文件
+            /// 没坏却被冠「malformed」前缀，把用户引向重建配置的错误排障
+            /// 方向。独立成案，处方即解法。
+            case .refusedSudoCwd(let path):
+                "sudo 下拒绝隐式使用工作目录的 config.json（信任域原因）：\(path)。"
+                + "加 `--config <path>` 显式指定后重试（如仓库根目录的 config.json）。"
             }
         }
     }
@@ -131,9 +138,7 @@ struct Config {
         // 的字节与 expected 基准可被工作目录内容供给——恰是 Ed25519 清单要
         // 防的攻击面。root 下要求显式 --config（清单校验仍按显式规则走）。
         if explicit == nil, geteuid() == 0, path.hasPrefix(cwd + "/") {
-            throw LoadError.malformed(
-                "refusing implicit cwd config under sudo: \(path). "
-                + "sudo 下 cwd 文件不在清单信任域——用 --config <path> 显式指定。")
+            throw LoadError.refusedSudoCwd(path)
         }
         // 供应链门：隐式发现的 config（非用户显式指定）做发布清单校验。
         // 清单缺失 = 旧分发（提示但不阻塞）；清单存在且校验不过 = 数据被改动，拒载。
@@ -266,6 +271,19 @@ struct Config {
             .appendingPathComponent("wxkeep")
     }
     nonisolated(unsafe) static var _userDataURLOverride: URL?   // 仅测试注入（Swift 并发门）
+
+    /// userData 目录的就位保证（143 轮六面深审 A-1/A-4）：全新机器首跑
+    /// `patch`/`restore` 在 journal 落盘即死（`Data.write(.atomic)` 对缺失
+    /// 父目录抛 Cocoa 病句「The folder "patch.journal.json" doesn't exist」
+    /// ——update-data/recover 先跑过的机器全被掩盖）。所有 userData 写事务
+    /// 入口（journal/audit/backup）统一先走此门；sudo 首命令造目录随即
+    /// chownToRealUser（RuntimeConfig 142 P1 同规——root 属主目录会让此后
+    /// 所有非 sudo 用户态写入 EACCES）。
+    static func ensureUserDataDir(_ dir: URL? = nil) throws {
+        let target = dir ?? userDataURL
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        RealUser.chownToRealUser(target)
+    }
 
     /// 隐式 config 的定位目录（doctor/manifest 用于在同一目录校验 manifest）。
     /// 候选顺序必须与 `load` 保持一致（含 userDataURL——update-data 的安装位），

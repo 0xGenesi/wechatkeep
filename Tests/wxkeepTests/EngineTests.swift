@@ -300,3 +300,18 @@ extension EngineTests {
         #endif
     }
 }
+
+// MARK: - 143 轮 B-3 回归锁
+
+/// `--only` 全未命中的错误面：独立 case（onlyNoMatch）此前复用
+/// variantUnavailable——整句被嵌进「variant \`…\`」模板产出病句
+/// （"variant `no matching targets for --only bogus`"）。锁三件事：
+/// 文案不再嵌模板、含可用目标处方、isPreWriteFailure 判写前失败。
+@Test func onlyNoMatchErrorIsSelfContained() {
+    let e = Engine.EngineError.onlyNoMatch(requested: ["bogus"], available: ["revoke", "update"])
+    let text = String(describing: e)
+    #expect(text.contains("--only 未命中任何目标"), "独立文案（非 variantUnavailable 模板）")
+    #expect(text.contains("revoke, update"), "给可用目标处方")
+    #expect(text.contains("去掉 --only"), "给去掉 --only 的出路")
+    #expect(Wxkeep.isPreWriteFailure(e), "--only 全未命中=选靶失败，字节必未写（journal 应收口）")
+}

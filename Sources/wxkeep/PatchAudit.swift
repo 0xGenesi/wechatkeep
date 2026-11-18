@@ -59,6 +59,9 @@ enum PatchAudit {
     }
 
     static func write(record: Record, userData: URL? = nil) throws {
+        // 143 轮 A-1：目录先在（与 PatchJournal.begin 同门——restore 独立
+        // 收口路径可能先于任何 journal 写到达此处）。
+        try Config.ensureUserDataDir(userData)
         // 141 轮 P3：fsync 对齐 journal（SafeWrite 默认 sync:false——掉电窗
         // 内 journal 已清而台账未落盘 = 离线复算假红）
         try SafeWrite.overwrite(try JSONEncoder().encode(record), to: url(userData: userData), sync: true)
