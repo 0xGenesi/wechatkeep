@@ -134,12 +134,19 @@ struct Config {
         guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
             throw LoadError.notFound(searched: candidates)
         }
-        // 供应链门（sudo 面）：root 语境下隐式命中 cwd 的 config = 特权写
-        // 的字节与 expected 基准可被工作目录内容供给——恰是 Ed25519 清单要
-        // 防的攻击面。root 下要求显式 --config（清单校验仍按显式规则走）。
-        if explicit == nil, geteuid() == 0, path.hasPrefix(cwd + "/") {
+        // 供应链门（sudo 面）：root 语境下隐式命中 **字面 cwd 候选** 的
+        // config = 特权写的字节与 expected 基准可被工作目录内容供给——恰是
+        // Ed25519 清单要防的攻击面。root 下要求显式 --config（清单校验仍按
+        // 显式规则走）。144 轮修正：判定从「前缀匹配」收窄到「字面 cwd 候选」
+        // ——用户从 ~ 跑 sudo 时，update-data 装到 userData 的正规 config
+        //（~/Library/Application Support/wxkeep/）路径同样带 ~ 前缀，前缀
+        // 匹配把它误杀（该 config 有 manifest 护航且由 update-data 安装，
+        // 是正当信任域；下一行的清单门对它照常生效）。
+        if explicit == nil, geteuid() == 0,
+           sudoCwdRefusal(configPath: path, cwd: cwd) {
             throw LoadError.refusedSudoCwd(path)
         }
+
         // 供应链门：隐式发现的 config（非用户显式指定）做发布清单校验。
         // 清单缺失 = 旧分发（提示但不阻塞）；清单存在且校验不过 = 数据被改动，拒载。
         // 141 轮 P1-2：verifyCollecting 免竞窗——哈希与解码同一份内存字节
@@ -283,6 +290,14 @@ struct Config {
         let target = dir ?? userDataURL
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         RealUser.chownToRealUser(target)
+    }
+
+    /// sudo-cwd 拒载的纯判定（144 轮抽出门便测）：仅当「未显式指定 + root +
+    /// 命中的恰是字面 cwd 候选文件」时拒——userData/exe 侧候选不在此列
+    ///（它们有 Ed25519 清单门护航）。
+    static func sudoCwdRefusal(configPath: String, cwd: String,
+                               explicit: String? = nil, euid: UInt32 = geteuid()) -> Bool {
+        explicit == nil && euid == 0 && configPath == cwd + "/config.json"
     }
 
     /// 隐式 config 的定位目录（doctor/manifest 用于在同一目录校验 manifest）。

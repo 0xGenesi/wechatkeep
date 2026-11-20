@@ -165,3 +165,23 @@ extension ConfigLocalTests {
         #expect(gaps.isEmpty, "共享位点缺跨变体 expected: \(gaps.joined(separator: ", "))")
     }
 }
+
+// MARK: - 144 轮回归锁：sudo-cwd 门收窄
+
+/// 门只拒「字面 cwd 候选」——用户从 ~ 跑 sudo 时，update-data 装到 userData
+/// 的正规 config（~/Library/Application Support/wxkeep/config.json）带 ~
+/// 前缀但不是 cwd 文件，不得误杀（143 轮实弹误伤：restore 拒载）。
+/// userData/exe 侧候选的把关由下一道 Ed25519 清单门承担（本门不越权）。
+@Test func sudoCwdGateTargetsLiteralCwdCandidateOnly() {
+    let home = "/Users/someone"
+    let userDataConfig = home + "/Library/Application Support/wxkeep/config.json"
+    // userData 候选：cwd=~ 时带前缀但非字面 cwd 文件 → 放行
+    #expect(!Config.sudoCwdRefusal(configPath: userDataConfig, cwd: home))
+    // 字面 cwd 文件（root）→ 拒
+    #expect(Config.sudoCwdRefusal(configPath: home + "/config.json", cwd: home, euid: 0))
+    // 显式指定 → 永不拒（显式即用户自担信任）
+    #expect(!Config.sudoCwdRefusal(configPath: home + "/config.json", cwd: home,
+                                   explicit: home + "/config.json"))
+    // 非 root → 永不拒
+    #expect(!Config.sudoCwdRefusal(configPath: home + "/config.json", cwd: home, euid: 501))
+}
