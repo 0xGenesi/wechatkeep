@@ -58,12 +58,17 @@ struct Signatures: Codable {
     enum LoadError: Error, CustomStringConvertible {
         case notFound
         case malformed(String)
+        /// 144 续：sudo-cwd 误伤修正的同型面——文件没坏却被冠 malformed
+        /// 会把用户引向重建数据的错误方向，独立成案并给处方。
+        case refusedSudoCwd(String)
 
         var description: String {
             switch self {
             case .notFound: return "signatures.json not found (searched ./, user data dir, and next to the executable). "
                 + "Run `wxkeep update-data` to install the signed recipe catalog (config/signatures/manifest 三件套同装)."
             case .malformed(let d): return "signatures.json malformed: \(d)"
+            case .refusedSudoCwd(let path): return "sudo 下拒绝隐式使用工作目录的 signatures.json（信任域原因）：\(path)。"
+                + "加 `--signatures <path>` 显式指定后重试；从 ~ 等非数据目录 cwd 跑则不会命中本门。"
             }
         }
     }
@@ -103,12 +108,13 @@ struct Signatures: Codable {
         guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
             throw LoadError.notFound
         }
-        // 供应链门（sudo 面，与 Config.load 同规）：root 语境下隐式命中 cwd 的
-        // signatures = expected 基准可被工作目录内容供给。
-        if explicit == nil, geteuid() == 0, path.hasPrefix(cwd + "/") {
-            throw LoadError.malformed(
-                "refusing implicit cwd signatures under sudo: \(path). "
-                + "sudo 下 cwd 文件不在清单信任域——用 --signatures <path> 显式指定。")
+        // 供应链门（sudo 面，与 Config.load 同规）：root 语境下隐式命中
+        // **字面 cwd 候选** 的 signatures = expected 基准可被工作目录内容
+        // 供给。144 续修正：前缀匹配会把 userData 安装位（cwd=~/）误杀——
+        // 与 Config 门同日同款收窄，判定复用单一纯函数防两处漂移。
+        if explicit == nil, geteuid() == 0,
+           Config.sudoCwdRefusal(configPath: path, cwd: cwd, fileName: "signatures.json") {
+            throw LoadError.refusedSudoCwd(path)
         }
         // 供应链门（与 Config.load 同语义）：隐式发现的 signatures 做发布
         // 清单校验（manifest 同时守护 config+signatures）；显式 --signatures

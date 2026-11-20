@@ -294,10 +294,12 @@ struct Config {
 
     /// sudo-cwd 拒载的纯判定（144 轮抽出门便测）：仅当「未显式指定 + root +
     /// 命中的恰是字面 cwd 候选文件」时拒——userData/exe 侧候选不在此列
-    ///（它们有 Ed25519 清单门护航）。
+    ///（它们有 Ed25519 清单门护航）。fileName 参数化：Signatures.load 的
+    /// 同型门（144 续）复用本判定，防两处漂移。
     static func sudoCwdRefusal(configPath: String, cwd: String,
-                               explicit: String? = nil, euid: UInt32 = geteuid()) -> Bool {
-        explicit == nil && euid == 0 && configPath == cwd + "/config.json"
+                               explicit: String? = nil, euid: UInt32 = geteuid(),
+                               fileName: String = "config.json") -> Bool {
+        explicit == nil && euid == 0 && configPath == cwd + "/" + fileName
     }
 
     /// 隐式 config 的定位目录（doctor/manifest 用于在同一目录校验 manifest）。

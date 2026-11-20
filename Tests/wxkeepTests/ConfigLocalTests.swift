@@ -184,4 +184,9 @@ extension ConfigLocalTests {
                                    explicit: home + "/config.json"))
     // 非 root → 永不拒
     #expect(!Config.sudoCwdRefusal(configPath: home + "/config.json", cwd: home, euid: 501))
+    // fileName 参数化（Signatures 同型门）：字面拒 / userData 放
+    #expect(Config.sudoCwdRefusal(configPath: home + "/signatures.json", cwd: home,
+                                  euid: 0, fileName: "signatures.json"))
+    #expect(!Config.sudoCwdRefusal(configPath: userDataConfig, cwd: home,
+                                   euid: 0, fileName: "signatures.json"))
 }

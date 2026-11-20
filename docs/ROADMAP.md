@@ -11,7 +11,15 @@
 > ——143 轮 B-P2-3 只换了文案没修条件，条件缺陷系 100 轮代前缀写法。
 > 修：判定收窄到「字面 cwd 候选」（sudoCwdRefusal 纯函数便测），userData/
 > exe 侧候选交由下一道清单门把关；回归锁 1 枚（字面 cwd 拒/userData 放/
-> 显式放/非 root 放）；364 测全绿。教训：**收紧类变更要按真实候选清单
+> 显式放/非 root 放）；364 测全绿。**144 续（升级窗全程陪跑）**：4.1.15
+> 应用内安装器起不来（重签副作用断 Sparkle helper 签名链）→ 官方 CDN
+> 整包手动换体（sha256 与 day-0 件恒等；旧包挪旁可回退，确认后已删）；
+> patch 再撞 **Signatures 同型门**（144 只修了 Config 处——同日同病第二
+> 例坐实「同型门必须同轮扫」）→ 判定复用 Config.sudoCwdRefusal（fileName
+> 参数化防漂移）+ LoadError.refusedSudoCwd 独立文案 + 四分支锁扩展；
+> `--config` 须置子命令后（ArgumentParser 全局选项不存在，新手坑两次）。
+> 终态：270390 protected（silent 变体 revoke+update 双 patched）、userData
+> 目录 123→129 刷平、/Applications 旧包清理。教训：**收紧类变更要按真实候选清单
 > 逐一过门**（本门前身写于 config 候选链只有两枚候选的时代，userData
 > 候选入列后未复审核）。
 
